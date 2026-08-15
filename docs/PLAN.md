@@ -305,9 +305,9 @@ Where the plan targets scoring impact:
 
 ## 11. Open decisions
 
-- [ ] **§4 "swing" question** — safe cozy realism vs weirder (sentient fire) vs weirdest (memory / literary). Deferred to Luke.
-- [ ] **Axe vs wood-under-snow** for N5 — do you *chop trees* or *dig up wood* buried in the snowfield? Chopping is more legible; digging reuses the melt mechanic more elegantly. Recommendation: **dig up wood** — fewer models, one core verb.
-- [ ] **Audio collaborator confirmed** — reach out day 1, need answer by day 5 or fall back to curated free.
+- [x] **Tone / "swing" direction** — **Safe: cozy realism** for v1. Winter survival hangout, acoustic/ambient audio, gentle strings. Weirder directions (sentient fire, memory/literary) preserved as v2 pivots — architecture doesn't foreclose them.
+- [x] **Audio collaborator confirmed** — yes, starting ~day 6 once base prototype is playable. Score-to-picture, not score-to-brief.
+- [ ] **Axe vs wood-under-snow** for N5 — do you *chop trees* or *dig up wood* buried in the snowfield? Chopping is more legible; digging reuses the melt mechanic more elegantly. Recommendation: **dig up wood** — fewer models, one core verb. Decide by day 4.
 
 ---
 
@@ -341,3 +341,4 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 
 - **2026-08-15 v1** — First draft. Cozy survival, 14-day plan.
 - **2026-08-15 v2** — Rewritten as pitch-and-competition entry. Added Pillars A/B/C, torch-XOR-wood, contagious warmth, persistent world, perf strategy, deliverables, judging scorecard.
+- **2026-08-15 v2.1** — Tone locked to safe cozy realism. Audio collaborator confirmed, starts ~day 6.
