@@ -1,0 +1,99 @@
+{
+  "ecs7": true,
+  "runtimeVersion": "7",
+  "display": {
+    "title": "DCL Canvas",
+    "description": "A free-for-all multiplayer paint canvas — walk around to paint the floor with friends.",
+    "favicon": "favicon_asset",
+    "navmapThumbnail": "assets/images/scene-thumbnail.png"
+  },
+  "owner": "ile",
+  "contact": {
+    "name": "ile",
+    "email": ""
+  },
+  "main": "bin/index.js",
+  "tags": [],
+  "scene": {
+    "base": "0,0",
+    "parcels": [
+      "0,0",
+      "1,0",
+      "2,0",
+      "3,0",
+      "0,1",
+      "1,1",
+      "2,1",
+      "3,1",
+      "0,2",
+      "1,2",
+      "2,2",
+      "3,2",
+      "0,3",
+      "1,3",
+      "2,3",
+      "3,3",
+      "0,4",
+      "1,4",
+      "2,4",
+      "3,4",
+      "0,5",
+      "1,5",
+      "2,5",
+      "3,5",
+      "0,6",
+      "1,6",
+      "2,6",
+      "3,6"
+    ]
+  },
+  "spawnPoints": [
+    {
+      "name": "CenterSpawn",
+      "default": true,
+      "position": {
+        "x": [
+          30,
+          34
+        ],
+        "y": [
+          1,
+          1
+        ],
+        "z": [
+          54,
+          58
+        ]
+      },
+      "cameraTarget": {
+        "x": 32,
+        "y": 1,
+        "z": 56
+      }
+    }
+  ],
+  "requiredPermissions": [
+    "ALLOW_TO_TRIGGER_AVATAR_EMOTE",
+    "ALLOW_TO_MOVE_PLAYER_INSIDE_SCENE"
+  ],
+  "featureToggles": {
+    "voiceChat": "enabled",
+    "portableExperiences": "enabled",
+    "nearbyVoiceChat": "enabled"
+  },
+  "creator": "0x1e93e534c5e26b01ed242410b43ae23dd0faa52b",
+  "skyboxConfig": {},
+  "source": {
+    "origin": "creator-hub",
+    "projectId": "07171860-4c85-47a9-a732-3c59284c8310"
+  },
+  "opendcl": true,
+  "authoritativeMultiplayer": true,
+  "logsPermissions": [
+    "0x1e93e534c5e26b01ed242410b43ae23dd0faa52b"
+  ],
+  "worldConfiguration": {
+    "name": "dcl-canvas.dcl.eth"
+  },
+  "landscapeTerrain": true
+}
