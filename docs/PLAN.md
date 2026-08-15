@@ -62,6 +62,17 @@ The Buildathon thesis in code. Two mechanics, both non-negotiable.
 - Two players: one holds torch permanently (guide + reveal), one ferries wood back and forth. Range doubles, warmth stays high.
 - Three+: someone tends fire while pair ventures further.
 
+**B1 candidate reinforcements (hypotheses — confirm by playtest, not by planning).**
+With the axe cut, the interdependence went from *hard* (can't perform both roles alone) to *soft* (solo is possible, just slow). These are layered pinches that could restore the co-op pull without adding new systems. Prototype the base loop first, then decide which (if any) are needed after Day 5–6 playtest.
+
+- **Torch cannot be dropped, only handed off or extinguished.** To pick up wood solo, you must extinguish the torch (walk back dark and cold). With a partner, the torch lives forever — you hand it off. Zero new systems, one rule change, biggest single social payoff. **Leading candidate.**
+- **Wood is heavy.** Carrying wood slows movement ~40%. Return trip *feels* like a real journey. Naturally creates the "take the torch, I'll be slow" moment. Pairs well with the above.
+- **Contagious warmth actively regenerates in pairs**, not just drains slower. Solo has a bounded venture radius; pairs can stay out indefinitely as long as they stay close. Makes paired play feel *warm*, not just less cold — the cozy payoff.
+- **Fire needs tending, not just feeding.** Every ~30s the fire sputters unless someone within 3m taps to poke it. Solo cuts venture range in half; pairs get natural division of labor ("you go, I've got the fire"). Bigger design addition — new tuning surface, risk of feeling nagging if mis-tuned. **Hold for v2 or late-week-2 addition.**
+- **Some cells require two overlapping torches to melt** (deep-snow far from fire). Explicit pair-only content. Feels gamey for the cozy tone. **Hold for v2.**
+
+Design guideline: cozy multiplayer (Stardew, Palia, Cozy Grove) mostly works on *vibe of shared presence*, not forced interdependence. But jam judging has a 3-minute attention window that vibe can't fill — so we need **at least one legible mechanical hook** that reads in the first playthrough, then fades to background over an hour. The three light-touch candidates above are chosen to be legible immediately (you feel the weight, see the handoff, notice the warm glow) and unobtrusive later.
+
 **B2. Contagious warmth.**
 - Warmth radiates a small aura (~2 m) around each player.
 - Two players within each other's auras drain warmth slower (or refill slightly from body heat).
@@ -345,3 +356,4 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-15 v2** — Rewritten as pitch-and-competition entry. Added Pillars A/B/C, torch-XOR-wood, contagious warmth, persistent world, perf strategy, deliverables, judging scorecard.
 - **2026-08-15 v2.1** — Tone locked to safe cozy realism. Audio collaborator confirmed, starts ~day 6.
 - **2026-08-15 v2.2** — Wood source locked to buried-under-snow. Axe/trees removed from v1. Hand slot is torch-XOR-wood, two states.
+- **2026-08-15 v2.3** — Added B1 reinforcement candidates (torch-can't-drop, heavy wood, regenerating pair warmth, fire tending, two-torch cells) as playtest-gated hypotheses — not commitments.
