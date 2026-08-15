@@ -55,11 +55,11 @@ The mechanic must be *stunning* on first sight. Every screenshot, clip, and shar
 The Buildathon thesis in code. Two mechanics, both non-negotiable.
 
 **B1. Torch XOR Wood.**
-- Hands are a single inventory slot.
-- Torch lights the way and melts snow around you but you can't chop wood while holding it.
-- Wood/axe (whichever we pick) is required to gather more fuel but leaves you dark and unable to melt on the walk back.
-- Solo: painful, slow ping-pong between the two states. *Possible* but the fire dies faster than you can feed it.
-- Two players: one carries torch (guide + melt), one carries axe (harvest). Range doubles, warmth stays high.
+- Hands are a single inventory slot with two states: `torch` or `wood`.
+- Torch: melts snow around you, lights the way. Reveals buried wood as you go. Cannot pick up wood while equipped.
+- Wood: warm cargo, but you're now walking back in the dark with no personal melt — warmth drains faster and you can't reveal more logs.
+- Solo: painful ping-pong between the two states. *Possible* but the fire dies faster than you can feed it.
+- Two players: one holds torch permanently (guide + reveal), one ferries wood back and forth. Range doubles, warmth stays high.
 - Three+: someone tends fire while pair ventures further.
 
 **B2. Contagious warmth.**
@@ -103,7 +103,7 @@ Repurpose:
 | N2 | Warmth (per-player, drain rules, aura) | M | `shared/warmth.ts`, `client/warmth.ts` |
 | N3 | Single-slot inventory (torch XOR axe XOR wood) | M | `shared/inventory.ts`, `client/handSlot.ts` |
 | N4 | Torch (equip, personal melt, burn timer, drop) | M | `client/torch.ts` |
-| N5 | Axe + choppable wood entities (or wood-under-snow reveal) | M | `client/axe.ts`, `server/spawner.ts` |
+| N5 | Wood-under-snow: buried log entities revealed by melting the cube above | S | `server/spawner.ts`, `client/pickup.ts` |
 | N6 | Feed-fire interaction | S | extends N1 |
 | N7 | Snowfall regrowth (real-time, gated to outside melt radius) | S | retune digger decay |
 | N8 | Mobile HUD (freeze bar, hand-slot icon, context button, session timer) | M | rewrite `client/ui/` |
@@ -163,11 +163,13 @@ Numbered by working day. Weekends absorbed into buffer. Sep 4 is submission — 
 - At 0: force shiver emote + `InputModifier` slowdown. No death yet.
 - **Playtest solo for 15 min.** Does the cold feel cozy or annoying?
 
-**Day 6 — Torch + Axe (N4, N5)**
+**Day 6 — Torch + buried wood (N4, N5)**
 - Equip torch from campfire (costs 0 wood, torch is a persistent item near fire).
 - Torch in hand: personal melt ring + light source + 90 s burn timer.
-- Axe in hand: can chop `Tree` or `Log` entities scattered in the snow → produces wood → auto-swaps hand slot from axe to wood.
-- Trees only visible/interactable once their cell is melted (rewards venturing with torch).
+- Server places `BuriedLog` entities at random walkable cells at world start.
+- When a cube melts, if a buried log sits at that cell it becomes visible + pickup-able.
+- Pickup swaps hand slot: torch drops, wood equipped. Return to fire to feed.
+- **Teaching setup:** starting clearing around fire is pre-melted; 1–2 logs poke half-out of the snow at the clearing edge so first venture is 3 m and finds a log in ~20 s. No tutorial text needed.
 - **The core loop is playable end-to-end by end of day 6.** Recruit a friend on Discord for a 15-min two-player test if possible.
 
 ### Week 2 — The beautiful pass + friendzone completion
@@ -307,7 +309,7 @@ Where the plan targets scoring impact:
 
 - [x] **Tone / "swing" direction** — **Safe: cozy realism** for v1. Winter survival hangout, acoustic/ambient audio, gentle strings. Weirder directions (sentient fire, memory/literary) preserved as v2 pivots — architecture doesn't foreclose them.
 - [x] **Audio collaborator confirmed** — yes, starting ~day 6 once base prototype is playable. Score-to-picture, not score-to-brief.
-- [ ] **Axe vs wood-under-snow** for N5 — do you *chop trees* or *dig up wood* buried in the snowfield? Chopping is more legible; digging reuses the melt mechanic more elegantly. Recommendation: **dig up wood** — fewer models, one core verb. Decide by day 4.
+- [x] **Wood source** — **buried under snow, revealed by melt.** One core verb (melt), simpler two-state hand slot, cleaner top-down aesthetic, less asset scope. Axe/tree variants preserved for v2.
 
 ---
 
@@ -342,3 +344,4 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-15 v1** — First draft. Cozy survival, 14-day plan.
 - **2026-08-15 v2** — Rewritten as pitch-and-competition entry. Added Pillars A/B/C, torch-XOR-wood, contagious warmth, persistent world, perf strategy, deliverables, judging scorecard.
 - **2026-08-15 v2.1** — Tone locked to safe cozy realism. Audio collaborator confirmed, starts ~day 6.
+- **2026-08-15 v2.2** — Wood source locked to buried-under-snow. Axe/trees removed from v1. Hand slot is torch-XOR-wood, two states.
