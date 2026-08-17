@@ -48,7 +48,7 @@ export const PAINT_CELLS_PER_TILE_AXIS = 16
  * from the paint cell size so players cover a similar area at any
  * resolution. Baseline matches squareoff's 3×3 at 2 m cells (= 6 m).
  */
-export const PAINT_BRUSH_SIZE_METERS = 6
+export const PAINT_BRUSH_SIZE_METERS = 3
 
 
 // MARK: Scene

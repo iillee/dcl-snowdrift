@@ -1,20 +1,11 @@
 /**
- * messages.ts — shared WS message schema for Squareoff auth server.
+ * messages.ts — shared WS message schema for the Snow Drift auth server.
  *
- * Registered from both client and server (identical schema). Follows the
- * flagtag pattern of a single `room` handle returned by registerMessages().
+ * Registered from both client and server (identical schema).
  *
- * Message set: joinRoster/teamAssigned, paintTick (command only),
- * roundReset, updateName, requestLeaderboard.
- *
- * Paint *state* (cell indexes + palette + coverage) syncs exclusively via
- * CRDT components — not paintDelta/snapshot room messages.
- *
- * SATURATION DISCIPLINE (write ONCE, enforce forever):
- *   - Client paintTick: PAINT_TICK_HZ (settings) — well under per-peer inbound cap
- *   - Paint state: one sparse PaintCell CRDT component per painted cell
- * See assets/docs/PHASE_4_PLAN.md for historical WS-delta reasoning; paint
- * state has since moved to granular CRDT components.
+ * Message set: joinRoster/teamAssigned, paintTick (command only).
+ * Paint *state* syncs exclusively via CRDT components (PaintCell /
+ * PaletteEntry / PaintCoverage) — not room messages.
  */
 
 import { Schemas } from '@dcl/sdk/ecs'
@@ -45,36 +36,6 @@ export const Messages = {
 	// (+ headroom); anything larger is dropped as suspicious.
 	paintTick: Schemas.Map({ ids: Schemas.Array(Schemas.String) }),
 
-	// Server → Client (broadcast): UTC round boundary crossed. Carries the
-	// authoritative final score of the just-ended round (all clients show
-	// the same banner — no more "one player sees red won, another sees
-	// tie") plus the seed for the new round. Server has already cleared its
-	// paint CRDT chunks before/with this message.
-	// finalTotal is server-side painted-cell count; client re-derives the
-	// banner denominator from its own walkable-cell count (same math as HUD).
-	roundReset: Schemas.Map({
-		seed:       Schemas.Int,
-		finalRed:   Schemas.Int,
-		finalBlue:  Schemas.Int,
-		finalTotal: Schemas.Int,
-	}),
-
-	// Client → Server: send this player's display name once on join so
-	// the leaderboard shows human-readable names instead of wallet hashes.
-	// Server captures into its player-name directory and patches existing
-	// leaderboard entries in place.
-	updateName: Schemas.Map({ name: Schemas.String }),
-
-	// Client → Server: request a team change. Server updates its roster
-	// override map for this userId, then replies teamAssigned to the sender
-	// with the new team so the client re-syncs localTeam. Future paintTick
-	// messages will be attributed to the new team.
-	switchTeam: Schemas.Map({ team: Schemas.Int }),
-
-	// Client → Server: request an immediate fresh copy of the leaderboard.
-	// Fires when the player opens the popup mid-round so they see current
-	// standings without waiting for the next round boundary broadcast.
-	requestLeaderboard: Schemas.Map({}),
 }
 
 export const room = registerMessages(Messages)

@@ -5,7 +5,7 @@
  * Paint *state* is CRDT only (PaintCell / PaletteEntry / PaintCoverage).
  */
 
-import { engine, PlayerIdentityData, AvatarBase } from '@dcl/sdk/ecs'
+import { engine, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { isStateSyncronized } from '@dcl/sdk/network'
 
 import { room } from 'src/shared/messages'
@@ -21,16 +21,6 @@ let myTeam: Team = Team.None
 const SYNC_LOG_INTERVAL_MS = 1000
 /** After this, keep waiting but warn that the Multiplayer Server is likely down. */
 const SYNC_DOWN_WARN_MS    = 5000
-
-
-// MARK: sendDisplayName
-
-function sendDisplayName(address: string): void {
-	const av   = AvatarBase.getOrNull(engine.PlayerEntity)
-	const name = av?.name || `Guest ${address.slice(-4)}`
-	console.log(`[Client] → updateName "${name}"`)
-	room.send('updateName', { name })
-}
 
 
 // MARK: resolveJoinUserId
@@ -56,10 +46,6 @@ export function initClientHandler(): void {
 function wireInbound(): void {
 	room.onMessage('teamAssigned', ({ team }) => {
 		eventBus.emit(ClientEvents.TeamAssigned, { team: team as Team })
-	})
-
-	room.onMessage('roundReset', ({ seed, finalRed, finalBlue, finalTotal }) => {
-		eventBus.emit(ClientEvents.RoundReset, { seed, finalRed, finalBlue, finalTotal })
 	})
 }
 
@@ -107,7 +93,6 @@ function wireOutbound(): void {
 			const userId = resolveJoinUserId()
 			console.log(`[Client] isStateSyncronized — → joinRoster ${userId}`)
 			room.send('joinRoster', { userId })
-			sendDisplayName(userId)
 		}
 
 		// Wait for roster before sending paint commands (outbox keeps growing).

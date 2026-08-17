@@ -5,11 +5,9 @@
  * the React-ECS renderer. Import setupUi from 'src/client/ui'.
  */
 
-import ReactEcs, { ReactEcsRenderer, ScreenInsetArea, UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { ReactEcsRenderer, ScreenInsetArea } from '@dcl/sdk/react-ecs'
 
 import { BrushSizeLayer } from 'src/client/ui/layers/layer.brushSize'
-import { LeaderboardLayer } from 'src/client/ui/layers/layer.leaderboard'
-import { SnapshotLayer } from 'src/client/ui/layers/layer.snapshot'
 import { ServerStatsLayer } from 'src/client/ui/layers/layer.serverStats'
 import { VersionLayer } from 'src/client/ui/layers/layer.version'
 import { BASE_HEIGHT, BASE_WIDTH } from 'src/client/ui/utils/sizing'
@@ -23,10 +21,8 @@ export function setupUi() {
 	ReactEcsRenderer.setUiRenderer(
 		() => (
 			<ScreenInsetArea>
-				<LeaderboardLayer />
 				<ServerStatsLayer />
 				<BrushSizeLayer />
-				<SnapshotLayer />
 				<VersionLayer />
 			</ScreenInsetArea>
 		),

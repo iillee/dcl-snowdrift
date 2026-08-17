@@ -22,9 +22,7 @@ import { isMusicMuted, toggleMusic } from 'src/client/audio'
 import { getLocalTeam } from 'src/client/paint'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
-import { toggleSnapshot } from 'src/client/ui/layers/layer.snapshot'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { room } from 'src/shared/messages'
 import { TEAM_COLORS } from 'src/shared/palette'
 import { Team } from 'src/shared/team'
 
@@ -209,11 +207,9 @@ export function BrushSizeLayer() {
 					keySuffix = "team"
 					color     = {getLocalTeam() === Team.Blue ? BLUE_PAINT : RED_PAINT}
 					onClick   = {() => {
-						// Ask the server to switch us. Server echoes teamAssigned,
-						// which clientHandler forwards to the eventBus — paint.ts
-						// updates localTeam so the swatch + optimistic colour flip.
-						const next = getLocalTeam() === Team.Blue ? Team.Red : Team.Blue
-						room.send('switchTeam', { team: next })
+						// Team-switch is disabled — team assignment is now purely
+						// join-order (roster idx % 2). Swatch remains as a visual
+						// indicator only until Snow Drift replaces the paint mechanic.
 					}}
 				/>
 				<BrushButton
@@ -222,14 +218,6 @@ export function BrushSizeLayer() {
 					enabled   = {true}
 					keySuffix = "stats"
 					nudgeTop  = {-2}
-				/>
-				<BrushButton
-					label     = {'\u25A3'}
-					onClick   = {toggleSnapshot}
-					enabled   = {true}
-					keySuffix = "snap"
-					fontSize  = {44}
-					nudgeTop  = {-16}
 				/>
 				<UiEntity
 					key = "ui_MuteBtn"

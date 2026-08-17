@@ -4,7 +4,7 @@
  * MUST be statically imported from src/index.ts so defineComponent() runs
  * before main() seals the engine.
  *
- * Schemas are shared. Server-owned entities (LeaderboardState, PaintCoverage,
+ * Schemas are shared. Server-owned entities (PaintCoverage,
  * PaletteEntry, PaintCell) are created + syncEntity'd only on the server.
  * Clients observe replicas — they must not syncEntity those.
  *
@@ -17,9 +17,6 @@ import { engine, Schemas } from '@dcl/sdk/ecs'
 export const SeedHolder = engine.defineComponent('maze::seed-holder', { seed: Schemas.Int })
 export const seedHolder = engine.addEntity()
 SeedHolder.create(seedHolder, { seed: 0 })
-
-// MARK: LeaderboardState
-export const LeaderboardState = engine.defineComponent('leaderboard::state', { json: Schemas.String })
 
 // MARK: PaintCell
 export const PaintCell = engine.defineComponent('paint::cell', {

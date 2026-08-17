@@ -1,14 +1,15 @@
 /**
- * server.ts — Squareoff authoritative server entry point.
+ * server.ts — Snow Drift authoritative server entry point.
  *
- * Thin orchestrator, flagtag-pattern. Runs in the headless SDK server
- * process (hammurabi-server). No 3D, no ~system/RestrictedActions —
- * pure state + WS message handling.
+ * Thin orchestrator. Runs in the headless SDK server process
+ * (hammurabi-server). No 3D, no ~system/RestrictedActions — pure state
+ * + WS message handling.
  *
- * Responsibilities: roster/team assignment, authoritative paint state
- * (CRDT chunks + palette), coverage CRDT publish, and UTC-boundary
- * roundReset. Paint *state* syncs via CRDT; paintTick remains the
- * client→server command channel.
+ * Current responsibilities: roster/team assignment, authoritative paint
+ * state (sparse PaintCell CRDT + palette), coverage CRDT publish.
+ *
+ * Paint *state* syncs via CRDT; paintTick is the client→server command
+ * channel.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -17,21 +18,11 @@ import { myProfile } from '@dcl/sdk/network'
 import { room } from 'src/shared/messages'
 import { paintGridCapacity } from 'src/shared/paintGrid'
 import { initPaintSync, paintCellEntityCount, relinkPaintSync } from 'src/shared/paintSync'
-import { getRoundIndex as currentRoundIndex } from 'src/shared/roundTiming'
 import {
 	PAINT_COVERAGE_PUBLISH_HZ,
 	PAINT_TICK_MAX_IDS,
 } from 'src/shared/settings'
 
-import { initDiscord, bindNameResolver, schedulePlayerJoin, flushPendingJoins } from 'src/server/discord'
-import {
-	loadFromStorage as loadLeaderboard,
-	saveToStorage as saveLeaderboard,
-	incrementPaint as leaderboardIncrement,
-	updateName as leaderboardUpdateName,
-	publish as publishLeaderboard,
-	getName as leaderboardGetName,
-} from 'src/server/leaderboard'
 import {
 	applyPaint,
 	coverage,
@@ -40,10 +31,23 @@ import {
 	isCoverageDirty,
 	publishCoverage,
 } from 'src/server/paintState'
-import { assignTeam, rosterSize, getTeam, setTeamOverride } from 'src/server/roster'
+import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { Team } from 'src/shared/team'
-import { MAZE_GRID_WIDTH, MAZE_GRID_HEIGHT, PAINT_CELLS_PER_TILE_AXIS } from 'src/shared/settings'
+import {
+	MAZE_GRID_HEIGHT,
+	MAZE_GRID_WIDTH,
+	MAZE_TILE_WORLD_METERS,
+	PAINT_CELL_SIZE_METERS,
+	PAINT_CELLS_PER_TILE_AXIS,
+} from 'src/shared/settings'
+import {
+	CAMPFIRE_MELT_DIAMETER_M,
+	CAMPFIRE_MELT_RADIUS_M,
+	CAMPFIRE_MELT_RADIUS_SQ_M,
+	CAMPFIRE_WORLD_X,
+	CAMPFIRE_WORLD_Z,
+} from 'src/shared/campfire'
 
 const HEARTBEAT_INTERVAL_S     = 5
 const PAINT_SUMMARY_INTERVAL_S = 5
@@ -52,23 +56,58 @@ const PAINT_SUMMARY_INTERVAL_S = 5
 // MARK: seedStartingArea
 
 /**
- * Pre-paint a small square area at scene startup so the canvas doesn't
- * feel empty on first load. Paints every cell of the center-ish tile as
- * Team.Red; non-walkable mask cells are safely dropped by writeCellIndex
- * / never rendered by the client.
+ * Pre-paint a circular ring around the campfire at scene center so the
+ * canvas isn't empty on first load and the warm zone reads as "fire's
+ * reach". Iterates the bounding-square of paint cells intersecting the
+ * circle and paints those whose center falls within the radius.
+ *
+ * Cell world-center for (tx, tz, col, row) is
+ *   ( tx*TILE + (col+0.5)*CELL , tz*TILE + (row+0.5)*CELL )
+ * matching src/shared/maze/generator.ts tile placement (SW pivot,
+ * MAZE_ORIGIN_OFFSET_METERS = 0 on the flat canvas).
  */
 function seedStartingArea(): void {
-	const tx = Math.floor(MAZE_GRID_WIDTH  / 2)
-	const tz = Math.floor(MAZE_GRID_HEIGHT / 2)
+	const cx = CAMPFIRE_WORLD_X
+	const cz = CAMPFIRE_WORLD_Z
+	const r  = CAMPFIRE_MELT_RADIUS_M
+	const r2 = CAMPFIRE_MELT_RADIUS_SQ_M
+
+	const minCellsFromCenter = Math.ceil(r / PAINT_CELL_SIZE_METERS)
+	const centerColFloat     = cx / PAINT_CELL_SIZE_METERS
+	const centerRowFloat     = cz / PAINT_CELL_SIZE_METERS
+	const colStart = Math.floor(centerColFloat - minCellsFromCenter)
+	const colEnd   = Math.ceil (centerColFloat + minCellsFromCenter)
+	const rowStart = Math.floor(centerRowFloat - minCellsFromCenter)
+	const rowEnd   = Math.ceil (centerRowFloat + minCellsFromCenter)
+
 	const ty = 0
 	let painted = 0
-	for (let row = 0; row < PAINT_CELLS_PER_TILE_AXIS; row++) {
-		for (let col = 0; col < PAINT_CELLS_PER_TILE_AXIS; col++) {
+	for (let gRow = rowStart; gRow <= rowEnd; gRow++) {
+		const tz  = Math.floor(gRow / PAINT_CELLS_PER_TILE_AXIS)
+		const row = gRow - tz * PAINT_CELLS_PER_TILE_AXIS
+		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
+		const wz = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS
+		const dz = wz - cz
+
+		for (let gCol = colStart; gCol <= colEnd; gCol++) {
+			const tx  = Math.floor(gCol / PAINT_CELLS_PER_TILE_AXIS)
+			const col = gCol - tx * PAINT_CELLS_PER_TILE_AXIS
+			if (tx < 0 || tx >= MAZE_GRID_WIDTH) continue
+			const wx = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS
+			const dx = wx - cx
+
+			if (dx * dx + dz * dz > r2) continue
+
 			const id = `${tx},${tz},${ty}:${col},${row}`
-			if (applyPaint(id, Team.Red)) painted++
+			if (applyPaint(id, Team.Blue)) painted++
 		}
 	}
-	console.log(`[Server] seedStartingArea: painted ${painted} cells at tile (${tx},${tz})`)
+	if (painted > 0) {
+		console.log(
+			`[Server] seedStartingArea: painted ${painted} cells in a ` +
+			`${CAMPFIRE_MELT_DIAMETER_M}m ring at (${cx.toFixed(1)}, ${cz.toFixed(1)})`
+		)
+	}
 }
 
 
@@ -76,9 +115,7 @@ function seedStartingArea(): void {
 
 /** Boot roster, paint CRDT, stats, and room handlers for the auth server. */
 export async function setupServer(): Promise<void> {
-	console.log('[Server] Starting Squareoff server...')
-
-	await loadLeaderboard()
+	console.log('[Server] Starting Snow Drift server...')
 
 	const paintCap = paintGridCapacity()
 	console.log(
@@ -93,9 +130,6 @@ export async function setupServer(): Promise<void> {
 
 	initServerStats()
 	startServerStatsTick(() => coverage().total)
-
-	bindNameResolver(leaderboardGetName)
-	await initDiscord()
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
 	let paintTicks       = 0
@@ -131,25 +165,6 @@ export async function setupServer(): Promise<void> {
 		const team = assignTeam(from)
 		console.log(`[Server] joinRoster ${from} → team ${team === 1 ? 'RED' : 'BLUE'} (roster size ${rosterSize()})`)
 		room.send('teamAssigned', { team }, { to: [from] })
-		// Queue a Discord join notification (debounced 5s to let updateName
-		// arrive so we send the real display name, not the wallet hash).
-		schedulePlayerJoin(from)
-	})
-
-	// Team switch — client requests a new team. Server updates the override
-	// on the roster and echoes teamAssigned back so the client re-syncs its
-	// local optimistic team. Silently ignored if the user has not yet
-	// joinRoster'd, or if the requested team is not 1/2.
-	room.onMessage('switchTeam', ({ team }, context) => {
-		const from = context?.from
-		if (!from) return
-		const newTeam = setTeamOverride(from, team)
-		if (newTeam === null) {
-			console.log(`[Server] switchTeam ${from} → team ${team} rejected (not on roster or invalid team)`)
-			return
-		}
-		console.log(`[Server] switchTeam ${from} → team ${newTeam === 1 ? 'RED' : 'BLUE'}`)
-		room.send('teamAssigned', { team: newTeam }, { to: [from] })
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.
@@ -168,9 +183,6 @@ export async function setupServer(): Promise<void> {
 			console.log(`[Server] paintTick from ${from} dropped: ${ids.length} ids > cap ${PAINT_TICK_MAX_IDS}`)
 			return
 		}
-		// Count only cells that actually changed — a player standing still
-		// on their own paint re-sends the same 9 cellIds every 100ms;
-		// crediting all of them would inflate the leaderboard by ~90/sec.
 		let gained = 0
 		for (const id of ids) {
 			if (applyPaint(id, team)) gained++
@@ -178,24 +190,20 @@ export async function setupServer(): Promise<void> {
 		paintTicks++
 		paintIdsIn   += ids.length
 		paintApplied += gained
-		if (gained > 0) leaderboardIncrement(from, gained)
 	})
 
-	// Name capture — client sends once on join with PlayerIdentityData.name.
-	// Server keeps the map in memory and patches existing leaderboard rows.
-	room.onMessage('updateName', ({ name }, context) => {
-		const from = context?.from
-		if (!from) return
-		leaderboardUpdateName(from, name)
-	})
-
-	// On-demand leaderboard refresh — client asks when opening the popup.
-	// We simply republish the CRDT-synced component; the requesting client
-	// (and everyone else, harmlessly) picks up the new snapshot on next
-	// engine tick. No addressed reply needed — CRDT delivers to all.
-	room.onMessage('requestLeaderboard', (_data, context) => {
-		if (!context?.from) return
-		publishLeaderboard()
+	// Campfire ring refresh: the seed area must never degrade. Re-run the
+	// circular fill a few times per second so any blue paint a player drops
+	// inside the ring snaps back to red. applyPaint short-circuits on
+	// already-red cells so the steady-state cost is a Map lookup per cell.
+	const RING_REFRESH_HZ = 4
+	const RING_INTERVAL   = 1 / RING_REFRESH_HZ
+	let   ringClock       = 0
+	engine.addSystem((dt: number) => {
+		ringClock += dt
+		if (ringClock < RING_INTERVAL) return
+		ringClock = 0
+		seedStartingArea()
 	})
 
 	// Coverage publish tick. Coalesces cell mutations into a single
@@ -245,37 +253,9 @@ export async function setupServer(): Promise<void> {
 		)
 	})
 
-	// Round loop. Server owns the boundary. On crossing:
-	// 1) snapshot final coverage BEFORE clearing (banner needs it),
-	// 2) broadcast roundReset with authoritative counts + new seed,
-	// 3) clear paint CRDT chunks so the new round starts clean.
-	let lastRoundIndex = 0
-	engine.addSystem(() => {
-		const idx = currentRoundIndex()
-		if (lastRoundIndex === 0) { lastRoundIndex = idx; return }
-		if (idx === lastRoundIndex) return
-		const c = coverage()
-		console.log(`[Server] round boundary: ${lastRoundIndex} → ${idx} (final red=${c.red} blue=${c.blue} total=${c.total})`)
-		room.send('roundReset', { seed: idx, finalRed: c.red, finalBlue: c.blue, finalTotal: c.total })
-		clearPaintState()
-		void saveLeaderboard()
-		publishLeaderboard()
-		lastRoundIndex = idx
-	})
-
-	// Discord flush tick — low frequency; the delay is 5s so 1Hz polling
-	// gives us more-than-fast-enough drain. Cheap when nothing's pending.
-	let discordFlushClock = 0
-	engine.addSystem((dt: number) => {
-		discordFlushClock += dt
-		if (discordFlushClock < 1) return
-		discordFlushClock = 0
-		flushPendingJoins()
-	})
-
 	console.log(
 		'[Server] Ready — listening for joinRoster, paintTick; ' +
-		'paint state via sparse PaintCell CRDT; roundReset on UTC boundaries. ' +
+		'paint state via sparse PaintCell CRDT. ' +
 		`heartbeat every ${HEARTBEAT_INTERVAL_S}s.`
 	)
 }

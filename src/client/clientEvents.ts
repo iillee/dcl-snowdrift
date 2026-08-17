@@ -10,10 +10,4 @@
 export enum ClientEvents {
 	/** Team assignment reply for our joinRoster. Fires once per session. */
 	TeamAssigned = 'team:assigned',
-
-	/**
-	 * UTC round boundary crossed. Server has already zeroed paint CRDT
-	 * and rolled the new seed. Subscribers: HUD, paint, maze, player, audio.
-	 */
-	RoundReset = 'round:reset',
 }

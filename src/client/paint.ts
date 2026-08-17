@@ -5,6 +5,7 @@
 import { engine, Transform, MeshRenderer, Material, Entity, NetworkEntity, Tween, EasingFunction } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 
+import { isInsideMeltRadius } from 'src/shared/campfire'
 import { PaintCell, PaletteEntry, PaintCoverage } from 'src/shared/components'
 import {
 	HI,
@@ -88,9 +89,6 @@ export function getLocalTeam(): Team {
 export function initPaintNet(): void {
 	eventBus.on(ClientEvents.TeamAssigned, ({ team }) => {
 		localTeam = team
-	})
-	eventBus.on(ClientEvents.RoundReset, () => {
-		clearAllPaintState()
 	})
 
 	engine.addSystem(() => {
@@ -218,9 +216,9 @@ const PAINTED_THICKNESS = 0.02
 const DROP_DURATION_MS  = 300
 const DECAY_DELAY_MS    = 10000 // painted cell visually reverts to grey cube after this
 
-// Grey material for the unpainted cube (independent of PALETTE_NONE so
-// resetting the palette does not affect the cube colour).
-const CUBE_GREY_MAT = cellMaterialFromColor(Color4.create(0.5, 0.5, 0.5, 1))
+// Snow-white material for the unpainted cube (independent of PALETTE_NONE
+// so resetting the palette does not affect the snow colour).
+const CUBE_GREY_MAT = cellMaterialFromColor(Color4.create(1, 1, 1, 1))
 
 type DropAnim = {
 	startY:      number
@@ -238,6 +236,23 @@ const dropAnims = new Map<string, DropAnim>()
 // decay back to grey. Cleared when the cube is already grey.
 const decayAt   = new Map<string, number>()
 let   paintClockMs = 0
+
+
+// MARK: scheduleCellDecay
+/**
+ * Schedule (or refresh) a cell's decay-back-to-cube timer, unless the cell
+ * lies inside the campfire's melt radius — heat keeps that ground clear.
+ * Cells inside the radius have their existing decay entry cleared so any
+ * timer scheduled before the fire was aware of them still gets cancelled.
+ */
+function scheduleCellDecay(id: string, dueMs: number): void {
+	const data = cellData.get(id)
+	if (data && isInsideMeltRadius(data.basePos.x, data.basePos.z)) {
+		decayAt.delete(id)
+		return
+	}
+	decayAt.set(id, dueMs)
+}
 
 engine.addSystem((dt: number) => {
 	paintClockMs += dt * 1000
@@ -398,7 +413,7 @@ export function enqueuePaintCandidate(id: string): void {
 	// the every-3s grey pulse when standing still on an already-painted cell.
 	const data = cellData.get(id)
 	if (data && data.kind === 'cube' && renderedIndex.get(id) === index) {
-		decayAt.set(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
+		scheduleCellDecay(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
 	}
 	if (renderedIndex.get(id) === index) return
 	applyPaintIndex(id, index, false)
@@ -436,7 +451,7 @@ export function applyPaintIndex(id: string, index: number, force: boolean): void
 			finalMat,
 		})
 		// Schedule / clear the 3s decay back to grey.
-		if (painted) decayAt.set(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
+		if (painted) scheduleCellDecay(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
 		else         decayAt.delete(id)
 		return
 	}
@@ -571,7 +586,7 @@ function spawnCellsForTileImmediate(
 		// Cell adopted a painted state from CRDT that arrived before spawn.
 		// applyPaintIndex was a no-op back then (no entity yet), so schedule
 		// the visual decay here or the cube would stay painted forever.
-		if (painted) decayAt.set(id, paintClockMs + DECAY_DELAY_MS)
+		if (painted) scheduleCellDecay(id, paintClockMs + DECAY_DELAY_MS)
 		tileRec!.entities.push(e)
 		tileRec!.ids.push(id)
 	}
@@ -859,7 +874,7 @@ export function initPaintingSystem(
 					if (insideFootprint) {
 						// Under the player: don't paint, but keep any existing paint
 						// alive so cells don't pop up while standing still.
-						if (decayAt.has(hit.id)) decayAt.set(hit.id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
+						if (decayAt.has(hit.id)) scheduleCellDecay(hit.id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
 						continue
 					}
 					enqueuePaintCandidate(hit.id)

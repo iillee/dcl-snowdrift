@@ -1,7 +1,7 @@
 {
-  "name": "dcl-squareoff",
-  "version": "1.0.0",
-  "description": "SDK7 Template scene",
+  "name": "snowdrift",
+  "version": "0.1.0",
+  "description": "Snow Drift — a cozy multiplayer survival hangout for Decentraland.",
   "scripts": {
     "start": "sdk-commands start",
     "deploy": "sdk-commands deploy",
@@ -12,8 +12,8 @@
     "upgrade-sdk:next": "npm install --save-dev @dcl/sdk@next"
   },
   "devDependencies": {
-    "@dcl/js-runtime": "7.25.1-30310486734.commit-5ffe873",
-    "@dcl/sdk": "7.25.1-30310486734.commit-5ffe873"
+    "@dcl/js-runtime": "7.26.1-31714079767.commit-96e9a29",
+    "@dcl/sdk": "^7.26.1-31714079767.commit-96e9a29"
   },
   "engines": {
     "node": ">=16.0.0",

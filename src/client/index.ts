@@ -37,6 +37,7 @@ import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
 import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
+import { setupCampfire } from 'src/client/campfire'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 
@@ -128,6 +129,8 @@ export async function setupClient(): Promise<void> {
 	// button toggles it on). Safe to call before setupUi — the button just
 	// needs the camera entity to exist when it's first clicked.
 	setupTopDownCamera()
+
+	setupCampfire()
 
 	setupUi()
 }

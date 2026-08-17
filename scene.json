@@ -2,8 +2,8 @@
   "ecs7": true,
   "runtimeVersion": "7",
   "display": {
-    "title": "DCL Canvas",
-    "description": "A free-for-all multiplayer paint canvas — walk around to paint the floor with friends.",
+    "title": "Snow Drift",
+    "description": "A cozy multiplayer survival hangout. Melt snow, gather wood, feed the fire, stay warm together.",
     "favicon": "favicon_asset",
     "navmapThumbnail": "assets/images/scene-thumbnail.png"
   },
@@ -93,7 +93,7 @@
     "0x1e93e534c5e26b01ed242410b43ae23dd0faa52b"
   ],
   "worldConfiguration": {
-    "name": "dcl-canvas.dcl.eth"
+    "name": "snowdrift.dcl.eth"
   },
   "landscapeTerrain": true
 }

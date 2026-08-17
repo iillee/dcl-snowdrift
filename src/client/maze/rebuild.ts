@@ -10,10 +10,9 @@
  * removePaintForTile). Nothing else in the client should call rebuildMaze;
  * the seed watcher in client/index.ts (or wherever it ends up) drives it.
  *
- * NOTE: we intentionally do NOT clear paint state here. That call lives
- * in the round:reset subscriber so genuine round transitions get a clean
- * slate, while a mid-round rebuild (e.g. late-join snapshot arrival)
- * lets spawn adopt PaintCell CRDT colors that arrived during grow-in.
+ * NOTE: we intentionally do NOT clear paint state here. Rebuilds adopt
+ * whatever PaintCell CRDT colors are already present, so late-joining
+ * clients see paint from ongoing sessions immediately.
  */
 
 import {
@@ -111,18 +110,16 @@ export function getCurrentSeed(): number {
 }
 
 /**
- * initMazeNet — wire this module's server-event subscribers.
+ * initMazeNet — placeholder for future maze-related network wiring.
  *
- * On round:reset we push the new seed into SeedHolder. The seed watcher
- * in client.ts observes the change and calls rebuildMaze(). Kept as two
- * steps (SeedHolder update, then rebuild) rather than calling rebuildMaze
- * directly so late-joining clients receiving the seed via CRDT sync go
- * through the exact same path as an authoritative roundReset.
+ * With rounds removed the seed is set once (first-joiner init in
+ * client/index.ts) and any subsequent change to SeedHolder — via CRDT
+ * sync from another client, or a future server-owned seed — is picked
+ * up by the seed watcher in client/index.ts and drives rebuildMaze().
  */
 export function initMazeNet(): void {
-  eventBus.on(ClientEvents.RoundReset, ({ seed }) => {
-    SeedHolder.createOrReplace(seedHolder, { seed })
-  })
+  // No-op for now. Kept as an integration point so callers in client/index.ts
+  // don't need to change when server-driven maze events return.
 }
 
 // ─── Per-frame spawn drain ──────────────────────────────────────────

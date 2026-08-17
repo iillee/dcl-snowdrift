@@ -29,8 +29,6 @@ function teleportHome(): void {
 }
 
 export function initPlayerNet(): void {
-  // Round boundary: everyone snaps back to the cross for a clean start.
-  eventBus.on(ClientEvents.RoundReset, teleportHome)
   // Initial spawn-in: give the maze ~2s to grow in, then plant the player
   // on the center cross. Without this, players land wherever scene.json's
   // spawn range dropped them, which may or may not be on solid ground

@@ -31,13 +31,11 @@ export const PAINT_GRID_H    = MAZE_GRID_HEIGHT
 // sparse-friendly band so we never pre-bind 100k entities below 8001.
 // Fixed singleton ids for server-owned syncEntity (except SeedHolder).
 //   3000       SeedHolder (transitional client sync)
-//   3001       LeaderboardState
 //   3100       PaintCoverage
 //   3101       ServerStats
 //   6000-6255  PaletteEntry
 //   100000+    PaintCell (created on first paint)
 export const SEED_NETWORK_ID        = 3000
-export const LEADERBOARD_NETWORK_ID = 3001
 export const PALETTE_NETWORK_BASE   = 6000
 export const COVERAGE_NETWORK_ID    = 3100
 export const STATS_NETWORK_ID       = 3101
