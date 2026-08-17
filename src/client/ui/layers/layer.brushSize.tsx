@@ -10,6 +10,7 @@
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
+import { isMobile } from '@dcl/sdk/platform'
 
 import {
 	BRUSH_MAX_CELLS,
@@ -19,12 +20,9 @@ import {
 	increaseBrush,
 } from 'src/client/brush'
 import { isMusicMuted, toggleMusic } from 'src/client/audio'
-import { getLocalTeam } from 'src/client/paint'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { TEAM_COLORS } from 'src/shared/palette'
-import { Team } from 'src/shared/team'
 
 
 const { colors, fontSizes, borderRadius } = UI_THEME
@@ -33,15 +31,10 @@ const WHITE     = Color4.White()
 const DIM       = Color4.create(1, 1, 1, 0.35)
 const GOLD      = Color4.create(1.0, 0.84, 0.0, 1)
 const PANEL_BG  = colors.statsBg
-const RED_PAINT  = TEAM_COLORS[Team.Red]
-const BLUE_PAINT = TEAM_COLORS[Team.Blue]
 
-// Diameter of the color-swatch dot inside the paint-picker buttons.
-const SWATCH_PX = 40
-
-// Shared button footprint so every action button in the stack looks identical.
+// Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
-const BTN_MARGIN_Y   = 8   // vertical breathing room per-button (top + bottom)
+const BTN_MARGIN_X   = 8   // horizontal breathing room per-button (left + right)
 
 // Parcel-grid icon inside the spectator button.
 const GRID_COLS = 4
@@ -108,7 +101,10 @@ function BrushButton(props: {
 	nudgeLeft?: number
 }) {
 	const fontSize  = props.fontSize  ?? 64
-	const nudgeTop  = props.nudgeTop  ?? -10
+	// Mobile needs a stronger optical-nudge — the DCL system chrome and the
+	// portrait viewport push the glyph baseline lower than on desktop.
+	const defaultNudgeTop = isMobile() ? -22 : -10
+	const nudgeTop  = props.nudgeTop  ?? defaultNudgeTop
 	const nudgeLeft = props.nudgeLeft ?? 4
 	return (
 		<UiEntity
@@ -116,7 +112,7 @@ function BrushButton(props: {
 			uiTransform = {{
 				width        : BTN_SIZE,
 				height       : BTN_SIZE,
-				margin       : { top: BTN_MARGIN_Y, bottom: BTN_MARGIN_Y },
+				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',
 				borderRadius : borderRadius.md,
@@ -161,17 +157,17 @@ export function BrushSizeLayer() {
 				height       : '100%',
 				positionType : 'absolute',
 				position     : { top: 0, left: 0 },
-				flexDirection: 'row',
-				justifyContent: 'flex-end',
+				flexDirection: 'column',
+				justifyContent: 'flex-start',
 				alignItems   : 'center',
 				pointerFilter: 'none',
 			}}
 		>
 			<UiEntity
-				key = "ui_BrushSize_col"
+				key = "ui_BrushSize_row"
 				uiTransform = {{
-					margin       : { right: 32 },
-					flexDirection: 'column',
+					margin       : { top: isMobile() ? -40 : 32 },
+					flexDirection: 'row',
 					alignItems   : 'center',
 					justifyContent: 'center',
 				}}
@@ -193,7 +189,7 @@ export function BrushSizeLayer() {
 					uiTransform = {{
 						width        : BTN_SIZE,
 						height       : BTN_SIZE,
-						margin       : { top: BTN_MARGIN_Y, bottom: BTN_MARGIN_Y },
+						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 						justifyContent: 'center',
 						alignItems   : 'center',
 						borderRadius : borderRadius.md,
@@ -203,28 +199,19 @@ export function BrushSizeLayer() {
 				>
 					<ParcelGridIcon color={specActive ? GOLD : WHITE} />
 				</UiEntity>
-				<PaintSwatchButton
-					keySuffix = "team"
-					color     = {getLocalTeam() === Team.Blue ? BLUE_PAINT : RED_PAINT}
-					onClick   = {() => {
-						// Team-switch is disabled — team assignment is now purely
-						// join-order (roster idx % 2). Swatch remains as a visual
-						// indicator only until Snow Drift replaces the paint mechanic.
-					}}
-				/>
 				<BrushButton
 					label     = "#"
 					onClick   = {toggleServerStats}
 					enabled   = {true}
 					keySuffix = "stats"
-					nudgeTop  = {-2}
+					nudgeTop  = {isMobile() ? -14 : -2}
 				/>
 				<UiEntity
 					key = "ui_MuteBtn"
 					uiTransform = {{
 						width        : BTN_SIZE,
 						height       : BTN_SIZE,
-						margin       : { top: BTN_MARGIN_Y, bottom: BTN_MARGIN_Y },
+						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 						justifyContent: 'center',
 						alignItems   : 'center',
 						borderRadius : borderRadius.md,
@@ -247,23 +234,23 @@ export function BrushSizeLayer() {
 }
 
 
-// MARK: PaintSwatchButton
-/**
- * Empty stack button with an optional centered circular color swatch.
- * Same footprint / spacing as every other button in the right-edge stack.
- */
-function PaintSwatchButton(props: {
+// MARK: PaintSwatchButton (unused)
+// Kept for reference — revive if Snow Drift ever needs a visible "current
+// hand slot" indicator in the top bar.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _PaintSwatchButton(props: {
 	keySuffix: string
 	color    : Color4 | null
 	onClick  : () => void
 }) {
+	const SWATCH_PX = 40
 	return (
 		<UiEntity
 			key         = {`ui_SwatchBtn_${props.keySuffix}`}
 			uiTransform = {{
 				width        : BTN_SIZE,
 				height       : BTN_SIZE,
-				margin       : { top: BTN_MARGIN_Y, bottom: BTN_MARGIN_Y },
+				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',
 				borderRadius : borderRadius.md,

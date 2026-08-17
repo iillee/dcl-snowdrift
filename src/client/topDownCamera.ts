@@ -35,12 +35,12 @@ const CENTER_X = SCENE_WORLD_SIZE_X_METERS / 2
 const CENTER_Z = SCENE_WORLD_SIZE_Z_METERS / 2
 
 // Camera altitude. Kept inside DCL mobile's ~100 m fog band.
-const CAM_ALTITUDE = 50
+const CAM_ALTITUDE = 30
 
 // East offset (world +X) from the look target. Nonzero so lookAtEntity
 // yields a real projected forward for WASD alignment; kept minimal so
 // the view is visually indistinguishable from straight-down.
-// 3 m at altitude 50 m ≈ 3.4° tilt — the camera reads as pure overhead
+// 3 m at altitude 30 m ≈ 5.7° tilt — the camera reads as pure overhead
 // but the SDK still has enough directional information to align WASD.
 const CAM_EAST_OFFSET = 3
 

@@ -357,3 +357,49 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-15 v2.1** — Tone locked to safe cozy realism. Audio collaborator confirmed, starts ~day 6.
 - **2026-08-15 v2.2** — Wood source locked to buried-under-snow. Axe/trees removed from v1. Hand slot is torch-XOR-wood, two states.
 - **2026-08-15 v2.3** — Added B1 reinforcement candidates (torch-can't-drop, heavy wood, regenerating pair warmth, fire tending, two-torch cells) as playtest-gated hypotheses — not commitments.
+- **2026-08-17 v2.4** — Day 1 complete + partial Day 2. See status snapshot below.
+
+---
+
+## 15. Status snapshot (2026-08-17)
+
+**Complete (Day 1):**
+- Rebrand: scene.json / package.json / README → Snow Drift; deploy target `snowdrift.dcl.eth`.
+- SDK upgraded to `@dcl/sdk 7.26.1-...commit-96e9a29` (auth-server branch, matches flagtag).
+- Canvas design doc archived to `docs/archive/DESIGN-canvas.md`.
+- Cut list executed (§4): removed leaderboard, discord, roundTiming, snapshot, team-switching, `updateName`, `requestLeaderboard`, `roundReset`, and all downstream subscribers.
+- Server simplified: no rounds, no name capture, no leaderboard CRDT. Messages schema reduced to `joinRoster` / `teamAssigned` / `paintTick`.
+
+**Placeholder campfire (early Day 3 pre-work):**
+- `src/client/campfire.ts` spawns `Fireplace_01.glb` at scene center (32, 0.25, 56).
+- `src/shared/campfire.ts` — shared position + `CAMPFIRE_MELT_RADIUS_M` (8m) + `isInsideMeltRadius()`.
+- Server paints a persistent 16m *blue* ring around the fire and refreshes it at 4Hz.
+- Client refuses to schedule cube decay for cells inside the melt radius, so the cleared area never regrows into snow.
+
+**Player defaults:**
+- All players assigned `Team.Blue` (join-order team split removed).
+- Default brush 3×3 (`PAINT_BRUSH_SIZE_METERS: 6 → 3`; cell size is 1m).
+- Unpainted cubes now snow-white.
+
+**UI cleanup (partial Day 9 preview):**
+- Top HUD bar moved from right-edge vertical stack to top-center horizontal row.
+- Removed the paint-swatch button (dead post team-switch removal).
+- Mobile-only offsets: bar raised ~72px, `+`/`-`/`#` glyph nudges deepened, all via `isMobile()`. Desktop untouched.
+- Overhead spectator camera lowered from 50m to 30m altitude.
+
+**Day 2 remaining:**
+- [ ] Cube colour → off-white with subtle blue tint (currently pure white).
+- [ ] Melted colour → wet dark ground (currently bright team blue).
+- [ ] Skybox → dusk / night.
+- [ ] Fog → cool blue, tuned for mobile portrait.
+- [ ] Retune cube decay to 30s (currently 10s in `paint.ts`).
+- [ ] First mobile perf smoke test on `snowdrift.dcl.eth`.
+
+**Deferred from Day 1:**
+- [ ] Verify shared material caching in cube paint path (perf lever 1).
+
+**Notes for next session:**
+- Team infrastructure (roster join-order, palette CRDT, `applyPaint(id, team)`) is dormant but not removed — a future pass can rip it out when Snow Drift's mechanics fully replace the paint model.
+- `layer.brushSize.tsx` filename is now a misnomer (it's the action bar) — rename during Day 9 HUD pass.
+- `initMazeNet()` in `client/maze/rebuild.ts` is a no-op stub — kept as the integration point for future server-owned maze events.
+- `PaintSwatchButton` is kept dormant (`_PaintSwatchButton`) in `layer.brushSize.tsx` for possible revival as a hand-slot indicator.
