@@ -358,10 +358,25 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-15 v2.2** — Wood source locked to buried-under-snow. Axe/trees removed from v1. Hand slot is torch-XOR-wood, two states.
 - **2026-08-15 v2.3** — Added B1 reinforcement candidates (torch-can't-drop, heavy wood, regenerating pair warmth, fire tending, two-torch cells) as playtest-gated hypotheses — not commitments.
 - **2026-08-17 v2.4** — Day 1 complete + partial Day 2. See status snapshot below.
+- **2026-08-17 v2.5** — Scene reshaped 4×7 (28 parcels, portrait) → 8×8 (64 parcels, square) to test scalability toward the eventual 10– 20× world. Overhead camera reworked into a hybrid follow + pan (desktop drag + mobile d-pad). Skills bumped to the official `decentraland/sdk-skills` repo (adds `TouchScreenControls` + slider drag docs); confirmed mobile has no touch-drag delta — pan on mobile is button-driven by design.
 
 ---
 
 ## 15. Status snapshot (2026-08-17)
+
+**Scale-up spike (mid-Day 2, before visuals):**
+- Scene resized 4×7 (28 parcels, 64×112 m portrait) → **8×8 (64 parcels, 128×128 m square)**. Everything derives from `SCENE_WORLD_SIZE_X/Z_METERS` + `scene.json` parcels — maze grid, campfire center, paint grid, top-down camera all propagated automatically.
+- **Perf finding:** at 128×128 with 1 m cells, 2–3 players cutting the field trivially crosses several thousand cube entities and mobile load times degrade noticeably. Confirms PLAN §8 lever 1 (shared material caching) and lever 2 (cube→plane demotion, N15) must move from "planned" to "prerequisite" before we grow the world further.
+- No world entities are currently clickable, so the pan drag catcher can safely block pointer clicks; gate this off entity interaction is added.
+
+**Top-down camera (spectator-style, hybrid follow + pan):**
+- `src/client/topDownCamera.ts` rewritten: FOLLOW / FREE modes, exponential smoothing (`1 - exp(-k·dt)`, k=5), bounds-clamped `lookTarget`, retains the small east-offset trick for WASD axis alignment.
+- Follow-cam is the default. Any WASD / joystick input in FREE mode auto-recenters to FOLLOW.
+- **Desktop pan:** hold-left-click + drag anywhere. Reads `PrimaryPointerInfo.screenDelta` inside `dragPollSystem`. 3-pixel dead zone so quick clicks aren't pans. Grab-and-pull convention (map style). `DRAG_M_PER_PX = 0.025`.
+- **Mobile pan:** 4-button d-pad bottom-right (`src/client/ui/layers/layer.topDownPan.tsx`), hold-to-pan at `DPAD_PAN_SPEED = 22 m/s`. `TouchScreenControls` is intentionally not used yet — keeping native jump/E/F visible for future actions.
+- **Mobile joystick zone:** desktop drag catcher is gated behind `!isMobile()` so it never swallows native joystick touches.
+- No recenter button; auto-recenter on player-movement input covers it.
+- `layer.cameraToggle.tsx` is now orphaned (existed but was never registered); the action bar's own top-down button (`layer.brushSize.tsx`) is the single entry point. File left in tree for a future repurpose.
 
 **Complete (Day 1):**
 - Rebrand: scene.json / package.json / README → Snow Drift; deploy target `snowdrift.dcl.eth`.

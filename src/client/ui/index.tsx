@@ -9,6 +9,7 @@ import ReactEcs, { ReactEcsRenderer, ScreenInsetArea } from '@dcl/sdk/react-ecs'
 
 import { BrushSizeLayer } from 'src/client/ui/layers/layer.brushSize'
 import { ServerStatsLayer } from 'src/client/ui/layers/layer.serverStats'
+import { TopDownPanLayer } from 'src/client/ui/layers/layer.topDownPan'
 import { VersionLayer } from 'src/client/ui/layers/layer.version'
 import { BASE_HEIGHT, BASE_WIDTH } from 'src/client/ui/utils/sizing'
 
@@ -22,6 +23,10 @@ export function setupUi() {
 		() => (
 			<ScreenInsetArea>
 				<ServerStatsLayer />
+				{/* TopDownPanLayer renders BEFORE the action bar so its
+				    full-screen drag-catcher does not cover the action
+				    bar's own top-down toggle button. */}
+				<TopDownPanLayer />
 				<BrushSizeLayer />
 				<VersionLayer />
 			</ScreenInsetArea>

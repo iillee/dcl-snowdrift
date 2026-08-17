@@ -40,6 +40,7 @@ import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
+import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
 
 // ─── Stress-test toggle (Squareoff design §8.1) ─────────────────────
 // Set to 0 for normal maze. Non-zero = spawn N planes at spawn, skip maze.
@@ -129,6 +130,10 @@ export async function setupClient(): Promise<void> {
 	// button toggles it on). Safe to call before setupUi — the button just
 	// needs the camera entity to exist when it's first clicked.
 	setupTopDownCamera()
+	// Desktop drag pan poll — reads PrimaryPointerInfo.screenDelta each
+	// frame while a drag is live and forwards to the camera. Cheap no-op
+	// when top-down is inactive.
+	engine.addSystem(dragPollSystem)
 
 	setupCampfire()
 
