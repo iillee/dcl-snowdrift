@@ -44,7 +44,7 @@ All components are imported from `@dcl/sdk/ecs`.
 | Component | Key Fields | Description |
 |-----------|-----------|-------------|
 | **Animator** | `states: Array<{ clip, playing, loop, speed, weight }>` | Play animations embedded in GLTF models. |
-| **Tween** | `mode`, `duration`, `easingFunction`, `currentTime`, `playing?` | Animate entity properties over time. `mode` is a discriminated union: `move`, `rotate`, `scale`, `textureMove`, `moveRotateScale`, plus the endless variants `moveContinuous`, `rotateContinuous`, `textureMoveContinuous` (these loop forever — take a speed rather than a `duration`). |
+| **Tween** | `mode`, `duration`, `easingFunction`, `currentTime`, `playing?` | Animate entity properties over time. `mode` is a discriminated union: `move`, `rotate`, `scale`, `textureMove`, `moveRotateScale`, plus the endless variants `moveContinuous`, `rotateContinuous`, `textureMoveContinuous` (these loop forever — take a speed rather than a `duration`). While a tween plays, the engine updates the entity's `Transform` in real time — `Transform.get(entity)` returns the live mid-tween value. |
 | **TweenSequence** | `sequence: Array<{ ... }>`, `loop` | Chain multiple tweens together. |
 | **TweenState** | Read-only | Current state of a tween. |
 
@@ -95,6 +95,13 @@ These are the underlying ECS UI components (from `@dcl/sdk/ecs`). You normally d
 | **UiDropdown** | `options: string[]`, `selectedIndex`, `onChange` | Dropdown selector. |
 | **UiDropdownResult** | Read-only | Selected dropdown value. |
 | **UiCanvasInformation** | Read-only | Screen dimensions and device pixel ratio. |
+| **UiInputBinding** | `actions: InputAction[]` | Bind `InputAction`s to a UI element so they fire while it is pressed (touch or pointer). Used as a React-ECS prop `uiInputBinding={{ actions: [InputAction.IA_JUMP] }}` on `UiEntity`. |
+
+## Touch / Mobile Controls
+
+| Component | Key Fields | Description |
+|-----------|-----------|-------------|
+| **TouchScreenControls** | `touchInputs: TouchInput[]`, `mainAction?: InputAction`, `hideJoystick: boolean`, `hideCrosshair: boolean` | Customize on-screen touch controls. Written to `engine.RootEntity`. `TouchInput`: `{ inputAction: InputAction, hide: boolean, icon?: TextureUnion }`. Convenience helpers on the extended component: `hideAll()`, `showAll()`, `hide(actions)`, `setMainAction(action)`, `hideJoystick()`, `showJoystick()`, `hideCrosshair()`, `showCrosshair()`. |
 
 ## System & Runtime
 
