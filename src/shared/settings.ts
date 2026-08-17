@@ -53,11 +53,11 @@ export const PAINT_BRUSH_SIZE_METERS = 3
 
 // MARK: Scene
 
-/** Scene X extent in meters (4 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 64
+/** Scene X extent in meters (8 parcels × 16 m). Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = 128
 
-/** Scene Z extent in meters (7 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 112
+/** Scene Z extent in meters (8 parcels × 16 m). Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = 128
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
