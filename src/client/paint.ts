@@ -286,8 +286,10 @@ const SNOW_FILL_STAGE_HEIGHT  = [0.5,   1.0,   CUBE_HEIGHT] as const
 const SNOW_FILL_TWEEN_MS      = 400
 
 // Snow-white material for the unpainted cube (independent of PALETTE_NONE
-// so resetting the palette does not affect the snow colour).
-const CUBE_GREY_MAT = cellMaterialFromColor(Color4.create(1, 1, 1, 1))
+// so resetting the palette does not affect the snow colour). Slight cool
+// bias (real snow picks up sky light) — reads as white but sits happier
+// against the dusk sky.
+const CUBE_GREY_MAT = cellMaterialFromColor(Color4.create(0.94, 0.96, 1.00, 1))
 
 type DropAnim = {
 	startY:      number

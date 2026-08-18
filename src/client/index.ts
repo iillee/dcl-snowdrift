@@ -42,6 +42,7 @@ import { setupCampfire } from 'src/client/campfire'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
+import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupTorch } from 'src/client/torch'
 import { setupUi } from 'src/client/ui'
@@ -141,6 +142,11 @@ export async function setupClient(): Promise<void> {
 	// frame while a drag is live and forwards to the camera. Cheap no-op
 	// when top-down is inactive.
 	engine.addSystem(dragPollSystem)
+
+	// Skybox first — asserts SkyboxTime on RootEntity before any other
+	// system has a chance to write it, and before the first rendered frame
+	// so we never flash the global time.
+	setupSkybox()
 
 	setupCampfire()
 	setupCampfireSmoke()
