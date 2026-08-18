@@ -2,9 +2,9 @@
  * paintGrid.ts — shared paint-cell coordinate math + CRDT network ids.
  *
  * Safe for client and server. Cell IDs stay
- * `${tx},${tz},${ty}:${col},${row}`. Each painted cell is its own
- * PaintCell CRDT component (sparse — created on first paint) so a write
- * never fans out sibling cells on a single write.
+ * `${tx},${tz},${ty}:${col},${row}`. Paint state is synced as one
+ * PaintTile CRDT component per (tx, tz, level) chunk carrying a packed
+ * byte per cell — see components.ts PaintTile.
  *
  * Resolution / maze extent knobs live in src/shared/settings.ts.
  */
@@ -34,12 +34,15 @@ export const PAINT_GRID_H    = MAZE_GRID_HEIGHT
 //   3100       PaintCoverage
 //   3101       ServerStats
 //   6000-6255  PaletteEntry
-//   100000+    PaintCell (created on first paint)
+//   200000+    PaintTile (one per (tx, tz, level), created on first write)
 export const SEED_NETWORK_ID        = 3000
 export const PALETTE_NETWORK_BASE   = 6000
 export const COVERAGE_NETWORK_ID    = 3100
 export const STATS_NETWORK_ID       = 3101
-export const CELL_NETWORK_BASE      = 100000
+export const TILE_NETWORK_BASE      = 200000
+
+// Number of paint cells packed into a single PaintTile.cells array.
+export const PAINT_CELLS_PER_TILE   = PAINT_SIZE * PAINT_SIZE
 
 
 export type CellCoord = {
@@ -156,27 +159,67 @@ export function cellKeyToCellId(key: number): string {
 }
 
 
-// MARK: cellNetworkId
+// MARK: splitCellKey
 
 /**
- * Stable syncEntity entityEnumId for a packed cell key (client + server).
- * With a fixed enum id, NetworkEntity stores { networkId: 0, entityId: this }.
+ * Decompose a packed cell key into its owning tile key + intra-tile
+ * cell ordinal (0..PAINT_CELLS_PER_TILE-1, = row * PAINT_SIZE + col).
+ * Relies on packCellKey layout: the low log2(PAINT_CELLS_PER_TILE) bits
+ * are the intra-tile ordinal.
  */
-export function cellNetworkId(key: number): number {
-	return CELL_NETWORK_BASE + key
+export function splitCellKey(cellKey: number): { tileKey: number; localIdx: number } {
+	const tileKey  = Math.floor(cellKey / PAINT_CELLS_PER_TILE)
+	const localIdx = cellKey - tileKey * PAINT_CELLS_PER_TILE
+	return { tileKey, localIdx }
 }
 
 
-// MARK: cellKeyFromNetworkId
+// MARK: joinCellKey
+
+/** Inverse of splitCellKey. */
+export function joinCellKey(tileKey: number, localIdx: number): number {
+	return tileKey * PAINT_CELLS_PER_TILE + localIdx
+}
+
+
+// MARK: tileNetworkId
 
 /**
- * Reverse of cellNetworkId — packed key from NetworkEntity.entityId
- * (the syncEntity entityEnumId). Null if outside the paint-cell band.
+ * Stable syncEntity entityEnumId for a tile key. With a fixed enum id,
+ * NetworkEntity stores { networkId: 0, entityId: this }.
  */
-export function cellKeyFromNetworkId(entityEnumId: number): number | null {
-	const key = entityEnumId - CELL_NETWORK_BASE
+export function tileNetworkId(tileKey: number): number {
+	return TILE_NETWORK_BASE + tileKey
+}
+
+
+// MARK: tileKeyFromNetworkId
+
+/** Reverse of tileNetworkId. Null if outside the paint-tile band. */
+export function tileKeyFromNetworkId(entityEnumId: number): number | null {
+	const key = entityEnumId - TILE_NETWORK_BASE
 	if (key < 0) return null
 	return key
+}
+
+
+// MARK: packCellByte
+
+/**
+ * Pack a cell's (index, stage) into a single byte for PaintTile.cells.
+ * index: 0..63 (6 bits), stage: 0..3 (2 bits). A zero byte means
+ * "unpainted, full snow" — the initial state of every cell.
+ */
+export function packCellByte(index: number, stage: number): number {
+	return ((index & 0x3F) << 2) | (stage & 0x3)
+}
+
+
+// MARK: unpackCellByte
+
+/** Inverse of packCellByte. */
+export function unpackCellByte(byte: number): { index: number; stage: number } {
+	return { index: (byte >> 2) & 0x3F, stage: byte & 0x3 }
 }
 
 
@@ -188,7 +231,7 @@ export function paintGridCapacity(): {
 	tiles:                 number
 	levels:                number
 	cellCapacity:          number
-	cellNetBase:           number
+	tileNetBase:           number
 	paletteNetBase:        number
 } {
 	const levels       = PAINT_MAX_LEVEL + 1
@@ -199,7 +242,7 @@ export function paintGridCapacity(): {
 		tiles,
 		levels,
 		cellCapacity,
-		cellNetBase:           CELL_NETWORK_BASE,
+		tileNetBase:           TILE_NETWORK_BASE,
 		paletteNetBase:        PALETTE_NETWORK_BASE,
 	}
 }

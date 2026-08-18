@@ -6,7 +6,7 @@ import { engine, Transform, MeshRenderer, Material, Entity, NetworkEntity, Tween
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 
 import { isInsideMeltRadius } from 'src/shared/campfire'
-import { PaintCell, PaletteEntry, PaintCoverage } from 'src/shared/components'
+import { PaintTile, PaletteEntry, PaintCoverage } from 'src/shared/components'
 import {
 	HI,
 	LO,
@@ -17,7 +17,14 @@ import {
 	rotateMask as sharedRotateMask,
 } from 'src/shared/maze/graph'
 import { TileType } from 'src/shared/maze/tiles'
-import { cellIdToKey, cellKeyFromNetworkId, cellKeyToCellId } from 'src/shared/paintGrid'
+import {
+	cellIdToKey,
+	cellKeyToCellId,
+	joinCellKey,
+	PAINT_CELLS_PER_TILE,
+	tileKeyFromNetworkId,
+	unpackCellByte,
+} from 'src/shared/paintGrid'
 import {
 	TEAM_COLORS,
 	PALETTE_NONE,
@@ -124,38 +131,64 @@ function syncPaletteFromCrdt(): void {
 
 // MARK: syncCellsFromCrdt
 
+// Shadow copy of the last-observed PaintTile byte array per tile entity.
+// We diff against this each frame instead of iterating every cell, so
+// steady-state cost is proportional to *changed* cells, not painted cells.
+const tileShadow = new Map<Entity, Uint8Array>()
+
 function syncCellsFromCrdt(): void {
-	for (const [entity, cell] of engine.getEntitiesWith(PaintCell)) {
+	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		const net = NetworkEntity.getOrNull(entity)
 		if (!net) continue
-		const key = cellKeyFromNetworkId(Number(net.entityId))
-		if (key === null) continue
-		const prev = cellApplied.get(key)
-		const nextStage = Math.max(0, Math.min(2, cell.stage | 0)) as 0 | 1 | 2
-		if (prev && prev.index === cell.index && prev.stage === nextStage) continue
-		const id = cellKeyToCellId(key)
+		const tileKey = tileKeyFromNetworkId(Number(net.entityId))
+		if (tileKey === null) continue
 
-		if (!prev || prev.index !== cell.index) {
-			// Palette flipped — either freshly melted (NONE→team) or the
-			// terminal server transition (team→NONE). applyPaintIndex owns
-			// the drop/rise tween + material swap.
-			applyPaintIndex(id, cell.index, false)
-			// Late-join hydrate: server may report a non-zero stage on the
-			// same wire message as the initial index (e.g. we joined into a
-			// mid-regrown cell). Push the rise-tween on top of the drop.
-			if (cell.index !== PALETTE_NONE && (nextStage === 1 || nextStage === 2)) {
-				advanceSnowFillStage(id, nextStage)
-			}
-		} else if (nextStage === 0) {
-			// Same team, stage reset to 0 — a melt refresh (campfire ring or
-			// player re-stamp). Force the cube back down to flat.
-			applyPaintIndex(id, cell.index, true)
-		} else {
-			// Same team, stage advanced (1 or 2). Rise-tween to that height.
-			advanceSnowFillStage(id, nextStage)
+		const incoming = tile.cells
+		if (!incoming || incoming.length === 0) continue
+
+		let shadow = tileShadow.get(entity)
+		if (!shadow || shadow.length !== incoming.length) {
+			// First observation of this tile — seed the shadow to zeros so
+			// every non-zero byte is treated as a change and dispatched.
+			shadow = new Uint8Array(incoming.length)
+			tileShadow.set(entity, shadow)
 		}
 
-		cellApplied.set(key, { index: cell.index, stage: nextStage })
+		const len = Math.min(incoming.length, PAINT_CELLS_PER_TILE)
+		for (let i = 0; i < len; i++) {
+			const byte = incoming[i] & 0xff
+			if (byte === shadow[i]) continue
+			shadow[i] = byte
+
+			const cellKey = joinCellKey(tileKey, i)
+			const { index, stage } = unpackCellByte(byte)
+			const nextStage = Math.max(0, Math.min(2, stage)) as 0 | 1 | 2
+			const prev = cellApplied.get(cellKey)
+			if (prev && prev.index === index && prev.stage === nextStage) continue
+			const id = cellKeyToCellId(cellKey)
+
+			if (!prev || prev.index !== index) {
+				// Palette flipped — either freshly melted (NONE→team) or the
+				// terminal server transition (team→NONE). applyPaintIndex
+				// owns the drop/rise tween + material swap.
+				applyPaintIndex(id, index, false)
+				// Late-join hydrate: server may report a non-zero stage in
+				// the same wire message as the initial index. Push the
+				// rise-tween on top of the drop.
+				if (index !== PALETTE_NONE && (nextStage === 1 || nextStage === 2)) {
+					advanceSnowFillStage(id, nextStage)
+				}
+			} else if (nextStage === 0) {
+				// Same team, stage reset to 0 — a melt refresh (campfire ring
+				// or player re-stamp). Force the cube back down to flat.
+				applyPaintIndex(id, index, true)
+			} else {
+				// Same team, stage advanced (1 or 2). Rise-tween to that height.
+				advanceSnowFillStage(id, nextStage)
+			}
+
+			cellApplied.set(cellKey, { index, stage: nextStage })
+		}
 	}
 }
 

@@ -1,20 +1,20 @@
 /**
- * paintState.ts — authoritative paint map as sparse PaintCell CRDT + palette.
+ * paintState.ts — authoritative paint map as chunked PaintTile CRDT + palette.
  *
  * Clients send cell ids via paintTick. Server interns the sender's team
- * Color4 into the palette, writes a Byte index into a per-cell PaintCell
- * component (created on first paint), and publishes coverage on
- * PaintCoverage. No room-message state sync.
+ * Color4 into the palette, writes a packed byte into the owning tile
+ * buffer (see paintSync.writeCellByte), and publishes coverage on
+ * PaintCoverage. Dirty tiles are flushed once per server tick from
+ * server.ts via flushDirtyPaintTiles(). No room-message state sync.
  */
 
 import { Color4 } from '@dcl/sdk/math'
 
 import {
-	PaintCell,
 	PaletteEntry,
 	PaintCoverage,
 } from 'src/shared/components'
-import { cellIdToKey } from 'src/shared/paintGrid'
+import { cellIdToKey, packCellByte } from 'src/shared/paintGrid'
 import {
 	colorKey,
 	teamColor,
@@ -26,10 +26,10 @@ import {
 	TEAM_COLORS,
 } from 'src/shared/palette'
 import {
-	ensurePaintCellEntity,
 	ensurePaletteEntity,
-	eachPaintCellEntity,
 	getPaintCoverageEntity,
+	writeCellByte,
+	zeroAllPaintTiles,
 } from 'src/shared/paintSync'
 import { Team } from 'src/shared/team'
 
@@ -231,11 +231,9 @@ function writeCellComponent(id: string, index: number, stage: number): boolean {
 		// Invalid brush edge / ramp index — drop quietly (client also filters).
 		return false
 	}
-	const entity = ensurePaintCellEntity(key)
-	const cur    = PaintCell.getOrNull(entity)
-	if (cur?.index === index && cur?.stage === stage) return true
-	PaintCell.createOrReplace(entity, { index, stage })
-	noteComponentChange(1)
+	const byte    = packCellByte(index, stage)
+	const changed = writeCellByte(key, byte)
+	if (changed) noteComponentChange(1)
 	return true
 }
 
@@ -287,12 +285,10 @@ export function publishCoverage(): void {
  * Palette entries are kept (stable indexes across rounds).
  */
 export function clearAll(): void {
+	const cleared = cellState.size
 	cellState.clear()
-	let cleared = 0
-	for (const [, entity] of eachPaintCellEntity()) {
-		PaintCell.createOrReplace(entity, { index: PALETTE_NONE, stage: 0 })
-		cleared++
-	}
+	protectedCells.clear()
+	zeroAllPaintTiles()
 	if (cleared > 0) noteComponentChange(cleared)
 	coverageDirty = true
 	publishCoverage()

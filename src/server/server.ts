@@ -6,7 +6,7 @@
  * + WS message handling.
  *
  * Current responsibilities: roster/team assignment, authoritative paint
- * state (sparse PaintCell CRDT + palette), coverage CRDT publish.
+ * state (chunked PaintTile CRDT + palette), coverage CRDT publish.
  *
  * Paint *state* syncs via CRDT; paintTick is the client→server command
  * channel.
@@ -17,7 +17,7 @@ import { myProfile } from '@dcl/sdk/network'
 
 import { room } from 'src/shared/messages'
 import { paintGridCapacity } from 'src/shared/paintGrid'
-import { initPaintSync, paintCellEntityCount, relinkPaintSync } from 'src/shared/paintSync'
+import { flushDirtyPaintTiles, initPaintSync, paintedCellCount, paintTileEntityCount, relinkPaintSync } from 'src/shared/paintSync'
 import {
 	PAINT_COVERAGE_PUBLISH_HZ,
 	PAINT_TICK_MAX_IDS,
@@ -130,7 +130,7 @@ export async function setupServer(): Promise<void> {
 		`[Server] paint grid: ${paintCap.cellCapacity} cell slots ` +
 		`(${paintCap.paintCellsPerTileAxis}×${paintCap.paintCellsPerTileAxis}/tile × ` +
 		`${paintCap.tiles} tiles × ${paintCap.levels} levels); ` +
-		`PaintCell networkIds ${paintCap.cellNetBase}+`
+		`PaintTile networkIds ${paintCap.tileNetBase}+`
 	)
 	initPaintSync()
 	seedTeamPalette()
@@ -247,6 +247,13 @@ export async function setupServer(): Promise<void> {
 		tickRegrowth(elapsedMs, level)
 	})
 
+	// Dirty-tile flush — runs every engine tick, after all applyPaint /
+	// tickRegrowth / ring-refresh mutations have queued their byte writes.
+	// One CRDT publish per touched tile per frame, instead of one per cell.
+	engine.addSystem(() => {
+		flushDirtyPaintTiles()
+	})
+
 	// Coverage publish tick. Coalesces cell mutations into a single
 	// PaintCoverage CRDT write — not a room broadcast.
 	const COVERAGE_INTERVAL = 1 / PAINT_COVERAGE_PUBLISH_HZ
@@ -274,7 +281,7 @@ export async function setupServer(): Promise<void> {
 					`[Server] paintTick ${PAINT_SUMMARY_INTERVAL_S}s: ` +
 					`ticks=${paintTicks} ids=${paintIdsIn} applied=${paintApplied} ` +
 					`droppedCap=${paintDroppedCap} droppedTeam=${paintDroppedTeam} ` +
-					`paintCells=${paintCellEntityCount()}`
+					`paintCells=${paintedCellCount()} tiles=${paintTileEntityCount()}`
 				)
 				paintTicks       = 0
 				paintIdsIn       = 0
@@ -288,7 +295,7 @@ export async function setupServer(): Promise<void> {
 		heartbeatClock = 0
 		const c = coverage()
 		console.log(
-			`[Server] alive roster=${rosterSize()} cells=${paintCellEntityCount()} ` +
+			`[Server] alive roster=${rosterSize()} cells=${paintedCellCount()} tiles=${paintTileEntityCount()} ` +
 			`coverage=red=${c.red}/blue=${c.blue}/total=${c.total} ` +
 			`profileReady=${!!myProfile?.networkId}`
 		)
@@ -296,7 +303,7 @@ export async function setupServer(): Promise<void> {
 
 	console.log(
 		'[Server] Ready — listening for joinRoster, paintTick; ' +
-		'paint state via sparse PaintCell CRDT. ' +
+		'paint state via chunked PaintTile CRDT. ' +
 		`heartbeat every ${HEARTBEAT_INTERVAL_S}s.`
 	)
 }
