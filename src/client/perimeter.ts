@@ -22,8 +22,10 @@
 import { engine, ColliderLayer, GltfContainer, Transform } from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { isInsideCliffBuffer } from 'src/shared/campfire'
 import { TILES, TileType } from 'src/shared/maze/tiles'
 import {
+	isInsidePlayfield,
 	MAZE_PLAYFIELD_METERS,
 	MAZE_TILE_WORLD_METERS,
 	SCENE_WORLD_SIZE_X_METERS,
@@ -126,6 +128,99 @@ function spawnPerimTile(type: TileType, sx: number, sz: number, r: number): void
  * so the L wraps the corner (walls face outward). Occasional forks give
  * the perimeter a broken/organic silhouette without ruining alignment.
  */
+/**
+ * Cardinal direction of an edge along the perimeter — used to route
+ * fork spurs and their end-cap tiles inward regardless of which side
+ * of the ring we are currently laying down.
+ */
+type Edge = 'S' | 'N' | 'W' | 'E'
+
+
+// MARK: spawnEdgeTile
+/**
+ * Place one edge tile at `slot` position along `edge`. If a fork, also
+ * places an `end` tile one perimeter-tile-width inward so the fork's
+ * spur is capped rather than opening into empty scene space. End tiles
+ * intentionally protrude past the perimeter ring into the interior —
+ * this is the seed of the "canyons reaching into the playfield" idea:
+ * a dead-end pocket the smaller snow tiles can fill around.
+ *
+ * @param edge  which side of the perimeter this slot sits on.
+ * @param slot  linear position along the edge (world meters from the
+ *              near corner, SW-corner-before-rotation convention).
+ * @param type  'straight' | 'fork' (other types are legal but not
+ *              currently emitted here).
+ */
+function spawnEdgeTile(edge: Edge, slot: number, type: TileType): void {
+	// --- Base tile placement ---
+	// Straight rotations run the corridor parallel to the edge.
+	// Fork rotations point the spur INWARD (see the r values below).
+	const straightR = (edge === 'S' || edge === 'N') ? 1 : 0
+	const forkR: Record<Edge, number> = { S: 1, N: 3, W: 2, E: 0 }
+
+	// End-cap offset + rotation per edge. Kept outside the fork branch
+	// below so the buffer check can consult the cap position too.
+	const capOffset: Record<Edge, [number, number]> = {
+		S: [0,  PERIM_TILE_METERS],  // south edge → cap further N
+		N: [0, -PERIM_TILE_METERS],  // north edge → cap further S
+		W: [ PERIM_TILE_METERS, 0],  // west edge  → cap further E
+		E: [-PERIM_TILE_METERS, 0],  // east edge  → cap further W
+	}
+	const capR: Record<Edge, number> = { S: 2, N: 0, W: 3, E: 1 }
+
+	const [sx, sz] = edgeSlotWorld(edge, slot)
+
+	// If this would be a fork, check whether its end-cap would either
+	// (a) intrude into the campfire's cliff exclusion zone, or
+	// (b) overlap the snow-tile playfield (which is authoritative in
+	//     its own rectangle — cliff bump-ins must live in the empty
+	//     ring between playfield and perimeter).
+	// Cap centre is the tile SW-corner plus (PERIM_TILE_METERS / 2) on
+	// both axes. Downgrade to a straight in either case — straights
+	// have no inward opening and don't need a cap.
+	let effectiveType = type
+	if (effectiveType === 'fork') {
+		const [dcx, dcz] = capOffset[edge]
+		const capCenterX = sx + dcx + PERIM_TILE_METERS / 2
+		const capCenterZ = sz + dcz + PERIM_TILE_METERS / 2
+		if (isInsideCliffBuffer(capCenterX, capCenterZ)
+		 || isInsidePlayfield(capCenterX, capCenterZ)) {
+			effectiveType = 'straight'
+		}
+	}
+
+	const r = effectiveType === 'fork' ? forkR[edge] : straightR
+	spawnPerimTile(effectiveType, sx, sz, r)
+
+	if (effectiveType !== 'fork') return
+
+	// --- End-cap placement ---
+	// Sits one perimeter-tile-width further inward. End's single opening
+	// faces the fork so their opening walls meet; end's other three
+	// sides are cliff, closing the passage.
+	const [cx, cz] = capOffset[edge]
+	spawnPerimTile('end', sx + cx, sz + cz, capR[edge])
+}
+
+
+// MARK: edgeSlotWorld
+/**
+ * Convert an (edge, slot) pair to the world (sx, sz) SW-corner-before-
+ * rotation position used by spawnPerimTile. `slot` is measured in
+ * world meters from the near corner along the edge; the perpendicular
+ * axis is pinned to CORNER_NEAR_X/Z or CORNER_FAR_X/Z as appropriate.
+ */
+function edgeSlotWorld(edge: Edge, slot: number): [number, number] {
+	switch (edge) {
+		case 'S': return [slot,          CORNER_NEAR_Z]
+		case 'N': return [slot,          CORNER_FAR_Z]
+		case 'W': return [CORNER_NEAR_X, slot]
+		case 'E': return [CORNER_FAR_X,  slot]
+	}
+}
+
+
+// MARK: setupPerimeter
 export function setupPerimeter(): void {
 	// --- 4 corners ---
 	// turn at r=0 has openings [N, E]  → walls face S and W (SW corner).
@@ -137,11 +232,20 @@ export function setupPerimeter(): void {
 	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_FAR_Z,  2)  // NE
 	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_NEAR_Z, 3)  // SE
 
-	// --- Edges: 2 tiles per side between the corners ---
-	// Edge tiles tile inward from the corner at PERIM_TILE_METERS stride.
-	// For a 256 m scene with 64 m corners that leaves 128 m of edge span
-	// = exactly 2 perimeter tiles per side, symmetric about scene centre.
-	const edgeSlots = [PERIM_TILE_METERS, PERIM_TILE_METERS * 2]
+	// --- Edges: derive slot count from scene size so growth in
+	// SCENE_WORLD_SIZE_X/Z_METERS auto-fills the ring instead of
+	// leaving gaps in the middle of each side. Total span between
+	// the two corners is (SCENE - 2 * PERIM_TILE); slots start at
+	// PERIM_TILE (just inside the near corner) and step by one
+	// perimeter tile each.
+	const numEdgeSlots = Math.max(
+		0,
+		Math.floor((SCENE_WORLD_SIZE_X_METERS - 2 * PERIM_TILE_METERS) / PERIM_TILE_METERS),
+	)
+	const edgeSlots: number[] = []
+	for (let i = 0; i < numEdgeSlots; i++) {
+		edgeSlots.push(PERIM_TILE_METERS * (i + 1))
+	}
 
 	// Deterministic fork counter so every client places forks at the
 	// same slots — no seed, no sync.
@@ -152,30 +256,19 @@ export function setupPerimeter(): void {
 		return t
 	}
 
-	for (const x of edgeSlots) {
-		// South edge: straight at r=1 → openings [E, W]; fork at r=1 →
-		// [E, S, N] (spur points north, inward toward the playfield).
-		const tS = pickType()
-		spawnPerimTile(tS, x, CORNER_NEAR_Z, 1)
-		// North edge: straight at r=1; fork at r=3 → [W, N, S] (spur
-		// points south, inward).
-		const tN = pickType()
-		spawnPerimTile(tN, x, CORNER_FAR_Z, tN === 'fork' ? 3 : 1)
+	for (const s of edgeSlots) {
+		spawnEdgeTile('S', s, pickType())
+		spawnEdgeTile('N', s, pickType())
 	}
-	for (const z of edgeSlots) {
-		// West edge: straight at r=0 → openings [N, S]; fork at r=2 →
-		// [S, W, E] (spur points east, inward).
-		const tW = pickType()
-		spawnPerimTile(tW, CORNER_NEAR_X, z, tW === 'fork' ? 2 : 0)
-		// East edge: straight at r=0; fork at r=0 → [N, S, W] (spur
-		// points west, inward).
-		const tE = pickType()
-		spawnPerimTile(tE, CORNER_FAR_X, z, 0)
+	for (const s of edgeSlots) {
+		spawnEdgeTile('W', s, pickType())
+		spawnEdgeTile('E', s, pickType())
 	}
 
 	console.log(
 		`perimeter: setupPerimeter: ring built ` +
 		`(playfield ${MAZE_PLAYFIELD_METERS}m centred in ${SCENE_WORLD_SIZE_X_METERS}m scene, ` +
+		`${numEdgeSlots} edge tiles per side, ` +
 		`tile scale ${PERIM_SCALE}× = ${PERIM_TILE_METERS}m/tile)`
 	)
 }

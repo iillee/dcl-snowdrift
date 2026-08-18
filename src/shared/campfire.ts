@@ -31,6 +31,30 @@ export const CAMPFIRE_MELT_RADIUS_M   = CAMPFIRE_MELT_DIAMETER_M / 2
 export const CAMPFIRE_MELT_RADIUS_SQ_M = CAMPFIRE_MELT_RADIUS_M * CAMPFIRE_MELT_RADIUS_M
 
 
+// MARK: Cliff buffer
+/**
+ * Radius around the campfire that no cliff / perimeter geometry may
+ * intrude into. Keeps a comfortable clearing around the rally point so
+ * fork end-caps (and future canyon extensions) never crowd the fire on
+ * small scenes.
+ */
+export const CAMPFIRE_CLIFF_BUFFER_M    = 64
+export const CAMPFIRE_CLIFF_BUFFER_SQ_M = CAMPFIRE_CLIFF_BUFFER_M * CAMPFIRE_CLIFF_BUFFER_M
+
+
+// MARK: isInsideCliffBuffer
+/**
+ * True when a world (x, z) sits inside the campfire's cliff exclusion
+ * zone. Perimeter placement uses this to skip end-caps / fork spurs
+ * that would land too close to the fire.
+ */
+export function isInsideCliffBuffer(worldX: number, worldZ: number): boolean {
+	const dx = worldX - CAMPFIRE_WORLD_X
+	const dz = worldZ - CAMPFIRE_WORLD_Z
+	return dx * dx + dz * dz <= CAMPFIRE_CLIFF_BUFFER_SQ_M
+}
+
+
 // MARK: isInsideMeltRadius
 /**
  * Cheap point-in-circle test for arbitrary world coordinates.
