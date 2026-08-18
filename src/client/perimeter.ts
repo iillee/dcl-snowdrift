@@ -24,7 +24,6 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { TILES, TileType } from 'src/shared/maze/tiles'
 import {
-	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_PLAYFIELD_METERS,
 	MAZE_TILE_WORLD_METERS,
 	SCENE_WORLD_SIZE_X_METERS,
@@ -33,9 +32,24 @@ import {
 
 
 // MARK: Tuning
-// Uniform scale applied to every perimeter tile GLB. 4 = one perimeter
+// Horizontal scale applied to every perimeter tile GLB. 4 = one perimeter
 // tile spans 64 m (4 parcels), matching the width of the perimeter ring.
-const PERIM_SCALE  = 4
+const PERIM_SCALE   = 4
+// Vertical scale — taller than wide so the cliff wall reads as a real
+// horizon silhouette instead of a squat 4× tile.
+const PERIM_SCALE_Y = 25
+// Perimeter tiles use the non-`-full` GLB variants — the `-full` meshes
+// are authored for the interior maze and read wrong at 4× scale. The
+// interior maze still pulls its models from `TILES[type].model`; this
+// override is perimeter-local only.
+const PERIM_MODELS: Record<TileType, string> = {
+	end:      'assets/models/tile-end.glb',
+	straight: 'assets/models/tile-straight.glb',
+	turn:     'assets/models/tile-turn.glb',
+	fork:     'assets/models/tile-fork.glb',
+	cross:    'assets/models/tile-cross.glb',
+	ramp:     'assets/models/tile-ramp.glb',
+}
 // Y for the tile base. Match the interior maze's tile Y (0) so the two
 // systems sit on the same floor plane.
 const PERIM_Y      = 0
@@ -50,15 +64,18 @@ const FORK_EVERY_N = 3
 /** World size of one perimeter tile after scaling. */
 const PERIM_TILE_METERS = MAZE_TILE_WORLD_METERS * PERIM_SCALE
 
-/** Interior playfield bounds in scene world coords. */
-const INT_MIN_X = MAZE_ORIGIN_OFFSET_METERS
-const INT_MIN_Z = MAZE_ORIGIN_OFFSET_METERS
-const INT_MAX_X = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
-const INT_MAX_Z = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
-
-/** Perimeter ring inner edge = interior outer edge. */
-const RING_OUT_X = SCENE_WORLD_SIZE_X_METERS
-const RING_OUT_Z = SCENE_WORLD_SIZE_Z_METERS
+/**
+ * Perimeter ring is anchored to the SCENE, not the interior. Corners
+ * always sit at the scene corners; edges tile inward from there. Any
+ * mismatch between (scene - playfield) / 2 and PERIM_TILE_METERS shows
+ * up as a symmetric interior/perimeter overlap, which is the intended
+ * read at the current playfield size (160 m in a 256 m scene = 16 m
+ * overlap per side).
+ */
+const CORNER_NEAR_X = 0
+const CORNER_NEAR_Z = 0
+const CORNER_FAR_X  = SCENE_WORLD_SIZE_X_METERS - PERIM_TILE_METERS
+const CORNER_FAR_Z  = SCENE_WORLD_SIZE_Z_METERS - PERIM_TILE_METERS
 
 
 // MARK: Rotation helper
@@ -88,10 +105,10 @@ function spawnPerimTile(type: TileType, sx: number, sz: number, r: number): void
 	Transform.create(e, {
 		position: Vector3.create(sx + dx, PERIM_Y, sz + dz),
 		rotation: Quaternion.fromEulerDegrees(0, r * 90, 0),
-		scale:    Vector3.create(PERIM_SCALE, PERIM_SCALE, PERIM_SCALE),
+		scale:    Vector3.create(PERIM_SCALE, PERIM_SCALE_Y, PERIM_SCALE),
 	})
 	GltfContainer.create(e, {
-		src:                          TILES[type].model,
+		src:                          PERIM_MODELS[type],
 		visibleMeshesCollisionMask:   ColliderLayer.CL_PHYSICS,
 		invisibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
 	})
@@ -115,15 +132,16 @@ export function setupPerimeter(): void {
 	// r=1 → [E, S] (NW corner: walls N + W).
 	// r=2 → [S, W] (NE corner: walls N + E).
 	// r=3 → [W, N] (SE corner: walls S + E).
-	spawnPerimTile('turn', 0,               0,               0)  // SW
-	spawnPerimTile('turn', 0,               INT_MAX_Z,       1)  // NW
-	spawnPerimTile('turn', INT_MAX_X,       INT_MAX_Z,       2)  // NE
-	spawnPerimTile('turn', INT_MAX_X,       0,               3)  // SE
+	spawnPerimTile('turn', CORNER_NEAR_X, CORNER_NEAR_Z, 0)  // SW
+	spawnPerimTile('turn', CORNER_NEAR_X, CORNER_FAR_Z,  1)  // NW
+	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_FAR_Z,  2)  // NE
+	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_NEAR_Z, 3)  // SE
 
 	// --- Edges: 2 tiles per side between the corners ---
-	// Interior spans INT_MIN..INT_MAX; edge tiles sit at PERIM_TILE_METERS
-	// stride starting one perimeter-tile in from the corner.
-	const edgeSlots = [INT_MIN_X, INT_MIN_X + PERIM_TILE_METERS]
+	// Edge tiles tile inward from the corner at PERIM_TILE_METERS stride.
+	// For a 256 m scene with 64 m corners that leaves 128 m of edge span
+	// = exactly 2 perimeter tiles per side, symmetric about scene centre.
+	const edgeSlots = [PERIM_TILE_METERS, PERIM_TILE_METERS * 2]
 
 	// Deterministic fork counter so every client places forks at the
 	// same slots — no seed, no sync.
@@ -135,22 +153,24 @@ export function setupPerimeter(): void {
 	}
 
 	for (const x of edgeSlots) {
-		// South edge: straight at r=1 → openings [E, W]; fork at r=3 →
-		// [W, E, S] (spur points south, outward).
+		// South edge: straight at r=1 → openings [E, W]; fork at r=1 →
+		// [E, S, N] (spur points north, inward toward the playfield).
 		const tS = pickType()
-		spawnPerimTile(tS, x, 0, tS === 'fork' ? 3 : 1)
-		// North edge: straight at r=1; fork at r=1 → [E, W, N] (spur out).
+		spawnPerimTile(tS, x, CORNER_NEAR_Z, 1)
+		// North edge: straight at r=1; fork at r=3 → [W, N, S] (spur
+		// points south, inward).
 		const tN = pickType()
-		spawnPerimTile(tN, x, INT_MAX_Z, tN === 'fork' ? 1 : 1)
+		spawnPerimTile(tN, x, CORNER_FAR_Z, tN === 'fork' ? 3 : 1)
 	}
 	for (const z of edgeSlots) {
-		// West edge: straight at r=0 → openings [N, S]; fork at r=0 →
-		// [N, S, W] (spur points west, outward).
+		// West edge: straight at r=0 → openings [N, S]; fork at r=2 →
+		// [S, W, E] (spur points east, inward).
 		const tW = pickType()
-		spawnPerimTile(tW, 0, z, 0)
-		// East edge: straight at r=0; fork at r=2 → [S, N, E] (spur out).
+		spawnPerimTile(tW, CORNER_NEAR_X, z, tW === 'fork' ? 2 : 0)
+		// East edge: straight at r=0; fork at r=0 → [N, S, W] (spur
+		// points west, inward).
 		const tE = pickType()
-		spawnPerimTile(tE, INT_MAX_X, z, tE === 'fork' ? 2 : 0)
+		spawnPerimTile(tE, CORNER_FAR_X, z, 0)
 	}
 
 	console.log(
@@ -161,8 +181,3 @@ export function setupPerimeter(): void {
 }
 
 
-// Note: RING_OUT_X / RING_OUT_Z retained above for future perimeter
-// extensions (multi-thick rings, exterior scatter clamp). Silence
-// unused-warning for now.
-void RING_OUT_X
-void RING_OUT_Z

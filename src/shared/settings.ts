@@ -73,7 +73,7 @@ export const SCENE_WORLD_SIZE_Z_METERS = 256
  * grows or shrinks, adjust here AND MAZE_ORIGIN_OFFSET_METERS below so
  * the playfield stays centred in the scene.
  */
-export const MAZE_PLAYFIELD_METERS = 128
+export const MAZE_PLAYFIELD_METERS = 160
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific

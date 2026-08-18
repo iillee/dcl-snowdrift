@@ -15,6 +15,20 @@
 import { AudioSource, Entity, Transform, engine } from '@dcl/sdk/ecs'
 
 import { getSnowStageAtWorld } from 'src/client/paint'
+import {
+	MAZE_ORIGIN_OFFSET_METERS,
+	MAZE_PLAYFIELD_METERS,
+} from 'src/shared/settings'
+
+
+// MARK: Playfield bounds
+// Interior playfield in scene world coords. Outside these bounds we are
+// standing on the perimeter cliffs, not snow — treat as stage 0 so the
+// crunch SFX stays silent. Mirrors the same gate in locomotion.ts.
+const PLAYFIELD_MIN_X = MAZE_ORIGIN_OFFSET_METERS
+const PLAYFIELD_MIN_Z = MAZE_ORIGIN_OFFSET_METERS
+const PLAYFIELD_MAX_X = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
+const PLAYFIELD_MAX_Z = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
 
 
 // MARK: Tuning
@@ -118,6 +132,16 @@ export function setupSnowFootsteps(): void {
 		// Idle: reset accumulator so a stationary player does not have a
 		// pent-up step waiting to fire the moment they nudge again.
 		if (speed < IDLE_SPEED_MPS) {
+			distAccumM = 0
+			return
+		}
+
+		// Outside the interior playfield we are on the perimeter cliffs,
+		// which are stone, not snow — no crunch.
+		const inPlayfield =
+			x >= PLAYFIELD_MIN_X && x <= PLAYFIELD_MAX_X &&
+			z >= PLAYFIELD_MIN_Z && z <= PLAYFIELD_MAX_Z
+		if (!inPlayfield) {
 			distAccumM = 0
 			return
 		}
