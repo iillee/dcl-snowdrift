@@ -154,10 +154,11 @@ export async function setupClient(): Promise<void> {
 	// dusk fixed value.
 	// setupSkybox()
 
-	// Perimeter cliffs — scaled maze tiles wrapping the interior playfield.
-	// Purely visual + physical boundary, no gameplay interaction.
-	setupPerimeter()
-
+	// Campfire + its VFX/audio come FIRST so they claim the initial
+	// asset-load bandwidth. The player spawns next to the fire and needs
+	// it visible on the first frame; perimeter cliffs are large 4x-scale
+	// GLBs at scene edges that the player won't see for several seconds
+	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
 	setupSnowfall()
@@ -168,4 +169,20 @@ export async function setupClient(): Promise<void> {
 	setupTorch()
 
 	setupUi()
+
+	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior
+	// playfield. Deferred by PERIMETER_SPAWN_DELAY_S so campfire, maze
+	// centre ring, and player-spawn assets get first crack at the asset
+	// loader. The player will not see the cliffs until they walk far
+	// enough that the maze centre is comfortably resolved anyway.
+	const PERIMETER_SPAWN_DELAY_S = 3
+	let perimAccum = 0
+	let perimDone  = false
+	engine.addSystem((dt: number) => {
+		if (perimDone) return
+		perimAccum += dt
+		if (perimAccum < PERIMETER_SPAWN_DELAY_S) return
+		perimDone = true
+		setupPerimeter()
+	})
 }
