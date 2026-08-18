@@ -47,6 +47,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
+import { registerTile, unregisterTile } from 'src/client/paintStreaming'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
 export { Team } from 'src/shared/team'
@@ -422,7 +423,18 @@ export function clearAllPaintState() {
 	paintOutbox.clear()
 }
 
-export function removePaintForTile(tileEntity: Entity) {
+/**
+ * Tear down the paint-cell entities for a tile without touching the
+ * streaming registry. Used by both:
+ *   - `removePaintForTile` — full teardown at tile removal, then unregisters.
+ *   - The streaming despawn callback — cells go away but the registry
+ *     entry stays so the tile can respawn when a player re-enters range.
+ *
+ * `cellApplied` is intentionally cleared too — on respawn, the shadow
+ * diff in `syncCellsFromCrdt` re-dispatches any non-zero PaintTile bytes
+ * (see `markTileForReseed` below).
+ */
+export function removePaintForTileEntitiesOnly(tileEntity: Entity) {
 	const rec = paintByTile.get(tileEntity)
 	if (!rec) return
 	for (const e of rec.entities) engine.removeEntity(e)
@@ -435,6 +447,15 @@ export function removePaintForTile(tileEntity: Entity) {
 		if (key !== null) cellApplied.delete(key)
 	}
 	paintByTile.delete(tileEntity)
+}
+
+/**
+ * Full teardown: entities + streaming registry. Called by rebuild.ts on
+ * tile removal (round rebuild, generator reset).
+ */
+export function removePaintForTile(tileEntity: Entity) {
+	removePaintForTileEntitiesOnly(tileEntity)
+	unregisterTile(tileEntity)
 }
 
 /**
@@ -544,22 +565,51 @@ export function applyPaintIndex(id: string, index: number, force: boolean): void
 }
 
 // MARK: Spawn cells
-// Called from index.ts after a tile is placed. `tileType` selects the mask,
-// `r` rotates it, and (tx, tz, ty) locate the tile in the maze grid.
+// Called from rebuild.ts after a tile is placed. Registers the tile with
+// the streaming module; the streaming gate decides when to actually
+// spawn cells based on player-distance. The registered spawn callback
+// still defers by SPAWN_DELAY_MS so cells appear after the tile's
+// grow-in tween on first spawn.
+//
+// `alwaysSpawned` — set true for tiles that must never despawn (spawn
+// area / instant-spawn ring). Currently wired from rebuild.ts based on
+// the same `INSTANT_SPAWN_ORDER_MAX` threshold used for the grow-in
+// tween. Optional; defaults to false.
 export function spawnCellsForTile(
   tileType: string,
   r: number,
   tx: number, tz: number, ty: number,
   CELL: number, STEP: number,
-  tileEntity: Entity
+  tileEntity: Entity,
+  alwaysSpawned: boolean = false,
 ) {
   const raw = MASKS[tileType as TileType]
   if (!raw) return // designer hasn't authored this tile's mask yet
-  // Defer the actual spawn so cells appear after the GLB's grow-in tween.
-  deferredSpawns.push({
-    dueMs: spawnClockMs + SPAWN_DELAY_MS,
-    run: () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
-  })
+
+  // Tile centre in scene world coords — used by the streaming gate to
+  // measure player-distance.
+  const centerX = tx * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
+  const centerZ = tz * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
+
+  const spawnFn = () => {
+    // Defer so cells appear after the tile GLB's grow-in tween. On a
+    // streaming re-spawn (player walked back into range) the tile GLB
+    // is already at full scale so the delay is cosmetic; kept uniform
+    // for simplicity.
+    deferredSpawns.push({
+      dueMs: spawnClockMs + SPAWN_DELAY_MS,
+      run:   () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
+    })
+  }
+
+  const despawnFn = () => {
+    // Reuses the same teardown path as full-tile removal. Cells are
+    // removed but the tile GLB and its registry entry persist so the
+    // streaming gate can re-spawn on re-entry.
+    removePaintForTileEntitiesOnly(tileEntity)
+  }
+
+  registerTile(tileEntity, centerX, centerZ, alwaysSpawned, spawnFn, despawnFn)
 }
 
 function spawnCellsForTileImmediate(
