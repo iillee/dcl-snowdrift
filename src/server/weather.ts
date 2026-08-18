@@ -98,6 +98,16 @@ function applyLevel(level: number): void {
 }
 
 
+// MARK: getCurrentWeatherLevel
+/**
+ * Read the active precipitation level (0..3). Used by the paint
+ * regrowth tick so snow re-buries at the correct cadence.
+ */
+export function getCurrentWeatherLevel(): number {
+	return currentLevel
+}
+
+
 // MARK: sendCurrentWeatherTo
 /**
  * Send the current weather level to a specific client. Called from

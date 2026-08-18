@@ -41,7 +41,7 @@ const GOLD     = Color4.create(1.0, 0.84, 0.0, 1)
 const DPAD_BTN         = 72
 const DPAD_GAP         = 8
 const DPAD_MARGIN_RIGHT = 32
-const DPAD_MARGIN_BOTTOM = 220  // above the native mobile action buttons
+const DPAD_MARGIN_BOTTOM = 360  // above the native mobile action buttons
 
 // Vertical inset at the top of the drag catcher so it never covers the
 // top-center action bar (see layer.brushSize.tsx: top margin 32 + 72 px

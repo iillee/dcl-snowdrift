@@ -128,16 +128,16 @@
               "y": 0.19210337102413177,
               "z": 60.597286224365234
             },
+            "scale": {
+              "x": 1,
+              "y": 2,
+              "z": 2
+            },
             "rotation": {
               "x": 0,
               "y": 0.38516339659690857,
               "z": 0,
               "w": 0.9228484034538269
-            },
-            "scale": {
-              "x": 1,
-              "y": 2,
-              "z": 2
             },
             "parent": 0
           }
@@ -149,16 +149,16 @@
               "y": 0.19339224696159363,
               "z": 60.597286224365234
             },
+            "scale": {
+              "x": 1,
+              "y": 2,
+              "z": 2
+            },
             "rotation": {
               "x": 0,
               "y": -0.2681190073490143,
               "z": 0,
               "w": 0.963385820388794
-            },
-            "scale": {
-              "x": 1,
-              "y": 2,
-              "z": 2
             },
             "parent": 0
           }
@@ -362,9 +362,9 @@
         "serializationType": "map"
       },
       "data": {
-        "66049": {
+        "0": {
           "json": {
-            "gizmo": 1
+            "gizmo": 0
           }
         }
       }
@@ -1291,7 +1291,7 @@
           "json": {
             "name": "Snow Drift",
             "description": "A cozy multiplayer survival hangout. Melt snow, gather wood, feed the fire, stay warm together.",
-            "thumbnail": "assets/images/scene-thumbnail.png",
+            "thumbnail": "assets/images/snowdrift.png",
             "categories": [],
             "author": "ile",
             "email": "",
@@ -1599,7 +1599,7 @@
             "skyboxConfig": {},
             "creator": "0x1e93e534c5e26b01ed242410b43ae23dd0faa52b",
             "disableNearbyVoiceChat": false,
-            "hideLandscapeTerrain": false
+            "hideLandscapeTerrain": true
           }
         }
       }

@@ -5,7 +5,7 @@
  * before main() seals the engine.
  *
  * Schemas are shared. Server-owned entities (PaintCoverage,
- * PaletteEntry, PaintCell) are created + syncEntity'd only on the server.
+ * PaletteEntry, PaintTile) are created + syncEntity'd only on the server.
  * Clients observe replicas — they must not syncEntity those.
  *
  * SeedHolder remains client-authored until seed ownership moves server-side.
@@ -18,9 +18,24 @@ export const SeedHolder = engine.defineComponent('maze::seed-holder', { seed: Sc
 export const seedHolder = engine.addEntity()
 SeedHolder.create(seedHolder, { seed: 0 })
 
-// MARK: PaintCell
-export const PaintCell = engine.defineComponent('paint::cell', {
-	index: Schemas.Byte,
+// MARK: PaintTile
+// A single synced entity carries the packed state of ALL cells inside
+// one (tx, tz, level) tile chunk. This replaces the previous 1-entity-
+// per-painted-cell design that overwhelmed the CRDT transport once
+// coverage exceeded a few hundred cells.
+//
+// cells[i] byte layout:
+//   bits 0..1 = stage (0..2). Stage 3 (full snow) is represented by
+//               setting index back to 0 and clearing stage — never
+//               written explicitly, matching the old per-cell contract.
+//   bits 2..7 = palette index (0..MAX_PALETTE_INDEX = 63).
+// A zero byte means "unpainted, full snow" — the natural initial state
+// of a freshly-created tile buffer.
+//
+// Local cell index inside the array is `row * PAINT_SIZE + col`, matching
+// packCellKey()'s intra-tile ordinal (see paintGrid.ts splitCellKey).
+export const PaintTile = engine.defineComponent('paint::tile', {
+	cells: Schemas.Array(Schemas.Byte),
 })
 
 // MARK: PaletteEntry
