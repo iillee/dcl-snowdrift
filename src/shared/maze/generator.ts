@@ -26,7 +26,7 @@ import {
 
 import { rand, setSeed } from 'src/shared/maze/rng'
 import {
-	ALL_DIRS, DX, DZ, Dir, OPP,
+	ALL_DIRS, DX, DZ, Dir, N, E, S, W, OPP,
 	TILES, TileType,
 	GROWTH_PRIMARY, GROWTH_FALLBACK,
 	openingsAt, highDirAt,
@@ -70,7 +70,38 @@ const key = (x: number, z: number, y: number) =>
 const inBounds = (x: number, z: number) =>
   x >= 0 && x < GRID_W && z >= 0 && z < GRID_H
 
+
+// MARK: Reserved cells
+// Set of playfield grid cells (at y=0) that the maze generator must
+// treat as unavailable — they belong to another system (currently the
+// perimeter cliff generator's inward-poking end-caps). Openings that
+// would face into a reserved cell are treated exactly like off-grid
+// openings (illegal), and reserved cells never receive a tile.
+//
+// Lifecycle: owned by the caller (see rebuild.ts). `resetGrid()` does
+// NOT clear this — reservations persist across seed retries within a
+// single rebuild. Call `setReservedCells()` before `generateWithRetry()`.
+const reservedCells = new Set<string>()
+
+/**
+ * Replace the current reservation set. Pass an empty array (or omit)
+ * to clear. Reserved cells use only (tx, tz); y is implicitly 0 (the
+ * base level all placement happens on).
+ */
+export function setReservedCells(cells: Array<{ tx: number; tz: number }> = []): void {
+  reservedCells.clear()
+  for (const c of cells) reservedCells.add(key(c.tx, c.tz, 0))
+}
+
+const isReserved = (x: number, z: number) => reservedCells.has(key(x, z, 0))
+
+/** Neighbor is unavailable — off-grid OR reserved by another system. */
+const isClosedSide = (x: number, z: number) => !inBounds(x, z) || isReserved(x, z)
+
 export function resetGrid(): void {
+  // Intentionally does NOT clear reservedCells — the caller owns that
+  // lifecycle via setReservedCells() and reservations must persist
+  // across seed retries inside generateWithRetry().
   grid.clear()
   placeCounter = 0
 }
@@ -224,8 +255,10 @@ function canPlace(t: TileType, r: number, x: number, z: number, y: number): bool
   for (const d of ALL_DIRS) {
     const isOpen = opens.has(d)
     const nx = x + DX[d], nz = z + DZ[d]
-    if (!inBounds(nx, nz)) {
-      if (isOpen) return false // opening would face off-grid
+    // Reserved cells are treated identically to off-grid: no opening may
+    // point into them (nothing will ever be placed there to receive it).
+    if (!inBounds(nx, nz) || isReserved(nx, nz)) {
+      if (isOpen) return false // opening would face off-grid or reserved cell
       continue
     }
     // Height at which MY opening on side d sits
@@ -294,14 +327,16 @@ function placeTile(t: TileType, r: number, x: number, z: number, y: number): voi
  *   2. Every opening on every tile lands on a valid neighbor opening.
  */
 export function validate(): boolean {
-  if (grid.size !== GRID_W * GRID_H) return false
+  // Reserved cells are intentionally never placed; coverage target is
+  // reduced accordingly.
+  if (grid.size !== GRID_W * GRID_H - reservedCells.size) return false
   for (const p of grid.values()) {
     const opens = openingsAt(p.type, p.r)
     const highDir = highDirAt(p.type, p.r)
     for (const d of ALL_DIRS) {
       if (!opens.has(d)) continue
       const nx = p.x + DX[d], nz = p.z + DZ[d]
-      if (!inBounds(nx, nz)) return false
+      if (!inBounds(nx, nz) || isReserved(nx, nz)) return false
       const ny = highDir === d ? p.y + STEP : p.y
       const back = OPP[d]
       const nb1 = grid.get(key(nx, nz, ny))
@@ -356,16 +391,21 @@ export function generate(): void {
   // everything from scratch in that case.
   const centerIsInterior = cx > 0 && cx < GRID_W - 1
                         && cz > 0 && cz < GRID_H - 1
-  if (centerIsInterior) {
+  // Skip the center-cross anchor when the center cell is reserved by
+  // another system — the solver handles it from scratch in that case.
+  const anchorCenter = centerIsInterior && !isReserved(cx, cz)
+  if (anchorCenter) {
     if (!canPlace('cross', 0, cx, cz, 0)) return
     placeTile('cross', 0, cx, cz, 0)
   }
 
-  // Row-major cell list, skipping the anchored center if we placed one.
+  // Row-major cell list, skipping the anchored center (if placed) and
+  // any reserved cells (never placed by design).
   const cells: Array<{ x: number; z: number }> = []
   for (let z = 0; z < GRID_H; z++) {
     for (let x = 0; x < GRID_W; x++) {
-      if (centerIsInterior && x === cx && z === cz) continue
+      if (anchorCenter && x === cx && z === cz) continue
+      if (isReserved(x, z)) continue
       cells.push({ x, z })
     }
   }
@@ -392,20 +432,42 @@ export function generate(): void {
 function solveCells(cells: Array<{ x: number; z: number }>, idx: number): boolean {
   if (idx === cells.length) return true
   const { x, z } = cells[idx]
-  // Position-based pool policy — explicit, not emergent:
-  //   • Corners (2 walls)          → turn
-  //   • Edges   (1 wall)          → fork
-  //   • Interior (0 walls)        → cross
-  const onWestWall  = x === 0
-  const onEastWall  = x === GRID_W - 1
-  const onSouthWall = z === 0
-  const onNorthWall = z === GRID_H - 1
-  const wallCount   = (onWestWall ? 1 : 0) + (onEastWall ? 1 : 0)
-                    + (onSouthWall ? 1 : 0) + (onNorthWall ? 1 : 0)
-  const pool: TileType[] =
-    wallCount === 2 ? ['turn']  :
-    wallCount === 1 ? ['fork']  :
-                      ['cross']
+  // Dynamic pool policy — count closed sides (off-grid OR reserved) and
+  // pick the tile family whose opening pattern matches. With an empty
+  // reservation set this reduces exactly to the old wall-count policy:
+  // corners → turn, edges → fork, interior → cross.
+  //
+  //   Closed sides | Pool
+  //   -------------+-------------------------------------------
+  //   4            | (skip) — unreachable island, coverage n/a
+  //   3            | end       (single opening)
+  //   2 opposite   | straight  (two collinear openings)
+  //   2 adjacent   | turn      (two perpendicular openings)
+  //   1            | fork      (three openings)
+  //   0            | cross     (four openings)
+  const wN = isClosedSide(x + DX[N], z + DZ[N])
+  const wE = isClosedSide(x + DX[E], z + DZ[E])
+  const wS = isClosedSide(x + DX[S], z + DZ[S])
+  const wW = isClosedSide(x + DX[W], z + DZ[W])
+  const closedCount = (wN ? 1 : 0) + (wE ? 1 : 0) + (wS ? 1 : 0) + (wW ? 1 : 0)
+
+  // 4-walls island: nothing can legally sit here. Skip the cell — it
+  // was excluded from the coverage target already (only reachable when
+  // reservations surround a cell, or on a 1×1 grid).
+  if (closedCount === 4) return solveCells(cells, idx + 1)
+
+  let pool: TileType[]
+  if (closedCount === 3) {
+    pool = ['end']
+  } else if (closedCount === 2) {
+    // Opposite pair → straight; adjacent pair → turn.
+    const opposite = (wN && wS) || (wE && wW)
+    pool = opposite ? ['straight'] : ['turn']
+  } else if (closedCount === 1) {
+    pool = ['fork']
+  } else {
+    pool = ['cross']
+  }
   const pools: TileType[][] = [pool]
   for (const pool of pools) {
     for (const t of shuffle(pool)) {
@@ -427,7 +489,7 @@ function solveCells(cells: Array<{ x: number; z: number }>, idx: number): boolea
  * if none was found. Deterministic: same startSeed always yields the
  * same winner across every client.
  */
-export function generateWithRetry(startSeed: number, maxAttempts = 500): number | null {
+export function generateWithRetry(startSeed: number, maxAttempts = 2000): number | null {
   for (let i = 0; i < maxAttempts; i++) {
     const trySeed = startSeed + i
     setSeed(trySeed)
