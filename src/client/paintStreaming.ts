@@ -51,6 +51,12 @@ interface TileEntry {
 	spawnedNow: boolean
 	/** Whether this tile bypasses the distance gate and always renders. */
 	alwaysSpawned: boolean
+	/** Set by paint.ts when the tile has ≥1 painted (non-zero) cell.
+	 *  Sticky-loads the tile: any tile with visible melt trails or
+	 *  partially-regrown snow stays in the streaming set regardless of
+	 *  player distance, so distant chunks that have been touched still
+	 *  read as a lived-in world. */
+	hasPaint: boolean
 	/** Spawn callback wired by paint.ts (defers by SPAWN_DELAY_MS). */
 	spawnFn:   () => void
 	/** Teardown callback wired by paint.ts (removePaintForTileEntitiesOnly). */
@@ -60,6 +66,13 @@ interface TileEntry {
 
 // MARK: Registry
 const tiles = new Map<Entity, TileEntry>()
+
+/**
+ * Secondary index by tileKey. Paint.ts publishes has-paint state by
+ * tileKey (the shared coordinate), not by tile-GLB entity, so this
+ * avoids a linear scan on every notification.
+ */
+const tilesByKey = new Map<number, TileEntry>()
 
 /**
  * Tile keys that transitioned from despawned → spawned since the last
@@ -101,18 +114,64 @@ export function registerTile(
 		centerZ,
 		spawnedNow: false,
 		alwaysSpawned,
+		hasPaint: false,
 		spawnFn,
 		despawnFn,
 	}
 	tiles.set(tileEntity, entry)
+	tilesByKey.set(tileKey, entry)
 
-	if (alwaysSpawned) {
+	// Sticky-load if paint.ts already knows this tile carries melt state
+	// (e.g. late-join hydrate ran before rebuild placed the tile). The
+	// pending-set is drained on register so the flag persists.
+	if (pendingHasPaint.has(tileKey)) {
+		entry.hasPaint = true
+		pendingHasPaint.delete(tileKey)
+	}
+
+	if (alwaysSpawned || entry.hasPaint) {
 		entry.spawnFn()
 		entry.spawnedNow = true
 		reseedRequests.add(tileKey)
 	}
 	// Non-always-spawned tiles wait for the streaming poll below.
 }
+
+
+// MARK: setTileHasPaint
+/**
+ * Tell the streaming system whether a tile currently has any painted
+ * cells. Tiles with paint sticky-load: they stay spawned regardless of
+ * player distance, so melt trails and partially-regrown snow remain
+ * visible from anywhere in the world.
+ *
+ * Called by paint.ts from `syncCellsFromCrdt` on the 0↔≥1 non-zero
+ * byte transition. If the tile has not yet been registered (CRDT
+ * hydrate racing with tile spawn), the flag is stashed in
+ * `pendingHasPaint` and applied on register.
+ */
+export function setTileHasPaint(tileKey: number, hasPaint: boolean): void {
+	const entry = tilesByKey.get(tileKey)
+	if (!entry) {
+		if (hasPaint) pendingHasPaint.add(tileKey)
+		else          pendingHasPaint.delete(tileKey)
+		return
+	}
+	if (entry.hasPaint === hasPaint) return
+	entry.hasPaint = hasPaint
+	// If a currently-despawned tile just gained paint, spawn it right
+	// away so distant paint pops into view without waiting for the
+	// player to walk near it. Reseed so the fresh cells hydrate to the
+	// server melt state.
+	if (hasPaint && !entry.spawnedNow) {
+		entry.spawnFn()
+		entry.spawnedNow = true
+		reseedRequests.add(tileKey)
+	}
+}
+
+/** Has-paint notifications received before the tile was registered. */
+const pendingHasPaint = new Set<number>()
 
 
 // MARK: unregisterTile
@@ -125,6 +184,7 @@ export function unregisterTile(tileEntity: Entity): void {
 	const entry = tiles.get(tileEntity)
 	if (!entry) return
 	reseedRequests.delete(entry.tileKey)
+	tilesByKey.delete(entry.tileKey)
 	tiles.delete(tileEntity)
 }
 
@@ -169,7 +229,11 @@ engine.addSystem((dt: number) => {
 	const pz = t.position.z
 
 	for (const entry of tiles.values()) {
-		if (entry.alwaysSpawned) continue
+		// Tiles that are always-spawned or currently carry paint stay
+		// resident regardless of distance. hasPaint flips off only after
+		// paint.ts observes every cell in the PaintTile CRDT drop back
+		// to zero (full regrowth to unpainted snow).
+		if (entry.alwaysSpawned || entry.hasPaint) continue
 
 		const dx = entry.centerX - px
 		const dz = entry.centerZ - pz

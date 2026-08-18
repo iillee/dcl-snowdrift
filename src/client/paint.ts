@@ -49,7 +49,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
-import { registerTile, unregisterTile, consumeReseedRequests } from 'src/client/paintStreaming'
+import { registerTile, unregisterTile, consumeReseedRequests, setTileHasPaint } from 'src/client/paintStreaming'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
 export { Team } from 'src/shared/team'
@@ -139,6 +139,14 @@ function syncPaletteFromCrdt(): void {
 // steady-state cost is proportional to *changed* cells, not painted cells.
 const tileShadow = new Map<Entity, Uint8Array>()
 
+/**
+ * Non-zero byte count per tileKey — how many cells in the tile carry
+ * paint (any team + any regrowth stage). Maintained incrementally as
+ * bytes flip in the shadow diff. On the 0↔≥1 transition we notify
+ * paintStreaming so the tile sticky-loads while it has visible melt.
+ */
+const tileNonZeroCount = new Map<number, number>()
+
 function syncCellsFromCrdt(): void {
 	// Tiles that just streamed in — wipe their shadow so every non-zero
 	// PaintTile byte re-dispatches onto the freshly spawned cells. Also
@@ -169,14 +177,23 @@ function syncCellsFromCrdt(): void {
 				for (let i = 0; i < PAINT_CELLS_PER_TILE; i++) {
 					cellApplied.delete(baseCellKey + i)
 				}
+				// Shadow was zeroed above; the count must follow so the
+				// re-walk below re-derives it from the incoming bytes.
+				tileNonZeroCount.set(tileKey, 0)
 			}
 		}
+
+		const prevCount = tileNonZeroCount.get(tileKey) ?? 0
+		let   count     = prevCount
 
 		const len = Math.min(incoming.length, PAINT_CELLS_PER_TILE)
 		for (let i = 0; i < len; i++) {
 			const byte = incoming[i] & 0xff
 			if (byte === shadow[i]) continue
+			const oldByte = shadow[i]
 			shadow[i] = byte
+			if      (oldByte === 0 && byte !== 0) count++
+			else if (oldByte !== 0 && byte === 0) count--
 
 			const cellKey = joinCellKey(tileKey, i)
 			const { index, stage } = unpackCellByte(byte)
@@ -206,6 +223,14 @@ function syncCellsFromCrdt(): void {
 			}
 
 			cellApplied.set(cellKey, { index, stage: nextStage })
+		}
+
+		if (count !== prevCount) {
+			tileNonZeroCount.set(tileKey, count)
+			// Notify streaming on the 0 ↔ ≥1 boundary so painted tiles
+			// sticky-load and cleaned tiles fall back to distance gating.
+			if      (prevCount === 0 && count >  0) setTileHasPaint(tileKey, true)
+			else if (prevCount >  0 && count === 0) setTileHasPaint(tileKey, false)
 		}
 	}
 }
