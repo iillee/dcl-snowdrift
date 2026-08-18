@@ -10,14 +10,14 @@
  * never lose their melted (blue) color (server).
  */
 
-import { MAZE_GRID_HEIGHT, MAZE_GRID_WIDTH, MAZE_TILE_WORLD_METERS } from 'src/shared/settings'
+import { MAZE_GRID_HEIGHT, MAZE_GRID_WIDTH, MAZE_ORIGIN_OFFSET_METERS, MAZE_TILE_WORLD_METERS } from 'src/shared/settings'
 
 
 // MARK: Placement
-/** Campfire world position (X). Geometric center of the scene. */
-export const CAMPFIRE_WORLD_X = (MAZE_GRID_WIDTH  * MAZE_TILE_WORLD_METERS) / 2
-/** Campfire world position (Z). Geometric center of the scene. */
-export const CAMPFIRE_WORLD_Z = (MAZE_GRID_HEIGHT * MAZE_TILE_WORLD_METERS) / 2
+/** Campfire world position (X). Geometric centre of the playfield (offset + half-playfield). */
+export const CAMPFIRE_WORLD_X = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_WIDTH  * MAZE_TILE_WORLD_METERS) / 2
+/** Campfire world position (Z). Geometric centre of the playfield. */
+export const CAMPFIRE_WORLD_Z = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_HEIGHT * MAZE_TILE_WORLD_METERS) / 2
 /** Campfire visual base height. */
 export const CAMPFIRE_WORLD_Y = 0.25
 

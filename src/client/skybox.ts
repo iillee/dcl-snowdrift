@@ -17,6 +17,19 @@
 import { engine, SkyboxTime } from '@dcl/sdk/ecs'
 
 
+// MARK: releaseSkyboxLock
+
+/**
+ * Remove any SkyboxTime component previously written on RootEntity so
+ * DCL's default (global time / player preference) resumes control.
+ * Safe to call even if we never installed the lock.
+ */
+export function releaseSkyboxLock(): void {
+	SkyboxTime.deleteFrom(engine.RootEntity)
+	console.log('skybox: releaseSkyboxLock: SkyboxTime removed from RootEntity')
+}
+
+
 // MARK: Tuning
 // Seconds of real time per full round trip through the dusk→night slice.
 // 1800 = 30 minutes real time per full oscillation — the sky drifts

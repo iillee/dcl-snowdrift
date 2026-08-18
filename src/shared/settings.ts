@@ -60,11 +60,20 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 
 // MARK: Scene
 
-/** Scene X extent in meters (8 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 128
+/** Scene X extent in meters (16 parcels × 16 m). Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = 256
 
-/** Scene Z extent in meters (8 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 128
+/** Scene Z extent in meters (16 parcels × 16 m). Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = 256
+
+/**
+ * Interior playfield extent in meters (8 tiles × 16 m). The maze,
+ * paint grid, and campfire live inside this playfield; the outer scene
+ * padding is used by the perimeter (cliffs) ring. If the perimeter ring
+ * grows or shrinks, adjust here AND MAZE_ORIGIN_OFFSET_METERS below so
+ * the playfield stays centred in the scene.
+ */
+export const MAZE_PLAYFIELD_METERS = 128
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
@@ -103,18 +112,19 @@ export const MAZE_MAX_STACK_Y_METERS = 0
 /** Inclusive max stack level index (0 .. this). */
 export const MAZE_MAX_LEVEL_INDEX = Math.floor(MAZE_MAX_STACK_Y_METERS / MAZE_RAMP_STEP_METERS)
 
-/** Maze tile grid width (X), derived from scene X ÷ tile world size. */
-export const MAZE_GRID_WIDTH = Math.floor(SCENE_WORLD_SIZE_X_METERS / MAZE_TILE_WORLD_METERS)
+/** Maze tile grid width (X), derived from playfield X ÷ tile world size. */
+export const MAZE_GRID_WIDTH = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WORLD_METERS)
 
-/** Maze tile grid height (Z), derived from scene Z ÷ tile world size. */
-export const MAZE_GRID_HEIGHT = Math.floor(SCENE_WORLD_SIZE_Z_METERS / MAZE_TILE_WORLD_METERS)
+/** Maze tile grid height (Z), derived from playfield Z ÷ tile world size. */
+export const MAZE_GRID_HEIGHT = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WORLD_METERS)
 
 /**
- * World offset applied to every tile position on BOTH axes. With 16 m
- * tiles and 256×144 scene, both axes fit exactly — offset is 0. Kept as
- * a single scalar since both dimensions center the same way.
+ * World offset applied to every tile position on BOTH axes. Shifts the
+ * interior playfield into the centre of the scene so a perimeter ring
+ * fits between the playfield and the scene bounds.
+ * = (scene - playfield) / 2. With scene=256 and playfield=128, offset=64.
  */
-export const MAZE_ORIGIN_OFFSET_METERS = 0
+export const MAZE_ORIGIN_OFFSET_METERS = (SCENE_WORLD_SIZE_X_METERS - MAZE_PLAYFIELD_METERS) / 2
 
 
 // MARK: Paint (derived from performance knobs + maze tile size)

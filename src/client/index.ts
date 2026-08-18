@@ -42,6 +42,7 @@ import { setupCampfire } from 'src/client/campfire'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
+import { setupPerimeter } from 'src/client/perimeter'
 // Skybox forced cycle is intentionally not imported — see the disabled
 // setupSkybox() call in setupClient() for the rationale.
 // import { setupSkybox } from 'src/client/skybox'
@@ -152,6 +153,10 @@ export async function setupClient(): Promise<void> {
 	// by uncommenting once we have a much slower cadence or a parked-at-
 	// dusk fixed value.
 	// setupSkybox()
+
+	// Perimeter cliffs — scaled maze tiles wrapping the interior playfield.
+	// Purely visual + physical boundary, no gameplay interaction.
+	setupPerimeter()
 
 	setupCampfire()
 	setupCampfireSmoke()
