@@ -360,6 +360,7 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-17 v2.4** — Day 1 complete + partial Day 2. See status snapshot below.
 - **2026-08-17 v2.5** — Scene reshaped 4×7 (28 parcels, portrait) → 8×8 (64 parcels, square) to test scalability toward the eventual 10– 20× world. Overhead camera reworked into a hybrid follow + pan (desktop drag + mobile d-pad). Skills bumped to the official `decentraland/sdk-skills` repo (adds `TouchScreenControls` + slider drag docs); confirmed mobile has no touch-drag delta — pan on mobile is button-driven by design.
 - **2026-08-18 v2.6** — Atmosphere day. Server-authoritative random weather (4 precipitation levels), snowfall particles + audio, campfire smoke + spatial crackle, snow-crunch footstep SFX with per-stage cadence, locomotion drag gated by snow depth, held torch attached to right hand, brush overhaul (solid footprint, 4 tiers 0/1/3/5), spawn-stability fix (center + ring spawn instantly), landscape terrain hidden. See status snapshot below.
+- **2026-08-18 v2.7** — Network fanout fix. Paint state re-architected from one-synced-entity-per-cell to one-synced-entity-per-tile carrying a packed byte array. Fixed sustained `maxSendPeers` / `maxNetworkMessageQueue` drops once coverage exceeded a few hundred cells. Also chased a Creator Hub deploy `Symbol(map)` proxy error to a Node 24 / pinned `sdk-commands` mismatch; workaround = deploy from Creator Hub app UI (bypasses CLI proxy). SDK pinned exactly (no `^`) to prevent CH publish drift. See session block below.
 
 ---
 
@@ -419,6 +420,43 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - `layer.brushSize.tsx` filename is now a misnomer (it's the action bar) — rename during Day 9 HUD pass.
 - `initMazeNet()` in `client/maze/rebuild.ts` is a no-op stub — kept as the integration point for future server-owned maze events.
 - `PaintSwatchButton` is kept dormant (`_PaintSwatchButton`) in `layer.brushSize.tsx` for possible revival as a hand-slot indicator.
+
+---
+
+### 2026-08-18 session #2 (paint-tile-sync refactor + deploy unblock)
+
+**Symptom that triggered it:**
+- Server log spam: `maxSendPeers reached: 614 peers` and sustained `maxNetworkMessageQueue reached (~193 more/10s)` once painted coverage crossed ~1000 cells with a single player in the roster. CRDT messages were being dropped — late-joining clients would have seen partial paint state.
+
+**Root cause:**
+- `paintSync.ts` created one synced entity per painted cell (`PaintCell` component + `NetworkEntity`). Coverage of 1200 cells = 1200 synced entities × peer fanout — blew past the CRDT transport's queue and peer caps.
+
+**Fix (branch `paint-tile-sync`, merged → main):**
+- New `PaintTile` component (`cells: Schemas.Array(Schemas.Byte)`). Each byte encodes `(paletteIndex << 2) | stage` — fits palette 0..63 + stage 0..3, zero byte = unpainted/full snow.
+- One synced entity per `(tx, tz, level)` tile chunk. Bounded at `tiles × levels` (64 × N) regardless of painted coverage. New network band `TILE_NETWORK_BASE = 200000`; retired `CELL_NETWORK_BASE`.
+- `src/shared/paintGrid.ts` — added `splitCellKey` / `joinCellKey` / `tileNetworkId` / `tileKeyFromNetworkId` / `packCellByte` / `unpackCellByte`. Retired `cellNetworkId` / `cellKeyFromNetworkId`.
+- `src/shared/paintSync.ts` rewritten: in-memory `tileBuffers` (`number[]` per tile), `dirtyTiles` set, `writeCellByte(cellKey, byte)` mutates the buffer + marks dirty, `flushDirtyPaintTiles()` publishes changed tiles once per engine tick via `PaintTile.createOrReplace`. Also `zeroAllPaintTiles()` for `clearAll()`. Running `paintedCellCount()` for logs / serverStats replaces `paintCellEntityCount()`.
+- `src/server/paintState.ts` — `writeCellComponent` now calls `writeCellByte(cellKey, packCellByte(index, stage))`; `clearAll()` uses `zeroAllPaintTiles()`.
+- `src/server/server.ts` — added the per-tick `flushDirtyPaintTiles()` system; heartbeat + paintTick summary now log `cells=painted tiles=allocated`.
+- `src/client/paint.ts` — `syncCellsFromCrdt()` rewritten to iterate `PaintTile` entities, diff `tile.cells[]` against a per-entity shadow `Uint8Array`, and dispatch the *same* per-cell visual updates (`applyPaintIndex` / `advanceSnowFillStage`) only for changed cells. Steady-state cost is proportional to *changed* cells per frame, not painted cells.
+
+**Behaviour unchanged from a player's POV:**
+- Melt drop-tween, snow-regrowth rise-tween, late-join hydrate at mid-stage, campfire ring refresh, and terminal `team → NONE` regrowth all still route through the same client visual paths. Purely a network-layer swap.
+
+**Confirmed working:**
+- Preview: clean client log, painting responsive, weather + brush + team assignment all healthy, no CRDT drops.
+- Deploy: verified live on `snowdrift.dcl.eth`.
+
+**Deploy blocker (separate from refactor):**
+- `sdk-commands deploy` from CLI throws `Proxy error: Key Symbol(map) in undefined.headers is a symbol, which cannot be converted to a ByteString.` Chased through an SDK bump to `@next` (which removed `registerMessages` — blocking) and back. Root cause: **Node 24 + pinned `sdk-commands`** — the local deploy proxy tries to coerce a `Headers` object whose internals changed in Node 20+ `undici`.
+- **Workaround:** deploy from the Creator Hub app UI, which uses its own Electron-embedded signing flow and bypasses the CLI proxy. Verified successful.
+- Alternatives noted: downgrade Node to 20 LTS via nvm-windows; or bump only `sdk-commands` (risky — shares repo with `@dcl/sdk` `@next` that removed `registerMessages`).
+- SDK pinned exactly in `package.json` (no `^`) so any future `npm install` during CH publish cannot drift the version.
+
+**Deferred:**
+- Server-side idempotency filter on `paintTick` — clients still re-send ids for already-melted cells; server correctly no-ops but the ~5/s summary shows `applied=0` chunks. Small follow-up, ~10 lines.
+- Client-side paintTick throttling when the local cell is already melted.
+- Byte layout is now a stability contract (6-bit index + 2-bit stage). If palette ever needs >64 entries or stages >4, bump with a version byte.
 
 ---
 
