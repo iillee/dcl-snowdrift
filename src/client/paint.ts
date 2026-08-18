@@ -467,10 +467,16 @@ const farPlaneByTile = new Map<Entity, Entity>()
 // Far-plane geometry: a very thin box (not setPlane) so the top face
 // shades identically to a full-snow cube's top face — planes are
 // single-sided and pick up different lighting from the box's +Y face
-// even with the same material. Vertical extent is 0.02 m; the position
-// is offset by half-thickness so the top face lands at exactly the same
-// y as an intact cube's top: ty + FLAT_OFFSET + CUBE_HEIGHT.
+// even with the same material. Vertical extent is 0.02 m.
+//
+// The plane's top face sits FAR_PLANE_SINK_M *below* an intact cube's
+// top so that during the atomic plane->cubes swap (one tick where both
+// exist), the plane is hidden inside the cubes rather than z-fighting
+// with their top faces. Mobile GPUs are especially prone to the flicker
+// otherwise. 3 cm is well below eye-perceptible at any viewing angle
+// but big enough to sit clear of the cube's top face.
 const FAR_PLANE_THICKNESS = 0.02
+const FAR_PLANE_SINK_M    = 0.03
 
 /**
  * Extent of a tile's far-plane in world coords — a rectangle covering
@@ -490,7 +496,7 @@ function ensureFarPlaneForTile(
 	ty:         number,
 ): void {
 	if (farPlaneByTile.has(tileEntity)) return
-	const topY = ty + FLAT_OFFSET + CUBE_HEIGHT
+	const topY = ty + FLAT_OFFSET + CUBE_HEIGHT - FAR_PLANE_SINK_M
 	const e = engine.addEntity()
 	Transform.create(e, {
 		position: Vector3.create(ext.centerX, topY - FAR_PLANE_THICKNESS / 2, ext.centerZ),
