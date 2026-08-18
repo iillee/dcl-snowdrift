@@ -61,10 +61,10 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 // MARK: Scene
 
 /** Scene X extent in meters (16 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 256
+export const SCENE_WORLD_SIZE_X_METERS = 512
 
 /** Scene Z extent in meters (16 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 256
+export const SCENE_WORLD_SIZE_Z_METERS = 512
 
 /**
  * Interior playfield extent in meters (8 tiles × 16 m). The maze,
@@ -73,7 +73,7 @@ export const SCENE_WORLD_SIZE_Z_METERS = 256
  * grows or shrinks, adjust here AND MAZE_ORIGIN_OFFSET_METERS below so
  * the playfield stays centred in the scene.
  */
-export const MAZE_PLAYFIELD_METERS = 160
+export const MAZE_PLAYFIELD_METERS = 256
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
@@ -125,6 +125,23 @@ export const MAZE_GRID_HEIGHT = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WOR
  * = (scene - playfield) / 2. With scene=256 and playfield=128, offset=64.
  */
 export const MAZE_ORIGIN_OFFSET_METERS = (SCENE_WORLD_SIZE_X_METERS - MAZE_PLAYFIELD_METERS) / 2
+
+
+// MARK: Playfield bounds
+/** Playfield min world coord (both axes — playfield is square). */
+export const PLAYFIELD_MIN_M = MAZE_ORIGIN_OFFSET_METERS
+/** Playfield max world coord. */
+export const PLAYFIELD_MAX_M = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
+
+/**
+ * True when a world (x, z) sits inside the interior playfield rectangle.
+ * Used by the perimeter cliff generator to skip end-caps that would
+ * intrude into the snow-tile area — snow tiles are authoritative there.
+ */
+export function isInsidePlayfield(x: number, z: number): boolean {
+	return x >= PLAYFIELD_MIN_M && x <= PLAYFIELD_MAX_M
+		&& z >= PLAYFIELD_MIN_M && z <= PLAYFIELD_MAX_M
+}
 
 
 // MARK: Paint (derived from performance knobs + maze tile size)
