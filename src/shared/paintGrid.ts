@@ -159,6 +159,19 @@ export function cellKeyToCellId(key: number): string {
 }
 
 
+// MARK: packTileKey
+
+/**
+ * Pack a (tx, tz, level) triple into the same tile key that
+ * splitCellKey().tileKey / tileKeyFromNetworkId() return. Useful when
+ * you have grid coordinates but no cell key yet (e.g. registering a
+ * whole tile with the streaming system before any cells exist).
+ */
+export function packTileKey(tx: number, tz: number, level: number): number {
+	return level * PAINT_GRID_W * PAINT_GRID_H + tz * PAINT_GRID_W + tx
+}
+
+
 // MARK: splitCellKey
 
 /**

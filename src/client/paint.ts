@@ -21,8 +21,10 @@ import {
 	cellIdToKey,
 	cellKeyToCellId,
 	joinCellKey,
+	packTileKey,
 	PAINT_CELLS_PER_TILE,
 	tileKeyFromNetworkId,
+	tyToLevel,
 	unpackCellByte,
 } from 'src/shared/paintGrid'
 import {
@@ -47,7 +49,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
-import { registerTile, unregisterTile } from 'src/client/paintStreaming'
+import { registerTile, unregisterTile, consumeReseedRequests } from 'src/client/paintStreaming'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
 export { Team } from 'src/shared/team'
@@ -138,6 +140,12 @@ function syncPaletteFromCrdt(): void {
 const tileShadow = new Map<Entity, Uint8Array>()
 
 function syncCellsFromCrdt(): void {
+	// Tiles that just streamed in — wipe their shadow so every non-zero
+	// PaintTile byte re-dispatches onto the freshly spawned cells. Also
+	// clear any local `cellApplied` records for those tiles, since the
+	// entities and their state were torn down during despawn.
+	const reseed = consumeReseedRequests()
+
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		const net = NetworkEntity.getOrNull(entity)
 		if (!net) continue
@@ -148,11 +156,20 @@ function syncCellsFromCrdt(): void {
 		if (!incoming || incoming.length === 0) continue
 
 		let shadow = tileShadow.get(entity)
-		if (!shadow || shadow.length !== incoming.length) {
-			// First observation of this tile — seed the shadow to zeros so
-			// every non-zero byte is treated as a change and dispatched.
+		const needsReseed = reseed.has(tileKey)
+		if (!shadow || shadow.length !== incoming.length || needsReseed) {
+			// First observation OR tile just streamed in — seed the shadow
+			// to zeros so every non-zero byte is treated as a change and
+			// dispatched. On a reseed, also drop the `cellApplied` records
+			// so the dispatch path does not short-circuit.
 			shadow = new Uint8Array(incoming.length)
 			tileShadow.set(entity, shadow)
+			if (needsReseed) {
+				const baseCellKey = joinCellKey(tileKey, 0)
+				for (let i = 0; i < PAINT_CELLS_PER_TILE; i++) {
+					cellApplied.delete(baseCellKey + i)
+				}
+			}
 		}
 
 		const len = Math.min(incoming.length, PAINT_CELLS_PER_TILE)
@@ -591,6 +608,10 @@ export function spawnCellsForTile(
   const centerX = tx * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
   const centerZ = tz * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
 
+  // Packed grid coord matching the PaintTile CRDT entity's network id.
+  // Streaming module uses this to signal shadow re-seed on respawn.
+  const tileKey = packTileKey(tx, tz, tyToLevel(ty))
+
   const spawnFn = () => {
     // Defer so cells appear after the tile GLB's grow-in tween. On a
     // streaming re-spawn (player walked back into range) the tile GLB
@@ -609,7 +630,7 @@ export function spawnCellsForTile(
     removePaintForTileEntitiesOnly(tileEntity)
   }
 
-  registerTile(tileEntity, centerX, centerZ, alwaysSpawned, spawnFn, despawnFn)
+  registerTile(tileEntity, tileKey, centerX, centerZ, alwaysSpawned, spawnFn, despawnFn)
 }
 
 function spawnCellsForTileImmediate(

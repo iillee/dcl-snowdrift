@@ -147,6 +147,30 @@ export const PAINT_BRUSH_SIZE_CELLS = oddBrushCells(
 	PAINT_CELL_SIZE_METERS,
 )
 
+// MARK: Paint cell streaming
+//
+// Distance-based cell spawn/despawn per tile. Cells only exist while the
+// LOCAL player is within IN_RADIUS of the tile centre; they tear down
+// past OUT_RADIUS. Hysteresis (OUT > IN) prevents churn at the boundary.
+//
+// Choose IN comfortably larger than one tile (16 m) so the tile the
+// player stands on plus its 8 neighbours are always live. Choose OUT
+// large enough that a normal walking speed does not oscillate the gate.
+
+/** Spawn tiles whose centre is within this many meters of the local player. */
+export const CELL_STREAM_IN_RADIUS_M  = 28
+
+/** Despawn tiles whose centre exceeds this many meters from the local player. */
+export const CELL_STREAM_OUT_RADIUS_M = 36
+
+/**
+ * Streaming gate poll frequency (Hz). Cheap — walks a small tile map
+ * and does one distance check per tile. 4 Hz is smooth enough that the
+ * gate never lags a walking player past OUT_RADIUS before firing.
+ */
+export const CELL_STREAM_POLL_HZ = 4
+
+
 /**
  * Client → server paintTick flush rate. Inbound room traffic is capped per
  * peer (~300/s); this stays well under that. Not tied to scene population.
