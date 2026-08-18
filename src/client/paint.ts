@@ -464,11 +464,13 @@ engine.addSystem((dt: number) => {
 // take over.
 const farPlaneByTile = new Map<Entity, Entity>()
 
-// Plane geometry: SDK's setPlane is a unit XY quad centred on origin.
-// We rotate -90° around X so it lies flat facing up, then scale to
-// tile size. Height sits at CUBE_HEIGHT above the tile base so the
-// proxy visually matches the top of a full-snow cube.
-const FAR_PLANE_ROT = Quaternion.fromEulerDegrees(-90, 0, 0)
+// Far-plane geometry: a very thin box (not setPlane) so the top face
+// shades identically to a full-snow cube's top face — planes are
+// single-sided and pick up different lighting from the box's +Y face
+// even with the same material. Vertical extent is 0.02 m; the position
+// is offset by half-thickness so the top face lands at exactly the same
+// y as an intact cube's top: ty + FLAT_OFFSET + CUBE_HEIGHT.
+const FAR_PLANE_THICKNESS = 0.02
 
 function ensureFarPlaneForTile(
 	tileEntity: Entity,
@@ -478,13 +480,13 @@ function ensureFarPlaneForTile(
 	tileSize:   number,
 ): void {
 	if (farPlaneByTile.has(tileEntity)) return
+	const topY = ty + FLAT_OFFSET + CUBE_HEIGHT
 	const e = engine.addEntity()
 	Transform.create(e, {
-		position: Vector3.create(centerX, ty + CUBE_HEIGHT, centerZ),
-		rotation: FAR_PLANE_ROT,
-		scale:    Vector3.create(tileSize, tileSize, 1),
+		position: Vector3.create(centerX, topY - FAR_PLANE_THICKNESS / 2, centerZ),
+		scale:    Vector3.create(tileSize, FAR_PLANE_THICKNESS, tileSize),
 	})
-	MeshRenderer.setPlane(e)
+	MeshRenderer.setBox(e)
 	Material.setPbrMaterial(e, CUBE_GREY_MAT)
 	farPlaneByTile.set(tileEntity, e)
 }
@@ -682,15 +684,18 @@ export function spawnCellsForTile(
   const tileKey = packTileKey(tx, tz, tyToLevel(ty))
 
   const spawnFn = () => {
-    // Cells are about to appear — retire the far-plane LOD proxy.
-    removeFarPlaneForTile(tileEntity)
     // Defer so cells appear after the tile GLB's grow-in tween. On a
     // streaming re-spawn (player walked back into range) the tile GLB
     // is already at full scale so the delay is cosmetic; kept uniform
-    // for simplicity.
+    // for simplicity. Far-plane removal is deferred to the same tick
+    // so it swaps out atomically with the cubes appearing — otherwise
+    // the plane vanishes 500 ms early, leaving a visible gap.
     deferredSpawns.push({
       dueMs: spawnClockMs + SPAWN_DELAY_MS,
-      run:   () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
+      run:   () => {
+        spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity)
+        removeFarPlaneForTile(tileEntity)
+      },
     })
   }
 
