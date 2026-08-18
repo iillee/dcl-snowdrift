@@ -454,6 +454,49 @@ engine.addSystem((dt: number) => {
   }
 })
 
+// MARK: Far-plane LOD proxies
+//
+// While a tile is streamed OUT (no cell entities), we still want the
+// ground to read as snow rather than an empty gap. One flat plane per
+// tile at snow-top height is a cheap stand-in — 1 entity vs the ~256
+// cubes it replaces. The plane is spawned when the tile registers (if
+// not already painted / always-spawned) and torn down whenever cells
+// take over.
+const farPlaneByTile = new Map<Entity, Entity>()
+
+// Plane geometry: SDK's setPlane is a unit XY quad centred on origin.
+// We rotate -90° around X so it lies flat facing up, then scale to
+// tile size. Height sits at CUBE_HEIGHT above the tile base so the
+// proxy visually matches the top of a full-snow cube.
+const FAR_PLANE_ROT = Quaternion.fromEulerDegrees(-90, 0, 0)
+
+function ensureFarPlaneForTile(
+	tileEntity: Entity,
+	centerX:    number,
+	centerZ:    number,
+	ty:         number,
+	tileSize:   number,
+): void {
+	if (farPlaneByTile.has(tileEntity)) return
+	const e = engine.addEntity()
+	Transform.create(e, {
+		position: Vector3.create(centerX, ty + CUBE_HEIGHT, centerZ),
+		rotation: FAR_PLANE_ROT,
+		scale:    Vector3.create(tileSize, tileSize, 1),
+	})
+	MeshRenderer.setPlane(e)
+	Material.setPbrMaterial(e, CUBE_GREY_MAT)
+	farPlaneByTile.set(tileEntity, e)
+}
+
+function removeFarPlaneForTile(tileEntity: Entity): void {
+	const e = farPlaneByTile.get(tileEntity)
+	if (e === undefined) return
+	engine.removeEntity(e)
+	farPlaneByTile.delete(tileEntity)
+}
+
+
 // Wipe scoring state immediately (so coverage % snaps to 0) without touching
 // entities. Actual paint entity removal is driven per-tile by
 // removePaintForTile() during the chunked tile teardown — that way paint
@@ -497,6 +540,7 @@ export function removePaintForTileEntitiesOnly(tileEntity: Entity) {
  */
 export function removePaintForTile(tileEntity: Entity) {
 	removePaintForTileEntitiesOnly(tileEntity)
+	removeFarPlaneForTile(tileEntity)
 	unregisterTile(tileEntity)
 }
 
@@ -638,6 +682,8 @@ export function spawnCellsForTile(
   const tileKey = packTileKey(tx, tz, tyToLevel(ty))
 
   const spawnFn = () => {
+    // Cells are about to appear — retire the far-plane LOD proxy.
+    removeFarPlaneForTile(tileEntity)
     // Defer so cells appear after the tile GLB's grow-in tween. On a
     // streaming re-spawn (player walked back into range) the tile GLB
     // is already at full scale so the delay is cosmetic; kept uniform
@@ -651,8 +697,19 @@ export function spawnCellsForTile(
   const despawnFn = () => {
     // Reuses the same teardown path as full-tile removal. Cells are
     // removed but the tile GLB and its registry entry persist so the
-    // streaming gate can re-spawn on re-entry.
+    // streaming gate can re-spawn on re-entry. Drop a far-plane proxy
+    // in the cells' place so the ground still reads as snow at range.
     removePaintForTileEntitiesOnly(tileEntity)
+    ensureFarPlaneForTile(tileEntity, centerX, centerZ, ty, CELL)
+  }
+
+  // Non-always-spawned tiles start their life despawned (streaming poll
+  // decides when to bring them in), so drop a far plane immediately.
+  // Always-spawned tiles get their cells synchronously from registerTile
+  // and never want a proxy. spawnFn above will remove the plane if the
+  // gate flips on later (player enters range, or paint appears).
+  if (!alwaysSpawned) {
+    ensureFarPlaneForTile(tileEntity, centerX, centerZ, ty, CELL)
   }
 
   registerTile(tileEntity, tileKey, centerX, centerZ, alwaysSpawned, spawnFn, despawnFn)
