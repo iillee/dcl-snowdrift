@@ -3,3 +3,8 @@ bin/
 dist/
 .parcel-cache/
 *.log
+
+# Agent skill packs (installed by tooling, not part of the scene)
+.claude/
+agent/
+thumbnails/

@@ -50,6 +50,13 @@ export const PAINT_CELLS_PER_TILE_AXIS = 16
  */
 export const PAINT_BRUSH_SIZE_METERS = 3
 
+/**
+ * Distance in world meters to project the paint brush ahead of the player
+ * along their facing direction. Gives the melt a small lead so cells clear
+ * just before the player walks over them, rather than under their feet.
+ */
+export const PAINT_BRUSH_LEAD_METERS = 1.2
+
 
 // MARK: Scene
 

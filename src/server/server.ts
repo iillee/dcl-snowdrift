@@ -33,6 +33,7 @@ import {
 } from 'src/server/paintState'
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
+import { sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -130,6 +131,7 @@ export async function setupServer(): Promise<void> {
 
 	initServerStats()
 	startServerStatsTick(() => coverage().total)
+	setupWeather()
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
 	let paintTicks       = 0
@@ -165,6 +167,9 @@ export async function setupServer(): Promise<void> {
 		const team = assignTeam(from)
 		console.log(`[Server] joinRoster ${from} → team ${team === 1 ? 'RED' : 'BLUE'} (roster size ${rosterSize()})`)
 		room.send('teamAssigned', { team }, { to: [from] })
+		// Hydrate the joiner with the current weather so their sky matches
+		// everyone else's from the first frame.
+		sendCurrentWeatherTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.

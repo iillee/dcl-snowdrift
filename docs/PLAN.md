@@ -359,10 +359,11 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - **2026-08-15 v2.3** — Added B1 reinforcement candidates (torch-can't-drop, heavy wood, regenerating pair warmth, fire tending, two-torch cells) as playtest-gated hypotheses — not commitments.
 - **2026-08-17 v2.4** — Day 1 complete + partial Day 2. See status snapshot below.
 - **2026-08-17 v2.5** — Scene reshaped 4×7 (28 parcels, portrait) → 8×8 (64 parcels, square) to test scalability toward the eventual 10– 20× world. Overhead camera reworked into a hybrid follow + pan (desktop drag + mobile d-pad). Skills bumped to the official `decentraland/sdk-skills` repo (adds `TouchScreenControls` + slider drag docs); confirmed mobile has no touch-drag delta — pan on mobile is button-driven by design.
+- **2026-08-18 v2.6** — Atmosphere day. Server-authoritative random weather (4 precipitation levels), snowfall particles + audio, campfire smoke + spatial crackle, snow-crunch footstep SFX with per-stage cadence, locomotion drag gated by snow depth, held torch attached to right hand, brush overhaul (solid footprint, 4 tiers 0/1/3/5), spawn-stability fix (center + ring spawn instantly), landscape terrain hidden. See status snapshot below.
 
 ---
 
-## 15. Status snapshot (2026-08-17)
+## 15. Status snapshot (2026-08-18)
 
 **Scale-up spike (mid-Day 2, before visuals):**
 - Scene resized 4×7 (28 parcels, 64×112 m portrait) → **8×8 (64 parcels, 128×128 m square)**. Everything derives from `SCENE_WORLD_SIZE_X/Z_METERS` + `scene.json` parcels — maze grid, campfire center, paint grid, top-down camera all propagated automatically.
@@ -418,3 +419,67 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - `layer.brushSize.tsx` filename is now a misnomer (it's the action bar) — rename during Day 9 HUD pass.
 - `initMazeNet()` in `client/maze/rebuild.ts` is a no-op stub — kept as the integration point for future server-owned maze events.
 - `PaintSwatchButton` is kept dormant (`_PaintSwatchButton`) in `layer.brushSize.tsx` for possible revival as a hand-slot indicator.
+
+---
+
+### 2026-08-18 session (atmosphere + torch + brush overhaul)
+
+**Weather system (server-authoritative + universal):**
+- `src/server/weather.ts` — owns the single source of truth for precipitation (0 CLEAR / 1 LIGHT / 2 MEDIUM / 3 HEAVY). Random cycle every 35–75 s, biased ±1 steps (75 % of the time) for smooth arcs with occasional full-random jumps. Broadcasts `weatherState` on every change and hydrates joiners via `sendCurrentWeatherTo()` inside the `joinRoster` reply. Accepts `weatherRequest` from any client so the HUD snowflake button can nudge global weather.
+- `src/client/snowfall.ts` — four per-level profiles (rate, lifetime, gravity, initial speed, size, alpha) applied to a single Box-shaped `ParticleSystem` at scene centre. Uses `PBParticleSystem_BlendMode` / `PBParticleSystem_PlaybackState` (SDK 7.26 exports these as runtime enums; the older `ParticleSystemBlendMode` name is type-only in this build). CLEAR calls `PS_STOPPED` for a clean snap-off; other transitions reconfigure the emitter in place so prewarmed particles persist. HEAVY tuned for whiteout: 1200 rate, 5 s lifetime, 0.28 gravity, 2.4–3.6 m/s fall, 0.28–0.55 flake size.
+- `src/client/snowfallAudio.ts` — camera-parented AudioSource looping `snowfall.mp3` at per-level volume (0 / 0.08 / 0.20 / 0.40); CLEAR sets `playing: false` to avoid dead-air.
+- `src/client/paint.ts` accumulation cadence is precipitation-driven: LIGHT = 15 s per stage, MEDIUM = 10 s (baseline), HEAVY = 5 s, CLEAR freezes in-progress fills. Global heartbeat now reads the active weather each tick.
+- HUD snowflake button (`layer.brushSize.tsx`) sends `weatherRequest` — no local `setPrecipitation` on click, so all players stay lockstep with server broadcasts.
+
+**Campfire polish:**
+- `src/client/campfireSmoke.ts` — narrow cone `ParticleSystem` at flame tip. Grey alpha-blend particles, negative gravity for buoyant rise, size 0.5 → 2.0 over 4.5 s life, matched wind vector to snowfall so the world feels like one weather system.
+- `src/client/campfire.ts` now also spawns a looping `AudioSource` on the fire entity itself (`global: false`) so the crackle attenuates naturally with distance.
+
+**Locomotion gate (`src/client/locomotion.ts`):**
+- Polls player position every 150 ms, reads snow stage under-foot via `getSnowStageAtWorld` and applies `InputModifier` + `AvatarLocomotionSettings` accordingly. Stage 0 (melted) = normal walk, run **still disabled** (this is a snow world). Stage 1 = 3.0 m/s brisk walk. Stage 2 = 1.5 m/s + no jump. Stage 3 = 1.0 m/s trudge + no jump. 2-poll hysteresis prevents cell-edge flicker.
+
+**Foot SFX (`src/client/snowFootsteps.ts`):**
+- Fires the single-step clip `snowstepsingle.mp3` on a **distance cadence** (not looping). Per-stage stride: shallow 1.6 m, mid 1.2 m, deep 1.0 m — combined with the locomotion cap, cadence naturally slows in deep snow. ±8 % pitch jitter per step so repeated crunches don't sound identical. Silent on stage 0. Clip trimmed head/tail with ffmpeg to 293 ms (was 504 ms).
+- `playClaimSfx` (paint sound) removed — will get a dedicated melt SFX later.
+
+**Held torch (`src/client/torch.ts`):**
+- Follows the flagtag two-layer AvatarAttach pattern: `AAPT_RIGHT_HAND` anchor → STATIC child. Never mutate the anchor's Transform after AvatarAttach is created (Bevy propagation race).
+- Model: `assets/asset-packs/large_log/Log_Large_01/Log_Large_01.glb`, scale `(0.09, 0.18, 0.18)` (Y/Z stretched 2× for a longer torch shaft), rotation `(90, -30, 90)` — pitched off the forearm axis, then rotated −30° on Y to angle across the palm. Colliders off.
+- Exports `getTorchTipEntity()` so future flame particles / LightSource can parent to the hand.
+
+**Brush overhaul (`src/client/brush.ts` + `paint.ts`):**
+- Tier count reduced to four: `0 (off) / 1 / 3 / 5`. `BRUSH_MAX_CELLS = 5`.
+- Removed the ring-around-footprint scheme — all brushes now paint a **solid N×N** area. brush=3 = 9 cells (was 25 cells from the outer ring).
+- Default `PAINT_BRUSH_SIZE_METERS = 3` → boot brush is 3×3.
+
+**Spawn stability (`src/client/maze/rebuild.ts`):**
+- New constant `INSTANT_SPAWN_ORDER_MAX = 8`: tiles with BFS order ≤ 8 (centre + immediate ring) spawn instantly at full scale, no grow-tween, no pop SFX. Fixes the "maze generation pushed me sideways" bug on first spawn.
+
+**HUD polish:**
+- Snowflake button added to top action bar; icon composed manually (React-ECS has no rotate); tint reflects current level (dim/white/ice-blue/deep-blue).
+- `#` (server stats) and spectator buttons swapped; `#` glyph shrunk to 44 px on desktop with recentred nudge.
+- ServerStats panel dropped into `TopCenter` zone below the action bar via `margin.top` (120 desktop / 48 mobile).
+- Desktop drag-catcher (top-down pan mode) now leaves a 140 px top-strip unclickable so the action bar receives clicks in spectator mode.
+- D-pad hidden on desktop (mobile-only — desktop uses click-drag).
+- `landscapeTerrain: false` in `scene.json` to hide the surrounding Genesis City island in preview.
+- `navmapThumbnail` updated to `assets/images/snowdrift.png`.
+
+**Generic scatter system (`src/client/scatter.ts`):**
+- Deterministic (mulberry32 seed) random prop placement. Weighted model pool, per-instance uniform scale + independent Y-squash + horizontal stretch + tilt jitter + Y offset, exclusion predicate, kind field (`static | pickup | powerup`) for future pickup/powerup wiring. Same seed → same layout on every client, no network sync needed.
+- Rocks were built + tuned then removed on request; the utility remains for the next scattered-prop use case.
+
+**Composite / assets:**
+- `main.composite` updated to include the campfire + Log_Large_01 references.
+- New sounds: `snowfall.mp3`, `campfire.mp3`, `snowfootsteps.mp3`, `snowstepsingle.mp3` (+ `.orig.mp3` untrimmed backup).
+- New models: rocks (3), Log_Large_01, standing_torch, small_log — imported to `assets/asset-packs/`.
+- Old thumbnail `scene-thumbnail.png` removed; new `snowdrift.png` used for deploy.
+
+**Explored + dropped this session:**
+- **Fog dome.** Tried 5-plane box, tried inverted sphere via negative-scale winding flip, tried transparent PBR sphere — DCL's Bevy renderer culls back faces even on alpha-blend PBR, so a real inward-facing sphere needs a custom GLB with inverted normals. Dropped entirely for now; a proper GLB generator (`gen-fog-dome.mjs`) was drafted then removed to keep scope tight.
+- **Rock scatter.** Built + tuned then removed — didn't match the intended vibe.
+
+**Deferred:**
+- Real flame + light on the torch tip (parented to `getTorchTipEntity()`).
+- Melt SFX (paint sound removed; needs a dedicated non-crunch clip).
+- Torch scale currently non-uniform in Y/Z; may want a slightly stretched log GLB variant instead so scale can be uniform.
+- Instant-spawn ring size (8) may need to grow if spawn-shove recurs at edge of ring.

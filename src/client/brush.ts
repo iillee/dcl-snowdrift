@@ -15,8 +15,8 @@ import { PAINT_BRUSH_SIZE_CELLS } from 'src/shared/settings'
 
 /** Minimum footprint. 0 = painting disabled (brush cleared). */
 export const BRUSH_MIN_CELLS = 0
-/** Maximum footprint. Odd so it stays centered; 11 = 11x11 = 121 cells. */
-export const BRUSH_MAX_CELLS = 11
+/** Maximum footprint. Odd so it stays centered; 5 = 5x5 = 25 cells. */
+export const BRUSH_MAX_CELLS = 5
 /** Step between adjacent brush sizes. Odd-only progression: 1,3,5,7,9,11. */
 export const BRUSH_STEP_CELLS = 2
 

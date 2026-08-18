@@ -19,7 +19,7 @@ import { AudioSource, Entity, Transform, engine } from '@dcl/sdk/ecs'
 const MUSIC_VOLUME = 0.4
 const MUSIC_SRC = 'assets/sounds/HomeAgain_Loop.mp3'
 const CLICK_SRC = 'assets/sounds/click.wav'
-const CLAIM_SRC = 'assets/sounds/pop.mp3'
+const CLAIM_SRC = 'assets/sounds/snowstepsingle.mp3'
 
 let musicEnt: Entity = 0 as Entity
 let muteClickEnt: Entity = 0 as Entity
@@ -69,11 +69,25 @@ export function playUiClick(): void {
  * so no additional throttle needed. Low volume so continuous painting
  * reads as a soft rhythmic sparkle, not a machine gun.
  */
+// Minimum time between successive crunch triggers. Melts fire per-cell
+// as the brush stamps, which is many times per second while walking —
+// without a cooldown the sample retriggers before it can breathe and
+// reads as a rapid stuttering restart rather than distinct footsteps.
+// ~180 ms sits close to a natural footfall cadence.
+const CLAIM_MIN_INTERVAL_MS = 300
+let   lastClaimSfxMs        = 0
+
 export function playClaimSfx(): void {
   if (!claimSfxEnt) return
+  const now = Date.now()
+  if (now - lastClaimSfxMs < CLAIM_MIN_INTERVAL_MS) return
+  lastClaimSfxMs = now
+  // Tiny pitch jitter so successive melts do not sound like identical
+  // stamps of the same clip.
+  const pitch = 1 + (Math.random() * 2 - 1) * 0.10
   AudioSource.createOrReplace(claimSfxEnt, {
     audioClipUrl: CLAIM_SRC,
-    playing: true, loop: false, volume: 0.15, global: true,
+    playing: true, loop: false, volume: 0.25, global: true, pitch,
   })
 }
 

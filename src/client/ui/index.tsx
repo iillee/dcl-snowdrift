@@ -1,39 +1,36 @@
 /**
- * index.tsx — UI entry point.
+ * index.tsx \u2014 UI entry point.
  *
- * Composes distinct HUD layers into a single full-screen root and registers
- * the React-ECS renderer. Import setupUi from 'src/client/ui'.
+ * Registers every HUD layer through @stom66/dcl-ui-component-kit. Each
+ * layer owns its own Zone (bottom-right chip, top-center action bar,
+ * bottom-left debug panel, full-screen top-down pan controls). The kit
+ * handles safe-area insets, layer visibility plumbing, and the render
+ * loop \u2014 our layers only need to implement `body()`.
+ *
+ * Import setupUi from 'src/client/ui'.
  */
 
-import ReactEcs, { ReactEcsRenderer, ScreenInsetArea } from '@dcl/sdk/react-ecs'
+import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
-import { BrushSizeLayer } from 'src/client/ui/layers/layer.brushSize'
-import { ServerStatsLayer } from 'src/client/ui/layers/layer.serverStats'
-import { TopDownPanLayer } from 'src/client/ui/layers/layer.topDownPan'
-import { VersionLayer } from 'src/client/ui/layers/layer.version'
-import { BASE_HEIGHT, BASE_WIDTH } from 'src/client/ui/utils/sizing'
+import { actionBarLayer }    from 'src/client/ui/layers/layer.brushSize'
+import { serverStatsLayer }  from 'src/client/ui/layers/layer.serverStats'
+import { topDownPanLayer }   from 'src/client/ui/layers/layer.topDownPan'
+import { versionLayer }      from 'src/client/ui/layers/layer.version'
 
 
 // MARK: setupUi
 /**
- * Register the main HUD renderer at the virtual 1920×1080 reference size.
+ * Register every HUD layer with the UI Component Kit. Zone order in the
+ * array is z-order (later = drawn above), so the pan overlay's drag
+ * catcher sits above corner chrome but below the action bar's buttons.
  */
 export function setupUi() {
-	ReactEcsRenderer.setUiRenderer(
-		() => (
-			<ScreenInsetArea>
-				<ServerStatsLayer />
-				{/* TopDownPanLayer renders BEFORE the action bar so its
-				    full-screen drag-catcher does not cover the action
-				    bar's own top-down toggle button. */}
-				<TopDownPanLayer />
-				<BrushSizeLayer />
-				<VersionLayer />
-			</ScreenInsetArea>
-		),
-		{
-			virtualHeight: BASE_HEIGHT,
-			virtualWidth : BASE_WIDTH,
-		}
-	)
+	SetupUiComponentKit({
+		layers: [
+			serverStatsLayer,
+			topDownPanLayer,
+			actionBarLayer,
+			versionLayer,
+		],
+	})
 }

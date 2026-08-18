@@ -6,13 +6,17 @@
  * drift, warmth radius) lands with system N1 per docs/PLAN.md.
  */
 
-import { engine, GltfContainer, Transform } from '@dcl/sdk/ecs'
+import { AudioSource, GltfContainer, Transform, engine } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 
 const CAMPFIRE_MODEL = 'assets/asset-packs/campfire/Fireplace_01/Fireplace_01.glb'
+const CAMPFIRE_SFX   = 'assets/sounds/campfire.mp3'
+// Volume at zero distance. DCL attenuates with distance automatically
+// when global=false, so this is the "standing on the fire" ceiling.
+const CAMPFIRE_VOLUME = 0.8
 
 
 // MARK: setupCampfire
@@ -26,4 +30,15 @@ export function setupCampfire(): void {
 		position: Vector3.create(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z),
 	})
 	GltfContainer.create(entity, { src: CAMPFIRE_MODEL })
+
+	// Spatial crackle: global=false makes the SDK attenuate by distance
+	// from this entity's Transform, so the fire sound naturally fades as
+	// the player wanders away from the melt ring and swells on return.
+	AudioSource.create(entity, {
+		audioClipUrl: CAMPFIRE_SFX,
+		loop        : true,
+		playing     : true,
+		global      : false,
+		volume      : CAMPFIRE_VOLUME,
+	})
 }

@@ -22,6 +22,8 @@ import { Color4 } from '@dcl/sdk/math'
 import { InputAction, PointerEventType, PrimaryPointerInfo, engine, inputSystem } from '@dcl/sdk/ecs'
 import { isMobile } from '@dcl/sdk/platform'
 
+import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
+
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { applyPanDelta, beginDrag, beginPan, endDrag, endPan, getDpadSpeed, isDragging, isTopDownActive } from 'src/client/topDownCamera'
 
@@ -40,6 +42,11 @@ const DPAD_BTN         = 72
 const DPAD_GAP         = 8
 const DPAD_MARGIN_RIGHT = 32
 const DPAD_MARGIN_BOTTOM = 220  // above the native mobile action buttons
+
+// Vertical inset at the top of the drag catcher so it never covers the
+// top-center action bar (see layer.brushSize.tsx: top margin 32 + 72 px
+// button + breathing room). Without this gap the fullscreen catcher
+// swallows every action-bar click while top-down mode is active.
 
 
 // MARK: dragPollSystem
@@ -200,15 +207,18 @@ function Dpad() {
  * top-down mode (no in-world interactions yet). When we add clickable
  * entities later, gate this catcher off the interaction cursor.
  */
+const DRAG_CATCHER_TOP_INSET = 140
+
 function DesktopDragCatcher() {
 	return (
 		<UiEntity
 			key = "ui_TopDown_DragCatcher"
 			uiTransform={{
 				width       : '100%',
-				height      : '100%',
 				positionType: 'absolute',
-				position    : { top: 0, left: 0 },
+				// top + bottom (no explicit height) leaves an unclickable
+				// strip at the top for the action bar to receive events.
+				position    : { top: DRAG_CATCHER_TOP_INSET, left: 0, bottom: 0 },
 				pointerFilter: 'block',
 			}}
 			onMouseDown={beginDrag}
@@ -220,28 +230,41 @@ function DesktopDragCatcher() {
 
 // MARK: TopDownPanLayer
 /**
- * Top-level pan-controls layer. Renders nothing when top-down mode is
- * off. Order matters: drag catcher is first (so d-pad + recenter draw
- * ABOVE it and remain clickable).
+ * Top-level pan-controls layer. FullScreen zone so its drag catcher can
+ * cover the whole canvas. Body renders empty when top-down mode is off
+ * so the layer stays mounted (state stable) but visually inert.
+ * Order matters: drag catcher first so the d-pad draws above it.
  */
-export function TopDownPanLayer() {
-	if (!isTopDownActive()) return null
-	return (
-		<UiEntity
-			key = "ui_TopDownPan_root"
-			uiTransform={{
-				width        : '100%',
-				height       : '100%',
-				positionType : 'absolute',
-				position     : { top: 0, left: 0 },
-				pointerFilter: 'none',
-			}}
-		>
-			{/* Desktop-only: the drag catcher is a fullscreen block layer
-			    that would swallow mobile joystick touches. Mobile pans via
-			    the d-pad, so it does not need the catcher at all. */}
-			{!isMobile() && <DesktopDragCatcher />}
-			<Dpad />
-		</UiEntity>
-	)
+class TopDownPanLayer extends Layer {
+	constructor() {
+		super({
+			id  : 'topDownPan',
+			zone: ZoneType.FullScreen,
+		})
+	}
+
+	body() {
+		if (!isTopDownActive()) return null
+		return (
+			<UiEntity
+				key = "ui_TopDownPan_root"
+				uiTransform={{
+					width        : '100%',
+					height       : '100%',
+					pointerFilter: 'none',
+				}}
+			>
+				{/* Desktop-only: the drag catcher is a fullscreen block layer
+				    that would swallow mobile joystick touches. Mobile pans via
+				    the d-pad, so it does not need the catcher at all. */}
+				{!isMobile() && <DesktopDragCatcher />}
+				{/* D-pad is mobile-only — desktop uses click-drag panning via
+				    the catcher above, so the d-pad would only clutter the HUD. */}
+				{isMobile() && <Dpad />}
+			</UiEntity>
+		)
+	}
 }
+
+
+export const topDownPanLayer = new TopDownPanLayer()

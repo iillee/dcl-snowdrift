@@ -12,6 +12,8 @@ import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
+import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
+
 import {
 	BRUSH_MAX_CELLS,
 	BRUSH_MIN_CELLS,
@@ -20,8 +22,10 @@ import {
 	increaseBrush,
 } from 'src/client/brush'
 import { isMusicMuted, toggleMusic } from 'src/client/audio'
+import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
+import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -30,6 +34,8 @@ const { colors, fontSizes, borderRadius } = UI_THEME
 const WHITE     = Color4.White()
 const DIM       = Color4.create(1, 1, 1, 0.35)
 const GOLD      = Color4.create(1.0, 0.84, 0.0, 1)
+const ICE_BLUE  = Color4.create(0.65, 0.85, 1.0, 1)
+const DEEP_BLUE = Color4.create(0.40, 0.65, 1.0, 1)
 const PANEL_BG  = colors.statsBg
 
 // Shared button footprint so every action button in the bar looks identical.
@@ -138,31 +144,53 @@ function BrushButton(props: {
 }
 
 
-// MARK: BrushSizeLayer
+// MARK: cyclePrecipitation
 /**
- * Right-edge, vertically stacked +/- brush size controls. Anchored to
- * the middle-right of the screen with + on top, - beneath.
+ * Ask the server to advance ambient snowfall to the next level
+ * (CLEAR → LIGHT → MEDIUM → HEAVY → CLEAR). Server broadcasts the new
+ * state back so all connected clients update in lockstep. We do NOT
+ * set the level locally here — doing so would create a brief
+ * client/server mismatch until the broadcast arrives.
  */
-export function BrushSizeLayer() {
-	const size       = getBrushCells()
-	const canDec     = size > BRUSH_MIN_CELLS
-	const canInc     = size < BRUSH_MAX_CELLS
-	const specActive = isTopDownActive()
+function cyclePrecipitation(): void {
+	const next = ((getPrecipitation() + 1) % 4) as PrecipitationLevel
+	room.send('weatherRequest', { level: next })
+}
 
-	return (
-		<UiEntity
-			key = "ui_BrushSize_wrap"
-			uiTransform = {{
-				width        : '100%',
-				height       : '100%',
-				positionType : 'absolute',
-				position     : { top: 0, left: 0 },
-				flexDirection: 'column',
-				justifyContent: 'flex-start',
-				alignItems   : 'center',
-				pointerFilter: 'none',
-			}}
-		>
+
+// MARK: precipitationIconColor
+/** Icon tint used to signal the current precipitation level at a glance. */
+function precipitationIconColor(level: PrecipitationLevel): Color4 {
+	switch (level) {
+		case PrecipitationLevel.CLEAR : return DIM
+		case PrecipitationLevel.LIGHT : return WHITE
+		case PrecipitationLevel.MEDIUM: return ICE_BLUE
+		case PrecipitationLevel.HEAVY : return DEEP_BLUE
+	}
+}
+
+
+// MARK: ActionBarLayer
+/**
+ * Top-center action bar: +/- brush, spectator toggle, stats toggle, mute.
+ * Zone handles top placement + safe-area insets; only the mobile-vs-
+ * desktop margin nudge is preserved.
+ */
+class ActionBarLayer extends Layer {
+	constructor() {
+		super({
+			id  : 'actionBar',
+			zone: ZoneType.TopCenter,
+		})
+	}
+
+	body() {
+		const size       = getBrushCells()
+		const canDec     = size > BRUSH_MIN_CELLS
+		const canInc     = size < BRUSH_MAX_CELLS
+		const specActive = isTopDownActive()
+
+		return (
 			<UiEntity
 				key = "ui_BrushSize_row"
 				uiTransform = {{
@@ -184,6 +212,14 @@ export function BrushSizeLayer() {
 					enabled   = {canDec}
 					keySuffix = "dec"
 				/>
+				<BrushButton
+					label     = "#"
+					onClick   = {toggleServerStats}
+					enabled   = {true}
+					keySuffix = "stats"
+					fontSize  = {isMobile() ? 64 : 44}
+					nudgeTop  = {isMobile() ? -14 : -4}
+				/>
 				<UiEntity
 					key = "ui_SpectatorBtn"
 					uiTransform = {{
@@ -199,13 +235,6 @@ export function BrushSizeLayer() {
 				>
 					<ParcelGridIcon color={specActive ? GOLD : WHITE} />
 				</UiEntity>
-				<BrushButton
-					label     = "#"
-					onClick   = {toggleServerStats}
-					enabled   = {true}
-					keySuffix = "stats"
-					nudgeTop  = {isMobile() ? -14 : -2}
-				/>
 				<UiEntity
 					key = "ui_MuteBtn"
 					uiTransform = {{
@@ -228,10 +257,108 @@ export function BrushSizeLayer() {
 						}}
 					/>
 				</UiEntity>
+				<UiEntity
+					key = "ui_PrecipBtn"
+					uiTransform = {{
+						width        : BTN_SIZE,
+						height       : BTN_SIZE,
+						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+						justifyContent: 'center',
+						alignItems   : 'center',
+						borderRadius : borderRadius.md,
+					}}
+					uiBackground = {{ color: PANEL_BG }}
+					onMouseDown  = {cyclePrecipitation}
+				>
+					<SnowflakeIcon color = {precipitationIconColor(getPrecipitation())} />
+				</UiEntity>
 			</UiEntity>
+		)
+	}
+}
+
+
+// MARK: SnowflakeIcon
+/**
+ * Six-armed snowflake composed from three overlapping bars: horizontal,
+ * plus two diagonals approximated by short staircase strips. React-ECS
+ * cannot rotate arbitrary elements, so each arm is built by absolutely
+ * positioning bar segments through the icon's centre.
+ *
+ * Simplified glyph: a central plus (+) and an ex (×) overlaid so the
+ * combined silhouette reads as an asterisk / snowflake at button scale.
+ */
+function SnowflakeIcon(props: { color: Color4 }) {
+	const ICON = 44
+	const BAR  = 4
+	const LONG = 40
+	const DIAG = 6            // staircase step size for the diagonals
+	const DIAG_STEPS = 5
+	const diag: any[] = []
+	for (let i = 0; i < DIAG_STEPS; i++) {
+		const offset = (i - (DIAG_STEPS - 1) / 2) * DIAG
+		// NE-SW diagonal: shift x + y together
+		diag.push(
+			<UiEntity
+				key = {`snowflake_diag_a_${i}`}
+				uiTransform = {{
+					width       : DIAG,
+					height      : DIAG,
+					positionType: 'absolute',
+					position    : { top: ICON / 2 + offset - DIAG / 2, left: ICON / 2 + offset - DIAG / 2 },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+		)
+		// NW-SE diagonal: mirror x
+		diag.push(
+			<UiEntity
+				key = {`snowflake_diag_b_${i}`}
+				uiTransform = {{
+					width       : DIAG,
+					height      : DIAG,
+					positionType: 'absolute',
+					position    : { top: ICON / 2 + offset - DIAG / 2, left: ICON / 2 - offset - DIAG / 2 },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+		)
+	}
+	return (
+		<UiEntity
+			key = "ui_SnowflakeIcon"
+			uiTransform = {{ width: ICON, height: ICON, positionType: 'relative' }}
+		>
+			{/* Horizontal bar */}
+			<UiEntity
+				key = "snowflake_h"
+				uiTransform = {{
+					width       : LONG,
+					height      : BAR,
+					positionType: 'absolute',
+					position    : { top: (ICON - BAR) / 2, left: (ICON - LONG) / 2 },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+			{/* Vertical bar */}
+			<UiEntity
+				key = "snowflake_v"
+				uiTransform = {{
+					width       : BAR,
+					height      : LONG,
+					positionType: 'absolute',
+					position    : { top: (ICON - LONG) / 2, left: (ICON - BAR) / 2 },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+			{/* Diagonals as short staircase strips */}
+			{diag}
 		</UiEntity>
 	)
 }
+
+
+export const actionBarLayer = new ActionBarLayer()
 
 
 // MARK: PaintSwatchButton (unused)

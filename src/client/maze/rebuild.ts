@@ -58,6 +58,11 @@ const isCenterTile = (p: Placed) =>
   p.x === CENTER_X && p.z === CENTER_Z && p.y === 0
 const TILE_TEARDOWN_PER_FRAME = 25
 const STAGGER = 0.03 // seconds between successive tile spawns
+// BFS `order` threshold below which tiles spawn INSTANTLY at full
+// scale, with no grow-in tween. Covers the center tile + its immediate
+// ring, so a fresh spawn lands the player on solid ground and never
+// gets pushed sideways by a growing collider under their feet.
+const INSTANT_SPAWN_ORDER_MAX = 8
 
 /** True while the reveal cascade is still in-flight for the current maze. */
 export function isRebuilding(): boolean {
@@ -140,26 +145,39 @@ function spawnTileWithGrow(p: Placed): void {
   if (centerTileEntity === null && isCenterTile(p)) {
     centerTileEntity = e
   }
+
+  // Tiles at the very base of the BFS (center + immediate ring) spawn
+  // instantly at full scale, no tween. This guarantees solid ground is
+  // under the player from the first frame after they spawn in — a
+  // growing collider under them was pushing them sideways.
+  const isInstant = p.order <= INSTANT_SPAWN_ORDER_MAX
+
   Transform.create(e, {
     position: Vector3.create(p.x * CELL + dx + MAZE_ORIGIN, p.y, p.z * CELL + dz + MAZE_ORIGIN),
     rotation: Quaternion.fromEulerDegrees(0, p.r * 90, 0),
-    scale: Vector3.create(0.001, 0.001, 0.001),
+    scale: isInstant
+      ? Vector3.create(TILE_SCALE, TILE_SCALE, TILE_SCALE)
+      : Vector3.create(0.001, 0.001, 0.001),
   })
   GltfContainer.create(e, {
     src: TILES[p.type].model,
     visibleMeshesCollisionMask: ColliderLayer.CL_PHYSICS,
   })
-  Tween.create(e, {
-    mode: Tween.Mode.Scale({
-      start: Vector3.create(0.001, 0.001, 0.001),
-      end: Vector3.create(TILE_SCALE, TILE_SCALE, TILE_SCALE),
-    }),
-    duration: 500,
-    easingFunction: EasingFunction.EF_EASEOUTBACK,
-  })
+  if (!isInstant) {
+    Tween.create(e, {
+      mode: Tween.Mode.Scale({
+        start: Vector3.create(0.001, 0.001, 0.001),
+        end: Vector3.create(TILE_SCALE, TILE_SCALE, TILE_SCALE),
+      }),
+      duration: 500,
+      easingFunction: EasingFunction.EF_EASEOUTBACK,
+    })
+  }
   // Soft positional "pop" as each tile appears. Every-other only, so a
   // cascade of ~100 tiles reads as rhythmic sparkle rather than a buzz.
-  if (p.order % 2 === 0) {
+  // Skip pops for instant spawns — they all fire on the same frame and
+  // stack into a single loud burst.
+  if (!isInstant && p.order % 2 === 0) {
     AudioSource.create(e, {
       audioClipUrl: 'assets/sounds/pop.mp3',
       playing: true,

@@ -14,6 +14,7 @@ import { Team } from 'src/shared/team'
 import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 
 import { drainPaintOutbox } from 'src/client/paint'
+import { PrecipitationLevel, setPrecipitation } from 'src/client/snowfall'
 
 let myTeam: Team = Team.None
 
@@ -46,6 +47,14 @@ export function initClientHandler(): void {
 function wireInbound(): void {
 	room.onMessage('teamAssigned', ({ team }) => {
 		eventBus.emit(ClientEvents.TeamAssigned, { team: team as Team })
+	})
+
+	// Server-authoritative weather. Level 0..3 maps directly onto the
+	// PrecipitationLevel enum, so no translation is needed — just clamp
+	// defensively in case the server ever sends an out-of-range value.
+	room.onMessage('weatherState', ({ level }) => {
+		const clamped = Math.max(0, Math.min(3, level | 0)) as PrecipitationLevel
+		setPrecipitation(clamped)
 	})
 }
 

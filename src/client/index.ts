@@ -33,11 +33,17 @@ import { SEED_NETWORK_ID } from 'src/shared/paintGrid'
 import { initAudio } from 'src/client/audio'
 import { initClientHandler } from 'src/client/clientHandler'
 import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
+import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
 import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
+import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupSnowFootsteps } from 'src/client/snowFootsteps'
+import { setupSnowfall } from 'src/client/snowfall'
+import { setupSnowfallAudio } from 'src/client/snowfallAudio'
+import { setupTorch } from 'src/client/torch'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
@@ -113,6 +119,7 @@ export async function setupClient(): Promise<void> {
 	initPaintNet()
 	initMazeNet()
 	initPlayerNet()
+	initLocomotionGate()
 
 	// Register the network boundary LAST so `room.onMessage` subscribers
 	// above are all in place before the first message can arrive.
@@ -136,6 +143,13 @@ export async function setupClient(): Promise<void> {
 	engine.addSystem(dragPollSystem)
 
 	setupCampfire()
+	setupCampfireSmoke()
+	setupSnowfall()
+	// Audio requires initAudio() to have already run (camera entity is
+	// used as the parent). initAudio is called upstream in setupClient.
+	setupSnowfallAudio()
+	setupSnowFootsteps()
+	setupTorch()
 
 	setupUi()
 }

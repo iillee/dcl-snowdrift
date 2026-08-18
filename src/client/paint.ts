@@ -5,6 +5,7 @@
 import { engine, Transform, MeshRenderer, Material, Entity, NetworkEntity, Tween, EasingFunction } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color4 } from '@dcl/sdk/math'
 
+import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isInsideMeltRadius } from 'src/shared/campfire'
 import { PaintCell, PaletteEntry, PaintCoverage } from 'src/shared/components'
 import {
@@ -28,6 +29,7 @@ import {
 import {
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_TILE_GLTF_SCALE,
+	PAINT_BRUSH_LEAD_METERS,
 	PAINT_CELL_SIZE_METERS,
 
 } from 'src/shared/settings'
@@ -38,7 +40,6 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 // change their import paths.
 export { MASKS, type Mask }
 
-import { playClaimSfx } from 'src/client/audio'
 import { getBrushCells } from 'src/client/brush'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
@@ -211,10 +212,53 @@ const cellData    = new Map<string, CellData>()
 const paintByTile = new Map<Entity, { entities: Entity[]; ids: string[] }>()
 
 // Cube geometry + drop-tween settings.
-const CUBE_HEIGHT       = 2.0
+const CUBE_HEIGHT       = 1.5
 const PAINTED_THICKNESS = 0.02
 const DROP_DURATION_MS  = 300
-const DECAY_DELAY_MS    = 10000 // painted cell visually reverts to grey cube after this
+
+// Snow infill: after a cell is painted (melted) it grows back in three
+// discrete stages if not repainted. Heights are the cube's scale.y
+// target at each stage. Stage 3 is full snow and terminal — the cell
+// is then treated as unpainted again (renderedIndex cleared) so the
+// locomotion gate re-disables run and a fresh paint restarts the cycle.
+//
+// Stage thresholds (and the tick cadence that gates them) are dynamic:
+// they scale with the current precipitation level so heavier weather
+// accumulates faster.
+//   HEAVY  : stage every  5 s (fastest — whiteout re-buries in 15 s)
+//   MEDIUM : stage every 10 s (baseline)
+//   LIGHT  : stage every 15 s (slow drift-back)
+//   CLEAR  : no accumulation at all (in-progress fills freeze)
+const SNOW_FILL_STAGE_HEIGHT  = [0.5,   1.0,   CUBE_HEIGHT] as const
+const SNOW_FILL_TWEEN_MS      = 400
+// Per-level stage interval in milliseconds. Undefined for CLEAR.
+const SNOW_FILL_INTERVAL_MS: Record<PrecipitationLevel, number | null> = {
+	[PrecipitationLevel.CLEAR ]: null,
+	[PrecipitationLevel.LIGHT ]: 15000,
+	[PrecipitationLevel.MEDIUM]: 10000,
+	[PrecipitationLevel.HEAVY ]:  5000,
+}
+
+
+// MARK: currentStageIntervalMs
+/**
+ * Stage interval (ms) for the current precipitation level, or null when
+ * precipitation is CLEAR. Also used as the global tick cadence so the
+ * whole snowfield exhales in synchronized batches at whatever pace the
+ * weather dictates.
+ */
+function currentStageIntervalMs(): number | null {
+	return SNOW_FILL_INTERVAL_MS[getPrecipitation()]
+}
+
+
+// MARK: stageThresholdMs
+/** Elapsed-since-melt threshold for reaching `stage` under current weather. */
+function stageThresholdMs(stage: 1 | 2 | 3): number | null {
+	const interval = currentStageIntervalMs()
+	if (interval === null) return null
+	return interval * stage
+}
 
 // Snow-white material for the unpainted cube (independent of PALETTE_NONE
 // so resetting the palette does not affect the snow colour).
@@ -232,26 +276,77 @@ type DropAnim = {
 }
 const dropAnims = new Map<string, DropAnim>()
 
-// Wall-clock (ms since engine start) at which each painted cube should
-// decay back to grey. Cleared when the cube is already grey.
-const decayAt   = new Map<string, number>()
-let   paintClockMs = 0
+// Per-cell snow-infill state. `paintedAtMs` is the reference time (in the
+// same paintClockMs frame) from which stage thresholds are measured; it is
+// set to the moment the paint drop-down finishes, so the 10 / 20 / 30 s
+// stages feel right against the freshly-flat cube. `stage` is the highest
+// stage already applied (0 = still flat / painted, 3 = fully grown back).
+type SnowFill = { paintedAtMs: number; stage: 0 | 1 | 2 | 3 }
+const snowFill  = new Map<string, SnowFill>()
+let   paintClockMs         = 0
+// Initialised on first tick from the active weather's cadence. -1 means
+// "not scheduled"; the tick loop below arms it whenever precipitation is
+// non-CLEAR and there is at least one live SnowFill entry.
+let   nextSnowFillTickMs   = -1
 
 
-// MARK: scheduleCellDecay
+// MARK: scheduleSnowFill
 /**
- * Schedule (or refresh) a cell's decay-back-to-cube timer, unless the cell
- * lies inside the campfire's melt radius — heat keeps that ground clear.
- * Cells inside the radius have their existing decay entry cleared so any
- * timer scheduled before the fire was aware of them still gets cancelled.
+ * Schedule (or refresh) a cell's snow-infill timer, unless the cell lies
+ * inside the campfire's melt radius — heat keeps that ground clear.
+ * Cells inside the radius have their existing entry cleared so any timer
+ * scheduled before the fire was aware of them still gets cancelled.
  */
-function scheduleCellDecay(id: string, dueMs: number): void {
+function scheduleSnowFill(id: string, paintedAtMs: number): void {
 	const data = cellData.get(id)
 	if (data && isInsideMeltRadius(data.basePos.x, data.basePos.z)) {
-		decayAt.delete(id)
+		snowFill.delete(id)
 		return
 	}
-	decayAt.set(id, dueMs)
+	snowFill.set(id, { paintedAtMs, stage: 0 })
+}
+
+
+// MARK: advanceSnowFillStage
+/**
+ * Push a rise-tween on cell `id` toward the height for `stage` (1..3) and
+ * update bookkeeping. On stage 1 snaps the material back to grey (from
+ * the painted team color). On stage 3 also clears renderedIndex + drops
+ * the snowFill entry so the cell reads as unpainted again and a fresh
+ * local paint can re-trigger the whole cycle.
+ */
+function advanceSnowFillStage(id: string, stage: 1 | 2 | 3): void {
+	const data = cellData.get(id)
+	if (!data || data.kind !== 'cube') return
+
+	const targetScaleY = SNOW_FILL_STAGE_HEIGHT[stage - 1]
+	const targetY      = data.basePos.y + targetScaleY / 2
+	const tr           = Transform.getOrNull(data.entity)
+	const startY       = tr ? tr.position.y : data.basePos.y + PAINTED_THICKNESS / 2
+	const startScaleY  = tr ? tr.scale.y    : PAINTED_THICKNESS
+
+	if (stage === 1) {
+		Material.setPbrMaterial(data.entity, CUBE_GREY_MAT)
+	}
+
+	dropAnims.set(id, {
+		startY, endY: targetY,
+		startScaleY, endScaleY: targetScaleY,
+		elapsedMs: 0, durationMs: SNOW_FILL_TWEEN_MS,
+		finalMat: null,
+	})
+
+	const entry = snowFill.get(id)
+	if (entry) entry.stage = stage
+
+	if (stage === 3) {
+		// Terminal: cell is snow again. Keep cellApplied at the server's
+		// authoritative painted index (so a CRDT sync does not immediately
+		// re-drive us back down) but clear renderedIndex so a fresh local
+		// paint re-triggers the drop.
+		renderedIndex.delete(id)
+		snowFill.delete(id)
+	}
 }
 
 engine.addSystem((dt: number) => {
@@ -279,19 +374,32 @@ engine.addSystem((dt: number) => {
 		}
 	}
 
-	// Paint decay. Purely visual: cube rises back to grey but the server
-	// still owns the authoritative paint state, so re-painting works.
-	if (decayAt.size > 0) {
-		for (const [id, dueMs] of decayAt) {
-			if (paintClockMs < dueMs) continue
-			decayAt.delete(id)
-			// Purely visual decay: keep cellApplied at the server-authoritative
-			// painted index (so syncCellsFromCrdt does NOT re-drive us straight
-			// back down next frame), but clear renderedIndex so a fresh local
-			// paint (player walks over it again) can re-trigger the drop.
-			renderedIndex.delete(id)
-			applyPaintIndex(id, PALETTE_NONE, true)
+	// Snow infill. Gated by a global heartbeat so cells regrow in
+	// synchronized batches instead of a rolling wave. Purely visual: the
+	// server still owns authoritative paint, so re-painting works.
+	//
+	// Cadence and stage thresholds both track the active precipitation
+	// level. When precipitation is CLEAR the tick is a no-op, which
+	// freezes any in-progress fills until weather returns.
+	const intervalMs = currentStageIntervalMs()
+	if (intervalMs !== null) {
+		if (nextSnowFillTickMs < 0) nextSnowFillTickMs = paintClockMs + intervalMs
+		if (paintClockMs >= nextSnowFillTickMs) {
+			nextSnowFillTickMs = paintClockMs + intervalMs
+			if (snowFill.size > 0) {
+				for (const [id, entry] of snowFill) {
+					const elapsed = paintClockMs - entry.paintedAtMs
+					const next    = (entry.stage + 1) as 1 | 2 | 3
+					if (next > 3) { snowFill.delete(id); continue }
+					const threshold = stageThresholdMs(next)
+					if (threshold === null || elapsed < threshold) continue
+					advanceSnowFillStage(id, next)
+				}
+			}
 		}
+	} else {
+		// CLEAR: park the tick so it re-arms cleanly when weather returns.
+		nextSnowFillTickMs = -1
 	}
 })
 
@@ -351,7 +459,7 @@ export function removePaintForTile(tileEntity: Entity) {
 		cellEntity.delete(id)
 		cellData.delete(id)
 		dropAnims.delete(id)
-		decayAt.delete(id)
+		snowFill.delete(id)
 		renderedIndex.delete(id)
 		const key = cellIdToKey(id)
 		if (key !== null) cellApplied.delete(key)
@@ -409,15 +517,25 @@ export function enqueuePaintCandidate(id: string): void {
 	paintOutbox.add(id)
 	if (localTeam === Team.None) return
 	const index = teamPaletteIndex(localTeam)
-	// Refresh decay while the player is actively stamping this cube — stops
-	// the every-3s grey pulse when standing still on an already-painted cell.
-	const data = cellData.get(id)
+	const data  = cellData.get(id)
+
+	// If the cube is mid-regrowth (snow infill stage 1 or 2), the palette
+	// index still matches so the fast path below would no-op and leave the
+	// half-grown cube standing. Force a fresh drop-down tween from its
+	// current height back to flat, then restart the infill clock.
+	const fill = snowFill.get(id)
+	if (data && data.kind === 'cube' && fill && fill.stage >= 1 && renderedIndex.get(id) === index) {
+		applyPaintIndex(id, index, true)
+		return
+	}
+
+	// Refresh infill clock while the player is actively stamping this cube —
+	// stops premature regrowth when standing still on an already-painted cell.
 	if (data && data.kind === 'cube' && renderedIndex.get(id) === index) {
-		scheduleCellDecay(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
+		scheduleSnowFill(id, paintClockMs + DROP_DURATION_MS)
 	}
 	if (renderedIndex.get(id) === index) return
 	applyPaintIndex(id, index, false)
-	playClaimSfx()
 }
 
 
@@ -451,8 +569,8 @@ export function applyPaintIndex(id: string, index: number, force: boolean): void
 			finalMat,
 		})
 		// Schedule / clear the 3s decay back to grey.
-		if (painted) scheduleCellDecay(id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
-		else         decayAt.delete(id)
+		if (painted) scheduleSnowFill(id, paintClockMs + DROP_DURATION_MS)
+		else         snowFill.delete(id)
 		return
 	}
 
@@ -586,7 +704,7 @@ function spawnCellsForTileImmediate(
 		// Cell adopted a painted state from CRDT that arrived before spawn.
 		// applyPaintIndex was a no-op back then (no entity yet), so schedule
 		// the visual decay here or the cube would stay painted forever.
-		if (painted) scheduleCellDecay(id, paintClockMs + DECAY_DELAY_MS)
+		if (painted) scheduleSnowFill(id, paintClockMs)
 		tileRec!.entities.push(e)
 		tileRec!.ids.push(id)
 	}
@@ -841,10 +959,56 @@ function removeOverlayImmediate(id: string): void {
 	overlays.delete(id)
 }
 
+// Module-scope paint context, stashed by initPaintingSystem so other client
+// modules (e.g. locomotion) can query "is the cell under this world point
+// painted?" without re-plumbing CELL / STEP / lookupTile through init calls.
+let paintCtx: {
+	CELL:       number
+	STEP:       number
+	lookupTile: (tx: number, tz: number, py: number) => { type: string; r: number; y: number } | null
+} | null = null
+
+
+// MARK: isCellPaintedAtWorld
+/**
+ * True when the paint cell under world point (x, y, z) currently has any
+ * non-"none" palette entry rendered. Returns false when off the maze, off
+ * a walkable cell, or when the cell is still snow. Safe to call before
+ * initPaintingSystem has run — returns false.
+ */
+export function isCellPaintedAtWorld(x: number, y: number, z: number): boolean {
+	return getSnowStageAtWorld(x, y, z) === 0
+}
+
+
+// MARK: getSnowStageAtWorld
+/**
+ * Snow height stage under world point (x, y, z):
+ *   0 = cell is currently painted (melted / flat) — no snow at all
+ *   1 = infill stage 1 (~0.5 m of regrowth)
+ *   2 = infill stage 2 (~1.0 m of regrowth)
+ *   3 = full snow (pristine cube never painted, or fully regrown)
+ *
+ * Returns 3 when off the maze / off a walkable cell so callers err on the
+ * side of "treat it as deep snow." Safe to call before initPaintingSystem
+ * has run — returns 3 as well.
+ */
+export function getSnowStageAtWorld(x: number, y: number, z: number): 0 | 1 | 2 | 3 {
+	if (!paintCtx) return 3
+	const hit = worldToCellId(x, y, z, paintCtx.CELL, paintCtx.STEP, paintCtx.lookupTile)
+	if (!hit) return 3
+	const idx = renderedIndex.get(hit.id)
+	if (idx === undefined || idx === PALETTE_NONE) return 3
+	const fill = snowFill.get(hit.id)
+	return fill ? fill.stage : 0
+}
+
+
 export function initPaintingSystem(
   CELL: number, STEP: number,
   lookupTile: (tx: number, tz: number, py: number) => { type: string; r: number; y: number } | null,
 ) {
+  paintCtx = { CELL, STEP, lookupTile }
   const GROUND_TOLERANCE = 0.4
   // Brush footprint is read live from src/client/brush.ts so the +/- HUD
   // buttons can grow/shrink the stamp without a scene reload. Offsets in
@@ -859,24 +1023,25 @@ export function initPaintingSystem(
 
 		if (t && brushCells > 0) {
 			const { x, y, z } = t.position
-			const center = worldToCellId(x, y, z, CELL, STEP, lookupTile)
+			// Project the brush ahead of the player along their facing so melt
+			// leads their footsteps rather than sitting under them.
+			const fwd  = Vector3.rotate(Vector3.Forward(), t.rotation)
+			const lead = PAINT_BRUSH_LEAD_METERS
+			const sx = x + fwd.x * lead
+			const sz = z + fwd.z * lead
+			const center = worldToCellId(sx, y, sz, CELL, STEP, lookupTile)
 			if (center && y - center.groundY <= GROUND_TOLERANCE) {
-				// Paint the ring one step OUTSIDE the brush footprint. Inner
-				// cells (directly under the player) stay as untouched grey cubes
-				// — the tween happens only on the perimeter.
-				const half  = Math.floor(brushCells / 2)
-				const outer = half + 1
-				for (let dz = -outer; dz <= outer; dz++) for (let dx = -outer; dx <= outer; dx++) {
-					const hit = worldToCellId(x + dx * step, y, z + dz * step, CELL, STEP, lookupTile)
+				// Solid footprint: paint every cell in an NxN square centered
+				// at the brush point. The older ring-around-footprint scheme
+				// was designed so players could see under themselves, but with
+				// small brushes (max 5x5) that concern is negligible and the
+				// ring pattern inflated the visual footprint dramatically
+				// (e.g. brush=3 painted a 5x5 ring = 25 cells).
+				const half = Math.floor(brushCells / 2)
+				for (let dz = -half; dz <= half; dz++) for (let dx = -half; dx <= half; dx++) {
+					const hit = worldToCellId(sx + dx * step, y, sz + dz * step, CELL, STEP, lookupTile)
 					if (!hit) continue
 					if (Math.abs(y - hit.groundY) > 1.5) continue
-					const insideFootprint = Math.abs(dz) <= half && Math.abs(dx) <= half
-					if (insideFootprint) {
-						// Under the player: don't paint, but keep any existing paint
-						// alive so cells don't pop up while standing still.
-						if (decayAt.has(hit.id)) scheduleCellDecay(hit.id, paintClockMs + DROP_DURATION_MS + DECAY_DELAY_MS)
-						continue
-					}
 					enqueuePaintCandidate(hit.id)
 					newLifted.add(hit.id)
 				}

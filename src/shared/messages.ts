@@ -36,6 +36,17 @@ export const Messages = {
 	// (+ headroom); anything larger is dropped as suspicious.
 	paintTick: Schemas.Map({ ids: Schemas.Array(Schemas.String) }),
 
+	// Server → Client: current precipitation level (0=CLEAR..3=HEAVY).
+	// Sent to the joining client on joinRoster, and broadcast to everyone
+	// whenever the server picks a new weather state. Universal + persistent
+	// so every player sees the same snowfall + accumulation cadence.
+	weatherState: Schemas.Map({ level: Schemas.Int }),
+
+	// Client → Server: request a specific precipitation level (0..3).
+	// Server accepts unconditionally and broadcasts weatherState. Any
+	// player pressing the HUD snowflake button drives this.
+	weatherRequest: Schemas.Map({ level: Schemas.Int }),
+
 }
 
 export const room = registerMessages(Messages)
