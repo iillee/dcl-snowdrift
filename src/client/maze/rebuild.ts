@@ -28,8 +28,10 @@ import {
   Placed, TILE_SCALE, CELL, STEP, ROT_OFFSET, MAZE_ORIGIN,
   GRID_W, GRID_H,
   generateWithRetry, getPlacedTilesInOrder, gridSize,
+  setReservedCells,
 } from 'src/shared/maze/generator'
 import { TILES } from 'src/shared/maze/tiles'
+import { getReservedPlayfieldCells } from 'src/client/perimeter'
 import { spawnCellsForTile, removePaintForTile, resetPaintForTile } from 'src/client/paint'
 
 // Suppress unused-import complaint from the linter — MeshRenderer/Material
@@ -86,13 +88,23 @@ export function rebuildMaze(seed: number): void {
   spawnQueue = []
   spawnClock = 0
 
+  // Feed the generator the current perimeter-cliff intrusion set BEFORE
+  // solving. Deterministic on both sides (perimeter has no RNG, maze
+  // uses the shared seed) → every client computes the same reservations
+  // and produces the same maze without any network sync.
+  const reserved = getReservedPlayfieldCells()
+  setReservedCells(reserved)
+
   const winningSeed = generateWithRetry(seed)
   if (winningSeed === null) {
     console.log(`⚠️ Maze exhausted seeds starting at ${seed} — aborting spawn`)
     return
   }
   currentSeed = winningSeed
-  console.log(`Maze rebuilt from seed ${seed} → winning seed ${winningSeed}, ${gridSize()} tiles`)
+  console.log(
+    `rebuild: rebuildMaze: seed ${seed} → winning seed ${winningSeed}, ` +
+    `${gridSize()} tiles (${reserved.length} playfield cells reserved by perimeter)`
+  )
 
   const tiles = getPlacedTilesInOrder()
   // Skip the center tile on rebuilds — it already exists as a persistent

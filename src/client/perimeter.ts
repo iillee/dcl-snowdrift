@@ -25,7 +25,9 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isInsideCliffBuffer } from 'src/shared/campfire'
 import { TILES, TileType } from 'src/shared/maze/tiles'
 import {
-	isInsidePlayfield,
+	MAZE_GRID_HEIGHT,
+	MAZE_GRID_WIDTH,
+	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_PLAYFIELD_METERS,
 	MAZE_TILE_WORLD_METERS,
 	SCENE_WORLD_SIZE_X_METERS,
@@ -158,36 +160,19 @@ function spawnEdgeTile(edge: Edge, slot: number, type: TileType): void {
 	const straightR = (edge === 'S' || edge === 'N') ? 1 : 0
 	const forkR: Record<Edge, number> = { S: 1, N: 3, W: 2, E: 0 }
 
-	// End-cap offset + rotation per edge. Kept outside the fork branch
-	// below so the buffer check can consult the cap position too.
-	const capOffset: Record<Edge, [number, number]> = {
-		S: [0,  PERIM_TILE_METERS],  // south edge → cap further N
-		N: [0, -PERIM_TILE_METERS],  // north edge → cap further S
-		W: [ PERIM_TILE_METERS, 0],  // west edge  → cap further E
-		E: [-PERIM_TILE_METERS, 0],  // east edge  → cap further W
-	}
+	// End-cap rotation per edge (offset table lives at module scope as
+	// CAP_OFFSET; shared with planEdgeTile).
 	const capR: Record<Edge, number> = { S: 2, N: 0, W: 3, E: 1 }
 
 	const [sx, sz] = edgeSlotWorld(edge, slot)
 
-	// If this would be a fork, check whether its end-cap would either
-	// (a) intrude into the campfire's cliff exclusion zone, or
-	// (b) overlap the snow-tile playfield (which is authoritative in
-	//     its own rectangle — cliff bump-ins must live in the empty
-	//     ring between playfield and perimeter).
-	// Cap centre is the tile SW-corner plus (PERIM_TILE_METERS / 2) on
-	// both axes. Downgrade to a straight in either case — straights
-	// have no inward opening and don't need a cap.
-	let effectiveType = type
-	if (effectiveType === 'fork') {
-		const [dcx, dcz] = capOffset[edge]
-		const capCenterX = sx + dcx + PERIM_TILE_METERS / 2
-		const capCenterZ = sz + dcz + PERIM_TILE_METERS / 2
-		if (isInsideCliffBuffer(capCenterX, capCenterZ)
-		 || isInsidePlayfield(capCenterX, capCenterZ)) {
-			effectiveType = 'straight'
-		}
-	}
+	// Resolve fork vs straight (with cliff-buffer downgrade) via the
+	// shared planner so getReservedPlayfieldCells() sees the exact same
+	// decision. Note: the isInsidePlayfield guard was removed — fork
+	// caps are now supposed to intrude into the playfield, and the maze
+	// generator retreats around them via setReservedCells().
+	const plan = planEdgeTile(edge, slot, type)
+	const effectiveType = plan.effectiveType
 
 	const r = effectiveType === 'fork' ? forkR[edge] : straightR
 	spawnPerimTile(effectiveType, sx, sz, r)
@@ -198,7 +183,7 @@ function spawnEdgeTile(edge: Edge, slot: number, type: TileType): void {
 	// Sits one perimeter-tile-width further inward. End's single opening
 	// faces the fork so their opening walls meet; end's other three
 	// sides are cliff, closing the passage.
-	const [cx, cz] = capOffset[edge]
+	const [cx, cz] = CAP_OFFSET[edge]
 	spawnPerimTile('end', sx + cx, sz + cz, capR[edge])
 }
 
@@ -220,6 +205,120 @@ function edgeSlotWorld(edge: Edge, slot: number): [number, number] {
 }
 
 
+// MARK: Cap offset / rotation tables (shared)
+// Extracted so both the spawner and the planner reference the same
+// numbers — any divergence would desync reservations from actual
+// geometry on some clients.
+const CAP_OFFSET: Record<Edge, [number, number]> = {
+	S: [0,  PERIM_TILE_METERS],  // south edge → cap further N
+	N: [0, -PERIM_TILE_METERS],  // north edge → cap further S
+	W: [ PERIM_TILE_METERS, 0],  // west edge  → cap further E
+	E: [-PERIM_TILE_METERS, 0],  // east edge  → cap further W
+}
+
+
+// MARK: planEdgeTile
+/**
+ * Pure decision function — given a nominal (edge, slot, type), return
+ * the effective tile type after cliff-buffer downgrade, plus the cap
+ * centre if the tile ends up as a fork (needed by callers computing
+ * playfield reservations).
+ *
+ * Kept side-effect-free so both `spawnEdgeTile` (spawns geometry) and
+ * `getReservedPlayfieldCells` (reports reservations) can call it and
+ * be guaranteed to agree on every slot, on every client.
+ */
+interface EdgeTilePlan {
+	effectiveType: TileType
+	/** Only present when effectiveType === 'fork'. */
+	capCenter?: { x: number; z: number }
+}
+function planEdgeTile(edge: Edge, slot: number, type: TileType): EdgeTilePlan {
+	if (type !== 'fork') return { effectiveType: type }
+	const [sx, sz] = edgeSlotWorld(edge, slot)
+	const [dcx, dcz] = CAP_OFFSET[edge]
+	const capCenterX = sx + dcx + PERIM_TILE_METERS / 2
+	const capCenterZ = sz + dcz + PERIM_TILE_METERS / 2
+	// Only downgrade for the campfire cliff buffer. The old
+	// isInsidePlayfield guard is intentionally gone — fork caps are
+	// now free to poke into the playfield, and the maze generator
+	// reserves the corresponding cell so it retreats around them.
+	if (isInsideCliffBuffer(capCenterX, capCenterZ)) {
+		return { effectiveType: 'straight' }
+	}
+	return { effectiveType: 'fork', capCenter: { x: capCenterX, z: capCenterZ } }
+}
+
+
+// MARK: iterEdgeSlots
+/**
+ * Walk every (edge, slot) pair in the exact deterministic order used
+ * by setupPerimeter, invoking `cb` with the nominal fork/straight
+ * pick (via the same slotIdx counter). Both the spawner and the
+ * reservation collector iterate through here so they cannot diverge.
+ */
+function iterEdgeSlots(cb: (edge: Edge, slot: number, type: TileType) => void): void {
+	const numEdgeSlots = Math.max(
+		0,
+		Math.floor((SCENE_WORLD_SIZE_X_METERS - 2 * PERIM_TILE_METERS) / PERIM_TILE_METERS),
+	)
+	const edgeSlots: number[] = []
+	for (let i = 0; i < numEdgeSlots; i++) {
+		edgeSlots.push(PERIM_TILE_METERS * (i + 1))
+	}
+
+	let slotIdx = 0
+	const pickType = (): TileType => {
+		const t: TileType = (slotIdx % FORK_EVERY_N === 0) ? 'fork' : 'straight'
+		slotIdx++
+		return t
+	}
+
+	for (const s of edgeSlots) {
+		cb('S', s, pickType())
+		cb('N', s, pickType())
+	}
+	for (const s of edgeSlots) {
+		cb('W', s, pickType())
+		cb('E', s, pickType())
+	}
+}
+
+
+// MARK: getReservedPlayfieldCells
+/**
+ * Compute the set of playfield grid cells (tx, tz) that will be
+ * occupied by inward-poking cliff fork end-caps. Deterministic, cheap,
+ * pure function of settings + FORK_EVERY_N + campfire buffer geometry.
+ *
+ * Fed to the maze generator via setReservedCells() before generation,
+ * so the maze grows around the intrusions with no network sync needed
+ * (both systems are deterministic → every client computes the same set).
+ *
+ * A cap that straddles the playfield boundary contributes at most one
+ * cell inside; the outer half is ignored (the cap tile itself sits in
+ * the perimeter ring, only its footprint's playfield-side matters).
+ */
+export interface ReservedTile { tx: number; tz: number }
+export function getReservedPlayfieldCells(): ReservedTile[] {
+	const out: ReservedTile[] = []
+	iterEdgeSlots((edge, slot, type) => {
+		const plan = planEdgeTile(edge, slot, type)
+		if (plan.effectiveType !== 'fork' || !plan.capCenter) return
+		const tx = Math.floor(
+			(plan.capCenter.x - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS,
+		)
+		const tz = Math.floor(
+			(plan.capCenter.z - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS,
+		)
+		if (tx < 0 || tx >= MAZE_GRID_WIDTH)  return
+		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) return
+		out.push({ tx, tz })
+	})
+	return out
+}
+
+
 // MARK: setupPerimeter
 export function setupPerimeter(): void {
 	// --- 4 corners ---
@@ -232,43 +331,18 @@ export function setupPerimeter(): void {
 	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_FAR_Z,  2)  // NE
 	spawnPerimTile('turn', CORNER_FAR_X,  CORNER_NEAR_Z, 3)  // SE
 
-	// --- Edges: derive slot count from scene size so growth in
-	// SCENE_WORLD_SIZE_X/Z_METERS auto-fills the ring instead of
-	// leaving gaps in the middle of each side. Total span between
-	// the two corners is (SCENE - 2 * PERIM_TILE); slots start at
-	// PERIM_TILE (just inside the near corner) and step by one
-	// perimeter tile each.
-	const numEdgeSlots = Math.max(
-		0,
-		Math.floor((SCENE_WORLD_SIZE_X_METERS - 2 * PERIM_TILE_METERS) / PERIM_TILE_METERS),
-	)
-	const edgeSlots: number[] = []
-	for (let i = 0; i < numEdgeSlots; i++) {
-		edgeSlots.push(PERIM_TILE_METERS * (i + 1))
-	}
-
-	// Deterministic fork counter so every client places forks at the
-	// same slots — no seed, no sync.
-	let slotIdx = 0
-	const pickType = (): TileType => {
-		const t: TileType = (slotIdx % FORK_EVERY_N === 0) ? 'fork' : 'straight'
-		slotIdx++
-		return t
-	}
-
-	for (const s of edgeSlots) {
-		spawnEdgeTile('S', s, pickType())
-		spawnEdgeTile('N', s, pickType())
-	}
-	for (const s of edgeSlots) {
-		spawnEdgeTile('W', s, pickType())
-		spawnEdgeTile('E', s, pickType())
-	}
+	// --- Edges: walked via the shared iterator so getReservedPlayfieldCells()
+	// sees the exact same (edge, slot, type) stream and stays in lockstep.
+	let count = 0
+	iterEdgeSlots((edge, slot, type) => {
+		spawnEdgeTile(edge, slot, type)
+		count++
+	})
 
 	console.log(
 		`perimeter: setupPerimeter: ring built ` +
 		`(playfield ${MAZE_PLAYFIELD_METERS}m centred in ${SCENE_WORLD_SIZE_X_METERS}m scene, ` +
-		`${numEdgeSlots} edge tiles per side, ` +
+		`${count / 4} edge tiles per side, ` +
 		`tile scale ${PERIM_SCALE}× = ${PERIM_TILE_METERS}m/tile)`
 	)
 }
