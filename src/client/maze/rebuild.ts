@@ -21,6 +21,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 
@@ -31,7 +32,7 @@ import {
   setReservedCells,
 } from 'src/shared/maze/generator'
 import { TILES } from 'src/shared/maze/tiles'
-import { getReservedPlayfieldCells } from 'src/client/perimeter'
+import { getReservedPlayfieldCells, type ReservedTile } from 'src/client/perimeter'
 import { spawnCellsForTile, removePaintForTile, resetPaintForTile } from 'src/client/paint'
 
 // Suppress unused-import complaint from the linter — MeshRenderer/Material
@@ -60,15 +61,37 @@ const isCenterTile = (p: Placed) =>
   p.x === CENTER_X && p.z === CENTER_Z && p.y === 0
 const TILE_TEARDOWN_PER_FRAME = 25
 const STAGGER = 0.03 // seconds between successive tile spawns
-// BFS `order` threshold below which tiles spawn INSTANTLY at full
-// scale, with no grow-in tween. Covers the center tile + its immediate
-// ring, so a fresh spawn lands the player on solid ground and never
-// gets pushed sideways by a growing collider under their feet.
-const INSTANT_SPAWN_ORDER_MAX = 8
+
+// Tiles adjacent to the campfire spawn INSTANTLY at full scale, with
+// no grow-in tween. Solid ground under the player from frame 1, and
+// no collider-under-foot push during the tween. The campfire is at
+// world (CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z), which typically sits at
+// the corner shared by up to 4 grid tiles — all of them qualify.
+//
+// (Previous version keyed off `p.order <= 8`, which was correct back
+// when the solver was BFS-from-centre. The row-major solver assigns
+// order in scan order, so only 1 of the 4 campfire-adjacent tiles
+// happened to land in the first 9 slots — hence the "1/4 of the
+// campfire tiles load first" bug.)
+const CAMPFIRE_TX_F = (CAMPFIRE_WORLD_X - MAZE_ORIGIN) / CELL
+const CAMPFIRE_TZ_F = (CAMPFIRE_WORLD_Z - MAZE_ORIGIN) / CELL
+const isNearCampfire = (p: Placed): boolean => {
+  if (p.y !== 0) return false
+  const dx = Math.abs((p.x + 0.5) - CAMPFIRE_TX_F)
+  const dz = Math.abs((p.z + 0.5) - CAMPFIRE_TZ_F)
+  return dx < 1 && dz < 1
+}
 
 /** True while the reveal cascade is still in-flight for the current maze. */
 export function isRebuilding(): boolean {
   return spawnQueue.length > 0
+}
+
+// Set to true the first time the spawn queue drains after a rebuild.
+// Used by the loading splash to know when to fade out on cold-open.
+let firstRebuildComplete = false
+export function isInitialLoadComplete(): boolean {
+  return firstRebuildComplete
 }
 
 // ─── Rebuild entry point ────────────────────────────────────────────
@@ -92,7 +115,12 @@ export function rebuildMaze(seed: number): void {
   // solving. Deterministic on both sides (perimeter has no RNG, maze
   // uses the shared seed) → every client computes the same reservations
   // and produces the same maze without any network sync.
-  const reserved = getReservedPlayfieldCells()
+  //
+  // pruneIslands() adds any playfield cell that would be disconnected
+  // from the campfire once the cliff footprints are removed — keeps
+  // the maze one contiguous body, no orphaned tile pockets sandwiched
+  // between perpendicular canyons.
+  const reserved = pruneIslands(getReservedPlayfieldCells())
   setReservedCells(reserved)
 
   const winningSeed = generateWithRetry(seed)
@@ -103,7 +131,8 @@ export function rebuildMaze(seed: number): void {
   currentSeed = winningSeed
   console.log(
     `rebuild: rebuildMaze: seed ${seed} → winning seed ${winningSeed}, ` +
-    `${gridSize()} tiles (${reserved.length} playfield cells reserved by perimeter)`
+    `${gridSize()} tiles / ${GRID_W}x${GRID_H} grid ` +
+    `(${reserved.length} cells reserved by perimeter)`
   )
 
   const tiles = getPlacedTilesInOrder()
@@ -139,12 +168,72 @@ export function initMazeNet(): void {
   // don't need to change when server-driven maze events return.
 }
 
+// ─── Island prune ───────────────────────────────────────────
+/**
+ * 4-way flood-fill from the maze centre through non-reserved cells;
+ * any cell not reached is disconnected from the campfire (an island
+ * created when perpendicular canyons pinched off a pocket). Add those
+ * to the reservation set so the generator doesn't waste effort on
+ * unreachable tile clumps and the visible maze stays one contiguous
+ * body.
+ *
+ * Pure over its input; deterministic on every client since it derives
+ * only from grid dimensions + the (already-deterministic) reservation
+ * set.
+ */
+function pruneIslands(reserved: ReservedTile[]): ReservedTile[] {
+  const W = GRID_W, H = GRID_H
+  const k = (x: number, z: number) => `${x},${z}`
+  const isReserved = new Set(reserved.map(r => k(r.tx, r.tz)))
+
+  const cx = Math.floor(W / 2), cz = Math.floor(H / 2)
+  if (isReserved.has(k(cx, cz))) {
+    // The centre is where the campfire lives and the anchor cross
+    // must go — if it's reserved, something upstream is very wrong
+    // (cliff buffer failed, or the playfield is smaller than the
+    // buffer). Bail rather than reserve the entire maze.
+    console.log('rebuild: pruneIslands: centre cell reserved, skipping island prune')
+    return reserved
+  }
+
+  const keep = new Set<string>()
+  const stack: Array<[number, number]> = [[cx, cz]]
+  while (stack.length > 0) {
+    const [x, z] = stack.pop()!
+    if (x < 0 || x >= W || z < 0 || z >= H) continue
+    const key = k(x, z)
+    if (keep.has(key) || isReserved.has(key)) continue
+    keep.add(key)
+    stack.push([x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1])
+  }
+
+  const out = reserved.slice()
+  let islandCount = 0
+  for (let z = 0; z < H; z++) {
+    for (let x = 0; x < W; x++) {
+      const key = k(x, z)
+      if (isReserved.has(key) || keep.has(key)) continue
+      out.push({ tx: x, tz: z })
+      islandCount++
+    }
+  }
+  if (islandCount > 0) {
+    console.log(`rebuild: pruneIslands: reserved ${islandCount} disconnected cell(s)`)
+  }
+  return out
+}
+
+
 // ─── Per-frame spawn drain ──────────────────────────────────────────
 engine.addSystem((dt: number) => {
   if (spawnQueue.length === 0) return
   spawnClock += dt
   while (spawnQueue.length && spawnQueue[0].delay <= spawnClock) {
     spawnTileWithGrow(spawnQueue.shift()!.p)
+  }
+  // Latch the first-drain complete signal for the loading splash.
+  if (spawnQueue.length === 0 && !firstRebuildComplete) {
+    firstRebuildComplete = true
   }
 })
 
@@ -158,11 +247,10 @@ function spawnTileWithGrow(p: Placed): void {
     centerTileEntity = e
   }
 
-  // Tiles at the very base of the BFS (center + immediate ring) spawn
-  // instantly at full scale, no tween. This guarantees solid ground is
-  // under the player from the first frame after they spawn in — a
-  // growing collider under them was pushing them sideways.
-  const isInstant = p.order <= INSTANT_SPAWN_ORDER_MAX
+  // Tiles under/around the campfire spawn instantly at full scale, no
+  // tween. Solid ground under the player from frame 1 and no growing
+  // collider pushing them sideways.
+  const isInstant = isNearCampfire(p)
 
   Transform.create(e, {
     position: Vector3.create(p.x * CELL + dx + MAZE_ORIGIN, p.y, p.z * CELL + dz + MAZE_ORIGIN),
@@ -185,19 +273,9 @@ function spawnTileWithGrow(p: Placed): void {
       easingFunction: EasingFunction.EF_EASEOUTBACK,
     })
   }
-  // Soft positional "pop" as each tile appears. Every-other only, so a
-  // cascade of ~100 tiles reads as rhythmic sparkle rather than a buzz.
-  // Skip pops for instant spawns — they all fire on the same frame and
-  // stack into a single loud burst.
-  if (!isInstant && p.order % 2 === 0) {
-    AudioSource.create(e, {
-      audioClipUrl: 'assets/sounds/pop.mp3',
-      playing: true,
-      loop: false,
-      volume: 0.25,
-      global: true,
-    })
-  }
+  // (Per-tile pop SFX removed — was noisy on cold-open. If we want an
+  // ambient "world assembling" sound back, do it as a single loop on
+  // the campfire rather than one AudioSource per tile.)
   spawnedEntities.push(e)
 
   // Painting overlay: registers the tile with the streaming system,

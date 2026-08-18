@@ -12,10 +12,11 @@
 
 import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
-import { actionBarLayer }    from 'src/client/ui/layers/layer.brushSize'
-import { serverStatsLayer }  from 'src/client/ui/layers/layer.serverStats'
-import { topDownPanLayer }   from 'src/client/ui/layers/layer.topDownPan'
-import { versionLayer }      from 'src/client/ui/layers/layer.version'
+import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
+import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
+import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
+import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
+import { versionLayer }       from 'src/client/ui/layers/layer.version'
 
 
 // MARK: setupUi
@@ -31,6 +32,8 @@ export function setupUi() {
 			topDownPanLayer,
 			actionBarLayer,
 			versionLayer,
+			// Splash must be last so it renders on top of every other layer.
+			loadingSplashLayer,
 		],
 	})
 }

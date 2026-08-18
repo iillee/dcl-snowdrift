@@ -1,5 +1,113 @@
 # Cliffs-v2 branch — session handoff
 
+---
+
+## SESSION 2 UPDATE (post-810d977 / fbfdd37)
+
+The generator refactor from §4 landed in `810d977` (dynamic pool
+policy) and `fbfdd37` (perimeter→maze wiring). This session built on
+that with the actual worldgen richness the refactor was meant to
+unlock, plus a few polish items.
+
+### What landed
+
+- **Playfield grown 256 → 480 m** (`src/shared/settings.ts`,
+  `MAZE_PLAYFIELD_METERS = 480`). Grid is now 30×30 (900 cells).
+  Empty ring between perim and playfield collapsed to −16 m (i.e.
+  playfield overlaps perim by 3 rings). Reservation layer keeps snow
+  out of cliff geometry — see erosion note below.
+- **Variable-depth canyons** (`src/client/perimeter.ts`,
+  `canyonDepth`, `planCanyonTail`). Each fork slot picks depth 1–3
+  via a deterministic hash of (edge, slot). Depth 2–3 canyons place
+  intermediate `straight` tiles and cap with an `end`. Truncated with
+  an `end` cap if the tail would enter the campfire cliff buffer or
+  run off-scene.
+- **Interior mesas** (`planMesas`). Scattered pairs of `end` tiles
+  with openings facing each other — forms enclosed 1×2 cliff chunks.
+  Slot grid 128 m, density hash-modulated (~1/3 of slots become mesas).
+- **Cliff placement dedup** (`computeAllCliffPlacements`). Two forks
+  on perpendicular edges at slot 64 both target the same corner-
+  adjacent tile (world 64,64); the first writer wins, later collisions
+  are dropped. Same list is used by spawn AND reservation so they
+  agree by construction. Downside: the losing fork opens toward the
+  side of the winner's cap; reads as a dead-end.
+- **Union-erode reservation** (also in perimeter.ts, replacing per-
+  tile shrink). Compute the union of every cliff footprint, then
+  4-way erode by 1 cell. Cells with any non-cliff neighbour survive
+  (playfield-facing outer ring). Result: 1-cell snow overlap on
+  playfield-facing sides only; shared boundaries between adjacent
+  cliff tiles fully reserved (no wasted snow between them).
+- **Island prune** (`src/client/maze/rebuild.ts::pruneIslands`).
+  Flood-fill from the maze centre through non-reserved cells; anything
+  unreached becomes an additional reservation. Keeps the maze one
+  contiguous body so perpendicular canyons don't pinch off orphan
+  pockets.
+- **Campfire tile fix** (`rebuild.ts::isNearCampfire`). Replaced the
+  order-based `p.order <= 8` instant-spawn check (broken post BFS→
+  row-major refactor) with a spatial check against the campfire
+  world position. All 4 tiles at the campfire junction now spawn
+  instantly + are marked `alwaysSpawned`, not just the 1 that
+  happened to land in the first 9 solve slots.
+- **Loading splash** (`src/client/ui/layers/layer.loadingSplash.tsx`).
+  Full-screen `snowdrift.png` overlay from scene start until the
+  first rebuild's spawn queue drains. Latch lives in `rebuild.ts`
+  as `isInitialLoadComplete()`. No fade — hard cut when done.
+- **Per-tile pop SFX removed** (`rebuild.ts`, in `spawnTileWithGrow`).
+  Was noisy on cold-open. If we want an ambient "world assembling"
+  sound back, do it as a single loop on the campfire, not per tile.
+- **Composite shifted onto campfire** (`assets/scene/main.composite`).
+  Log+rock cluster centroid now sits at (256, 256). Lever tagged
+  along and ended up at (197, 198); reposition in CH if needed.
+  `main.crdt` regenerates on SDK build.
+
+### Tuning knobs (all in `src/client/perimeter.ts` unless noted)
+
+| Constant | Default | Effect |
+|---|---|---|
+| `MAZE_PLAYFIELD_METERS` (settings.ts) | 480 | Grid size, overlap depth |
+| `FORK_EVERY_N` | 3 | 1-in-N edge slots become a fork |
+| `CANYON_MIN_DEPTH` / `CANYON_MAX_DEPTH` | 1 / 3 | Canyon tail length range |
+| `MESA_SLOT_SPACING` | 2 × PERIM_TILE | Distance between mesa candidate slots |
+| `MESA_DENSITY_MOD` | 3 | 1-in-N candidate slots become a mesa |
+| `CLIFF_SHRINK` (currently unused) | 16 m (1 cell) | Legacy per-tile shrink; kept for reference |
+
+### Known edge cases (deferred)
+
+1. **Losing fork after dedup collision** — when two perpendicular
+   edge forks target the same tile, one loses its cap and opens
+   toward the side of the winner. Reads as dead-end but visually
+   awkward. Cleaner fix: truncate the losing canyon with an `end`
+   cap one tile earlier, or shift its fork rotation to a different
+   direction. Not blocking.
+2. **Cliff GLBs aren't authored for 4× scale.** Some overlap /
+   gap behaviour is really a modelling concern (open passageways
+   visible from above, floor slabs occluding snow underneath, base
+   silhouette not matching the reservation footprint). Slated for
+   the cliff art remodel pass. When cliffs get real art with a
+   defined wider/shorter base, the current 1-cell overlap will read
+   as a clean tuck-under.
+3. **Composite lever position.** After the campfire re-centre, the
+   `lever_pirates` entity landed at (197, 198). Move in the CH UI
+   if it wants a better home.
+
+### Files touched this session
+
+| File | What |
+|---|---|
+| `src/shared/settings.ts` | `MAZE_PLAYFIELD_METERS = 480` |
+| `src/client/perimeter.ts` | Canyons, mesas, dedup, union-erode reservation |
+| `src/client/maze/rebuild.ts` | Island prune, campfire spatial check, splash latch, no pop SFX |
+| `src/client/ui/layers/layer.loadingSplash.tsx` | New — splash overlay |
+| `src/client/ui/index.tsx` | Register splash layer |
+| `assets/scene/main.composite` | Log+rock cluster shifted onto campfire |
+| `main.crdt` | Regenerated from composite |
+
+---
+
+## ORIGINAL HANDOFF (session 1)
+
+
+
 **Branch:** `cliffs-v2` (off `main`, which already has the cell-streaming
 merge `d402d10`).
 
