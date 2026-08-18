@@ -93,7 +93,7 @@ export function ensurePaintCellEntity(key: number): Entity {
 	let e = cellEntities.get(key)
 	if (e === undefined) {
 		e = engine.addEntity()
-		PaintCell.create(e, { index: PALETTE_NONE })
+		PaintCell.create(e, { index: PALETTE_NONE, stage: 0 })
 		cellEntities.set(key, e)
 	}
 	trySync(e, [PaintCell.componentId], cellNetworkId(key))

@@ -25,6 +25,7 @@
 
 import { engine, Entity, InputAction, MainCamera, PointerEventType, Transform, VirtualCamera, inputSystem } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
+import { isMobile } from '@dcl/sdk/platform'
 
 import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS } from 'src/shared/settings'
 
@@ -37,8 +38,12 @@ const CENTER_X = SCENE_WORLD_SIZE_X_METERS / 2
 const CENTER_Z = SCENE_WORLD_SIZE_Z_METERS / 2
 
 // Altitude. Kept inside DCL mobile's ~100 m fog band. Higher = more
-// scene visible, but risks hitting fog + culling.
-const CAM_ALTITUDE = 30
+// scene visible, but risks hitting fog + culling. Mobile drops lower
+// because the portrait viewport makes 30 m read as "tiny ant world" —
+// 20 m keeps the player + campfire legibly sized on a phone.
+const CAM_ALTITUDE_DESKTOP = 30
+const CAM_ALTITUDE_MOBILE  = 20
+const CAM_ALTITUDE         = isMobile() ? CAM_ALTITUDE_MOBILE : CAM_ALTITUDE_DESKTOP
 
 // Small horizontal offset so lookAtEntity produces a real forward
 // vector — required for WASD axis alignment. See old header comment.
@@ -60,9 +65,10 @@ const FOLLOW_SNAP_EPSILON = 0.05
 // filling half the screen. Positive would prevent seeing the edges.
 const PAN_BOUNDS_MARGIN = 4
 
-// Mobile d-pad pan speed (world m/s). Feels responsive at altitude 30m
-// (visible height ~35m → ~0.6 screens/s per axis).
-const DPAD_PAN_SPEED = 22
+// Mobile d-pad pan speed (world m/s). Scaled with altitude so the
+// on-screen pan feel (screens/s) stays constant across zoom levels.
+// Baseline: 22 m/s at 30 m altitude → ~0.6 screens/s per axis.
+const DPAD_PAN_SPEED = 22 * (CAM_ALTITUDE / 30)
 
 // Desktop drag: minimum cumulative pixel movement before a click starts
 // panning. Prevents quick taps from stealing pan focus. Reset on release.

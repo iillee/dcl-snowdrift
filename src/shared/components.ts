@@ -19,8 +19,14 @@ export const seedHolder = engine.addEntity()
 SeedHolder.create(seedHolder, { seed: 0 })
 
 // MARK: PaintCell
+// index = palette slot (0 = unpainted / full snow, else team color).
+// stage = server-authoritative snow-regrowth stage (0 = freshly melted /
+// flat, 1 = ~0.5 m regrowth, 2 = ~1.0 m regrowth). Stage 3 (full snow)
+// is represented by setting index back to 0 and is never written as an
+// explicit stage — the cell simply reverts to "no paint here."
 export const PaintCell = engine.defineComponent('paint::cell', {
 	index: Schemas.Byte,
+	stage: Schemas.Byte,
 })
 
 // MARK: PaletteEntry

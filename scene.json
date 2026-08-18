@@ -131,5 +131,5 @@
   "worldConfiguration": {
     "name": "snowdrift.dcl.eth"
   },
-  "landscapeTerrain": true
+  "landscapeTerrain": false
 }

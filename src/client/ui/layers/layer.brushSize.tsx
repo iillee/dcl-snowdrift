@@ -194,7 +194,7 @@ class ActionBarLayer extends Layer {
 			<UiEntity
 				key = "ui_BrushSize_row"
 				uiTransform = {{
-					margin       : { top: isMobile() ? -40 : 32 },
+					margin       : { top: isMobile() ? 4 : 32 },
 					flexDirection: 'row',
 					alignItems   : 'center',
 					justifyContent: 'center',

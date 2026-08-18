@@ -29,11 +29,13 @@ import {
 	clearAll as clearPaintState,
 	seedTeamPalette,
 	isCoverageDirty,
+	markProtected,
 	publishCoverage,
+	tickRegrowth,
 } from 'src/server/paintState'
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
-import { sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -100,6 +102,11 @@ function seedStartingArea(): void {
 			if (dx * dx + dz * dz > r2) continue
 
 			const id = `${tx},${tz},${ty}:${col},${row}`
+			// Mark BEFORE painting so the first regrowth tick that races us
+			// already sees the cell as heat-protected. When the fire
+			// eventually gets low / dies, unmarkProtected() will release
+			// these back to normal regrowth.
+			markProtected(id)
 			if (applyPaint(id, Team.Blue)) painted++
 		}
 	}
@@ -209,6 +216,35 @@ export async function setupServer(): Promise<void> {
 		if (ringClock < RING_INTERVAL) return
 		ringClock = 0
 		seedStartingArea()
+	})
+
+	// Snow regrowth tick — server-authoritative. Cadence matches the
+	// active precipitation's stage interval (LIGHT 15 s, MEDIUM 10 s,
+	// HEAVY 5 s) so every cell that has crossed a stage threshold in
+	// the same window advances together on the same tick. This is what
+	// gives the snowfield its synchronized "batch exhale" look instead
+	// of a rolling per-cell wave. CLEAR pauses ticking entirely.
+	const REGROWTH_CADENCE_MS: Record<number, number | null> = {
+		0: null,   // CLEAR:  no ticks
+		1: 15000,  // LIGHT
+		2: 10000,  // MEDIUM
+		3:  5000,  // HEAVY
+	}
+	let regrowthClockMs = 0
+	engine.addSystem((dt: number) => {
+		const level     = getCurrentWeatherLevel()
+		const cadenceMs = REGROWTH_CADENCE_MS[level]
+		if (cadenceMs === null) {
+			// CLEAR: freeze the tick but keep the accumulator so a return
+			// to precipitation lands on the next scheduled boundary rather
+			// than firing instantly.
+			return
+		}
+		regrowthClockMs += dt * 1000
+		if (regrowthClockMs < cadenceMs) return
+		const elapsedMs = regrowthClockMs
+		regrowthClockMs = 0
+		tickRegrowth(elapsedMs, level)
 	})
 
 	// Coverage publish tick. Coalesces cell mutations into a single
