@@ -21,8 +21,10 @@ import {
 	cellIdToKey,
 	cellKeyToCellId,
 	joinCellKey,
+	packTileKey,
 	PAINT_CELLS_PER_TILE,
 	tileKeyFromNetworkId,
+	tyToLevel,
 	unpackCellByte,
 } from 'src/shared/paintGrid'
 import {
@@ -47,6 +49,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
+import { registerTile, unregisterTile, consumeReseedRequests, setTileHasPaint } from 'src/client/paintStreaming'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
 export { Team } from 'src/shared/team'
@@ -136,7 +139,21 @@ function syncPaletteFromCrdt(): void {
 // steady-state cost is proportional to *changed* cells, not painted cells.
 const tileShadow = new Map<Entity, Uint8Array>()
 
+/**
+ * Non-zero byte count per tileKey — how many cells in the tile carry
+ * paint (any team + any regrowth stage). Maintained incrementally as
+ * bytes flip in the shadow diff. On the 0↔≥1 transition we notify
+ * paintStreaming so the tile sticky-loads while it has visible melt.
+ */
+const tileNonZeroCount = new Map<number, number>()
+
 function syncCellsFromCrdt(): void {
+	// Tiles that just streamed in — wipe their shadow so every non-zero
+	// PaintTile byte re-dispatches onto the freshly spawned cells. Also
+	// clear any local `cellApplied` records for those tiles, since the
+	// entities and their state were torn down during despawn.
+	const reseed = consumeReseedRequests()
+
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		const net = NetworkEntity.getOrNull(entity)
 		if (!net) continue
@@ -147,18 +164,36 @@ function syncCellsFromCrdt(): void {
 		if (!incoming || incoming.length === 0) continue
 
 		let shadow = tileShadow.get(entity)
-		if (!shadow || shadow.length !== incoming.length) {
-			// First observation of this tile — seed the shadow to zeros so
-			// every non-zero byte is treated as a change and dispatched.
+		const needsReseed = reseed.has(tileKey)
+		if (!shadow || shadow.length !== incoming.length || needsReseed) {
+			// First observation OR tile just streamed in — seed the shadow
+			// to zeros so every non-zero byte is treated as a change and
+			// dispatched. On a reseed, also drop the `cellApplied` records
+			// so the dispatch path does not short-circuit.
 			shadow = new Uint8Array(incoming.length)
 			tileShadow.set(entity, shadow)
+			if (needsReseed) {
+				const baseCellKey = joinCellKey(tileKey, 0)
+				for (let i = 0; i < PAINT_CELLS_PER_TILE; i++) {
+					cellApplied.delete(baseCellKey + i)
+				}
+				// Shadow was zeroed above; the count must follow so the
+				// re-walk below re-derives it from the incoming bytes.
+				tileNonZeroCount.set(tileKey, 0)
+			}
 		}
+
+		const prevCount = tileNonZeroCount.get(tileKey) ?? 0
+		let   count     = prevCount
 
 		const len = Math.min(incoming.length, PAINT_CELLS_PER_TILE)
 		for (let i = 0; i < len; i++) {
 			const byte = incoming[i] & 0xff
 			if (byte === shadow[i]) continue
+			const oldByte = shadow[i]
 			shadow[i] = byte
+			if      (oldByte === 0 && byte !== 0) count++
+			else if (oldByte !== 0 && byte === 0) count--
 
 			const cellKey = joinCellKey(tileKey, i)
 			const { index, stage } = unpackCellByte(byte)
@@ -188,6 +223,14 @@ function syncCellsFromCrdt(): void {
 			}
 
 			cellApplied.set(cellKey, { index, stage: nextStage })
+		}
+
+		if (count !== prevCount) {
+			tileNonZeroCount.set(tileKey, count)
+			// Notify streaming on the 0 ↔ ≥1 boundary so painted tiles
+			// sticky-load and cleaned tiles fall back to distance gating.
+			if      (prevCount === 0 && count >  0) setTileHasPaint(tileKey, true)
+			else if (prevCount >  0 && count === 0) setTileHasPaint(tileKey, false)
 		}
 	}
 }
@@ -411,6 +454,111 @@ engine.addSystem((dt: number) => {
   }
 })
 
+// MARK: Far-plane LOD proxies
+//
+// While a tile is streamed OUT (no cell entities), we still want the
+// ground to read as snow rather than an empty gap. One flat plane per
+// tile at snow-top height is a cheap stand-in — 1 entity vs the ~256
+// cubes it replaces. The plane is spawned when the tile registers (if
+// not already painted / always-spawned) and torn down whenever cells
+// take over.
+const farPlaneByTile = new Map<Entity, Entity>()
+
+// Far-plane geometry: a very thin box (not setPlane) so the top face
+// shades identically to a full-snow cube's top face — planes are
+// single-sided and pick up different lighting from the box's +Y face
+// even with the same material. Vertical extent is 0.02 m.
+//
+// The plane's top face sits FAR_PLANE_SINK_M *below* an intact cube's
+// top so that during the atomic plane->cubes swap (one tick where both
+// exist), the plane is hidden inside the cubes rather than z-fighting
+// with their top faces. Mobile GPUs are especially prone to the flicker
+// otherwise. 3 cm is well below eye-perceptible at any viewing angle
+// but big enough to sit clear of the cube's top face.
+const FAR_PLANE_THICKNESS = 0.02
+const FAR_PLANE_SINK_M    = 0.03
+
+/**
+ * Extent of a tile's far-plane in world coords — a rectangle covering
+ * only the mask's walkable cells so the LOD proxy doesn't spill past
+ * the actual snow area on edge tiles (end / turn / fork).
+ */
+interface FarPlaneExtent {
+	centerX: number
+	centerZ: number
+	sizeX:   number
+	sizeZ:   number
+}
+
+function ensureFarPlaneForTile(
+	tileEntity: Entity,
+	ext:        FarPlaneExtent,
+	ty:         number,
+): void {
+	if (farPlaneByTile.has(tileEntity)) return
+	const topY = ty + FLAT_OFFSET + CUBE_HEIGHT - FAR_PLANE_SINK_M
+	const e = engine.addEntity()
+	Transform.create(e, {
+		position: Vector3.create(ext.centerX, topY - FAR_PLANE_THICKNESS / 2, ext.centerZ),
+		scale:    Vector3.create(ext.sizeX, FAR_PLANE_THICKNESS, ext.sizeZ),
+	})
+	MeshRenderer.setBox(e)
+	Material.setPbrMaterial(e, CUBE_GREY_MAT)
+	farPlaneByTile.set(tileEntity, e)
+}
+
+
+/**
+ * Compute the axis-aligned bounding box of a tile's walkable cells in
+ * world coords, based on its rotated mask. Returns null if the tile
+ * has no walkable cells (no mask, or all-void mask).
+ */
+function computeFarPlaneExtent(
+	tileType: string,
+	r:        number,
+	tx:       number,
+	tz:       number,
+	CELL:     number,
+): FarPlaneExtent | null {
+	const raw = MASKS[tileType as TileType]
+	if (!raw) return null
+	const mask = rotateMask(raw, r)
+	const h = mask.length, w = mask[0].length
+	const cellSize = CELL / w
+
+	let minCol = w, minRow = h, maxCol = -1, maxRow = -1
+	for (let row = 0; row < h; row++) {
+		for (let col = 0; col < w; col++) {
+			const ch = mask[row][col]
+			if (ch === '.') continue
+			if (col < minCol) minCol = col
+			if (col > maxCol) maxCol = col
+			if (row < minRow) minRow = row
+			if (row > maxRow) maxRow = row
+		}
+	}
+	if (maxCol < 0) return null
+
+	const tileWorldX = tx * CELL + MAZE_ORIGIN_OFFSET_METERS
+	const tileWorldZ = tz * CELL + MAZE_ORIGIN_OFFSET_METERS
+	const sizeX = (maxCol - minCol + 1) * cellSize
+	const sizeZ = (maxRow - minRow + 1) * cellSize
+	return {
+		centerX: tileWorldX + (minCol + (maxCol - minCol + 1) / 2) * cellSize,
+		centerZ: tileWorldZ + (minRow + (maxRow - minRow + 1) / 2) * cellSize,
+		sizeX,
+		sizeZ,
+	}
+}
+
+function removeFarPlaneForTile(tileEntity: Entity): void {
+	const e = farPlaneByTile.get(tileEntity)
+	if (e === undefined) return
+	engine.removeEntity(e)
+	farPlaneByTile.delete(tileEntity)
+}
+
+
 // Wipe scoring state immediately (so coverage % snaps to 0) without touching
 // entities. Actual paint entity removal is driven per-tile by
 // removePaintForTile() during the chunked tile teardown — that way paint
@@ -422,7 +570,18 @@ export function clearAllPaintState() {
 	paintOutbox.clear()
 }
 
-export function removePaintForTile(tileEntity: Entity) {
+/**
+ * Tear down the paint-cell entities for a tile without touching the
+ * streaming registry. Used by both:
+ *   - `removePaintForTile` — full teardown at tile removal, then unregisters.
+ *   - The streaming despawn callback — cells go away but the registry
+ *     entry stays so the tile can respawn when a player re-enters range.
+ *
+ * `cellApplied` is intentionally cleared too — on respawn, the shadow
+ * diff in `syncCellsFromCrdt` re-dispatches any non-zero PaintTile bytes
+ * (see `markTileForReseed` below).
+ */
+export function removePaintForTileEntitiesOnly(tileEntity: Entity) {
 	const rec = paintByTile.get(tileEntity)
 	if (!rec) return
 	for (const e of rec.entities) engine.removeEntity(e)
@@ -435,6 +594,16 @@ export function removePaintForTile(tileEntity: Entity) {
 		if (key !== null) cellApplied.delete(key)
 	}
 	paintByTile.delete(tileEntity)
+}
+
+/**
+ * Full teardown: entities + streaming registry. Called by rebuild.ts on
+ * tile removal (round rebuild, generator reset).
+ */
+export function removePaintForTile(tileEntity: Entity) {
+	removePaintForTileEntitiesOnly(tileEntity)
+	removeFarPlaneForTile(tileEntity)
+	unregisterTile(tileEntity)
 }
 
 /**
@@ -544,22 +713,78 @@ export function applyPaintIndex(id: string, index: number, force: boolean): void
 }
 
 // MARK: Spawn cells
-// Called from index.ts after a tile is placed. `tileType` selects the mask,
-// `r` rotates it, and (tx, tz, ty) locate the tile in the maze grid.
+// Called from rebuild.ts after a tile is placed. Registers the tile with
+// the streaming module; the streaming gate decides when to actually
+// spawn cells based on player-distance. The registered spawn callback
+// still defers by SPAWN_DELAY_MS so cells appear after the tile's
+// grow-in tween on first spawn.
+//
+// `alwaysSpawned` — set true for tiles that must never despawn (spawn
+// area / instant-spawn ring). Currently wired from rebuild.ts based on
+// the same `INSTANT_SPAWN_ORDER_MAX` threshold used for the grow-in
+// tween. Optional; defaults to false.
 export function spawnCellsForTile(
   tileType: string,
   r: number,
   tx: number, tz: number, ty: number,
   CELL: number, STEP: number,
-  tileEntity: Entity
+  tileEntity: Entity,
+  alwaysSpawned: boolean = false,
 ) {
   const raw = MASKS[tileType as TileType]
   if (!raw) return // designer hasn't authored this tile's mask yet
-  // Defer the actual spawn so cells appear after the GLB's grow-in tween.
-  deferredSpawns.push({
-    dueMs: spawnClockMs + SPAWN_DELAY_MS,
-    run: () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
-  })
+
+  // Tile centre in scene world coords — used by the streaming gate to
+  // measure player-distance. Full-tile centre (not the walkable
+  // bounding box) so the distance gate reads consistently across tile
+  // shapes.
+  const centerX = tx * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
+  const centerZ = tz * CELL + MAZE_ORIGIN_OFFSET_METERS + CELL / 2
+
+  // Packed grid coord matching the PaintTile CRDT entity's network id.
+  // Streaming module uses this to signal shadow re-seed on respawn.
+  const tileKey = packTileKey(tx, tz, tyToLevel(ty))
+
+  // Far-plane extent = axis-aligned bounding box of the mask's walkable
+  // cells only, so the LOD proxy does not spill past the actual snow
+  // area on edge tiles (end / turn / fork).
+  const farExtent = computeFarPlaneExtent(tileType, r, tx, tz, CELL)
+
+  const spawnFn = () => {
+    // Defer so cells appear after the tile GLB's grow-in tween. On a
+    // streaming re-spawn (player walked back into range) the tile GLB
+    // is already at full scale so the delay is cosmetic; kept uniform
+    // for simplicity. Far-plane removal is deferred to the same tick
+    // so it swaps out atomically with the cubes appearing — otherwise
+    // the plane vanishes 500 ms early, leaving a visible gap.
+    deferredSpawns.push({
+      dueMs: spawnClockMs + SPAWN_DELAY_MS,
+      run:   () => {
+        spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity)
+        removeFarPlaneForTile(tileEntity)
+      },
+    })
+  }
+
+  const despawnFn = () => {
+    // Reuses the same teardown path as full-tile removal. Cells are
+    // removed but the tile GLB and its registry entry persist so the
+    // streaming gate can re-spawn on re-entry. Drop a far-plane proxy
+    // in the cells' place so the ground still reads as snow at range.
+    removePaintForTileEntitiesOnly(tileEntity)
+    if (farExtent) ensureFarPlaneForTile(tileEntity, farExtent, ty)
+  }
+
+  // Non-always-spawned tiles start their life despawned (streaming poll
+  // decides when to bring them in), so drop a far plane immediately.
+  // Always-spawned tiles get their cells synchronously from registerTile
+  // and never want a proxy. spawnFn above will remove the plane if the
+  // gate flips on later (player enters range, or paint appears).
+  if (!alwaysSpawned && farExtent) {
+    ensureFarPlaneForTile(tileEntity, farExtent, ty)
+  }
+
+  registerTile(tileEntity, tileKey, centerX, centerZ, alwaysSpawned, spawnFn, despawnFn)
 }
 
 function spawnCellsForTileImmediate(

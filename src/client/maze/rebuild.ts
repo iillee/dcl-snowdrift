@@ -188,9 +188,12 @@ function spawnTileWithGrow(p: Placed): void {
   }
   spawnedEntities.push(e)
 
-  // Painting overlay: spawns per-cell plane entities parented to this
-  // tile. No-op unless a mask is defined for the tile type in paint.ts.
-  spawnCellsForTile(p.type, p.r, p.x, p.z, p.y, CELL, STEP, e)
+  // Painting overlay: registers the tile with the streaming system,
+  // which owns the actual cell spawn. Tiles in the instant-spawn ring
+  // (the spawn area + immediate ring) are marked `alwaysSpawned` so
+  // they never despawn even if all players wander far — the ground
+  // under the spawn point must always be solid.
+  spawnCellsForTile(p.type, p.r, p.x, p.z, p.y, CELL, STEP, e, isInstant)
 }
 
 // ─── Chunked teardown ───────────────────────────────────────────────

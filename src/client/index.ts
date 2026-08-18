@@ -42,7 +42,9 @@ import { setupCampfire } from 'src/client/campfire'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
-import { setupSkybox } from 'src/client/skybox'
+// Skybox forced cycle is intentionally not imported — see the disabled
+// setupSkybox() call in setupClient() for the rationale.
+// import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupTorch } from 'src/client/torch'
 import { setupUi } from 'src/client/ui'
@@ -143,10 +145,13 @@ export async function setupClient(): Promise<void> {
 	// when top-down is inactive.
 	engine.addSystem(dragPollSystem)
 
-	// Skybox first — asserts SkyboxTime on RootEntity before any other
-	// system has a chance to write it, and before the first rendered frame
-	// so we never flash the global time.
-	setupSkybox()
+	// Skybox forced cycle is disabled — the dusk→night sweep felt too fast
+	// even at 30 min per round trip, so we let DCL's default sky run. The
+	// `setupSkybox()` module (and its `releaseSkyboxLock()` unwind) is
+	// preserved in `src/client/skybox.ts` behind this call site; re-enable
+	// by uncommenting once we have a much slower cadence or a parked-at-
+	// dusk fixed value.
+	// setupSkybox()
 
 	setupCampfire()
 	setupCampfireSmoke()
