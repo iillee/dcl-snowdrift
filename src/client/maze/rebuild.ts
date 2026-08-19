@@ -116,11 +116,15 @@ export function rebuildMaze(seed: number): void {
   // uses the shared seed) → every client computes the same reservations
   // and produces the same maze without any network sync.
   //
-  // pruneIslands() adds any playfield cell that would be disconnected
-  // from the campfire once the cliff footprints are removed — keeps
-  // the maze one contiguous body, no orphaned tile pockets sandwiched
-  // between perpendicular canyons.
-  const reserved = pruneIslands(getReservedPlayfieldCells())
+  // We used to run pruneIslands() here — flood-fill from the campfire
+  // and reserve any cell it couldn't reach — back when the generator
+  // enforced tile-opening topology and orphan cells caused validation
+  // failures. Now that every non-reserved cell is just a uniform
+  // cross-full tile, orphans are harmless (just snow the player can't
+  // walk to). Keeping them fills the narrow corridors that form
+  // between mesas and canyon peninsulas — without prune, those stay
+  // visibly snow-covered instead of becoming gaps.
+  const reserved = getReservedPlayfieldCells()
   setReservedCells(reserved)
 
   const winningSeed = generateWithRetry(seed)

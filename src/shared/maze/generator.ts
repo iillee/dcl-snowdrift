@@ -322,38 +322,14 @@ function placeTile(t: TileType, r: number, x: number, z: number, y: number): voi
 }
 
 /**
- * Post-generation sanity:
- *   1. Full coverage — every grid cell filled.
- *   2. Every opening on every tile lands on a valid neighbor opening.
+ * Post-generation sanity — SIMPLIFIED.
+ *
+ * With every non-reserved cell placed as a `cross` at r=0, coverage is
+ * the only invariant that can fail. Opening-alignment checks are moot
+ * (every tile has all 4 openings and there are no ramps).
  */
 export function validate(): boolean {
-  // Reserved cells are intentionally never placed; coverage target is
-  // reduced accordingly.
-  if (grid.size !== GRID_W * GRID_H - reservedCells.size) return false
-  for (const p of grid.values()) {
-    const opens = openingsAt(p.type, p.r)
-    const highDir = highDirAt(p.type, p.r)
-    for (const d of ALL_DIRS) {
-      if (!opens.has(d)) continue
-      const nx = p.x + DX[d], nz = p.z + DZ[d]
-      if (!inBounds(nx, nz) || isReserved(nx, nz)) return false
-      const ny = highDir === d ? p.y + STEP : p.y
-      const back = OPP[d]
-      const nb1 = grid.get(key(nx, nz, ny))
-      let connected = false
-      if (nb1) {
-        const nb1Opens = openingsAt(nb1.type, nb1.r)
-        const nb1High = highDirAt(nb1.type, nb1.r)
-        if (nb1High !== back && nb1Opens.has(back)) connected = true
-      }
-      if (!connected && ny >= STEP) {
-        const nb2 = grid.get(key(nx, nz, ny - STEP))
-        if (nb2 && highDirAt(nb2.type, nb2.r) === back) connected = true
-      }
-      if (!connected) return false
-    }
-  }
-  return true
+  return grid.size === GRID_W * GRID_H - reservedCells.size
 }
 
 function shuffle<T>(a: T[]): T[] {
@@ -366,51 +342,25 @@ function shuffle<T>(a: T[]): T[] {
 }
 
 /**
- * Populate the grid using the current RNG state (caller must `setSeed()`).
+ * Populate the grid — SIMPLIFIED.
  *
- * FLAT full-coverage backtracking solver. Iterates every cell in row-major
- * order and picks a (type, rotation) whose openings match constraints from
- * already-placed neighbors and off-grid walls. Backtracks on dead ends.
+ * Every non-reserved cell gets a `cross` tile at rotation 0 (which uses
+ * `tile-cross-full.glb`, the flat 4-way-open snow tile with no walls).
+ * The maze is pure snow infill; cliffs live in the reservation set,
+ * everything else is walkable ground. No orientation, no opening-
+ * alignment checks, no backtracking, no seed retries.
  *
- * Guarantees full 5×5 coverage on every seed — unlike the old random-BFS,
- * which grew through openings and often left orphan cells. Seed variety
- * still comes from RNG-shuffled candidate order within each cell.
- *
- * Center tile is anchored to `cross` (r=0) so the rally point stays fixed
- * across seeds. Downstream systems can rely on `(GRID_W/2, GRID_H/2)`
- * always having a 4-way intersection.
+ * The old solver (canPlace / solveCells / all the ramp handshake rules)
+ * is left intact below but is now dead code — kept for one commit so
+ * the diff is reviewable; slated for deletion in a follow-up cleanup.
  */
 export function generate(): void {
-  const cx = Math.floor(GRID_W / 2)
-  const cz = Math.floor(GRID_H / 2)
-
-  // Pre-anchor a center `cross` as the mandatory rally point — but ONLY
-  // when the center cell is truly interior (has all 4 neighbors in-grid).
-  // On small grids (any dimension < 3) every cell is on an edge/corner
-  // and a 4-opening tile can't legally place there; the solver handles
-  // everything from scratch in that case.
-  const centerIsInterior = cx > 0 && cx < GRID_W - 1
-                        && cz > 0 && cz < GRID_H - 1
-  // Skip the center-cross anchor when the center cell is reserved by
-  // another system — the solver handles it from scratch in that case.
-  const anchorCenter = centerIsInterior && !isReserved(cx, cz)
-  if (anchorCenter) {
-    if (!canPlace('cross', 0, cx, cz, 0)) return
-    placeTile('cross', 0, cx, cz, 0)
-  }
-
-  // Row-major cell list, skipping the anchored center (if placed) and
-  // any reserved cells (never placed by design).
-  const cells: Array<{ x: number; z: number }> = []
   for (let z = 0; z < GRID_H; z++) {
     for (let x = 0; x < GRID_W; x++) {
-      if (anchorCenter && x === cx && z === cz) continue
       if (isReserved(x, z)) continue
-      cells.push({ x, z })
+      placeTile('cross', 0, x, z, 0)
     }
   }
-
-  solveCells(cells, 0)
 }
 
 /**

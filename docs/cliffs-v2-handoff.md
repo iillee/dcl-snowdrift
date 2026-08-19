@@ -2,6 +2,136 @@
 
 ---
 
+## SESSION 3 UPDATE
+
+This session focused on generator simplification + tuning the snow/
+cliff overlap rules, plus prep for a cliff art overhaul.
+
+### What landed
+
+- **Generator radically simplified** (`src/shared/maze/generator.ts`).
+  Every non-reserved cell just gets a `cross` tile at r=0 (which uses
+  `tile-cross-full.glb` — flat 4-way-open snow tile with no walls).
+  No more per-cell tile-type selection, no opening-alignment checks,
+  no backtracking, no seed retries. `generate()` is now ~5 lines;
+  `validate()` is one coverage-count check. The old solver (canPlace
+  with vertical stacking / cross-level parallel ramps / adjacent-ramp
+  handshakes / no-two-ramps-in-a-row / etc., `solveCells`, `shuffle`)
+  is left in the file as dead code for review — **delete in a
+  cleanup commit**. Also dead: RNG use in `generateWithRetry`
+  (always succeeds on first attempt now).
+- **8-way erosion for cliff-cell reservation** (`perimeter.ts`).
+  Previous 4-way erosion reserved cells at inside corners (concave
+  notches where two cliff features meet at a right angle) because
+  all 4 cardinal neighbours ended up cliff. Bumped to 8-way (4
+  cardinal + 4 diagonal). Now inside-corner cells always have a
+  diagonal pointing into open playfield → survive erosion → get
+  snow tucking into the notch.
+- **pruneIslands disabled** (`rebuild.ts`, still defined for review).
+  Previously reserved any cell the flood-fill from the campfire
+  couldn't reach, so orphan pockets sandwiched between cliff features
+  became gaps. With the simplified generator, orphans are harmless
+  (just snow the player can't walk to). Removing prune keeps narrow
+  corridors between mesas/peninsulas visibly filled.
+- **Mobile LOD flicker fix** (`paint.ts`). Two-phase plane→cubes
+  handoff: cubes spawn on tick N, far-plane removed 120 ms later
+  (`LOD_SWAP_OVERLAP_MS`). Cubes cover the plane during the overlap;
+  no more one-frame z-fight on mobile.
+
+### New cliff models (untracked, awaiting integration)
+
+```
+assets/models/tile-cliff-end.glb
+assets/models/tile-cliff-fork.glb
+assets/models/tile-cliff-straight.glb
+assets/models/tile-cliff-turn.glb
+assets/sketchup/tiles-cliff.skp   (source)
+```
+
+**These are the next session's job.** Not yet wired.
+
+---
+
+## NEXT SESSION TASK — Cliff generator rebuild vs new models
+
+### Context
+
+The existing perimeter uses the maze tile GLBs at 4× horizontal +
+25× vertical runtime scale. Non-uniform runtime scale mangles PBR
+normals + tiling textures. The new `tile-cliff-*.glb` models are
+authored at final size in Blender/SketchUp, so runtime scale should
+drop to 1.
+
+### Concrete changes needed in `src/client/perimeter.ts`
+
+1. **Swap the model paths.** Replace the `PERIM_MODELS` map:
+   ```ts
+   const PERIM_MODELS: Record<TileType, string> = {
+     end:      'assets/models/tile-cliff-end.glb',
+     straight: 'assets/models/tile-cliff-straight.glb',
+     turn:     'assets/models/tile-cliff-turn.glb',
+     fork:     'assets/models/tile-cliff-fork.glb',
+     cross:    'assets/models/tile-cliff-turn.glb', // unused; placeholder
+     ramp:     'assets/models/tile-cliff-straight.glb', // unused; placeholder
+   }
+   ```
+2. **Drop the runtime scale.** Assuming the new models are authored
+   at 64 × H × 64 m footprint:
+   ```ts
+   const PERIM_SCALE   = 1  // was 4
+   const PERIM_SCALE_Y = 1  // was 25
+   ```
+   Verify `PERIM_TILE_METERS` still evaluates to 64. If the new model
+   footprint is different, adjust `MAZE_TILE_UNSCALED_METERS` or the
+   perim tile constant.
+3. **Sanity-check rotations.** The current tile-*.glb pivot is at
+   the SW corner of a 16 m footprint, so a 90° Y rotation swings
+   geometry into adjacent cells and `PERIM_ROT_OFFSET` compensates.
+   Verify the new tile-cliff-*.glb pivot convention. If pivot is
+   already centred (0.5, 0, 0.5 of footprint), delete `PERIM_ROT_OFFSET`
+   compensation and just rotate in place.
+
+### Reservation tuning
+
+Once visuals are up on real art, revisit the reservation policy in
+`getReservedPlayfieldCells()`. Currently 8-way erosion with 1-cell
+shrink implicit. Options once the cliff base silhouette is known:
+
+- If cliff art has a natural 1-cell inset base (e.g. 62×62 m visual
+  in a 64×64 footprint), the reservation math can go back to `shrink=0`
+  (full footprint) and still have snow tuck under the cliff base.
+- If cliff art fills its full footprint edge-to-edge, keep 8-way
+  erosion.
+- If cliff art overhangs slightly (visual > 64 m), consider negative
+  shrink to reserve one cell BEYOND the footprint on playfield-facing
+  sides.
+
+### Cleanup opportunities (do while you're in there)
+
+- **Delete dead solver code in `src/shared/maze/generator.ts`.**
+  `canPlace`, `solveCells`, `shuffle`, ramp-related imports, RNG
+  import + use in `generateWithRetry`, `openingsAt` / `highDirAt`
+  imports. `TILES[type].model` is still used by `rebuild.ts` for
+  the `tile-cross-full.glb` lookup, so leave `TILES` alone.
+- **Delete `pruneIslands` in `src/client/maze/rebuild.ts`** and its
+  `ReservedTile` import.
+- **Delete `spawnEdgeTile` in `src/client/perimeter.ts`** (dead after
+  the `computeAllCliffPlacements` refactor).
+
+### Known dormant issue
+
+- **Dedup loser opens into a wall.** When two perpendicular canyons
+  target the same corner-adjacent tile (e.g. S-slot=64 and W-slot=64
+  both cap at world (64,64)), `computeAllCliffPlacements` dedups by
+  first-writer-wins. The losing canyon's fork opens toward the SIDE
+  of the winner's cap → reads as a dead-end. Cleaner fix: truncate
+  the loser's canyon with an `end` at its own boundary before the
+  collision, or shift its fork rotation. Not blocking; only visible
+  at first/last slot on each edge, and only when both perpendicular
+  slots hash to a fork.
+
+---
+
 ## SESSION 2 UPDATE (post-810d977 / fbfdd37)
 
 The generator refactor from §4 landed in `810d977` (dynamic pool

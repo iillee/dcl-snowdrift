@@ -454,6 +454,16 @@ engine.addSystem((dt: number) => {
   }
 })
 
+// MARK: LOD swap overlap window
+// Number of ms the far-plane stays visible AFTER cube cells have been
+// spawned during a plane→cubes handoff. Long enough to guarantee the
+// cubes are through the entity add pipeline and rendering before the
+// plane is removed (fixes the one-frame flicker seen on mobile when
+// the swap happens atomically on the same tick). Short enough that any
+// visible "snow settling" pop under the cubes is imperceptible.
+const LOD_SWAP_OVERLAP_MS = 120
+
+
 // MARK: Far-plane LOD proxies
 //
 // While a tile is streamed OUT (no cell entities), we still want the
@@ -751,18 +761,26 @@ export function spawnCellsForTile(
   const farExtent = computeFarPlaneExtent(tileType, r, tx, tz, CELL)
 
   const spawnFn = () => {
-    // Defer so cells appear after the tile GLB's grow-in tween. On a
-    // streaming re-spawn (player walked back into range) the tile GLB
-    // is already at full scale so the delay is cosmetic; kept uniform
-    // for simplicity. Far-plane removal is deferred to the same tick
-    // so it swaps out atomically with the cubes appearing — otherwise
-    // the plane vanishes 500 ms early, leaving a visible gap.
+    // Two-phase swap to eliminate the mobile z-fight flicker at LOD
+    // handoff. Both far-plane top and cube tops render at the same Y
+    // (see the design note above the FarPlane section). On desktop the
+    // atomic same-tick swap reads clean; on mobile the entity add/
+    // remove ordering within a tick isn't guaranteed and produces a
+    // one-frame flicker where either the plane or the cubes wins the
+    // depth test inconsistently.
+    //
+    // Fix: spawn cubes first, keep the plane visible for a few frames,
+    // then remove the plane. During the overlap window both are drawn
+    // at the same Y — cubes cover the plane pixel-for-pixel where they
+    // exist, and any residual plane pixels around the cell edges just
+    // read as normal snow. No visible gap; no swap flicker.
     deferredSpawns.push({
       dueMs: spawnClockMs + SPAWN_DELAY_MS,
-      run:   () => {
-        spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity)
-        removeFarPlaneForTile(tileEntity)
-      },
+      run:   () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
+    })
+    deferredSpawns.push({
+      dueMs: spawnClockMs + SPAWN_DELAY_MS + LOD_SWAP_OVERLAP_MS,
+      run:   () => removeFarPlaneForTile(tileEntity),
     })
   }
 

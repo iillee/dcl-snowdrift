@@ -543,17 +543,19 @@ export function getReservedPlayfieldCells(): ReservedTile[] {
 	const reserved = new Set<string>()
 
 	// Two-pass reservation for a clean 1-cell overlap on the playfield-
-	// FACING sides of every cliff feature (and no wasted overlap along
-	// shared boundaries between adjacent cliff tiles).
+	// FACING sides of every cliff feature, INCLUDING inside corners
+	// (concave notches where two cliff features meet at a right angle).
 	//
 	// Pass 1: compute the full cliff region — union of every cliff
 	//         placement's full footprint.
-	// Pass 2: erode by 1 cell (4-way). A cell is reserved iff all four
-	//         of its neighbours are also cliff cells (or off-grid, which
-	//         is never playfield anyway). Cells with any non-cliff
-	//         neighbour survive the erosion and spawn as snow — these
-	//         are exactly the cells at the playfield boundary of the
-	//         cliff region.
+	// Pass 2: 8-way erode. A cell is reserved iff all EIGHT of its
+	//         neighbours (4 cardinal + 4 diagonal) are cliff or off-grid.
+	//         Cells at an inside corner have at least one diagonal
+	//         pointing into open playfield, so they survive erosion and
+	//         spawn a snow tile tucked into the notch. Without the
+	//         diagonal check, notch cells get all 4 cardinal neighbours
+	//         as cliff (via adjacent cliff features) and get reserved,
+	//         leaving a visible gap at every inside corner.
 	const cliffRegion = new Set<string>()
 	for (const p of computeAllCliffPlacements()) {
 		reserveFootprint(cliffRegion, p.sx, p.sz)
@@ -565,10 +567,11 @@ export function getReservedPlayfieldCells(): ReservedTile[] {
 	}
 	for (const key of cliffRegion) {
 		const [tx, tz] = key.split(',').map(Number)
-		const interior = offGridOrCliff(tx - 1, tz)
-		              && offGridOrCliff(tx + 1, tz)
-		              && offGridOrCliff(tx, tz - 1)
-		              && offGridOrCliff(tx, tz + 1)
+		const interior =
+			   offGridOrCliff(tx - 1, tz    ) && offGridOrCliff(tx + 1, tz    )
+			&& offGridOrCliff(tx,     tz - 1) && offGridOrCliff(tx,     tz + 1)
+			&& offGridOrCliff(tx - 1, tz - 1) && offGridOrCliff(tx + 1, tz - 1)
+			&& offGridOrCliff(tx - 1, tz + 1) && offGridOrCliff(tx + 1, tz + 1)
 		if (interior) reserved.add(key)
 	}
 
