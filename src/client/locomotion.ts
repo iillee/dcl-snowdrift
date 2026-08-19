@@ -19,6 +19,21 @@
 import { engine, AvatarLocomotionSettings, InputModifier, Transform } from '@dcl/sdk/ecs'
 
 import { getSnowStageAtWorld } from 'src/client/paint'
+import {
+	MAZE_ORIGIN_OFFSET_METERS,
+	MAZE_PLAYFIELD_METERS,
+} from 'src/shared/settings'
+
+
+// MARK: Playfield bounds
+// Interior playfield in scene world coords. Outside these bounds the
+// perimeter (cliffs) ring sits — movement there should never be
+// snow-gated, otherwise players get stuck at stage-3 trudge speed on
+// terrain that has no snow field at all.
+const PLAYFIELD_MIN_X = MAZE_ORIGIN_OFFSET_METERS
+const PLAYFIELD_MIN_Z = MAZE_ORIGIN_OFFSET_METERS
+const PLAYFIELD_MAX_X = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
+const PLAYFIELD_MAX_Z = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
 
 
 // MARK: Tuning
@@ -108,7 +123,13 @@ export function initLocomotionGate(): void {
 		if (!t) return
 
 		const { x, y, z } = t.position
-		const observed = getSnowStageAtWorld(x, y, z)
+		// Outside the interior playfield (i.e. on the perimeter cliff
+		// ring) there is no snow field — force stage 0 so movement stays
+		// free. Only sample the paint grid when we're inside.
+		const insidePlayfield =
+			x >= PLAYFIELD_MIN_X && x < PLAYFIELD_MAX_X &&
+			z >= PLAYFIELD_MIN_Z && z < PLAYFIELD_MAX_Z
+		const observed = insidePlayfield ? getSnowStageAtWorld(x, y, z) : 0
 
 		if (observed === currentStage) {
 			candidatePolls = 0

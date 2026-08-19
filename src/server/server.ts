@@ -40,6 +40,7 @@ import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
+	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_TILE_WORLD_METERS,
 	PAINT_CELL_SIZE_METERS,
 	PAINT_CELLS_PER_TILE_AXIS,
@@ -75,9 +76,14 @@ function seedStartingArea(): void {
 	const r  = CAMPFIRE_MELT_RADIUS_M
 	const r2 = CAMPFIRE_MELT_RADIUS_SQ_M
 
+	// Convert the fire's WORLD position back to the interior playfield's
+	// grid space by subtracting the playfield origin offset. Every cell
+	// coord below is playfield-local; wx/wz below adds the offset back.
+	const localCx = cx - MAZE_ORIGIN_OFFSET_METERS
+	const localCz = cz - MAZE_ORIGIN_OFFSET_METERS
 	const minCellsFromCenter = Math.ceil(r / PAINT_CELL_SIZE_METERS)
-	const centerColFloat     = cx / PAINT_CELL_SIZE_METERS
-	const centerRowFloat     = cz / PAINT_CELL_SIZE_METERS
+	const centerColFloat     = localCx / PAINT_CELL_SIZE_METERS
+	const centerRowFloat     = localCz / PAINT_CELL_SIZE_METERS
 	const colStart = Math.floor(centerColFloat - minCellsFromCenter)
 	const colEnd   = Math.ceil (centerColFloat + minCellsFromCenter)
 	const rowStart = Math.floor(centerRowFloat - minCellsFromCenter)
@@ -89,14 +95,14 @@ function seedStartingArea(): void {
 		const tz  = Math.floor(gRow / PAINT_CELLS_PER_TILE_AXIS)
 		const row = gRow - tz * PAINT_CELLS_PER_TILE_AXIS
 		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
-		const wz = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS
+		const wz = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
 		const dz = wz - cz
 
 		for (let gCol = colStart; gCol <= colEnd; gCol++) {
 			const tx  = Math.floor(gCol / PAINT_CELLS_PER_TILE_AXIS)
 			const col = gCol - tx * PAINT_CELLS_PER_TILE_AXIS
 			if (tx < 0 || tx >= MAZE_GRID_WIDTH) continue
-			const wx = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS
+			const wx = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
 			const dx = wx - cx
 
 			if (dx * dx + dz * dz > r2) continue

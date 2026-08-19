@@ -21,6 +21,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion } from '@dcl/sdk/math'
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 
@@ -28,8 +29,10 @@ import {
   Placed, TILE_SCALE, CELL, STEP, ROT_OFFSET, MAZE_ORIGIN,
   GRID_W, GRID_H,
   generateWithRetry, getPlacedTilesInOrder, gridSize,
+  setReservedCells,
 } from 'src/shared/maze/generator'
 import { TILES } from 'src/shared/maze/tiles'
+import { getReservedPlayfieldCells, type ReservedTile } from 'src/client/perimeter'
 import { spawnCellsForTile, removePaintForTile, resetPaintForTile } from 'src/client/paint'
 
 // Suppress unused-import complaint from the linter — MeshRenderer/Material
@@ -58,15 +61,37 @@ const isCenterTile = (p: Placed) =>
   p.x === CENTER_X && p.z === CENTER_Z && p.y === 0
 const TILE_TEARDOWN_PER_FRAME = 25
 const STAGGER = 0.03 // seconds between successive tile spawns
-// BFS `order` threshold below which tiles spawn INSTANTLY at full
-// scale, with no grow-in tween. Covers the center tile + its immediate
-// ring, so a fresh spawn lands the player on solid ground and never
-// gets pushed sideways by a growing collider under their feet.
-const INSTANT_SPAWN_ORDER_MAX = 8
+
+// Tiles adjacent to the campfire spawn INSTANTLY at full scale, with
+// no grow-in tween. Solid ground under the player from frame 1, and
+// no collider-under-foot push during the tween. The campfire is at
+// world (CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z), which typically sits at
+// the corner shared by up to 4 grid tiles — all of them qualify.
+//
+// (Previous version keyed off `p.order <= 8`, which was correct back
+// when the solver was BFS-from-centre. The row-major solver assigns
+// order in scan order, so only 1 of the 4 campfire-adjacent tiles
+// happened to land in the first 9 slots — hence the "1/4 of the
+// campfire tiles load first" bug.)
+const CAMPFIRE_TX_F = (CAMPFIRE_WORLD_X - MAZE_ORIGIN) / CELL
+const CAMPFIRE_TZ_F = (CAMPFIRE_WORLD_Z - MAZE_ORIGIN) / CELL
+const isNearCampfire = (p: Placed): boolean => {
+  if (p.y !== 0) return false
+  const dx = Math.abs((p.x + 0.5) - CAMPFIRE_TX_F)
+  const dz = Math.abs((p.z + 0.5) - CAMPFIRE_TZ_F)
+  return dx < 1 && dz < 1
+}
 
 /** True while the reveal cascade is still in-flight for the current maze. */
 export function isRebuilding(): boolean {
   return spawnQueue.length > 0
+}
+
+// Set to true the first time the spawn queue drains after a rebuild.
+// Used by the loading splash to know when to fade out on cold-open.
+let firstRebuildComplete = false
+export function isInitialLoadComplete(): boolean {
+  return firstRebuildComplete
 }
 
 // ─── Rebuild entry point ────────────────────────────────────────────
@@ -86,13 +111,33 @@ export function rebuildMaze(seed: number): void {
   spawnQueue = []
   spawnClock = 0
 
+  // Feed the generator the current perimeter-cliff intrusion set BEFORE
+  // solving. Deterministic on both sides (perimeter has no RNG, maze
+  // uses the shared seed) → every client computes the same reservations
+  // and produces the same maze without any network sync.
+  //
+  // We used to run pruneIslands() here — flood-fill from the campfire
+  // and reserve any cell it couldn't reach — back when the generator
+  // enforced tile-opening topology and orphan cells caused validation
+  // failures. Now that every non-reserved cell is just a uniform
+  // cross-full tile, orphans are harmless (just snow the player can't
+  // walk to). Keeping them fills the narrow corridors that form
+  // between mesas and canyon peninsulas — without prune, those stay
+  // visibly snow-covered instead of becoming gaps.
+  const reserved = getReservedPlayfieldCells()
+  setReservedCells(reserved)
+
   const winningSeed = generateWithRetry(seed)
   if (winningSeed === null) {
     console.log(`⚠️ Maze exhausted seeds starting at ${seed} — aborting spawn`)
     return
   }
   currentSeed = winningSeed
-  console.log(`Maze rebuilt from seed ${seed} → winning seed ${winningSeed}, ${gridSize()} tiles`)
+  console.log(
+    `rebuild: rebuildMaze: seed ${seed} → winning seed ${winningSeed}, ` +
+    `${gridSize()} tiles / ${GRID_W}x${GRID_H} grid ` +
+    `(${reserved.length} cells reserved by perimeter)`
+  )
 
   const tiles = getPlacedTilesInOrder()
   // Skip the center tile on rebuilds — it already exists as a persistent
@@ -134,6 +179,10 @@ engine.addSystem((dt: number) => {
   while (spawnQueue.length && spawnQueue[0].delay <= spawnClock) {
     spawnTileWithGrow(spawnQueue.shift()!.p)
   }
+  // Latch the first-drain complete signal for the loading splash.
+  if (spawnQueue.length === 0 && !firstRebuildComplete) {
+    firstRebuildComplete = true
+  }
 })
 
 function spawnTileWithGrow(p: Placed): void {
@@ -146,11 +195,10 @@ function spawnTileWithGrow(p: Placed): void {
     centerTileEntity = e
   }
 
-  // Tiles at the very base of the BFS (center + immediate ring) spawn
-  // instantly at full scale, no tween. This guarantees solid ground is
-  // under the player from the first frame after they spawn in — a
-  // growing collider under them was pushing them sideways.
-  const isInstant = p.order <= INSTANT_SPAWN_ORDER_MAX
+  // Tiles under/around the campfire spawn instantly at full scale, no
+  // tween. Solid ground under the player from frame 1 and no growing
+  // collider pushing them sideways.
+  const isInstant = isNearCampfire(p)
 
   Transform.create(e, {
     position: Vector3.create(p.x * CELL + dx + MAZE_ORIGIN, p.y, p.z * CELL + dz + MAZE_ORIGIN),
@@ -173,19 +221,9 @@ function spawnTileWithGrow(p: Placed): void {
       easingFunction: EasingFunction.EF_EASEOUTBACK,
     })
   }
-  // Soft positional "pop" as each tile appears. Every-other only, so a
-  // cascade of ~100 tiles reads as rhythmic sparkle rather than a buzz.
-  // Skip pops for instant spawns — they all fire on the same frame and
-  // stack into a single loud burst.
-  if (!isInstant && p.order % 2 === 0) {
-    AudioSource.create(e, {
-      audioClipUrl: 'assets/sounds/pop.mp3',
-      playing: true,
-      loop: false,
-      volume: 0.25,
-      global: true,
-    })
-  }
+  // (Per-tile pop SFX removed — was noisy on cold-open. If we want an
+  // ambient "world assembling" sound back, do it as a single loop on
+  // the campfire rather than one AudioSource per tile.)
   spawnedEntities.push(e)
 
   // Painting overlay: registers the tile with the streaming system,

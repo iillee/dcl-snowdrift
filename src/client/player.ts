@@ -11,21 +11,28 @@
 
 import { engine } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
-import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 
-// Center cross tile world position. See generator.ts: cell (2,2) with
-// MAZE_ORIGIN=8 and CELL=32 puts the tile's SW corner at (72, 72) and its
-// center at (88, 88). Y=2 sits the player on the walkable floor slab.
-const SPAWN_POSITION = { x: 88, y: 2, z: 88 }
-const SPAWN_CAMERA_TARGET = { x: 88, y: 2, z: 96 }
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+
+// Player spawn is bound to the campfire so it always lands players on
+// the rally point regardless of scene size. Stand a couple of meters SW
+// of the fire and look at it — that way you always see the fire on
+// first frame instead of your back to it.
+const SPAWN_OFFSET  = 2   // meters SW of campfire centre
+const PLAYER_STAND_Y = 2  // avatar feet clearance above the walkable slab
 
 function teleportHome(): void {
-  // Fire-and-forget: movePlayerTo can reject if the player has moved
-  // to another scene, and there's nothing useful to do about it.
-  movePlayerTo({
-    newRelativePosition: SPAWN_POSITION,
-    cameraTarget: SPAWN_CAMERA_TARGET,
-  }).catch(() => {})
+	const target = {
+		x: CAMPFIRE_WORLD_X - SPAWN_OFFSET,
+		y: PLAYER_STAND_Y,
+		z: CAMPFIRE_WORLD_Z - SPAWN_OFFSET,
+	}
+	// Fire-and-forget: movePlayerTo can reject if the player has moved
+	// to another scene, and there's nothing useful to do about it.
+	movePlayerTo({
+		newRelativePosition: target,
+		cameraTarget:        { x: CAMPFIRE_WORLD_X, y: PLAYER_STAND_Y, z: CAMPFIRE_WORLD_Z },
+	}).catch(() => {})
 }
 
 export function initPlayerNet(): void {

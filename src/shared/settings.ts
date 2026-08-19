@@ -60,11 +60,29 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 
 // MARK: Scene
 
-/** Scene X extent in meters (8 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 128
+/** Scene X extent in meters (16 parcels × 16 m). Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = 512
 
-/** Scene Z extent in meters (8 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 128
+/** Scene Z extent in meters (16 parcels × 16 m). Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = 512
+
+/**
+ * Interior playfield extent in meters. The maze, paint grid, and
+ * campfire live inside this playfield; the outer scene padding is
+ * used by the perimeter (cliffs) ring.
+ *
+ * Sizing rule for cliff-cap intrusions: perimeter fork caps sit at
+ * ~96 m from each scene edge (one perim tile + half-cap). For those
+ * caps to actually poke into the playfield (so the maze retreats
+ * around them via setReservedCells), this value must be > 320 in a
+ * 512 m scene. Below that the caps land flush against the boundary
+ * and the reservation set is empty (system dormant).
+ *
+ *   256 → dormant (empty ring 64 m, caps stop at playfield edge)
+ *   320 → mild    (empty ring 32 m, caps intrude 1 edge cell)
+ *   384 → strong  (empty ring 0 m,  caps intrude 2 cells deep)
+ */
+export const MAZE_PLAYFIELD_METERS = 480
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
@@ -103,18 +121,36 @@ export const MAZE_MAX_STACK_Y_METERS = 0
 /** Inclusive max stack level index (0 .. this). */
 export const MAZE_MAX_LEVEL_INDEX = Math.floor(MAZE_MAX_STACK_Y_METERS / MAZE_RAMP_STEP_METERS)
 
-/** Maze tile grid width (X), derived from scene X ÷ tile world size. */
-export const MAZE_GRID_WIDTH = Math.floor(SCENE_WORLD_SIZE_X_METERS / MAZE_TILE_WORLD_METERS)
+/** Maze tile grid width (X), derived from playfield X ÷ tile world size. */
+export const MAZE_GRID_WIDTH = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WORLD_METERS)
 
-/** Maze tile grid height (Z), derived from scene Z ÷ tile world size. */
-export const MAZE_GRID_HEIGHT = Math.floor(SCENE_WORLD_SIZE_Z_METERS / MAZE_TILE_WORLD_METERS)
+/** Maze tile grid height (Z), derived from playfield Z ÷ tile world size. */
+export const MAZE_GRID_HEIGHT = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WORLD_METERS)
 
 /**
- * World offset applied to every tile position on BOTH axes. With 16 m
- * tiles and 256×144 scene, both axes fit exactly — offset is 0. Kept as
- * a single scalar since both dimensions center the same way.
+ * World offset applied to every tile position on BOTH axes. Shifts the
+ * interior playfield into the centre of the scene so a perimeter ring
+ * fits between the playfield and the scene bounds.
+ * = (scene - playfield) / 2. With scene=256 and playfield=128, offset=64.
  */
-export const MAZE_ORIGIN_OFFSET_METERS = 0
+export const MAZE_ORIGIN_OFFSET_METERS = (SCENE_WORLD_SIZE_X_METERS - MAZE_PLAYFIELD_METERS) / 2
+
+
+// MARK: Playfield bounds
+/** Playfield min world coord (both axes — playfield is square). */
+export const PLAYFIELD_MIN_M = MAZE_ORIGIN_OFFSET_METERS
+/** Playfield max world coord. */
+export const PLAYFIELD_MAX_M = MAZE_ORIGIN_OFFSET_METERS + MAZE_PLAYFIELD_METERS
+
+/**
+ * True when a world (x, z) sits inside the interior playfield rectangle.
+ * Used by the perimeter cliff generator to skip end-caps that would
+ * intrude into the snow-tile area — snow tiles are authoritative there.
+ */
+export function isInsidePlayfield(x: number, z: number): boolean {
+	return x >= PLAYFIELD_MIN_M && x <= PLAYFIELD_MAX_M
+		&& z >= PLAYFIELD_MIN_M && z <= PLAYFIELD_MAX_M
+}
 
 
 // MARK: Paint (derived from performance knobs + maze tile size)
