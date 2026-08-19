@@ -172,62 +172,6 @@ export function initMazeNet(): void {
   // don't need to change when server-driven maze events return.
 }
 
-// ─── Island prune ───────────────────────────────────────────
-/**
- * 4-way flood-fill from the maze centre through non-reserved cells;
- * any cell not reached is disconnected from the campfire (an island
- * created when perpendicular canyons pinched off a pocket). Add those
- * to the reservation set so the generator doesn't waste effort on
- * unreachable tile clumps and the visible maze stays one contiguous
- * body.
- *
- * Pure over its input; deterministic on every client since it derives
- * only from grid dimensions + the (already-deterministic) reservation
- * set.
- */
-function pruneIslands(reserved: ReservedTile[]): ReservedTile[] {
-  const W = GRID_W, H = GRID_H
-  const k = (x: number, z: number) => `${x},${z}`
-  const isReserved = new Set(reserved.map(r => k(r.tx, r.tz)))
-
-  const cx = Math.floor(W / 2), cz = Math.floor(H / 2)
-  if (isReserved.has(k(cx, cz))) {
-    // The centre is where the campfire lives and the anchor cross
-    // must go — if it's reserved, something upstream is very wrong
-    // (cliff buffer failed, or the playfield is smaller than the
-    // buffer). Bail rather than reserve the entire maze.
-    console.log('rebuild: pruneIslands: centre cell reserved, skipping island prune')
-    return reserved
-  }
-
-  const keep = new Set<string>()
-  const stack: Array<[number, number]> = [[cx, cz]]
-  while (stack.length > 0) {
-    const [x, z] = stack.pop()!
-    if (x < 0 || x >= W || z < 0 || z >= H) continue
-    const key = k(x, z)
-    if (keep.has(key) || isReserved.has(key)) continue
-    keep.add(key)
-    stack.push([x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1])
-  }
-
-  const out = reserved.slice()
-  let islandCount = 0
-  for (let z = 0; z < H; z++) {
-    for (let x = 0; x < W; x++) {
-      const key = k(x, z)
-      if (isReserved.has(key) || keep.has(key)) continue
-      out.push({ tx: x, tz: z })
-      islandCount++
-    }
-  }
-  if (islandCount > 0) {
-    console.log(`rebuild: pruneIslands: reserved ${islandCount} disconnected cell(s)`)
-  }
-  return out
-}
-
-
 // ─── Per-frame spawn drain ──────────────────────────────────────────
 engine.addSystem((dt: number) => {
   if (spawnQueue.length === 0) return

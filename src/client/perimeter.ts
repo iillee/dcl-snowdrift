@@ -35,24 +35,41 @@ import {
 } from 'src/shared/settings'
 
 
+// MARK: Seed
+/**
+ * Global perimeter seed. Mixed into every deterministic hash in this
+ * module (fork slot selection, canyon depth, mesa density). Bump by
+ * one to get a completely fresh cliff layout without changing any
+ * other tuning; all clients still agree because the constant is baked
+ * into the build.
+ *
+ * Long-term idea: derive this from the current calendar day or week
+ * (via `~system/Runtime` getWorldTime or similar) so the scene layout
+ * rotates on a schedule while staying identical for every player at
+ * any given moment.
+ */
+const PERIM_SEED = 0
+
+
 // MARK: Tuning
-// Horizontal scale applied to every perimeter tile GLB. 4 = one perimeter
-// tile spans 64 m (4 parcels), matching the width of the perimeter ring.
-const PERIM_SCALE   = 4
-// Vertical scale — taller than wide so the cliff wall reads as a real
-// horizon silhouette instead of a squat 4× tile.
-const PERIM_SCALE_Y = 25
-// Perimeter tiles use the non-`-full` GLB variants — the `-full` meshes
-// are authored for the interior maze and read wrong at 4× scale. The
-// interior maze still pulls its models from `TILES[type].model`; this
-// override is perimeter-local only.
+// Perimeter tiles now use the dedicated `tile-cliff-*.glb` models,
+// authored at final size in SketchUp/Blender — 64 m footprint, correct
+// height, no runtime scaling needed. This replaces the previous
+// 4× horizontal / 25× vertical runtime scale on the interior maze
+// tiles, which mangled PBR normals and tiling textures.
+//
+// `cross` and `ramp` are never emitted by the perimeter planner
+// (see computeAllCliffPlacements — only turn / straight / fork / end
+// are placed). They stay in the map as placeholders so the Record type
+// stays exhaustive; if the planner ever grows a cross/ramp case, swap
+// in real assets.
 const PERIM_MODELS: Record<TileType, string> = {
-	end:      'assets/models/tile-end.glb',
-	straight: 'assets/models/tile-straight.glb',
-	turn:     'assets/models/tile-turn.glb',
-	fork:     'assets/models/tile-fork.glb',
-	cross:    'assets/models/tile-cross.glb',
-	ramp:     'assets/models/tile-ramp.glb',
+	end:      'assets/models/tile-cliff-end.glb',
+	straight: 'assets/models/tile-cliff-straight.glb',
+	turn:     'assets/models/tile-cliff-turn.glb',
+	fork:     'assets/models/tile-cliff-fork.glb',
+	cross:    'assets/models/tile-cliff-turn.glb', // unused; placeholder
+	ramp:     'assets/models/tile-cliff-straight.glb', // unused; placeholder
 }
 // Y for the tile base. Match the interior maze's tile Y (0) so the two
 // systems sit on the same floor plane.
@@ -65,8 +82,15 @@ const FORK_EVERY_N = 3
 
 // MARK: Derived geometry
 
-/** World size of one perimeter tile after scaling. */
-const PERIM_TILE_METERS = MAZE_TILE_WORLD_METERS * PERIM_SCALE
+/**
+ * World size of one perimeter tile. The new `tile-cliff-*.glb` models
+ * are authored at 64 m footprint, so this is a plain constant now —
+ * no longer derived from MAZE_TILE_WORLD_METERS × a runtime scale.
+ * If the cliff art footprint ever changes, update this value; the rest
+ * of the perimeter geometry (canyon steps, mesa spacing, corner
+ * anchors) is derived from it.
+ */
+const PERIM_TILE_METERS = 64
 
 /**
  * Perimeter ring is anchored to the SCENE, not the interior. Corners
@@ -83,12 +107,12 @@ const CORNER_FAR_Z  = SCENE_WORLD_SIZE_Z_METERS - PERIM_TILE_METERS
 
 
 // MARK: Rotation helper
-// Scaled tile GLB pivot is at the SW corner (matches the interior tile
-// convention). Under a Y rotation of r × 90° the geometry swings into
-// adjacent cells, so we add a compensating XZ offset scaled by the
-// perimeter tile size.
+// SW-corner pivot convention: the mesh origin sits at the SW corner of
+// the 64 m footprint (matches the interior tile convention). Under a
+// Y rotation of r × 90° the geometry swings into adjacent cells, so we
+// add a compensating XZ offset scaled by the perimeter tile size.
 const PERIM_ROT_OFFSET: Array<[number, number]> = [
-	[0,                 0],                // r=0
+	[0,                 0],                 // r=0
 	[0,                 PERIM_TILE_METERS], // r=1 (90° CW)
 	[PERIM_TILE_METERS, PERIM_TILE_METERS], // r=2
 	[PERIM_TILE_METERS, 0],                 // r=3
@@ -109,7 +133,8 @@ function spawnPerimTile(type: TileType, sx: number, sz: number, r: number): void
 	Transform.create(e, {
 		position: Vector3.create(sx + dx, PERIM_Y, sz + dz),
 		rotation: Quaternion.fromEulerDegrees(0, r * 90, 0),
-		scale:    Vector3.create(PERIM_SCALE, PERIM_SCALE_Y, PERIM_SCALE),
+		// Cliff models are authored at final size on all three axes.
+		scale:    Vector3.One(),
 	})
 	GltfContainer.create(e, {
 		src:                          PERIM_MODELS[type],
@@ -136,38 +161,6 @@ function spawnPerimTile(type: TileType, sx: number, sz: number, r: number): void
  * of the ring we are currently laying down.
  */
 type Edge = 'S' | 'N' | 'W' | 'E'
-
-
-// MARK: spawnEdgeTile
-/**
- * Place the perim ring tile at `slot` on `edge`. If it resolves to a
- * fork, also spawn the inward canyon tail (0..N-1 straight sections
- * plus a terminal `end` cap) computed by planCanyonTail().
- */
-function spawnEdgeTile(edge: Edge, slot: number, type: TileType): void {
-	const [sx, sz] = edgeSlotWorld(edge, slot)
-	const plan = planEdgeTile(edge, slot, type)
-	const effectiveType = plan.effectiveType
-
-	// Straight rotation runs the corridor parallel to the ring edge.
-	// Fork rotation points the spur INWARD along CAP_OFFSET.
-	const ringStraightR = (edge === 'S' || edge === 'N') ? 1 : 0
-	const r = effectiveType === 'fork' ? FORK_R[edge] : ringStraightR
-	spawnPerimTile(effectiveType, sx, sz, r)
-
-	if (effectiveType !== 'fork') return
-
-	// --- Canyon tail ---
-	// Depth is a deterministic function of (edge, slot) via canyonDepth().
-	// planCanyonTail() also truncates the tail if it would enter the
-	// campfire cliff buffer or run off the scene, capping whatever was
-	// last placed with an `end` so the canyon never opens into empty
-	// space.
-	const tail = planCanyonTail(edge, sx, sz, canyonDepth(edge, slot))
-	for (const t of tail) {
-		spawnPerimTile(t.type, t.sx, t.sz, t.r)
-	}
-}
 
 
 // MARK: edgeSlotWorld
@@ -221,7 +214,7 @@ const CANYON_MAX_DEPTH = 3
  * that adjacent slots don't all pick the same depth.
  */
 function canyonDepth(edge: Edge, slot: number): number {
-	const h = ((edge.charCodeAt(0) * 131 + Math.floor(slot)) * 2654435761) >>> 0
+	const h = (((edge.charCodeAt(0) * 131 + Math.floor(slot)) ^ (PERIM_SEED * 2246822519)) * 2654435761) >>> 0
 	const range = CANYON_MAX_DEPTH - CANYON_MIN_DEPTH + 1
 	return CANYON_MIN_DEPTH + (h % range)
 }
@@ -285,7 +278,7 @@ function planCanyonTail(edge: Edge, sx: number, sz: number, depth: number): Cany
  * centre if the tile ends up as a fork (needed by callers computing
  * playfield reservations).
  *
- * Kept side-effect-free so both `spawnEdgeTile` (spawns geometry) and
+ * Kept side-effect-free so both the spawner and
  * `getReservedPlayfieldCells` (reports reservations) can call it and
  * be guaranteed to agree on every slot, on every client.
  */
@@ -328,20 +321,22 @@ function iterEdgeSlots(cb: (edge: Edge, slot: number, type: TileType) => void): 
 		edgeSlots.push(PERIM_TILE_METERS * (i + 1))
 	}
 
-	let slotIdx = 0
-	const pickType = (): TileType => {
-		const t: TileType = (slotIdx % FORK_EVERY_N === 0) ? 'fork' : 'straight'
-		slotIdx++
-		return t
+	// Seed-mixed hash of (edge, slot) picks fork vs straight. Keeps the
+	// 1-in-FORK_EVERY_N density but distributes forks pseudorandomly
+	// per seed instead of at a fixed period. Every client agrees
+	// because PERIM_SEED is a build-time constant.
+	const pickType = (edge: Edge, s: number): TileType => {
+		const h = (((edge.charCodeAt(0) * 2654435761) ^ (Math.floor(s) * 40503) ^ (PERIM_SEED * 2246822519)) >>> 0)
+		return (h % FORK_EVERY_N === 0) ? 'fork' : 'straight'
 	}
 
 	for (const s of edgeSlots) {
-		cb('S', s, pickType())
-		cb('N', s, pickType())
+		cb('S', s, pickType('S', s))
+		cb('N', s, pickType('N', s))
 	}
 	for (const s of edgeSlots) {
-		cb('W', s, pickType())
-		cb('E', s, pickType())
+		cb('W', s, pickType('W', s))
+		cb('E', s, pickType('E', s))
 	}
 }
 
@@ -389,7 +384,7 @@ function iterMesaSlots(cb: (sx: number, sz: number, hash: number) => void): void
 		for (let sz = minCoord; sz <= maxCoordZ; sz += MESA_SLOT_SPACING) {
 			// Simple 2D spatial hash (Teschner et al. constants). Mixes
 			// low bits enough that adjacent slots don't correlate.
-			const h = ((Math.floor(sx) * 73856093) ^ (Math.floor(sz) * 19349663)) >>> 0
+			const h = (((Math.floor(sx) * 73856093) ^ (Math.floor(sz) * 19349663) ^ (PERIM_SEED * 2246822519)) >>> 0)
 			cb(sx, sz, h)
 		}
 	}
@@ -466,17 +461,49 @@ function computeAllCliffPlacements(): CliffPlacement[] {
 	iterEdgeSlots((edge, slot, type) => {
 		const [sx, sz] = edgeSlotWorld(edge, slot)
 		const plan = planEdgeTile(edge, slot, type)
-		const effectiveType = plan.effectiveType
+		let effectiveType = plan.effectiveType
 		const ringStraightR = (edge === 'S' || edge === 'N') ? 1 : 0
+
+		// If this is a fork, compute its canyon tail up front and verify
+		// the FIRST inward tile is actually going to be placed. Two ways
+		// a fork can end up open-ended:
+		//   (a) planCanyonTail returns an empty array — every step was
+		//       rejected off-scene or inside the campfire cliff buffer.
+		//   (b) The first tail tile position already exists in `seen`
+		//       (a corner turn tile or another canyon's tile got there
+		//       first, e.g. two perpendicular canyons meeting near an
+		//       inside corner). tryAdd would silently drop it, leaving
+		//       the fork spur pointing at nothing.
+		// Downgrade the fork to a straight in either case so the
+		// perimeter ring stays visually sealed.
+		let tail: CanyonTile[] = []
+		if (effectiveType === 'fork') {
+			tail = planCanyonTail(edge, sx, sz, canyonDepth(edge, slot))
+			const firstBlocked = tail.length > 0 && seen.has(posKey(tail[0].sx, tail[0].sz))
+			if (tail.length === 0 || firstBlocked) effectiveType = 'straight'
+		}
+
 		const r = effectiveType === 'fork' ? FORK_R[edge] : ringStraightR
 		tryAdd({ sx, sz, type: effectiveType, r })
 		if (effectiveType !== 'fork') return
-		const tail = planCanyonTail(edge, sx, sz, canyonDepth(edge, slot))
 		for (const t of tail) tryAdd(t)
 	})
 
 	// --- Mesas ---
-	for (const m of planMesas()) tryAdd(m)
+	// Mesa halves are emitted in consecutive pairs by planMesas(). Both
+	// halves must live or die together — a lone `end` tile in the middle
+	// of the playfield reads as a broken orphan instead of a closed mesa
+	// chunk. If EITHER half collides with an already-placed tile, drop
+	// the whole pair.
+	const mesas = planMesas()
+	for (let i = 0; i < mesas.length; i += 2) {
+		const a = mesas[i]
+		const b = mesas[i + 1]
+		if (!b) break // odd count guard (planMesas always emits pairs; belt & braces)
+		if (seen.has(posKey(a.sx, a.sz)) || seen.has(posKey(b.sx, b.sz))) continue
+		tryAdd(a)
+		tryAdd(b)
+	}
 
 	return out
 }
@@ -497,9 +524,15 @@ function computeAllCliffPlacements(): CliffPlacement[] {
  * once the cliff art is remodelled shorter). Interior features (canyon
  * caps, mesas) pass shrink=0 so their whole footprint stays reserved.
  */
-function reserveFootprint(out: Set<string>, sx: number, sz: number, shrink: number = 0): void {
-	const minX = sx + shrink, maxX = sx + PERIM_TILE_METERS - shrink
-	const minZ = sz + shrink, maxZ = sz + PERIM_TILE_METERS - shrink
+interface Shrink4 { minX: number; maxX: number; minZ: number; maxZ: number }
+function reserveFootprint(
+	out: Set<string>,
+	sx:  number,
+	sz:  number,
+	s:   Shrink4 = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+): void {
+	const minX = sx + s.minX, maxX = sx + PERIM_TILE_METERS - s.maxX
+	const minZ = sz + s.minZ, maxZ = sz + PERIM_TILE_METERS - s.maxZ
 	if (minX >= maxX || minZ >= maxZ) return  // over-shrunk → no reservation
 	const O = MAZE_ORIGIN_OFFSET_METERS
 	const C = MAZE_TILE_WORLD_METERS
@@ -517,6 +550,96 @@ function reserveFootprint(out: Set<string>, sx: number, sz: number, shrink: numb
 			out.add(`${tx},${tz}`)
 		}
 	}
+}
+
+
+// MARK: rotateShrink
+/**
+ * Rotate a canonical (r=0) per-side shrink spec by r × 90° CW around
+ * the tile centre. Under a 90° CW rotation of the tile:
+ *   +X face  → becomes the +Z face (east becomes north)
+ *   +Z face  → becomes the −X face (north becomes west)
+ *   −X face  → becomes the −Z face
+ *   −Z face  → becomes the +X face
+ */
+function rotateShrink(s: Shrink4, r: number): Shrink4 {
+	switch (((r % 4) + 4) % 4) {
+		case 0: return s
+		case 1: return { minX: s.minZ, maxX: s.maxZ, minZ: s.maxX, maxZ: s.minX }
+		case 2: return { minX: s.maxX, maxX: s.minX, minZ: s.maxZ, maxZ: s.minZ }
+		case 3: return { minX: s.maxZ, maxX: s.minZ, minZ: s.minX, maxZ: s.maxX }
+	}
+	return s
+}
+
+
+// MARK: insideCornerLocalCells
+/**
+ * Local (lx, lz) cells within a 4×4 cliff tile footprint that sit in
+ * the concave notch of its shape — the pocket a snow tile should fill.
+ * lx / lz are in the range 0..3, addressing the 16 maze cells that
+ * make up one 64 m perim tile, with (0,0) at the tile's SW-corner
+ * grid slot BEFORE rotation compensation.
+ *
+ * Rotation lookup tables assume the model's "canonical" orientation
+ * (r=0) has:
+ *   turn — L wrapping the SW corner of the tile (walls on S and W
+ *          faces of the tile) with concave notch at the NE corner
+ *          cell (3, 3).
+ *   fork — T with crossbar along the +X (east) face and spur
+ *          pointing −X (west); concave notches at the two west-corner
+ *          cells (0, 0) and (0, 3).
+ *
+ * If either guess is wrong for the actual model, swap the local-cell
+ * pairs for that type here — the rotation math will follow.
+ */
+function insideCornerLocalCells(type: TileType, r: number): Array<[number, number]> {
+	let canonical: Array<[number, number]>
+	switch (type) {
+		case 'turn': canonical = [[3, 3]]; break
+		case 'fork': canonical = [[0, 0], [0, 3]]; break
+		default: return []
+	}
+	return canonical.map(([x, z]) => rotateLocalCell(x, z, r))
+}
+
+
+// MARK: rotateLocalCell
+/**
+ * Rotate a local (lx, lz) cell inside a 4×4 tile by r × 90° CW around
+ * the tile centre. Matches the rotation convention used elsewhere in
+ * this module (r=1 = 90° CW under Y-up left-handed coords).
+ */
+function rotateLocalCell(lx: number, lz: number, r: number): [number, number] {
+	const N = 3 // (grid size along an axis) - 1
+	switch (((r % 4) + 4) % 4) {
+		case 0: return [lx,     lz]
+		case 1: return [lz,     N - lx]
+		case 2: return [N - lx, N - lz]
+		case 3: return [N - lz, lx]
+	}
+	return [lx, lz]
+}
+
+
+// MARK: unreserveCell
+/**
+ * Remove the maze cell whose world position corresponds to local cell
+ * (lx, lz) inside the 4×4 tile at world SW-corner (sx, sz) from the
+ * reservation set. No-op if that cell is off-grid or was never in the
+ * set.
+ */
+function unreserveCell(out: Set<string>, sx: number, sz: number, lx: number, lz: number): void {
+	const O = MAZE_ORIGIN_OFFSET_METERS
+	const C = MAZE_TILE_WORLD_METERS
+	// Centre of local cell in world coords.
+	const wx = sx + (lx + 0.5) * C
+	const wz = sz + (lz + 0.5) * C
+	const tx = Math.floor((wx - O) / C)
+	const tz = Math.floor((wz - O) / C)
+	if (tx < 0 || tx >= MAZE_GRID_WIDTH)  return
+	if (tz < 0 || tz >= MAZE_GRID_HEIGHT) return
+	out.delete(`${tx},${tz}`)
 }
 
 
@@ -542,37 +665,48 @@ export interface ReservedTile { tx: number; tz: number }
 export function getReservedPlayfieldCells(): ReservedTile[] {
 	const reserved = new Set<string>()
 
-	// Two-pass reservation for a clean 1-cell overlap on the playfield-
-	// FACING sides of every cliff feature, INCLUDING inside corners
-	// (concave notches where two cliff features meet at a right angle).
+	// Per-type reservation shrink expressed per side (minX, maxX, minZ,
+	// maxZ) in world meters, in the tile's CANONICAL (r=0) orientation;
+	// rotated to the placement's actual r below.
 	//
-	// Pass 1: compute the full cliff region — union of every cliff
-	//         placement's full footprint.
-	// Pass 2: 8-way erode. A cell is reserved iff all EIGHT of its
-	//         neighbours (4 cardinal + 4 diagonal) are cliff or off-grid.
-	//         Cells at an inside corner have at least one diagonal
-	//         pointing into open playfield, so they survive erosion and
-	//         spawn a snow tile tucked into the notch. Without the
-	//         diagonal check, notch cells get all 4 cardinal neighbours
-	//         as cliff (via adjacent cliff features) and get reserved,
-	//         leaving a visible gap at every inside corner.
-	const cliffRegion = new Set<string>()
+	// The new tile-cliff-*.glb models have different fill patterns
+	// inside their shared 4×4 maze-cell (64 m) footprint. Canonical
+	// orientation conventions used here (r=0):
+	//   straight — length along Z (openings N/S); fills middle 2 rows
+	//              perpendicular to length. Shrink 1 cell on ±X only.
+	//   end      — opens +Z (north); cliff wraps 3 closed sides (±X, −Z).
+	//              Shrink 1 cell on the 3 closed sides only; open side
+	//              stays at 0 so the outer strip there is reserved,
+	//              preventing snow from slipping under the neighbouring
+	//              canyon-tail cliff.
+	//   fork     — T-shape; geometry extends across most of the tile.
+	//   turn     — L-shape; geometry extends across two full sides.
+	//   Fork/turn reserve the full footprint (handled below via the
+	//   insideCornerLocalCells un-reserve pass, which pokes just the
+	//   concave-notch cell(s) as snow).
+	//
+	// Replaces the previous full-footprint + 8-way-erode approach
+	// (designed for cliff models that filled their entire footprint);
+	// with pre-shrunk reservations the shrink IS the erosion, and a
+	// second erosion pass would kill all reservations.
+	const C = MAZE_TILE_WORLD_METERS
+	const CLIFF_SHRINK: Record<TileType, Shrink4> = {
+		straight: { minX: C, maxX: C, minZ: 0, maxZ: 0 },
+		end:      { minX: C, maxX: C, minZ: C, maxZ: 0 },
+		fork:     { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+		turn:     { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+		cross:    { minX: 0, maxX: 0, minZ: 0, maxZ: 0 }, // unused
+		ramp:     { minX: 0, maxX: 0, minZ: 0, maxZ: 0 }, // unused
+	}
 	for (const p of computeAllCliffPlacements()) {
-		reserveFootprint(cliffRegion, p.sx, p.sz)
-	}
-	const offGridOrCliff = (tx: number, tz: number): boolean => {
-		if (tx < 0 || tx >= MAZE_GRID_WIDTH)  return true
-		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) return true
-		return cliffRegion.has(`${tx},${tz}`)
-	}
-	for (const key of cliffRegion) {
-		const [tx, tz] = key.split(',').map(Number)
-		const interior =
-			   offGridOrCliff(tx - 1, tz    ) && offGridOrCliff(tx + 1, tz    )
-			&& offGridOrCliff(tx,     tz - 1) && offGridOrCliff(tx,     tz + 1)
-			&& offGridOrCliff(tx - 1, tz - 1) && offGridOrCliff(tx + 1, tz - 1)
-			&& offGridOrCliff(tx - 1, tz + 1) && offGridOrCliff(tx + 1, tz + 1)
-		if (interior) reserved.add(key)
+		const rotated = rotateShrink(CLIFF_SHRINK[p.type], p.r)
+		reserveFootprint(reserved, p.sx, p.sz, rotated)
+		// Turn/fork have concave notches inside their L / T shape that
+		// leave a small pocket of playfield tucked between the cliff arms.
+		// Un-reserve those pocket cells so a snow tile spawns there.
+		for (const [lx, lz] of insideCornerLocalCells(p.type, p.r)) {
+			unreserveCell(reserved, p.sx, p.sz, lx, lz)
+		}
 	}
 
 	const out: ReservedTile[] = []
@@ -598,8 +732,8 @@ export function setupPerimeter(): void {
 	console.log(
 		`perimeter: setupPerimeter: ring built ` +
 		`(playfield ${MAZE_PLAYFIELD_METERS}m centred in ${SCENE_WORLD_SIZE_X_METERS}m scene, ` +
-		`${placements.length} cliff tiles, ` +
-		`tile scale ${PERIM_SCALE}× = ${PERIM_TILE_METERS}m/tile)`
+		`${placements.length} cliff tiles at ${PERIM_TILE_METERS}m/tile, ` +
+		`cliff art authored at 1:1 scale)`
 	)
 }
 

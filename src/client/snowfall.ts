@@ -36,7 +36,11 @@ export enum PrecipitationLevel {
 
 // MARK: Tuning
 // Spawn box height above the scene ground. Particles fall from here.
-const SPAWN_Y       = 28
+// Raised for the larger scene footprint so snow reads as coming from
+// far overhead instead of just clearing the cliff line. If flakes
+// disappear mid-air, bump the per-level `lifetime` in PROFILES so
+// particles survive long enough to reach the ground from this height.
+const SPAWN_Y       = 60
 // Downward drift accelerated by mild gravity. See per-level tables for
 // the level-specific overrides that make heavier snow feel weightier.
 const WIND_FORCE    = Vector3.create(0.05, 0, 0.02)
@@ -64,7 +68,7 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 	[PrecipitationLevel.CLEAR ]: null,
 	[PrecipitationLevel.LIGHT ]: {
 		rate       : 120,
-		lifetime   : 11,
+		lifetime   : 30,
 		gravityMult: 0.03,
 		speedMin   : 0.6,
 		speedMax   : 1.2,
@@ -74,7 +78,7 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 	},
 	[PrecipitationLevel.MEDIUM]: {
 		rate       : 280,
-		lifetime   : 9,
+		lifetime   : 22,
 		gravityMult: 0.08,
 		speedMin   : 1.0,
 		speedMax   : 1.8,
@@ -88,7 +92,7 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		// + high alpha rather than raw rate alone. Result reads as a
 		// whiteout: enough screen coverage to genuinely hurt visibility.
 		rate       : 1200,
-		lifetime   : 5,
+		lifetime   : 12,
 		gravityMult: 0.28,
 		speedMin   : 2.4,
 		speedMax   : 3.6,

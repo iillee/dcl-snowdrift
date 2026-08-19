@@ -2,6 +2,95 @@
 
 ---
 
+## SESSION 4 UPDATE — cliff art integration + cleanup
+
+This session wired the new `tile-cliff-*.glb` models into the perimeter
+generator, replaced the runtime-scaled maze tiles, and finished the
+cleanup opportunities from session 3. Also fixed a few worldgen bugs
+surfaced by the new art.
+
+### What landed
+
+- **New cliff models wired in** (`src/client/perimeter.ts`). Swapped
+  `PERIM_MODELS` from `tile-*.glb` to `tile-cliff-*.glb`, dropped the
+  4× horizontal / 25× vertical runtime scale to `Vector3.One()`, and
+  moved `PERIM_TILE_METERS` from `MAZE_TILE_WORLD_METERS × PERIM_SCALE`
+  to a plain `= 64` constant (models are now authored at 64 m footprint).
+  The `PERIM_ROT_OFFSET` SW-corner-pivot table kept unchanged; the new
+  models were re-exported with the SW-corner pivot convention.
+- **Per-side reservation shrink** (`getReservedPlayfieldCells`).
+  Replaced the old "reserve full footprint + 8-way erode" pass with a
+  per-type, per-side `Shrink4` spec that describes exactly which outer
+  strips of each cliff tile's 4×4 footprint contain visual air vs
+  actual cliff geometry. Canonical (r=0) values:
+    - straight: shrink ±X (perpendicular to length) only
+    - end:      shrink ±X and −Z (three closed sides); +Z open side
+                stays reserved so snow doesn't slip into the neighbour
+    - fork:     no side shrink; concave notches carved out cell-by-cell
+                via `insideCornerLocalCells` (2 cells)
+    - turn:     no side shrink; concave notch carved out (1 cell)
+  `rotateShrink()` rotates the canonical spec by placement `r` so all
+  four rotations agree.
+- **Fork downgrade when tail is empty or blocked**
+  (`computeAllCliffPlacements`). Two ways a fork could end up with an
+  open, uncapped spur:
+    (a) `planCanyonTail` returns an empty array (every step rejected
+        off-scene or inside the campfire buffer).
+    (b) The first tail tile position is already claimed by another
+        cliff placement (corner turn, or another canyon meeting near an
+        inside corner) — `tryAdd` silently drops it.
+  Both cases now downgrade the fork to a straight so the perimeter
+  stays visually sealed. Kills the session-3 "dedup loser opens into a
+  wall" dormant issue as a side-effect.
+- **Atomic mesa pairs** (`computeAllCliffPlacements`). Mesa halves are
+  emitted in consecutive pairs by `planMesas`. If either half would
+  collide with an already-placed cliff tile, both are dropped so we
+  never get a lone orphan `end` in the middle of the playfield.
+- **`PERIM_SEED` constant** (top of `perimeter.ts`). Mixed into every
+  hash in the module (fork slot selection, canyon depth, mesa density).
+  Bump by one for a fresh layout without changing any other tuning; all
+  clients still agree because it's a build-time constant. Long-term:
+  swap for a `getWorldTime`-derived day/week bucket for scheduled
+  scene rotation.
+- **Snowfall bumped for the larger scene** (`src/client/snowfall.ts`).
+  `SPAWN_Y` 28 → 60 so snow reads as coming from far overhead. Per-level
+  `lifetime` bumped ~2.5× (LIGHT 11→30, MEDIUM 9→22, HEAVY 5→12) so
+  particles survive the longer fall.
+
+### Cleanup (session 3 backlog) — done
+
+- Deleted dead solver code in `src/shared/maze/generator.ts`:
+  `canPlace`, `solveCells`, `shuffle`, plus the ramp-related imports
+  (`ALL_DIRS`, `DX`, `DZ`, `Dir`, `N/E/S/W`, `OPP`, `openingsAt`,
+  `highDirAt`, `GROWTH_PRIMARY`, `GROWTH_FALLBACK`, `TILES`), the
+  `rand`/`setSeed` RNG imports, and `MAZE_MAX_STACK_Y_METERS` /
+  `MAX_Y`. `generateWithRetry` is now a single-shot wrapper (signature
+  preserved for callers). File went from ~450 → 176 lines.
+- Deleted `pruneIslands` in `src/client/maze/rebuild.ts` and its
+  `ReservedTile` import.
+- `spawnEdgeTile` in `src/client/perimeter.ts` deleted earlier in the
+  session.
+
+### Dormant issues resolved
+
+- **Dedup loser opens into a wall.** Fixed by the fork-downgrade logic
+  above.
+
+### Follow-ups for a future session
+
+- The `end`, `turn`, `fork` reservation specs were derived by
+  iteration against the current cliff art. If those models get
+  re-exported with a different fill pattern (e.g. edge-to-edge base),
+  the `CLIFF_SHRINK` table and `insideCornerLocalCells` canonical
+  cells will need re-tuning.
+- `PERIM_ROT_OFFSET` still uses the SW-corner-pivot table. If a future
+  cliff export uses a centred pivot, collapse the table to
+  `[[P/2, P/2], ...]` for all four rotations.
+- Swap `PERIM_SEED` for a `getWorldTime`-based rotation when the
+  scene is close to launch.
+
+---
+
 ## SESSION 3 UPDATE
 
 This session focused on generator simplification + tuning the snow/
