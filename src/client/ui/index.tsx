@@ -14,6 +14,7 @@ import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
 import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 import { frostBarLayer }      from 'src/client/ui/layers/layer.frostBar'
+import { hotbarLayer }        from 'src/client/ui/layers/layer.hotbar'
 import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
@@ -33,6 +34,7 @@ export function setupUi() {
 			topDownPanLayer,
 			actionBarLayer,
 			frostBarLayer,
+			hotbarLayer,
 			versionLayer,
 			// Splash must be last so it renders on top of every other layer.
 			loadingSplashLayer,

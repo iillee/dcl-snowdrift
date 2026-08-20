@@ -14,18 +14,10 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import {
-	BRUSH_MAX_CELLS,
-	BRUSH_MIN_CELLS,
-	decreaseBrush,
-	getBrushCells,
-	increaseBrush,
-} from 'src/client/brush'
 import { isMusicMuted, toggleMusic } from 'src/client/audio'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
-import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
@@ -207,9 +199,6 @@ class ActionBarLayer extends Layer {
 	}
 
 	body() {
-		const size       = getBrushCells()
-		const canDec     = size > BRUSH_MIN_CELLS
-		const canInc     = size < BRUSH_MAX_CELLS
 		const specActive = isTopDownActive()
 
 		return (
@@ -223,32 +212,12 @@ class ActionBarLayer extends Layer {
 				}}
 			>
 				<BrushButton
-					label     = "+"
-					onClick   = {increaseBrush}
-					enabled   = {canInc}
-					keySuffix = "inc"
-				/>
-				<BrushButton
-					label     = "-"
-					onClick   = {decreaseBrush}
-					enabled   = {canDec}
-					keySuffix = "dec"
-				/>
-				<BrushButton
 					label     = "↻"
 					onClick   = {rerollLevel}
 					enabled   = {true}
 					keySuffix = "reroll"
 					fontSize  = {isMobile() ? 56 : 40}
 					nudgeTop  = {isMobile() ? -12 : -2}
-				/>
-				<BrushButton
-					label     = "#"
-					onClick   = {toggleServerStats}
-					enabled   = {true}
-					keySuffix = "stats"
-					fontSize  = {isMobile() ? 64 : 44}
-					nudgeTop  = {isMobile() ? -14 : -4}
 				/>
 				<UiEntity
 					key = "ui_SpectatorBtn"

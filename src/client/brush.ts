@@ -1,110 +1,61 @@
 /**
- * brush.ts — runtime state for the local player's paint brush size.
+ * brush.ts — melt brush footprint, derived from torch state.
  *
- * The initial value comes from settings (PAINT_BRUSH_SIZE_CELLS) but the
- * player can grow / shrink the footprint at runtime via the +/- HUD
- * buttons. Sizes are always odd so the footprint stays centered on the
- * avatar.
+ * v1: brush size is NOT player-controlled. It's a strict function of
+ * the torch:
+ *   - Torch lit -> 3x3 melt footprint (BRUSH_TORCH_LIT cells)
+ *   - Torch unlit / not equipped -> 1x1 fallback (BRUSH_UNLIT cells)
  *
- * Server does not know or care about the brush size — the client just
- * emits more (or fewer) cell ids per paintTick.
+ * The old +/- HUD buttons + free-range brush size were dev-time only
+ * (see git history). The +/- action-bar layer still imports the old
+ * increase/decrease/min/max symbols; they're kept here as harmless
+ * no-ops so removing the buttons is a one-file UI change instead of
+ * touching the exports too.
+ *
+ * When we later add "torch upgrades" or "double-torch cells" per
+ * PLAN.md's B1 candidates, add cases here \u2014 the accumulation and
+ * paint systems only read getBrushCells() and don't care where the
+ * number comes from.
  */
 
-import { PAINT_BRUSH_SIZE_CELLS } from 'src/shared/settings'
+import { isTorchLit } from 'src/client/torchEquip'
 
 
-/** Minimum footprint. 0 = painting disabled (brush cleared). */
-export const BRUSH_MIN_CELLS = 0
-/** Maximum footprint. Odd so it stays centered; 5 = 5x5 = 25 cells. */
-export const BRUSH_MAX_CELLS = 5
-/** Step between adjacent brush sizes. Odd-only progression: 1,3,5,7,9,11. */
+// MARK: Sizes
+/** Melt footprint when the torch flame is burning. */
+export const BRUSH_TORCH_LIT = 3
+/** Fallback footprint when the torch is out. Kept above 0 so a
+ *  torchless player can still crawl home instead of being stranded. */
+export const BRUSH_UNLIT     = 1
+
+// Kept exported so the legacy +/- action-bar layer type-checks. Values
+// are the current lit/unlit sizes and are otherwise unused now that
+// the brush is torch-driven.
+export const BRUSH_MIN_CELLS  = BRUSH_UNLIT
+export const BRUSH_MAX_CELLS  = BRUSH_TORCH_LIT
 export const BRUSH_STEP_CELLS = 2
-
-
-let currentBrushCells = clampOdd(PAINT_BRUSH_SIZE_CELLS)
-
-
-// MARK: clampOdd
-// Sizes are odd (1, 3, 5, …) so the footprint stays centred on the avatar.
-// 0 is a special "brush off" value — preserved as-is instead of being
-// rounded up to 1.
-function clampOdd(n: number): number {
-	const clamped = Math.max(BRUSH_MIN_CELLS, Math.min(BRUSH_MAX_CELLS, n))
-	if (clamped === 0) return 0
-	// Round even numbers DOWN to the nearest odd (2→1, 4→3, …) so that
-	// stepping up from 0 produces the sequence 0 → 1 → 3 → 5 … without
-	// skipping the single-cell brush.
-	return clamped % 2 === 0 ? clamped - 1 : clamped
-}
 
 
 // MARK: getBrushCells
 /**
- * Current local brush footprint as an odd cell count (e.g. 3 = 3x3).
- * Read every frame by the painting system.
+ * Current melt footprint as an odd cell count (1 or 3). Read every
+ * frame by the painting system.
  */
 export function getBrushCells(): number {
-	return currentBrushCells
+	return isTorchLit() ? BRUSH_TORCH_LIT : BRUSH_UNLIT
 }
 
 
-// MARK: increaseBrush
-/**
- * Grow the brush by one odd-step. No-op at max size.
- */
-export function increaseBrush(): void {
-	const next = clampOdd(currentBrushCells + BRUSH_STEP_CELLS)
-	if (next === currentBrushCells) {
-		console.log('Brush: increaseBrush: already at max', currentBrushCells)
-		return
-	}
-	currentBrushCells = next
-	console.log('Brush: increaseBrush: now', currentBrushCells)
-}
+// MARK: Legacy +/- shims
+// Retained so old imports (layer.brushSize, keybind handlers) compile
+// without touching them today. Brush is torch-derived; direct mutation
+// is a no-op. Delete these once every call site is gone.
 
-
-// MARK: cycleBrushUp
-/**
- * Grow the brush one odd-step, wrapping back to BRUSH_MIN_CELLS after
- * BRUSH_MAX_CELLS. Bound to the E key for single-hand size cycling up.
- */
-export function cycleBrushUp(): void {
-	if (currentBrushCells >= BRUSH_MAX_CELLS) {
-		currentBrushCells = BRUSH_MIN_CELLS
-		console.log('Brush: cycleBrushUp: wrapped to', currentBrushCells)
-		return
-	}
-	currentBrushCells = clampOdd(currentBrushCells + BRUSH_STEP_CELLS)
-	console.log('Brush: cycleBrushUp: now', currentBrushCells)
-}
-
-
-// MARK: cycleBrushDown
-/**
- * Shrink the brush one odd-step. Clamps at BRUSH_MIN_CELLS (no wrap to
- * max). Bound to the F key.
- */
-export function cycleBrushDown(): void {
-	const next = clampOdd(currentBrushCells - BRUSH_STEP_CELLS)
-	if (next === currentBrushCells) {
-		console.log('Brush: cycleBrushDown: already at min', currentBrushCells)
-		return
-	}
-	currentBrushCells = next
-	console.log('Brush: cycleBrushDown: now', currentBrushCells)
-}
-
-
-// MARK: decreaseBrush
-/**
- * Shrink the brush by one odd-step. No-op at min size.
- */
-export function decreaseBrush(): void {
-	const next = clampOdd(currentBrushCells - BRUSH_STEP_CELLS)
-	if (next === currentBrushCells) {
-		console.log('Brush: decreaseBrush: already at min', currentBrushCells)
-		return
-	}
-	currentBrushCells = next
-	console.log('Brush: decreaseBrush: now', currentBrushCells)
-}
+/** DEPRECATED: brush is torch-driven now. No-op. */
+export function increaseBrush(): void {}
+/** DEPRECATED: brush is torch-driven now. No-op. */
+export function decreaseBrush(): void {}
+/** DEPRECATED: brush is torch-driven now. No-op. */
+export function cycleBrushUp(): void {}
+/** DEPRECATED: brush is torch-driven now. No-op. */
+export function cycleBrushDown(): void {}

@@ -36,8 +36,10 @@ const { colors, borderRadius } = UI_THEME
 const BAR_HEIGHT      = 24
 const BAR_WIDTH_DT    = 320
 const BAR_WIDTH_MB    = 260
-const BAR_BOTTOM_DT   = 40
-const BAR_BOTTOM_MB   = 24
+// Sits ABOVE the hotbar slot (SLOT_SIZE 64 in layer.hotbar) with a
+// small gap. Bump these if the hotbar grows or gains a second row.
+const BAR_BOTTOM_DT   = 120
+const BAR_BOTTOM_MB   = 100
 const BORDER_PX       = 2
 
 // Palette. Warm gold reads as "safe / hearth"; ice tint pulled from the

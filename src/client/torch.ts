@@ -17,8 +17,13 @@
  * they inherit the hand transform automatically.
  */
 
-import { AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer, Transform, engine } from '@dcl/sdk/ecs'
-import { Quaternion, Vector3 } from '@dcl/sdk/math'
+import {
+	AvatarAnchorPointType, AvatarAttach, Billboard, Entity, GltfContainer,
+	Material, MeshRenderer, Transform, VisibilityComponent, engine,
+} from '@dcl/sdk/ecs'
+import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+
+import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
 
 
 // MARK: Tuning
@@ -41,38 +46,43 @@ const TORCH_OFFSET  = Vector3.create(0.04, 0.12, 0.10)
 const TORCH_ROTATION = Quaternion.fromEulerDegrees(90, -30, 90)
 
 
+// MARK: Flame + fuel-bar tuning
+// Both entities are parented to the AvatarAttach ANCHOR (the right
+// hand) — clean, un-rotated local axes so nudging positions is
+// intuitive: +X = out from the palm, +Y = up along the arm, +Z = forward
+// past the fingers. The torch base sits at TORCH_OFFSET; the visible
+// tip is somewhere above/forward of it after the shaft rotation.
+// Adjust FLAME_LOCAL_POS by watching the preview and reporting where
+// the sphere lands relative to the visible torch tip.
+const FLAME_LOCAL_POS  = Vector3.create(-0.11, 0.10, 0.28)
+// Flame-shrink tuning. The flame orb starts at FLAME_SIZE_MAX (full
+// fuel) and lerps down to FLAME_SIZE_MIN (empty). The shaft itself
+// stays a constant size — only the flame reads fuel remaining.
+const FLAME_SIZE_MAX   = 0.20
+const FLAME_SIZE_MIN   = 0.06
+// Base scale — replaced per-frame by the fuel-driven interpolation.
+const FLAME_SIZE       = Vector3.create(FLAME_SIZE_MAX, FLAME_SIZE_MAX, FLAME_SIZE_MAX)
+const FLAME_COLOR_HOT  = Color4.create(1.00, 0.55, 0.15, 1)
+const FLAME_EMISSIVE   = 4.0
+
+
 // MARK: State
 let installed  = false
-let torchTip: Entity = 0 as Entity
-
-// True when the held torch is currently protecting the player from
-// frost accumulation. Defaults ON: v1 has no fuel meter yet, so any
-// player with a torch (i.e. everyone until step 4 lands) is protected.
-// When the fuel system arrives, this flag flips false as fuel hits zero.
-let torchProtecting = true
-
+let torchTip:  Entity = 0 as Entity
+let flame:     Entity = 0 as Entity
+let fuelTrack: Entity = 0 as Entity
+let fuelFill:  Entity = 0 as Entity
 
 // MARK: isTorchProtecting
 /**
- * Whether the held torch is actively halting frost accumulation.
- * Read by src/client/frost/accumulation.ts each poll. Independent of
- * campfire proximity — the fire always trumps and thaws regardless.
+ * Whether the held torch is actively halting the baseline frost drop.
+ * Read by src/client/frost/accumulation.ts each poll. Torch protection
+ * requires the entity to be installed AND the flame lit — an
+ * unlit / burnt-out torch offers no warmth. Independent of campfire
+ * proximity: the fire always trumps and thaws regardless.
  */
 export function isTorchProtecting(): boolean {
-	return installed && torchProtecting
-}
-
-
-// MARK: setTorchProtecting
-/**
- * Toggle whether the torch is currently protecting the player. The
- * upcoming torch-fuel system will drive this: fuel > 0 -> true,
- * fuel == 0 -> false. Also useful during development to verify frost
- * accumulation without a fuel meter in play.
- */
-export function setTorchProtecting(on: boolean): void {
-	torchProtecting = on
-	console.log(`torch: setTorchProtecting: ${on}`)
+	return installed && isTorchLit()
 }
 
 
@@ -117,7 +127,44 @@ export function setupTorch(): void {
 		invisibleMeshesCollisionMask: 0,
 	})
 
-	console.log('torch: setupTorch: attached to right hand')
+	// Layer 3: Flame — small emissive sphere at the torch tip. Parented
+	// to the ANCHOR (right hand) so its local axes are un-rotated and
+	// nudging offsets is straightforward.
+	flame = engine.addEntity()
+	Transform.create(flame, {
+		parent  : anchor,
+		position: FLAME_LOCAL_POS,
+		scale   : FLAME_SIZE,
+	})
+	MeshRenderer.setSphere(flame)
+	Material.setPbrMaterial(flame, {
+		albedoColor       : FLAME_COLOR_HOT,
+		emissiveColor     : FLAME_COLOR_HOT,
+		emissiveIntensity : FLAME_EMISSIVE,
+		roughness         : 1.0,
+	})
+	// Hidden until the fuel-tracker system flips it on next frame.
+	VisibilityComponent.create(flame, { visible: false })
+
+	// Per-frame updater: toggle flame visibility on lit, shrink the
+	// flame orb in proportion to remaining fuel. Shaft stays constant.
+	engine.addSystem(() => {
+		const lit  = isTorchLit()
+		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
+
+		const vis = VisibilityComponent.getMutableOrNull(flame)
+		if (vis !== null && vis.visible !== lit) vis.visible = lit
+
+		const flameT = Transform.getMutableOrNull(flame)
+		if (flameT !== null) {
+			const s = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
+			flameT.scale.x = s
+			flameT.scale.y = s
+			flameT.scale.z = s
+		}
+	})
+
+	console.log('torch: setupTorch: attached to right hand, shrinking flame mounted')
 }
 
 

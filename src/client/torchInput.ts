@@ -1,63 +1,45 @@
 /**
- * torchInput.ts — hold E to raise the held torch (upper-body scene emote).
+ * torchInput.ts — per-frame torch fuel drain + E-press relight handler.
  *
- * Mirrors flagtag's `avatarEmotes.ts` pattern: ships a scene-local
- * `_emote.glb` under `models/emotes/` and plays it via
- * `triggerSceneEmote({ mask: 0 })` so the upper body raises while the
- * legs stay under locomotion control. Works for every player with no
- * ownership check (unlike collection-v2 URNs, which the client silently
- * refuses to play in this preview session), and the mask IS honoured by
- * triggerSceneEmote (unlike the predefined-emote RPC path).
+ * Runs two concerns in a single system so we don't pay two per-frame
+ * closure allocations:
  *
- * Press-and-hold E starts a looping emote; release stops it.
+ *   1. Fuel drain. While the torch is lit, subtracts real seconds from
+ *      torchEquip.getTorchFuelSeconds() and extinguishes at zero.
+ *   2. Relight input. On the rising edge of the E key (IA_PRIMARY),
+ *      if the player is inside the campfire heat radius, refills fuel
+ *      and re-lights the flame. Any E press outside the radius is
+ *      swallowed silently for now (future: play a "cant relight here"
+ *      shake / SFX).
  *
- * Placeholder asset: `models/emotes/TorchRaise_emote.glb` is currently
- * flagtag's boomerang-charge loop clip — an arm-held-up looping stance.
- * Replace with a bespoke torch-raise animation when authored (keep the
- * `_emote.glb` suffix, keep the path).
- *
- * Mobile: masked scene emotes crash the client on mobile (documented in
- * flagtag). Guarded via isMobile() so mobile players skip the emote —
- * the HUD slot highlight still fires so F-hold state stays visible.
- *
- * Requires scene.json requiredPermissions to include
- * `ALLOW_TO_TRIGGER_AVATAR_EMOTE` (already present).
+ * The upper-body torch-raise emote from the earlier torch-v2 stub is
+ * intentionally NOT wired here \u2014 relight is instant in v1; the emote
+ * comes back later as the relight ritual (design owner: user).
  */
 
-import { InputAction, engine, inputSystem } from '@dcl/sdk/ecs'
-import { isMobile } from '@dcl/sdk/platform'
-import { stopEmote, triggerSceneEmote } from '~system/RestrictedActions'
+import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { isTorchEquipped, setTorchRaised } from 'src/client/torchEquip'
-
-
-// MARK: Tuning
-// Scene-local emote file. Must live under the scene and end in `_emote.glb`
-// for the SDK to accept it via triggerSceneEmote.
-const TORCH_EMOTE_SRC = 'assets/models/torch_emote.glb'
-
-// Upper-body mask constant. The scene-emote `mask` field is a bitmask where
-// 0 means "upper body only" — legs keep running/jumping under locomotion.
-const AM_UPPER_BODY = 0
+import { CAMPFIRE_MELT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import {
+	TORCH_FUEL_MAX_S,
+	consumeTorchFuel,
+	extinguishTorch,
+	getTorchFuelSeconds,
+	isTorchEquipped,
+	isTorchLit,
+	relightTorch,
+} from 'src/client/torchEquip'
 
 
-// MARK: State
-let fHeldLastFrame = false
-let emoteActive    = false
-let installed      = false
-
-
-// MARK: emotesDisabled
-/** Mobile kill switch — masked scene emotes crash the mobile client. */
-function emotesDisabled(): boolean {
-	return isMobile()
-}
+// MARK: Module state
+let installed  = false
+let eHeldPrev  = false
 
 
 // MARK: setupTorchInput
 /**
- * Register the F-key polling system. Idempotent — safe to call once
- * from client bootstrap.
+ * Register the per-frame torch fuel + E-relight system. Idempotent \u2014
+ * safe to call once from client bootstrap.
  */
 export function setupTorchInput(): void {
 	if (installed) {
@@ -66,41 +48,41 @@ export function setupTorchInput(): void {
 	}
 	installed = true
 
-	engine.addSystem(() => {
-		const fHeld = inputSystem.isPressed(InputAction.IA_PRIMARY)
-
-		// Press edge — start the loop.
-		if (fHeld && !fHeldLastFrame) {
-			if (!isTorchEquipped()) {
-				console.log('torchInput: E pressed but torch not equipped — ignoring')
-			} else {
-				setTorchRaised(true)
-				if (!emotesDisabled()) {
-					console.log('torchInput: E down → triggerSceneEmote(TorchRaise, loop, mask=upper)')
-					void triggerSceneEmote({
-						src:  TORCH_EMOTE_SRC,
-						loop: true,
-						mask: AM_UPPER_BODY,
-					}).catch((err) => {
-						console.error('torchInput: triggerSceneEmote failed:', err)
-					})
-					emoteActive = true
-				}
+	engine.addSystem((dt: number) => {
+		// \u2500\u2500 Fuel drain \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+		if (isTorchLit()) {
+			const remaining = consumeTorchFuel(dt)
+			if (remaining <= 0) {
+				extinguishTorch()
+				console.log('torchInput: torch burnt out (fuel=0)')
 			}
 		}
 
-		// Release edge — stop the loop.
-		if (!fHeld && fHeldLastFrame) {
-			setTorchRaised(false)
-			if (emoteActive) {
-				console.log('torchInput: E up → stopEmote')
-				void stopEmote({}).catch(() => {})
-				emoteActive = false
-			}
+		// \u2500\u2500 E-press relight (only near fire) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+		const eHeld = inputSystem.isPressed(InputAction.IA_PRIMARY)
+		const risingEdge = eHeld && !eHeldPrev
+		eHeldPrev = eHeld
+
+		if (!risingEdge) return
+		if (!isTorchEquipped()) return
+
+		const t = Transform.getOrNull(engine.PlayerEntity)
+		if (t === null) return
+		const { x, z } = t.position
+		const dx = x - CAMPFIRE_WORLD_X
+		const dz = z - CAMPFIRE_WORLD_Z
+		const distSq = dx * dx + dz * dz
+
+		if (distSq > CAMPFIRE_MELT_RADIUS_SQ_M) {
+			// Outside the heat ring: no relight. Log at debug level so
+			// we can grep for it in playtest but stay quiet in normal use.
+			console.log(`torchInput: relight ignored \u2014 outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)
+			return
 		}
 
-		fHeldLastFrame = fHeld
+		relightTorch()
+		console.log(`torchInput: torch relit at fire (fuel restored to ${TORCH_FUEL_MAX_S}s)`)
 	})
 
-	console.log('torchInput: setupTorchInput: hold E to raise torch (upper-body scene emote)')
+	console.log('torchInput: setupTorchInput: fuel drain + E-relight active')
 }

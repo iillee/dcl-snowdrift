@@ -56,6 +56,7 @@ import { setupProps } from 'src/client/props/spawn'
 // import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupTorch } from 'src/client/torch'
+import { setupTorchInput } from 'src/client/torchInput'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
@@ -196,6 +197,7 @@ export async function setupClient(): Promise<void> {
 	setupSnowfallAudio()
 	setupSnowFootsteps()
 	setupTorch()
+	setupTorchInput()
 
 	setupUi()
 
