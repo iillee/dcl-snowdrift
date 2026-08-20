@@ -25,8 +25,8 @@ const CLAIM_SRC = 'assets/sounds/snowstepsingle.mp3'
 let musicEnt: Entity = 0 as Entity
 let muteClickEnt: Entity = 0 as Entity
 let claimSfxEnt: Entity = 0 as Entity
-// Music plays by default; player can mute via the mute button.
-let musicMuted = false
+// Music starts muted by default; player unmutes via the mute button.
+let musicMuted = true
 let playStartMs = 0
 let pausedPositionSec = 0
 
