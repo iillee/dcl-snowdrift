@@ -46,8 +46,8 @@ const EYE_ICON_SRC = 'assets/images/eye.png'
 // Eye PNGs are wider than tall. DCL's textureMode has no 'contain'
 // (aspect-preserving fit), so we hardcode a box that roughly matches
 // the icon's aspect. Bump _W / _H together to resize.
-const EYE_ICON_W   = 60
-const EYE_ICON_H   = 40
+const EYE_ICON_W   = 48
+const EYE_ICON_H   = 32
 
 
 // MARK: BrushButton
