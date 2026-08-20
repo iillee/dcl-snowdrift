@@ -33,7 +33,7 @@ import {
 } from 'src/shared/maze/generator'
 import { TILES } from 'src/shared/maze/tiles'
 import { getReservedPlayfieldCells, type ReservedTile } from 'src/client/perimeter'
-import { spawnCellsForTile, removePaintForTile, resetPaintForTile } from 'src/client/paint'
+import { spawnCellsForTile, removePaintForTile } from 'src/client/paint'
 
 // Suppress unused-import complaint from the linter — MeshRenderer/Material
 // are only kept in the import list for future tile decoration; harmless.
@@ -47,18 +47,6 @@ let spawnClock = 0
 let currentSeed = 0
 const teardownQueue: Entity[] = []
 
-// ─── Persistent center cross ────────────────────────────────────────
-// The generator always places a `cross` tile at grid center (see
-// generate() in generator.ts). We spawn it once on the first rebuild
-// and keep the same entity forever so players standing on it during a
-// round boundary aren't shoved by the tear-down / grow-in animation.
-// On subsequent rebuilds we skip it in both teardown and spawn queues,
-// and reset its paint via resetPaintForTile() instead.
-let centerTileEntity: Entity | null = null
-const CENTER_X = Math.floor(GRID_W / 2)
-const CENTER_Z = Math.floor(GRID_H / 2)
-const isCenterTile = (p: Placed) =>
-  p.x === CENTER_X && p.z === CENTER_Z && p.y === 0
 const TILE_TEARDOWN_PER_FRAME = 25
 const STAGGER = 0.03 // seconds between successive tile spawns
 
@@ -96,18 +84,12 @@ export function isInitialLoadComplete(): boolean {
 
 // ─── Rebuild entry point ────────────────────────────────────────────
 export function rebuildMaze(seed: number): void {
-  // Push existing tiles into the teardown queue (drained per-frame below).
-  // The center tile is preserved: skip its teardown and reset its paint
-  // in place so players standing on it aren't disturbed.
-  for (const e of spawnedEntities) {
-    if (e === centerTileEntity) {
-      resetPaintForTile(e)
-    } else {
-      teardownQueue.push(e)
-    }
-  }
+  // Push every existing tile into the teardown queue (drained per-frame
+  // below). No tiles are preserved across rebuilds — the campfire-adjacent
+  // tiles are still spawned instantly (isNearCampfire below) so players
+  // standing there aren't dropped through the world during the cascade.
+  for (const e of spawnedEntities) teardownQueue.push(e)
   spawnedEntities.length = 0
-  if (centerTileEntity !== null) spawnedEntities.push(centerTileEntity)
   spawnQueue = []
   spawnClock = 0
 
@@ -140,13 +122,7 @@ export function rebuildMaze(seed: number): void {
   )
 
   const tiles = getPlacedTilesInOrder()
-  // Skip the center tile on rebuilds — it already exists as a persistent
-  // entity. On the very first rebuild (centerTileEntity === null) we spawn
-  // it like any other tile; spawnTileWithGrow() will latch onto it.
-  const skipCenter = centerTileEntity !== null
-  spawnQueue = tiles
-    .filter(p => !(skipCenter && isCenterTile(p)))
-    .map((p, i) => ({ p, delay: i * STAGGER }))
+  spawnQueue = tiles.map((p, i) => ({ p, delay: i * STAGGER }))
 
   // Teleport orb pair — deterministic on the current seed: generateWithRetry
   // leaves the RNG in a fixed state, so every client picks the same tile
@@ -188,12 +164,6 @@ engine.addSystem((dt: number) => {
 function spawnTileWithGrow(p: Placed): void {
   const [dx, dz] = ROT_OFFSET[p.r]
   const e = engine.addEntity()
-  // Latch the center tile's entity on first spawn so all future rebuilds
-  // can preserve it. (Only reached when centerTileEntity is null; the
-  // rebuild filter skips this tile on subsequent rounds.)
-  if (centerTileEntity === null && isCenterTile(p)) {
-    centerTileEntity = e
-  }
 
   // Tiles under/around the campfire spawn instantly at full scale, no
   // tween. Solid ground under the player from frame 1 and no growing

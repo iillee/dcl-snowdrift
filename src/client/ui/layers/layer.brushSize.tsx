@@ -22,9 +22,11 @@ import {
 	increaseBrush,
 } from 'src/client/brush'
 import { isMusicMuted, toggleMusic } from 'src/client/audio'
+import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
+import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
@@ -144,6 +146,26 @@ function BrushButton(props: {
 }
 
 
+// MARK: rerollLevel
+/**
+ * Roll a fresh maze seed and publish it via SeedHolder. The synced
+ * seed change trips the watcher in src/client/index.ts, which calls
+ * rebuildMaze() and setupProps(). clearProps() flips setupProps'
+ * idempotency latch so scattered decorations (trees, huts...) also
+ * reroll with the new seed instead of persisting from the old layout.
+ *
+ * Determinism: the new seed goes through SeedHolder (CRDT-synced), so
+ * every other client in the scene sees the same reroll and produces
+ * identical output.
+ */
+function rerollLevel(): void {
+	const next = (Math.floor(Math.random() * 0x7fffffff) | 0) || 1
+	console.log(`layer.brushSize: rerollLevel: publishing new seed ${next}`)
+	clearProps()
+	SeedHolder.createOrReplace(seedHolder, { seed: next })
+}
+
+
 // MARK: cyclePrecipitation
 /**
  * Ask the server to advance ambient snowfall to the next level
@@ -211,6 +233,14 @@ class ActionBarLayer extends Layer {
 					onClick   = {decreaseBrush}
 					enabled   = {canDec}
 					keySuffix = "dec"
+				/>
+				<BrushButton
+					label     = "↻"
+					onClick   = {rerollLevel}
+					enabled   = {true}
+					keySuffix = "reroll"
+					fontSize  = {isMobile() ? 56 : 40}
+					nudgeTop  = {isMobile() ? -12 : -2}
 				/>
 				<BrushButton
 					label     = "#"

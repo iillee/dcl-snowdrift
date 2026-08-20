@@ -19,7 +19,7 @@
  * No network sync — perimeter geometry is client-local and static.
  */
 
-import { engine, ColliderLayer, GltfContainer, Transform } from '@dcl/sdk/ecs'
+import { engine, ColliderLayer, Entity, GltfContainer, Transform } from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { isInsideCliffBuffer } from 'src/shared/campfire'
@@ -48,7 +48,22 @@ import {
  * rotates on a schedule while staying identical for every player at
  * any given moment.
  */
-const PERIM_SEED = 0
+let PERIM_SEED = 0
+
+
+// MARK: setPerimeterSeed
+/**
+ * Set the seed mixed into every deterministic hash in this module
+ * (fork slot selection, canyon depth, mesa density). Call BEFORE
+ * setupPerimeter() and BEFORE the maze generator's
+ * getReservedPlayfieldCells() so both see the same layout.
+ *
+ * The reroll button in the top action bar flows through here so
+ * every reroll produces a fresh cliff skyline.
+ */
+export function setPerimeterSeed(seed: number): void {
+	PERIM_SEED = seed | 0
+}
 
 
 // MARK: Tuning
@@ -127,9 +142,32 @@ const PERIM_ROT_OFFSET: Array<[number, number]> = [
  * BEFORE rotation compensation — this function applies the compensation
  * automatically.
  */
+const perimEntities: Entity[] = []
+
+
+// MARK: clearPerimeter
+/**
+ * Tear down every currently-spawned perimeter cliff entity. Call
+ * before setupPerimeter() on a reroll so the old cliff skyline
+ * disappears cleanly. No-op if nothing has been spawned yet.
+ */
+export function clearPerimeter(): void {
+	for (const e of perimEntities) engine.removeEntity(e)
+	perimEntities.length = 0
+}
+
+
+// MARK: hasPerimeterSpawned
+/** True once setupPerimeter has run at least once and cliffs exist. */
+export function hasPerimeterSpawned(): boolean {
+	return perimEntities.length > 0
+}
+
+
 function spawnPerimTile(type: TileType, sx: number, sz: number, r: number): void {
 	const [dx, dz] = PERIM_ROT_OFFSET[r]
 	const e = engine.addEntity()
+	perimEntities.push(e)
 	Transform.create(e, {
 		position: Vector3.create(sx + dx, PERIM_Y, sz + dz),
 		rotation: Quaternion.fromEulerDegrees(0, r * 90, 0),
@@ -719,7 +757,13 @@ export function getReservedPlayfieldCells(): ReservedTile[] {
 
 
 // MARK: setupPerimeter
+/**
+ * (Re)spawn the perimeter cliff ring for the current PERIM_SEED.
+ * Fully idempotent: calls clearPerimeter() first so bootstrap and
+ * seed-watcher paths can invoke this freely without double-spawning.
+ */
 export function setupPerimeter(): void {
+	clearPerimeter()
 	// Spawn every cliff tile from the shared, deduplicated placement
 	// list. That's the only path that spawns perim geometry now — no
 	// more per-category spawn loops — so the visible cliffs and the

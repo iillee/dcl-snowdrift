@@ -42,7 +42,14 @@ import { setupCampfire } from 'src/client/campfire'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
-import { setupPerimeter } from 'src/client/perimeter'
+import {
+	clearPerimeter,
+	getReservedPlayfieldCells,
+	hasPerimeterSpawned,
+	setPerimeterSeed,
+	setupPerimeter,
+} from 'src/client/perimeter'
+import { setupProps } from 'src/client/props/spawn'
 // Skybox forced cycle is intentionally not imported — see the disabled
 // setupSkybox() call in setupClient() for the rationale.
 // import { setupSkybox } from 'src/client/skybox'
@@ -65,7 +72,27 @@ engine.addSystem(() => {
   const s = SeedHolder.get(seedHolder).seed
   if (s !== 0 && s !== currentSeed) {
     currentSeed = s
+    // Perimeter cliffs share the seed too, so every reroll produces a
+    // fresh skyline. Set the seed FIRST — both rebuildMaze() (via
+    // getReservedPlayfieldCells) and setupPerimeter() read it. On the
+    // very first seed we skip the respawn: setupPerimeter is fired by
+    // the deferred bootstrap below (asset-load priority hack).
+    setPerimeterSeed(s)
+    if (hasPerimeterSpawned()) {
+      clearPerimeter()
+      setupPerimeter()
+    }
     rebuildMaze(s)
+    // Props scatter uses the same reserved-cell set as the maze so
+    // trees / huts / etc never land on perimeter cliffs. clearProps
+    // is a no-op on the first seed; on rerolls the reroll button has
+    // already cleared them, but calling here too keeps the flow
+    // idempotent for any future non-UI seed change (server-driven,
+    // scheduled rotation, etc.).
+    const reserved = new Set<string>(
+      getReservedPlayfieldCells().map(c => `${c.tx},${c.tz},0`)
+    )
+    setupProps(s, reserved)
   }
 })
 
