@@ -19,7 +19,7 @@
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { CAMPFIRE_MELT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	TORCH_FUEL_MAX_S,
 	consumeTorchFuel,
@@ -73,7 +73,7 @@ export function setupTorchInput(): void {
 		const dz = z - CAMPFIRE_WORLD_Z
 		const distSq = dx * dx + dz * dz
 
-		if (distSq > CAMPFIRE_MELT_RADIUS_SQ_M) {
+		if (distSq > CAMPFIRE_RELIGHT_RADIUS_SQ_M) {
 			// Outside the heat ring: no relight. Log at debug level so
 			// we can grep for it in playtest but stay quiet in normal use.
 			console.log(`torchInput: relight ignored \u2014 outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)

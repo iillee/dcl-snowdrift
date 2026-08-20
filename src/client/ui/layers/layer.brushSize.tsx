@@ -196,6 +196,8 @@ class ActionBarLayer extends Layer {
 						justifyContent: 'center',
 						alignItems   : 'center',
 						borderRadius : borderRadius.md,
+						borderWidth  : TORCH_BORDER_W,
+						borderColor  : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
 					}}
 					uiBackground = {{ color: PANEL_BG }}
 					onMouseDown  = {toggleTopDownCamera}
@@ -219,6 +221,8 @@ class ActionBarLayer extends Layer {
 						justifyContent: 'center',
 						alignItems   : 'center',
 						borderRadius : borderRadius.md,
+						borderWidth  : TORCH_BORDER_W,
+						borderColor  : TORCH_BORDER_OFF,
 					}}
 					uiBackground = {{ color: PANEL_BG }}
 					onMouseDown  = {toggleMusic}
@@ -272,11 +276,16 @@ function TorchButton() {
 	const highlight   = lit || raised
 	const iconTint    = lit ? WHITE : TORCH_ICON_DIM
 	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
-	const borderColor = highlight ? TORCH_BORDER_ON : Color4.create(0, 0, 0, 0)
+	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
 
 	const fuelHeightMax = BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2
 	const fuelHeightPx  = Math.round(fuelHeightMax * fuelFrac)
-	const fuelColor     = fuelFrac < 0.25 ? TORCH_FUEL_COLOR_LOW : TORCH_FUEL_COLOR_FULL
+	// Constant warm gold across the whole drain — the fill height alone
+	// communicates remaining fuel. TORCH_FUEL_COLOR_LOW retained below
+	// but unused; leaving it in place in case we bring the low-fuel
+	// warning colour back as a pulse rather than a hard swap.
+	const fuelColor     = TORCH_FUEL_COLOR_FULL
+	void TORCH_FUEL_COLOR_LOW
 
 	return (
 		<UiEntity
@@ -314,7 +323,7 @@ function TorchButton() {
 				uiTransform = {{ width: TORCH_ICON_PX, height: TORCH_ICON_PX }}
 				uiBackground = {{
 					textureMode: 'stretch',
-					texture    : { src: 'assets/images/torch.png' },
+					texture    : { src: lit ? 'assets/images/torch.png' : 'assets/images/torch_unlit.png' },
 					color      : iconTint,
 				}}
 			/>
@@ -327,8 +336,14 @@ function TorchButton() {
 // hotbar layer.
 const TORCH_ICON_PX          = 40
 const TORCH_ICON_DIM         = Color4.create(0.45, 0.45, 0.45, 1)
-const TORCH_BORDER_W         = 2
+// Constant width to avoid the 2 px child-shift bug when toggling
+// borderWidth (see handoff #2). Border is transparent when the torch
+// is unlit; when lit it becomes TORCH_BORDER_ON at full 4 px thickness.
+const TORCH_BORDER_W         = 4
 const TORCH_BORDER_ON        = Color4.create(1, 0.75, 0.35, 0.95)
+// Cool white outline shown when the torch is unlit — keeps the slot
+// visually anchored in the action bar even without the warm glow.
+const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 const TORCH_FUEL_INSET       = 6
 const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
 const TORCH_FUEL_COLOR_LOW   = Color4.create(1.00, 0.40, 0.15, 0.75)

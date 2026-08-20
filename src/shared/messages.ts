@@ -28,13 +28,26 @@ export const Messages = {
 	// Sent at PAINT_TICK_HZ. Server looks up sender's team from roster,
 	// interns the team Color4 into the palette, and writes the palette
 	// index into a per-cell PaintCell CRDT component. Not a state-sync channel.
+	//
+	// targetStage semantics:
+	//   0 = full melt (torch lit, or campfire ring). Cell becomes
+	//       {index=team, stage=0} unconditionally.
+	//   1 = stomp / trample (torch unlit walk). Cell becomes
+	//       {index=team, stage=1} ONLY if it is currently at stage 2 or
+	//       PALETTE_NONE (pristine). Cells already at stage 0 or 1 are
+	//       left as-is — a torchless walker never overwrites a blue
+	//       melted path or an existing low crust.
+	//
 	// WHY ids and not positions: server doesn't have the maze generator (it's
 	// client-only for now), so it can't resolve position -> cell. Client
 	// authors ids via worldToCellId locally; server trusts them for Phase 4.
 	// Anti-cheat (position validation) is deferred to Phase 5 per the plan.
 	// Rate limit: server caps ids per message from PAINT_BRUSH_SIZE_CELLS
 	// (+ headroom); anything larger is dropped as suspicious.
-	paintTick: Schemas.Map({ ids: Schemas.Array(Schemas.String) }),
+	paintTick: Schemas.Map({
+		ids        : Schemas.Array(Schemas.String),
+		targetStage: Schemas.Int,
+	}),
 
 	// Server → Client: current precipitation level (0=CLEAR..3=HEAVY).
 	// Sent to the joining client on joinRoster, and broadcast to everyone

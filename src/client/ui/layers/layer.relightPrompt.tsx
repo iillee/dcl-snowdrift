@@ -1,27 +1,32 @@
 /**
- * layer.relightPrompt.tsx — proximity tooltip: "Press E to relight".
+ * layer.relightPrompt.tsx — proximity tooltip: "Press E to light" /
+ * "Press E to top off".
  *
- * Visible only when ALL of the following are true:
+ * Visible when ALL of the following are true:
  *   - torch is equipped
- *   - torch is NOT lit (fuel spent or otherwise extinguished)
  *   - local player is inside the campfire heat ring
+ *   - torch is either NOT lit, OR is lit but not at full fuel
+ *     (so the player can walk back to the fire and re-press E to
+ *     top off before heading out again).
  *
  * The player still has to press E — this layer is only the affordance
- * hint. The actual relight happens in src/client/torchInput.ts.
+ * hint. The actual light/refill happens in src/client/torchInput.ts,
+ * whose E-press handler already calls relightTorch() unconditionally
+ * inside the radius, and relightTorch() refills fuel to max.
  *
  * Body is re-evaluated per frame by the UI kit, so we sample the
  * player Transform + torch state inline. Cheap: 3 subs, 2 mults, one
  * compare.
  */
 
-import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { Transform, engine } from '@dcl/sdk/ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { CAMPFIRE_MELT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { isTorchEquipped, isTorchLit }                                   from 'src/client/torchEquip'
+import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { getTorchFuelFraction, isTorchEquipped, isTorchLit }             from 'src/client/torchEquip'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 
 
@@ -34,22 +39,36 @@ const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
 const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
 
 
+// Fuel fraction above which a lit torch is considered "full enough"
+// that the top-off prompt hides. Just below 1.0 so the prompt vanishes
+// the instant after a successful top-off press.
+const TOP_OFF_HIDE_THRESHOLD = 0.98
+
+
 // MARK: shouldShowPrompt
 /**
- * All three visibility gates in one place. Returns false early on any
- * failed condition to keep the per-frame cost minimal when the prompt
- * is hidden (the common case).
+ * Visibility gates in one place. Returns false early on any failed
+ * condition to keep the per-frame cost minimal when hidden (the
+ * common case).
  */
 function shouldShowPrompt(): boolean {
 	if (!isTorchEquipped()) return false
-	if (isTorchLit()) return false
+	// Lit AND essentially full — nothing to gain from another E-press.
+	if (isTorchLit() && getTorchFuelFraction() >= TOP_OFF_HIDE_THRESHOLD) return false
 
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (t === null) return false
 
 	const dx = t.position.x - CAMPFIRE_WORLD_X
 	const dz = t.position.z - CAMPFIRE_WORLD_Z
-	return dx * dx + dz * dz <= CAMPFIRE_MELT_RADIUS_SQ_M
+	return dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+}
+
+
+// MARK: promptLabel
+/** Label text: "Light torch" if unlit, "Top off torch" if lit-but-not-full. */
+function promptLabel(): string {
+	return isTorchLit() ? 'Top off torch' : 'Light torch'
 }
 
 
@@ -90,24 +109,37 @@ class RelightPromptLayer extends Layer {
 				<UiEntity
 					key         = "ui_RelightPrompt_key"
 					uiTransform = {{
-						width       : 26,
-						height      : 26,
-						margin      : { right: 10 },
-						borderRadius: borderRadius.sm,
+						width        : 26,
+						height       : 26,
+						margin       : { right: 10 },
+						borderRadius : borderRadius.sm,
+						justifyContent: 'center',
+						alignItems   : 'center',
 					}}
 					uiBackground = {{ color: KEY_BG }}
-					uiText       = {{
-						value    : 'E',
-						fontSize : fontSizes.md,
-						color    : KEY_FG,
-						textAlign: 'middle-center',
-					}}
-				/>
+				>
+					{/* Label child with an optical top-nudge — DCL's text
+					    baseline sits low inside a uiText-only entity, so
+					    switching to a flex-centred Label + a small negative
+					    top margin visually centres the glyph on the chip. */}
+					<Label
+						value    = "E"
+						fontSize = {fontSizes.md}
+						color    = {KEY_FG}
+						font     = "sans-serif"
+						textAlign= "middle-center"
+						uiTransform = {{
+							width : '100%',
+							height: '100%',
+							margin: { top: -2, left: 2 },
+						}}
+					/>
+				</UiEntity>
 				<UiEntity
 					key         = "ui_RelightPrompt_label"
 					uiTransform = {{ width: 'auto', height: 26 }}
 					uiText      = {{
-						value    : 'Relight torch',
+						value    : 'Light torch',
 						fontSize : fontSizes.md,
 						color    : FG,
 						textAlign: 'middle-left',

@@ -124,19 +124,40 @@ export function internColor(color: Color4): number {
 // MARK: applyPaint
 
 /**
- * Apply a paint from a validated sender's team. Always resets the cell's
- * regrowth stage to 0 and paintedAtMs to "now" — a re-paint of an
- * already-melted cell is a valid "kept it clear" signal from the campfire
- * ring or a player. Returns true when the CRDT actually changed (palette
- * index flipped or stage decremented from >0 back to 0). Skips writes
- * when the cell is already {sameIndex, stage=0} to keep the ring refresh
- * cheap.
+ * Apply a paint from a validated sender's team.
+ *
+ * `targetStage` controls the write policy:
+ *   0 = full melt. Cell becomes {index=team, stage=0, paintedAtMs=now}
+ *       unconditionally. Steady-state (same index, already stage 0)
+ *       just refreshes paintedAtMs without a CRDT write.
+ *   1 = stomp / trample. Cell becomes {index=team, stage=1,
+ *       paintedAtMs=now} ONLY if the cell is currently at stage 2 or
+ *       PALETTE_NONE (pristine). Cells already at stage 0 or 1 are
+ *       left alone — a torchless walker never overwrites a blue
+ *       melted path or an existing low crust.
+ *
+ * Returns true when the CRDT actually changed. paintedAtMs is treated
+ * as "time of last transition" for stomps too, so regrowth from stage 1
+ * to stage 2 measures from the moment of the stomp.
  */
-export function applyPaint(id: string, team: number): boolean {
+export function applyPaint(id: string, team: number, targetStage: 0 | 1 = 0): boolean {
 	const index = teamPaletteIndex(team as Team)
 	internColor(teamColor(team as Team))
 
 	const prev = cellState.get(id)
+
+	if (targetStage === 1) {
+		// Stomp: only demote pristine or nearly-pristine cells. PALETTE_NONE
+		// (no cellState entry) is treated as stage 3 / pristine.
+		const currentStage: 0 | 1 | 2 | 3 = prev ? prev.stage : 3
+		if (currentStage < 2) return false
+		if (!writeCellComponent(id, index, 1)) return false
+		cellState.set(id, { index, paintedAtMs: serverClockMs, stage: 1 })
+		coverageDirty = true
+		return true
+	}
+
+	// targetStage === 0: full melt (default).
 	if (prev && prev.index === index && prev.stage === 0) {
 		// Steady-state: keep paintedAtMs fresh so any regrowth tick that
 		// races us still sees the melt as recent. No CRDT write needed.

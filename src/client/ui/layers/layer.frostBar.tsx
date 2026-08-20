@@ -54,6 +54,11 @@ const COL_COLD    = Color4.create(0.42, 0.60, 0.98, 1.00) // paint-blue ice
 // whole HUD reads as one visual system.
 const COL_FRAME   = Color4.create(0, 0, 0, 0.55)
 const COL_BORDER  = Color4.create(0, 0, 0, 0.55)
+// White outline that matches the action-bar buttons (see
+// TORCH_BORDER_OFF in layer.brushSize.tsx) so the frost bar reads
+// as part of the same HUD system.
+const COL_BORDER_WHITE = Color4.create(1, 1, 1, 0.75)
+const BORDER_WHITE_W   = 4
 
 // Corner radii — outer frame a hair larger than the inner, and segments
 // get a tiny radius so the outermost ones don't fight the frame's
@@ -124,6 +129,8 @@ class FrostBarLayer extends Layer {
 						justifyContent : 'center',
 						alignItems     : 'center',
 						borderRadius   : RADIUS_OUTER,
+						borderWidth    : BORDER_WHITE_W,
+						borderColor    : COL_BORDER_WHITE,
 					}}
 					uiBackground = {{ color: COL_BORDER }}
 				>
