@@ -13,6 +13,7 @@ import { isServer as queryIsServer } from '~system/EngineApi'
 // run before main() seals the engine.
 import './shared/messages'
 import './shared/components'
+import './shared/frost/components'
 
 export async function main() {
 	const { isServer } = await queryIsServer({})

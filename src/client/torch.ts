@@ -45,6 +45,36 @@ const TORCH_ROTATION = Quaternion.fromEulerDegrees(90, -30, 90)
 let installed  = false
 let torchTip: Entity = 0 as Entity
 
+// True when the held torch is currently protecting the player from
+// frost accumulation. Defaults ON: v1 has no fuel meter yet, so any
+// player with a torch (i.e. everyone until step 4 lands) is protected.
+// When the fuel system arrives, this flag flips false as fuel hits zero.
+let torchProtecting = true
+
+
+// MARK: isTorchProtecting
+/**
+ * Whether the held torch is actively halting frost accumulation.
+ * Read by src/client/frost/accumulation.ts each poll. Independent of
+ * campfire proximity — the fire always trumps and thaws regardless.
+ */
+export function isTorchProtecting(): boolean {
+	return installed && torchProtecting
+}
+
+
+// MARK: setTorchProtecting
+/**
+ * Toggle whether the torch is currently protecting the player. The
+ * upcoming torch-fuel system will drive this: fuel > 0 -> true,
+ * fuel == 0 -> false. Also useful during development to verify frost
+ * accumulation without a fuel meter in play.
+ */
+export function setTorchProtecting(on: boolean): void {
+	torchProtecting = on
+	console.log(`torch: setTorchProtecting: ${on}`)
+}
+
 
 // MARK: setupTorch
 /**

@@ -33,6 +33,7 @@ import { SEED_NETWORK_ID } from 'src/shared/paintGrid'
 import { initAudio } from 'src/client/audio'
 import { initClientHandler } from 'src/client/clientHandler'
 import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
+import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
@@ -151,6 +152,7 @@ export async function setupClient(): Promise<void> {
 	initMazeNet()
 	initPlayerNet()
 	initLocomotionGate()
+	initFrostAccumulation()
 
 	// Register the network boundary LAST so `room.onMessage` subscribers
 	// above are all in place before the first message can arrive.
