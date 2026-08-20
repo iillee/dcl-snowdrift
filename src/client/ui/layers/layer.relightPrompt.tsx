@@ -97,9 +97,14 @@ class RelightPromptLayer extends Layer {
 			<UiEntity
 				key         = "ui_RelightPrompt_root"
 				uiTransform = {{
-					// Sits above the hotbar (hotbar is ~64px tall at bottom).
-					// Extra margin.bottom lifts it clear of the slot.
-					margin      : { bottom: 200 },
+					// Placement: mobile keeps the prompt low above the hotbar
+					// (~200 px up from bottom) so the thumb-sits-here HUD
+					// stays uncluttered. Desktop pushes it well up the screen
+					// so the tooltip lands a little above vertical centre — in
+					// eye-line while the player is running toward the fire,
+					// not tucked down by the hotbar where it competes with
+					// the frost bar.
+					margin      : { bottom: isMobile() ? 200 : 720 },
 					flexDirection: 'row',
 					alignItems  : 'center',
 					padding     : { top: 8, bottom: 8, left: 12, right: 14 },

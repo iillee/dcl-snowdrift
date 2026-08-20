@@ -21,7 +21,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
-import { MuteButton, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
 import { FROST_MAX }                               from 'src/shared/frost/tuning'
 
 
@@ -73,10 +73,14 @@ const COL_COLD    = Color4.create(0.42, 0.60, 0.98, 1.00) // paint-blue ice
 // segments. Mobile keeps the original two-layer look (both fills at
 // 0.55, stacking to ~0.80 inside the segment strip) so the small
 // mobile bar matches its pre-desktop-refresh appearance.
+// Mobile now matches desktop: single-layer look, outer frame carries
+// the full tint and the inner frame is transparent. Previously mobile
+// stacked two 0.55-alpha fills, which produced a visible lighter grey
+// band in the padding gutter around the warm/cold panels.
 const COL_FRAME_DT  = Color4.create(0, 0, 0, 0)
-const COL_FRAME_MB  = Color4.create(0, 0, 0, 0.55)
+const COL_FRAME_MB  = Color4.create(0, 0, 0, 0)
 const COL_BORDER_DT = Color4.create(0, 0, 0, 0.80)
-const COL_BORDER_MB = Color4.create(0, 0, 0, 0.55)
+const COL_BORDER_MB = Color4.create(0, 0, 0, 0.80)
 // White outline that matches the action-bar buttons (see
 // TORCH_BORDER_OFF in layer.brushSize.tsx) so the frost bar reads
 // as part of the same HUD system.
@@ -93,8 +97,12 @@ const RADIUS_OUTER_DT = 18
 const RADIUS_OUTER_MB = 18
 const RADIUS_INNER_DT = 14
 const RADIUS_INNER_MB = 14
-const RADIUS_SEG_DT   = 4
-const RADIUS_SEG_MB   = 4
+// Panel radius steps down cleanly from the outer frame (18) and inner
+// frame (14) so the warm/cold pills feel like they belong to the same
+// system as the action-bar buttons (borderRadius.md = 18) rather than
+// tiny 4 px chips floating inside a rounded window.
+const RADIUS_SEG_DT   = 10
+const RADIUS_SEG_MB   = 10
 
 
 // MARK: FrostBarLayer
@@ -131,22 +139,79 @@ class FrostBarLayer extends Layer {
 		const innerW = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap + framePad * 2
 		const innerH = segSize + framePad * 2
 
-		// Build segment array. Left → right: warm blocks first, then cold
-		// blocks fill in from the right as warmth is lost.
+		// Consolidated two-panel fill. Adjacent same-type blocks used to
+		// render as individual UiEntities; we now render one warm rect on
+		// the left and one cold rect on the right, separated by a single
+		// segGap-wide breather so both sides can carry full rounded
+		// corners. Growth still snaps to the 10-step grid so the
+		// transition feel matches the segmented version.
+		//
+		// Total strip width matches the old (N-1)-gap version so the
+		// outer frame doesn't resize. When both panels are present we
+		// reserve one segGap between them; when a side is fully drained
+		// the surviving side gets the whole strip (no phantom gap).
+		const stripW    = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap
+		const bothSides = warmBlocks > 0 && warmBlocks < SEGMENT_COUNT
+		const fillW     = bothSides ? stripW - segGap : stripW
+		const warmW     = Math.round(fillW * (warmBlocks / SEGMENT_COUNT))
+		const coldW     = fillW - warmW
+
+		// Flame icon lives centered inside the warm panel. Sized to ~60%
+		// of segment height so it reads clearly without crowding the pill
+		// edges, and only rendered when the warm panel is wide enough to
+		// contain it (otherwise it would overflow into the cold half).
+		const flameSize     = Math.round(segSize * 0.6)
+		const showFlameIcon = warmW >= flameSize + 4
+
 		const segments = []
-		for (let i = 0; i < SEGMENT_COUNT; i++) {
-			const isWarm = i < warmBlocks
+		if (warmW > 0) {
 			segments.push(
 				<UiEntity
-					key         = {`ui_FrostBar_seg_${i}`}
-					uiTransform = {{
-						width       : segSize,
-						height      : segSize,
-						margin      : { right: i < SEGMENT_COUNT - 1 ? segGap : 0 },
-						borderRadius: radSeg,
+					key          = "ui_FrostBar_warm"
+					uiTransform  = {{
+						width         : warmW,
+						height        : segSize,
+						margin        : { right: bothSides ? segGap : 0 },
+						borderRadius  : radSeg,
+						justifyContent: 'center',
+						alignItems    : 'center',
 					}}
-					uiBackground = {{ color: isWarm ? COL_WARM : COL_COLD }}
-				/>,
+					uiBackground = {{ color: COL_WARM }}
+				>
+					{showFlameIcon && (
+						<UiEntity
+							key          = "ui_FrostBar_flame"
+							uiTransform  = {{ width: flameSize, height: flameSize }}
+							uiBackground = {{
+								textureMode: 'stretch',
+								texture    : { src: 'assets/images/flame.png' },
+							}}
+						/>
+					)}
+				</UiEntity>,
+			)
+		}
+		if (coldW > 0) {
+			// Snowflake mirrors the flame: same target size, same visibility
+			// gate so the icon vanishes rather than overflowing as the cold
+			// panel shrinks to a sliver.
+			const showSnowIcon = coldW >= flameSize + 4
+			segments.push(
+				<UiEntity
+					key          = "ui_FrostBar_cold"
+					uiTransform  = {{
+						width         : coldW,
+						height        : segSize,
+						borderRadius  : radSeg,
+						justifyContent: 'center',
+						alignItems    : 'center',
+					}}
+					uiBackground = {{ color: COL_COLD }}
+				>
+					{showSnowIcon && (
+						<SnowflakeIcon color = {Color4.White()} size = {flameSize} />
+					)}
+				</UiEntity>,
 			)
 		}
 

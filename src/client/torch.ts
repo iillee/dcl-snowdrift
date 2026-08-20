@@ -63,8 +63,14 @@ const FLAME_SIZE_MAX   = 0.20
 const FLAME_SIZE_MIN   = 0.06
 // Base scale — replaced per-frame by the fuel-driven interpolation.
 const FLAME_SIZE       = Vector3.create(FLAME_SIZE_MAX, FLAME_SIZE_MAX, FLAME_SIZE_MAX)
-const FLAME_COLOR_HOT  = Color4.create(1.00, 0.55, 0.15, 1)
-const FLAME_EMISSIVE   = 4.0
+// Matches the frost bar's warm (heat) fill colour so the world flame
+// and the HUD's heat readout speak the same visual language.
+// See COL_WARM in src/client/ui/layers/layer.frostBar.tsx.
+const FLAME_COLOR_HOT  = Color4.create(1.00, 0.80, 0.30, 1)
+// Kept moderate so the flame reads AS its colour, not as a white
+// blowout. At intensities >~2.5 the tone-mapper crushes any hue and
+// the sphere renders near-white regardless of emissiveColor.
+const FLAME_EMISSIVE   = 1.6
 
 // MARK: Smoke tuning
 // Tiny smoke plume rising from the torch tip. Sized well below the

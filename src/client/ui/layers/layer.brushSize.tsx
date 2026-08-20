@@ -434,11 +434,14 @@ const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
  * Simplified glyph: a central plus (+) and an ex (×) overlaid so the
  * combined silhouette reads as an asterisk / snowflake at button scale.
  */
-function SnowflakeIcon(props: { color: Color4 }) {
-	const ICON = 44
-	const BAR  = 4
-	const LONG = 40
-	const DIAG = 6            // staircase step size for the diagonals
+export function SnowflakeIcon(props: { color: Color4; size?: number }) {
+	// All internal dimensions derive from ICON so the glyph scales cleanly
+	// when embedded in smaller HUD elements (e.g. the frost bar's cold
+	// panel). Defaults preserve the original 44 px button footprint.
+	const ICON = props.size ?? 44
+	const BAR  = Math.max(2, Math.round(ICON * (4 / 44)))
+	const LONG = Math.round(ICON * (40 / 44))
+	const DIAG = Math.max(3, Math.round(ICON * (6 / 44)))
 	const DIAG_STEPS = 5
 	const diag: any[] = []
 	for (let i = 0; i < DIAG_STEPS; i++) {
