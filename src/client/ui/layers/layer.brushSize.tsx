@@ -281,11 +281,9 @@ function TorchButton() {
 	const fuelHeightMax = BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2
 	const fuelHeightPx  = Math.round(fuelHeightMax * fuelFrac)
 	// Constant warm gold across the whole drain — the fill height alone
-	// communicates remaining fuel. TORCH_FUEL_COLOR_LOW retained below
-	// but unused; leaving it in place in case we bring the low-fuel
-	// warning colour back as a pulse rather than a hard swap.
+	// communicates remaining fuel. A low-fuel warning colour was tried
+	// and rejected; if we bring it back, prefer a pulse over a hard swap.
 	const fuelColor     = TORCH_FUEL_COLOR_FULL
-	void TORCH_FUEL_COLOR_LOW
 
 	return (
 		<UiEntity
@@ -346,7 +344,6 @@ const TORCH_BORDER_ON        = Color4.create(1, 0.75, 0.35, 0.95)
 const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 const TORCH_FUEL_INSET       = 6
 const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
-const TORCH_FUEL_COLOR_LOW   = Color4.create(1.00, 0.40, 0.15, 0.75)
 
 
 // MARK: SnowflakeIcon

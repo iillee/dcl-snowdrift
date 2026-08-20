@@ -18,7 +18,7 @@
  */
 
 import {
-	AvatarAnchorPointType, AvatarAttach, Billboard, Entity, GltfContainer,
+	AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer,
 	Material, MeshRenderer, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState,
 	PBParticleSystem_SimulationSpace, ParticleSystem, Transform, VisibilityComponent, engine,
 } from '@dcl/sdk/ecs'
@@ -92,8 +92,6 @@ let installed  = false
 let torchTip:  Entity = 0 as Entity
 let flame:     Entity = 0 as Entity
 let smoke:     Entity = 0 as Entity
-let fuelTrack: Entity = 0 as Entity
-let fuelFill:  Entity = 0 as Entity
 
 // MARK: isTorchProtecting
 /**

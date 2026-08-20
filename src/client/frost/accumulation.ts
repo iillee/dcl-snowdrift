@@ -4,15 +4,15 @@
  * Samples the local player's position at FROST_SAMPLE_INTERVAL_S,
  * reads the snow depth beneath them via src/client/paint's
  * getSnowStageAtWorld(), and pushes FrostLevel up or down accordingly.
- * Campfire proximity thaws; snow depth freezes; equipped-torch (TODO)
- * halts accumulation without recovery.
+ * Campfire proximity thaws; snow depth freezes; a lit torch (see
+ * src/client/torch.ts::isTorchProtecting) halts accumulation without
+ * granting recovery.
  *
  * Writes are debounced by FROST_WRITE_EPSILON so the CRDT doesn't
  * chatter every frame with sub-percent changes.
  *
  * No death handling here — this module only owns the number. The FSM
- * that plays the emote / fade / teleport lives in src/client/frost/death.ts
- * (to be added in step 5).
+ * that plays the emote / fade / teleport lives in src/client/frost/death.ts.
  */
 
 import { engine, Transform } from '@dcl/sdk/ecs'

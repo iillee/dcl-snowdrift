@@ -33,7 +33,6 @@ import { UI_THEME }                                                      from 's
 const { fontSizes, borderRadius } = UI_THEME
 
 const BG        = Color4.create(0, 0, 0, 0.65)
-const BORDER    = Color4.create(1, 0.75, 0.35, 0.9) // warm amber, matches lit-torch slot border
 const FG        = Color4.create(1, 0.95, 0.85, 1)
 const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
 const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
@@ -62,13 +61,6 @@ function shouldShowPrompt(): boolean {
 	const dx = t.position.x - CAMPFIRE_WORLD_X
 	const dz = t.position.z - CAMPFIRE_WORLD_Z
 	return dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
-}
-
-
-// MARK: promptLabel
-/** Label text: "Light torch" if unlit, "Top off torch" if lit-but-not-full. */
-function promptLabel(): string {
-	return isTorchLit() ? 'Top off torch' : 'Light torch'
 }
 
 
@@ -145,10 +137,6 @@ class RelightPromptLayer extends Layer {
 						textAlign: 'middle-left',
 					}}
 				/>
-				{/* BORDER swatch is unused right now but exported via a var
-				    reference so the linter doesn't strip it — a future pass
-				    may add a wrapper border like layer.frostBar.tsx uses. */}
-				<UiEntity key="ui_RelightPrompt_borderProbe" uiTransform={{ display: 'none' }} uiBackground={{ color: BORDER }} />
 			</UiEntity>
 		)
 	}
