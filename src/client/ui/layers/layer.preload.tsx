@@ -26,7 +26,6 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 // as popping in. Add new entries here as they're introduced — the
 // cost per texture is negligible and the win is a clean first paint.
 const PRELOAD_SRCS = [
-	'assets/images/flame.png',
 	'assets/images/torch.png',
 	'assets/images/torch_unlit.png',
 	'assets/images/eye.png',

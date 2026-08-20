@@ -22,7 +22,20 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
 import { MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 import { FROST_MAX }                               from 'src/shared/frost/tuning'
+
+
+// Font-awesome atlas from the UI component kit — same asset the
+// relight prompt uses. `fire` sits at (col 2, row 15) in the 16×16
+// grid. Preferred over a standalone flame.png because the atlas is
+// already fetched by the kit at boot, so the icon renders on the
+// first frame with no cold-CDN pop-in.
+const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
+const ATLAS_COLS    = 16
+const ATLAS_ROWS    = 16
+const FIRE_TILE_COL = 2
+const FIRE_TILE_ROW = 15
 
 
 // MARK: Layout
@@ -184,7 +197,9 @@ class FrostBarLayer extends Layer {
 							uiTransform  = {{ width: flameSize, height: flameSize }}
 							uiBackground = {{
 								textureMode: 'stretch',
-								texture    : { src: 'assets/images/flame.png' },
+								texture    : { src: ATLAS_SRC },
+								uvs        : getUVsForAtlasTile(FIRE_TILE_COL, FIRE_TILE_ROW, ATLAS_COLS, ATLAS_ROWS),
+								color      : Color4.White(),
 							}}
 						/>
 					)}
