@@ -58,6 +58,7 @@ import { setupProps } from 'src/client/props/spawn'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchInput } from 'src/client/torchInput'
+import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
@@ -201,6 +202,9 @@ export async function setupClient(): Promise<void> {
 	setupTorch()
 	setupTorchInput()
 
+	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
+	// the mobile action layer renders scene-branded replacements.
+	setupTouchControls()
 	setupUi()
 
 	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior

@@ -22,12 +22,24 @@
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { Transform, engine } from '@dcl/sdk/ecs'
+import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit }             from 'src/client/torchEquip'
+import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch } from 'src/client/torchEquip'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
+import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
+
+
+// Font-awesome atlas from the UI component kit — same asset the mobile
+// pointer-button glyph uses. Kept in sync so the tooltip icon reads as
+// the same affordance the player is meant to tap.
+const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
+const ATLAS_COLS    = 16
+const ATLAS_ROWS    = 16
+const HAND_TILE_COL = 2
+const HAND_TILE_ROW = 11
 
 
 const { fontSizes, borderRadius } = UI_THEME
@@ -94,6 +106,12 @@ class RelightPromptLayer extends Layer {
 					borderRadius: borderRadius.sm,
 				}}
 				uiBackground = {{ color: BG }}
+				// Tapping / clicking the prompt itself also relights. Desktop
+				// players still have E; mobile players get a click surface
+				// even without the dedicated relight-hand button in view.
+				// Safe even outside the fire ring — the prompt only renders
+				// while shouldShowPrompt() is true, which enforces the ring.
+				onMouseDown = {relightTorch}
 			>
 				{/* Faux amber border via a 2px wrapper would double the
 				    element count; a single background + key chip reads
@@ -110,22 +128,40 @@ class RelightPromptLayer extends Layer {
 					}}
 					uiBackground = {{ color: KEY_BG }}
 				>
-					{/* Label child with an optical top-nudge — DCL's text
-					    baseline sits low inside a uiText-only entity, so
-					    switching to a flex-centred Label + a small negative
-					    top margin visually centres the glyph on the chip. */}
-					<Label
-						value    = "E"
-						fontSize = {fontSizes.md}
-						color    = {KEY_FG}
-						font     = "sans-serif"
-						textAlign= "middle-center"
-						uiTransform = {{
-							width : '100%',
-							height: '100%',
-							margin: { top: -2, left: 2 },
-						}}
-					/>
+					{isMobile() ? (
+						/* Mobile: swap the `E` key glyph for the click-hand
+						   icon so the affordance matches the DCL native
+						   pointer button the player actually taps. Sized to
+						   fit inside the 26x26 chip with a small inset so
+						   the glyph sits centred against the amber ground. */
+						<UiEntity
+							key = "ui_RelightPrompt_handIcon"
+							uiTransform = {{ width: 20, height: 20 }}
+							uiBackground = {{
+								textureMode: 'stretch',
+								texture    : { src: ATLAS_SRC },
+								uvs        : getUVsForAtlasTile(HAND_TILE_COL, HAND_TILE_ROW, ATLAS_COLS, ATLAS_ROWS),
+								color      : KEY_FG,
+							}}
+						/>
+					) : (
+						/* Desktop: `E` key label with an optical top-nudge —
+						   DCL's text baseline sits low inside a uiText-only
+						   entity, so a flex-centred Label + small negative
+						   top margin visually centres the glyph on the chip. */
+						<Label
+							value    = "E"
+							fontSize = {fontSizes.md}
+							color    = {Color4.White()}
+							font     = "sans-serif"
+							textAlign= "middle-center"
+							uiTransform = {{
+								width : '100%',
+								height: '100%',
+								margin: { top: -2, left: 2 },
+							}}
+						/>
+					)}
 				</UiEntity>
 				<UiEntity
 					key         = "ui_RelightPrompt_label"

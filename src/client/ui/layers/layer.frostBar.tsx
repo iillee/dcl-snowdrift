@@ -19,24 +19,42 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { getFrostLocal } from 'src/client/frost/accumulation'
-import { FROST_MAX } from 'src/shared/frost/tuning'
+import { getFrostLocal }                           from 'src/client/frost/accumulation'
+import { isTorchEquipped }                         from 'src/client/torchEquip'
+import { MuteButton, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { FROST_MAX }                               from 'src/shared/frost/tuning'
 
 
 // MARK: Layout
 const SEGMENT_COUNT = 10
-// True squares. One dimension per platform — width == height.
-const SEG_SIZE_DT   = 24
-const SEG_SIZE_MB   = 20
-const SEG_GAP       = 3   // gap between segments
-const FRAME_PAD     = 4   // dark bg padding around the segments
-const BORDER_PX     = 3   // outer black border thickness
+// True squares. Desktop segment size is picked so the frost bar's
+// outer frame (the white-bordered rectangle behind the segments)
+// matches the neighbouring buttons' BTN_SIZE = 72 in height, keeping
+// the top-centre HUD cluster on one clean y-baseline. DCL's
+// borderWidth is drawn inside the element's `width` / `height`, so
+// the outer footprint equals `innerH + borderPx * 2` (the border
+// itself doesn't add to the outer size):
+//
+//   outer H = SEG_SIZE_DT + FRAME_PAD_DT*2 + BORDER_PX_DT*2
+//           = 44 + 16 + 12 = 72  ✓
+//
+// Mobile keeps the tighter footprint tuned for the smaller portrait
+// viewport. Frame gap / padding / border scale with segment size so
+// proportions stay consistent at each platform.
+const SEG_SIZE_DT   = 44
+const SEG_SIZE_MB   = 44
+const SEG_GAP_DT    = 6
+const SEG_GAP_MB    = 6
+const FRAME_PAD_DT  = 8
+const FRAME_PAD_MB  = 8
+const BORDER_PX_DT  = 6
+const BORDER_PX_MB  = 6
 
-// Bottom offset. Hotbar has moved to the top row so the frost bar sits
-// flush with the bottom safe-area inset now — a small nudge keeps it
-// off the very edge on both desktop and mobile.
-const BAR_BOTTOM_DT = 24
-const BAR_BOTTOM_MB = 16
+// Top offset. Matches the ActionBarLayer margin (see layer.brushSize.tsx)
+// so the frost bar sits on the same y-baseline as the eye/mute buttons
+// and the torch slot — the whole HUD reads as one top row.
+const BAR_TOP_DT = 32
+const BAR_TOP_MB = 4
 
 
 // MARK: Palette
@@ -49,11 +67,16 @@ const COL_WARM   = Color4.create(1.00, 0.80, 0.30, 1.00)
 // rises. Deliberately a hard fill (not a ghost slot) so the bar never
 // reads as "empty", only as "warm vs cold".
 const COL_COLD    = Color4.create(0.42, 0.60, 0.98, 1.00) // paint-blue ice
-// Inner frame + outer frame both use the same tinted-black background
-// as the action-bar buttons (PANEL_BG / statsBg, ~0.55 alpha) so the
-// whole HUD reads as one visual system.
-const COL_FRAME   = Color4.create(0, 0, 0, 0.55)
-const COL_BORDER  = Color4.create(0, 0, 0, 0.55)
+// Background fills. Desktop uses a single-layer look: outer frame
+// carries the whole tint (0.80) and the inner frame is transparent,
+// so there is no lighter grey band between the white outline and the
+// segments. Mobile keeps the original two-layer look (both fills at
+// 0.55, stacking to ~0.80 inside the segment strip) so the small
+// mobile bar matches its pre-desktop-refresh appearance.
+const COL_FRAME_DT  = Color4.create(0, 0, 0, 0)
+const COL_FRAME_MB  = Color4.create(0, 0, 0, 0.55)
+const COL_BORDER_DT = Color4.create(0, 0, 0, 0.80)
+const COL_BORDER_MB = Color4.create(0, 0, 0, 0.55)
 // White outline that matches the action-bar buttons (see
 // TORCH_BORDER_OFF in layer.brushSize.tsx) so the frost bar reads
 // as part of the same HUD system.
@@ -62,10 +85,16 @@ const BORDER_WHITE_W   = 4
 
 // Corner radii — outer frame a hair larger than the inner, and segments
 // get a tiny radius so the outermost ones don't fight the frame's
-// rounded corners.
-const RADIUS_OUTER = 6
-const RADIUS_INNER = 4
-const RADIUS_SEG   = 2
+// rounded corners. Per-platform so radii scale with segment size.
+// Outer frame matches borderRadius.md (18) used by the buttons so the
+// bar and buttons read as one HUD system. Inner frame + segments step
+// down proportionally.
+const RADIUS_OUTER_DT = 18
+const RADIUS_OUTER_MB = 18
+const RADIUS_INNER_DT = 14
+const RADIUS_INNER_MB = 14
+const RADIUS_SEG_DT   = 4
+const RADIUS_SEG_MB   = 4
 
 
 // MARK: FrostBarLayer
@@ -73,7 +102,7 @@ class FrostBarLayer extends Layer {
 	constructor() {
 		super({
 			id  : 'frostBar',
-			zone: ZoneType.BottomCenter,
+			zone: ZoneType.TopCenter,
 		})
 	}
 
@@ -83,11 +112,24 @@ class FrostBarLayer extends Layer {
 		// Round up so the last sliver of warmth still shows a full block;
 		// only a truly full frost bar (>= FROST_MAX) shows zero warm blocks.
 		const warmBlocks = frost >= FROST_MAX ? 0 : Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT))
-		const segSize    = isMobile() ? SEG_SIZE_MB : SEG_SIZE_DT
-		const bottom     = isMobile() ? BAR_BOTTOM_MB : BAR_BOTTOM_DT
+		const mobile     = isMobile()
+		const segSize    = mobile ? SEG_SIZE_MB     : SEG_SIZE_DT
+		const segGap     = mobile ? SEG_GAP_MB      : SEG_GAP_DT
+		const framePad   = mobile ? FRAME_PAD_MB    : FRAME_PAD_DT
+		const borderPx   = mobile ? BORDER_PX_MB    : BORDER_PX_DT
+		const radOuter   = mobile ? RADIUS_OUTER_MB : RADIUS_OUTER_DT
+		const radInner   = mobile ? RADIUS_INNER_MB : RADIUS_INNER_DT
+		const radSeg     = mobile ? RADIUS_SEG_MB   : RADIUS_SEG_DT
+		const top        = mobile ? BAR_TOP_MB      : BAR_TOP_DT
+		const colFrame   = mobile ? COL_FRAME_MB    : COL_FRAME_DT
+		const colBorder  = mobile ? COL_BORDER_MB   : COL_BORDER_DT
+		// Desktop bar sits inline with neighbouring buttons on either
+		// side, so it needs matching left+right margin. Mobile has no
+		// inline neighbours — zero side margin so it centres cleanly.
+		const sideMargin = mobile ? 0                : 8
 
-		const innerW = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * SEG_GAP + FRAME_PAD * 2
-		const innerH = segSize + FRAME_PAD * 2
+		const innerW = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap + framePad * 2
+		const innerH = segSize + framePad * 2
 
 		// Build segment array. Left → right: warm blocks first, then cold
 		// blocks fill in from the right as warmth is lost.
@@ -100,8 +142,8 @@ class FrostBarLayer extends Layer {
 					uiTransform = {{
 						width       : segSize,
 						height      : segSize,
-						margin      : { right: i < SEGMENT_COUNT - 1 ? SEG_GAP : 0 },
-						borderRadius: RADIUS_SEG,
+						margin      : { right: i < SEGMENT_COUNT - 1 ? segGap : 0 },
+						borderRadius: radSeg,
 					}}
 					uiBackground = {{ color: isWarm ? COL_WARM : COL_COLD }}
 				/>,
@@ -114,25 +156,38 @@ class FrostBarLayer extends Layer {
 				uiTransform = {{
 					flexDirection : 'row',
 					justifyContent: 'center',
-					alignItems    : 'flex-end',
-					margin        : { bottom },
+					alignItems    : 'center',
+					margin        : { top },
 					pointerFilter : 'none',
 				}}
 			>
+				{/* Eye + mute to the LEFT of the frost bar (desktop only —
+				   mobile hosts these in the native gamepad slots via
+				   touchControls.ts). Each carries BTN_MARGIN_X = 8 on both
+				   sides, giving a 16 px gap between adjacent buttons and a
+				   matching 16 px gap to the frost bar (8 button margin + 8
+				   frost-bar left margin). */}
+				{!mobile && <SpectatorButton />}
+				{!mobile && <MuteButton />}
 				{/* Outer frame — same tinted-black bg + rounded corners as the
 				   action-bar buttons, so the HUD reads as one system. */}
 				<UiEntity
 					key         = "ui_FrostBar_border"
 					uiTransform = {{
-						width          : innerW + BORDER_PX * 2,
-						height         : innerH + BORDER_PX * 2,
+						width          : innerW + borderPx * 2,
+						height         : innerH + borderPx * 2,
 						justifyContent : 'center',
 						alignItems     : 'center',
-						borderRadius   : RADIUS_OUTER,
+						// L+R margin matches BTN_MARGIN_X on desktop so the gap
+						// to the neighbouring inline buttons on either side
+						// equals the 16 px gap between adjacent buttons. Mobile
+						// has no inline neighbours — side margin is 0.
+						margin         : { left: sideMargin, right: sideMargin },
+						borderRadius   : radOuter,
 						borderWidth    : BORDER_WHITE_W,
 						borderColor    : COL_BORDER_WHITE,
 					}}
-					uiBackground = {{ color: COL_BORDER }}
+					uiBackground = {{ color: colBorder }}
 				>
 					{/* Dark inner frame. Segments sit inside with FRAME_PAD gutter. */}
 					<UiEntity
@@ -143,14 +198,20 @@ class FrostBarLayer extends Layer {
 							flexDirection : 'row',
 							alignItems    : 'center',
 							justifyContent: 'flex-start',
-							padding       : { top: FRAME_PAD, bottom: FRAME_PAD, left: FRAME_PAD, right: FRAME_PAD },
-							borderRadius  : RADIUS_INNER,
+							padding       : { top: framePad, bottom: framePad, left: framePad, right: framePad },
+							borderRadius  : radInner,
 						}}
-						uiBackground = {{ color: COL_FRAME }}
+						uiBackground = {{ color: colFrame }}
 					>
 						{segments}
 					</UiEntity>
 				</UiEntity>
+				{/* Torch slot to the RIGHT of the frost bar. Only shown when
+				   the player is holding a torch; mobile touch paths do not
+				   use this button. */}
+				{isTorchEquipped() && (
+					<TorchButton />
+				)}
 			</UiEntity>
 		)
 	}

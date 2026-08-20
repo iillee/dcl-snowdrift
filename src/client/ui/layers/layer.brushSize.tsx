@@ -166,12 +166,17 @@ class ActionBarLayer extends Layer {
 
 	body() {
 		const specActive = isTopDownActive()
+		// Mobile pulls the spectator + mute buttons OUT of the top-center
+		// bar entirely — the mobile-actions layer renders them as round
+		// white-bordered buttons anchored bottom-right, replacing the
+		// native DCL `E` / `F` gamepad buttons we hide via TouchScreenControls.
+		const mobile = isMobile()
 
 		return (
 			<UiEntity
 				key = "ui_BrushSize_row"
 				uiTransform = {{
-					margin       : { top: isMobile() ? 4 : 32 },
+					margin       : { top: mobile ? 4 : 32 },
 					flexDirection: 'row',
 					alignItems   : 'center',
 					justifyContent: 'center',
@@ -183,60 +188,17 @@ class ActionBarLayer extends Layer {
 						onClick   = {rerollLevel}
 						enabled   = {true}
 						keySuffix = "reroll"
-						fontSize  = {isMobile() ? 56 : 40}
-						nudgeTop  = {isMobile() ? -12 : -2}
+						fontSize  = {mobile ? 56 : 40}
+						nudgeTop  = {mobile ? -12 : -2}
 					/>
 				)}
-				<UiEntity
-					key = "ui_SpectatorBtn"
-					uiTransform = {{
-						width        : BTN_SIZE,
-						height       : BTN_SIZE,
-						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-						justifyContent: 'center',
-						alignItems   : 'center',
-						borderRadius : borderRadius.md,
-						borderWidth  : TORCH_BORDER_W,
-						borderColor  : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
-					}}
-					uiBackground = {{ color: PANEL_BG }}
-					onMouseDown  = {toggleTopDownCamera}
-				>
-					<UiEntity
-						key = "ui_ViewToggle_icon"
-						uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
-						uiBackground = {{
-							textureMode: 'stretch',
-							texture    : { src: EYE_ICON_SRC },
-							color      : specActive ? GOLD : WHITE,
-						}}
-					/>
-				</UiEntity>
-				<UiEntity
-					key = "ui_MuteBtn"
-					uiTransform = {{
-						width        : BTN_SIZE,
-						height       : BTN_SIZE,
-						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-						justifyContent: 'center',
-						alignItems   : 'center',
-						borderRadius : borderRadius.md,
-						borderWidth  : TORCH_BORDER_W,
-						borderColor  : TORCH_BORDER_OFF,
-					}}
-					uiBackground = {{ color: PANEL_BG }}
-					onMouseDown  = {toggleMusic}
-				>
-					<UiEntity
-						key = "ui_MuteBtn_icon"
-						uiTransform = {{ width: 34, height: 34 }}
-						uiBackground = {{
-							textureMode: 'stretch',
-							texture    : { src: isMusicMuted() ? 'assets/images/muted.png' : 'assets/images/unmute.png' },
-						}}
-					/>
-				</UiEntity>
-				{isTorchEquipped() && <TorchButton />}
+				{/* SpectatorButton + MuteButton are rendered inline by
+				   layer.frostBar on desktop so the whole top-centre HUD reads
+				   as one cluster (eye + mute + frost bar + torch). On mobile
+				   they live in the native gamepad slots (see touchControls.ts). */}
+				{/* TorchButton was moved out of the top-center action bar to
+				   ZoneType.TopLeft (layer.torchButton) so it doesn't collide
+				   with the frost bar which now anchors top-center. */}
 				{SHOW_PRECIPITATION_BUTTON && (
 					<UiEntity
 						key = "ui_PrecipBtn"
@@ -260,17 +222,94 @@ class ActionBarLayer extends Layer {
 }
 
 
+// MARK: SpectatorButton
+/**
+ * Top-down camera toggle. Same footprint as the torch button; border
+ * turns warm gold while top-down is active. Exported so the frost-bar
+ * layer can host it inline on desktop.
+ */
+export function SpectatorButton() {
+	const specActive = isTopDownActive()
+	return (
+		<UiEntity
+			key = "ui_SpectatorBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {toggleTopDownCamera}
+		>
+			<UiEntity
+				key = "ui_ViewToggle_icon_desktop"
+				uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
+				uiBackground = {{
+					textureMode: 'stretch',
+					texture    : { src: EYE_ICON_SRC },
+					color      : specActive ? GOLD : WHITE,
+				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: MuteButton
+/**
+ * Audio mute toggle. Same footprint as the torch button. Exported so
+ * the frost-bar layer can host it inline on desktop.
+ */
+export function MuteButton() {
+	return (
+		<UiEntity
+			key = "ui_MuteBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {toggleMusic}
+		>
+			<UiEntity
+				key = "ui_MuteBtn_icon"
+				uiTransform = {{ width: 34, height: 34 }}
+				uiBackground = {{
+					textureMode: 'stretch',
+					texture    : { src: isMusicMuted() ? 'assets/images/muted.png' : 'assets/images/unmute.png' },
+				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
 // MARK: TorchButton
 /**
- * Torch inventory slot rendered inline with the other action-bar
- * buttons — same footprint (BTN_SIZE), same PANEL_BG, same border
- * radius. When the torch is lit, a warm-gold fill drains from the top
- * inside the button as fuel is consumed (inverse of the flagtag
- * boomerang charge). Clicking the button does nothing yet — relight
- * lives on the E key (torchInput.ts) and stays there so the input
- * story is consistent across mouse and touch.
+ * Torch inventory slot. Same footprint (BTN_SIZE), same PANEL_BG, same
+ * border radius as the action-bar buttons. When the torch is lit, a
+ * warm-gold fill drains from the top inside the button as fuel is
+ * consumed (inverse of the flagtag boomerang charge). Clicking the
+ * button does nothing yet — relight lives on the E key
+ * (torchInput.ts) and stays there so the input story is consistent
+ * across mouse and touch.
+ *
+ * Exported so layer.torchButton can host it in its own top-left zone
+ * (the torch was pulled out of the top-center action bar when the
+ * frost bar was moved there).
  */
-function TorchButton() {
+export function TorchButton() {
 	const lit         = isTorchLit()
 	const raised      = isTorchRaised()
 	const highlight   = lit || raised
@@ -305,19 +344,44 @@ function TorchButton() {
 			uiBackground = {{ color: PANEL_BG }}
 		>
 			{/* Fuel fill — anchored bottom, drains from top as fuel depletes.
-			   Only rendered while the torch is lit; unlit / empty slot is
-			   just the icon on the panel background. */}
+			   Rendered as an outer frame + inner bar so the horizontal gap
+			   stays symmetric. Putting the insets on the outer frame (which
+			   has no sibling flex children) sidesteps a DCL quirk where an
+			   absolute child with `left` + `right` insets rendered
+			   asymmetrically when the parent had a borderWidth + a
+			   flex-centred sibling (the torch icon), pushing the fill a few
+			   px to the right of centre. The inner bar handles the drain. */}
 			{lit && fuelFrac > 0 ? (
 				<UiEntity
-					key         = "ui_TorchBtn_fuel"
+					key         = "ui_TorchBtn_fuelFrame"
 					uiTransform = {{
-						positionType: 'absolute',
-						position    : { bottom: TORCH_FUEL_INSET, left: TORCH_FUEL_INSET, right: TORCH_FUEL_INSET },
-						height      : fuelHeightPx,
-						borderRadius: borderRadius.sm,
+						positionType   : 'absolute',
+						// Explicit width + height + top/left inset. DCL absolute
+						// elements do NOT stretch to fill via top+bottom+left+right
+						// the way CSS does — without an explicit size they collapse
+						// to their content's intrinsic dimensions and anchor to the
+						// specified corner (bottom-right in our case). Sizing the
+						// frame in px matches the visible inner content area of the
+						// button (BTN_SIZE - 2 * border - 2 * inset) and pins it to
+						// the top-left of that region, yielding a uniform gap on all
+						// four sides.
+						position       : { top: TORCH_FUEL_INSET, left: TORCH_FUEL_INSET },
+						width          : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						height         : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						flexDirection  : 'column',
+						justifyContent : 'flex-end',
 					}}
-					uiBackground = {{ color: fuelColor }}
-				/>
+				>
+					<UiEntity
+						key         = "ui_TorchBtn_fuelBar"
+						uiTransform = {{
+							width       : '100%',
+							height      : fuelHeightPx,
+							borderRadius: borderRadius.sm,
+						}}
+						uiBackground = {{ color: fuelColor }}
+					/>
+				</UiEntity>
 			) : null}
 			{/* Torch glyph — centred on top of the fuel fill. */}
 			<UiEntity
@@ -350,7 +414,9 @@ const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 // every platform — DCL's mobile layout counts absolute-positioned
 // insets from the border box, so a value at or below TORCH_BORDER_W
 // (4 px) leaves the fill flush with / bleeding over the border edge.
-const TORCH_FUEL_INSET       = TORCH_BORDER_W + 6
+// Must remain > TORCH_BORDER_W so the fill sits inside the border on
+// every platform (see handoff #2 note re: mobile bleed at inset<=border).
+const TORCH_FUEL_INSET       = TORCH_BORDER_W + 2
 const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
 
 

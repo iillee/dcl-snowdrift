@@ -44,6 +44,9 @@ export function setupUi() {
 			...devLayers,
 			topDownPanLayer,
 			actionBarLayer,
+			// TorchButton is rendered inline by frostBarLayer (to its right)
+			// so the top-centre cluster stays one visual unit; no separate
+			// top-right layer.
 			frostBarLayer,
 			relightPromptLayer,
 			versionLayer,
