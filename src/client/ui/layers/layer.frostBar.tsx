@@ -27,15 +27,17 @@ import { FROST_MAX }                               from 'src/shared/frost/tuning
 
 
 // Font-awesome atlas from the UI component kit — same asset the
-// relight prompt uses. `fire` sits at (col 2, row 15) in the 16×16
-// grid. Preferred over a standalone flame.png because the atlas is
-// already fetched by the kit at boot, so the icon renders on the
-// first frame with no cold-CDN pop-in.
+// relight prompt uses. The kit indexes tiles as 1-based (xStart, yStart)
+// with yStart counting from the BOTTOM, so `fire: {xStart:2, yStart:15}`
+// in atlases.ts converts to 0-indexed from top-left as (col 1, row 1).
+// Preferred over a standalone flame.png because the atlas is already
+// fetched by the kit at boot, so the icon renders on the first frame
+// with no cold-CDN pop-in.
 const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
 const ATLAS_COLS    = 16
 const ATLAS_ROWS    = 16
-const FIRE_TILE_COL = 2
-const FIRE_TILE_ROW = 15
+const FIRE_TILE_COL = 1
+const FIRE_TILE_ROW = 1
 
 
 // MARK: Layout
