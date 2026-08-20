@@ -15,7 +15,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
-import { isMusicMuted, toggleMusic } from 'src/client/audio'
+import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
@@ -244,7 +244,7 @@ export function SpectatorButton() {
 				borderColor   : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
 			}}
 			uiBackground = {{ color: PANEL_BG }}
-			onMouseDown  = {toggleTopDownCamera}
+			onMouseDown  = {() => { playUiClick(); toggleTopDownCamera() }}
 		>
 			<UiEntity
 				key = "ui_ViewToggle_icon_desktop"
@@ -282,8 +282,12 @@ export function MuteButton() {
 			uiBackground = {{ color: PANEL_BG }}
 			onMouseDown  = {toggleMusic}
 		>
+			{/* Key varies with mute state: react-ecs otherwise diffs the
+			   same node in place and can keep the cached texture handle,
+			   leaving the icon stale after toggling on desktop. Distinct
+			   key forces a fresh element so the new src is picked up. */}
 			<UiEntity
-				key = "ui_MuteBtn_icon"
+				key = {isMusicMuted() ? 'ui_MuteBtn_icon_muted' : 'ui_MuteBtn_icon_unmuted'}
 				uiTransform = {{ width: 34, height: 34 }}
 				uiBackground = {{
 					textureMode: 'stretch',

@@ -193,11 +193,20 @@ export const PAINT_BRUSH_SIZE_CELLS = oddBrushCells(
 // player stands on plus its 8 neighbours are always live. Choose OUT
 // large enough that a normal walking speed does not oscillate the gate.
 
-/** Spawn tiles whose centre is within this many meters of the local player. */
-export const CELL_STREAM_IN_RADIUS_M  = 28
+/**
+ * Spawn tiles whose centre is within this many meters of the local player.
+ *
+ * Sized as prefetch headroom on top of the visible ring: the sliced cell
+ * spawner (paint.ts CELLS_PER_FRAME) takes ~10-15 frames to fully populate
+ * a tile, and at ~4-5 m/s walking speed 12 m of extra buffer gives ~2-3 s
+ * for that work to finish before the tile is visually relevant. Result:
+ * cubes are already in place by the time the player is close enough to
+ * distinguish them from the far-plane LOD.
+ */
+export const CELL_STREAM_IN_RADIUS_M  = 40
 
 /** Despawn tiles whose centre exceeds this many meters from the local player. */
-export const CELL_STREAM_OUT_RADIUS_M = 36
+export const CELL_STREAM_OUT_RADIUS_M = 48
 
 /**
  * Streaming gate poll frequency (Hz). Cheap — walks a small tile map

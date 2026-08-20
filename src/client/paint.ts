@@ -449,19 +449,42 @@ const SPAWN_DELAY_MS = 500 // matches spawnTileWithGrow's tween duration
 const deferredSpawns: Array<{ dueMs: number; run: () => void }> = []
 let spawnClockMs = 0
 engine.addSystem((dt: number) => {
-  spawnClockMs += dt * 1000
-  while (deferredSpawns.length && deferredSpawns[0].dueMs <= spawnClockMs) {
-    deferredSpawns.shift()!.run()
-  }
+	spawnClockMs += dt * 1000
+	while (deferredSpawns.length && deferredSpawns[0].dueMs <= spawnClockMs) {
+		deferredSpawns.shift()!.run()
+	}
 })
 
-// MARK: LOD swap overlap window
-// Number of ms the far-plane stays visible AFTER cube cells have been
-// spawned during a plane→cubes handoff. Long enough to guarantee the
-// cubes are through the entity add pipeline and rendering before the
-// plane is removed (fixes the one-frame flicker seen on mobile when
-// the swap happens atomically on the same tick). Short enough that any
-// visible "snow settling" pop under the cubes is imperceptible.
+// MARK: Time-sliced cell spawn queue
+// Spawning all ~256 cells of a tile in one frame caused a visible hitch
+// on mobile (QuickJS entity add + MeshRenderer.setBox + Material.setPbrMaterial
+// x 256 in a single tick). Instead of executing cell creation inline,
+// spawnCellsForTileImmediate enqueues one thunk per cell and this drainer
+// executes CELLS_PER_FRAME per tick, spreading the cost across several
+// frames. The plane-removal thunk for the tile's LOD swap is enqueued at
+// the tail of that tile's cell thunks, so the far-plane only disappears
+// AFTER every cube for the tile has been created — closing the flash-gap
+// that the old fixed 120ms overlap timer could not guarantee under load.
+//
+// Tunable: lower on mobile if hitches persist; raise if pop-in feels slow.
+const CELLS_PER_FRAME = 24
+const cellSpawnQueue: Array<() => void> = []
+engine.addSystem(() => {
+	let budget = CELLS_PER_FRAME
+	while (budget-- > 0 && cellSpawnQueue.length > 0) {
+		cellSpawnQueue.shift()!()
+	}
+})
+
+// MARK: LOD swap overlap window (deprecated)
+// Retained as documentation only. The old timer-based plane removal
+// (spawn cubes -> wait N ms -> remove far-plane) could not survive a
+// spawn hitch on mobile: if the spawn frame itself stalled, the timer
+// still fired and the plane vanished before the cubes were on screen.
+// Superseded by the time-sliced cellSpawnQueue: plane removal is now
+// enqueued as the tail thunk of a tile's cell spawn work, so it only
+// runs after every cube for that tile has actually been created.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const LOD_SWAP_OVERLAP_MS = 120
 
 
@@ -819,13 +842,12 @@ export function spawnCellsForTile(
     // at the same Y — cubes cover the plane pixel-for-pixel where they
     // exist, and any residual plane pixels around the cell edges just
     // read as normal snow. No visible gap; no swap flicker.
+    // Wait for the tile GLB grow-in tween, then hand off to the sliced
+    // cell spawner. Plane removal is enqueued at the tail of that tile's
+    // cell thunks inside spawnCellsForTileImmediate — no separate timer.
     deferredSpawns.push({
       dueMs: spawnClockMs + SPAWN_DELAY_MS,
       run:   () => spawnCellsForTileImmediate(tileType, r, tx, tz, ty, CELL, STEP, tileEntity),
-    })
-    deferredSpawns.push({
-      dueMs: spawnClockMs + SPAWN_DELAY_MS + LOD_SWAP_OVERLAP_MS,
-      run:   () => removeFarPlaneForTile(tileEntity),
     })
   }
 
@@ -907,62 +929,75 @@ function spawnCellsForTileImmediate(
   }
 
 	// Ramp cell: tilted plane (unchanged from main).
+	// Enqueued onto cellSpawnQueue to time-slice the tile's spawn cost.
 	const spawnOne = (wx: number, wy: number, wz: number, rot: any, col: number, row: number, scaleY: number = cellSize) => {
-		const id  = cellId(tx, tz, ty, col, row)
-		const key = cellIdToKey(id)
-		const appliedIdx = key !== null ? cellApplied.get(key)?.index : undefined
-		const preexisting = appliedIdx ?? renderedIndex.get(id) ?? PALETTE_NONE
-		const e = engine.addEntity()
-		Transform.create(e, {
-			position: Vector3.create(wx, wy, wz),
-			rotation: rot,
-			scale:    Vector3.create(cellSize, scaleY, 1),
+		cellSpawnQueue.push(() => {
+			// Guard: if the tile was despawned (or re-spawned, giving it a
+			// fresh tileRec) between enqueue and drain, drop this thunk so
+			// we do not leak orphan cell entities into the void.
+			if (paintByTile.get(tileEntity) !== tileRec) return
+			const id  = cellId(tx, tz, ty, col, row)
+			const key = cellIdToKey(id)
+			const appliedIdx = key !== null ? cellApplied.get(key)?.index : undefined
+			const preexisting = appliedIdx ?? renderedIndex.get(id) ?? PALETTE_NONE
+			const e = engine.addEntity()
+			Transform.create(e, {
+				position: Vector3.create(wx, wy, wz),
+				rotation: rot,
+				scale:    Vector3.create(cellSize, scaleY, 1),
+			})
+			MeshRenderer.setPlane(e)
+			const mat = cellMaterialForIndex(preexisting) ?? cellMaterialForIndex(PALETTE_NONE)!
+			Material.setPbrMaterial(e, mat)
+			cellEntity.set(id, e)
+			cellData.set(id, { entity: e, kind: 'plane', basePos: Vector3.create(wx, wy, wz), cellSize })
+			renderedIndex.set(id, preexisting)
+			tileRec!.entities.push(e)
+			tileRec!.ids.push(id)
 		})
-		MeshRenderer.setPlane(e)
-		const mat = cellMaterialForIndex(preexisting) ?? cellMaterialForIndex(PALETTE_NONE)!
-		Material.setPbrMaterial(e, mat)
-		cellEntity.set(id, e)
-		cellData.set(id, { entity: e, kind: 'plane', basePos: Vector3.create(wx, wy, wz), cellSize })
-		renderedIndex.set(id, preexisting)
-		tileRec!.entities.push(e)
-		tileRec!.ids.push(id)
 	}
 
 	// Flat (non-ramp) cell: white cube standing on the walkable surface.
 	// On paint, applyPaintIndex tweens it down to a colored slab at (wx, wy, wz).
+	// Enqueued onto cellSpawnQueue to time-slice the tile's spawn cost.
 	const spawnCube = (wx: number, wy: number, wz: number, col: number, row: number) => {
-		const id  = cellId(tx, tz, ty, col, row)
-		const key = cellIdToKey(id)
-		const appliedIdx   = key !== null ? cellApplied.get(key)?.index : undefined
-		const appliedStage = (key !== null ? cellApplied.get(key)?.stage ?? 0 : 0) as 0 | 1 | 2
-		const preexisting = appliedIdx ?? renderedIndex.get(id) ?? PALETTE_NONE
-		const painted   = preexisting !== PALETTE_NONE
-		// If server already reports a regrown stage (1 or 2), spawn the
-		// cube at that intermediate height instead of the flat slab.
-		const regrownThickness = appliedStage > 0 ? SNOW_FILL_STAGE_HEIGHT[appliedStage - 1] : null
-		const thickness = regrownThickness ?? (painted ? PAINTED_THICKNESS : CUBE_HEIGHT)
-		const e = engine.addEntity()
-		Transform.create(e, {
-			position: Vector3.create(wx, wy + thickness / 2, wz),
-			scale:    Vector3.create(cellSize, thickness, cellSize),
+		cellSpawnQueue.push(() => {
+			// See spawnOne guard: bail if the tile has been despawned or
+			// respawned with a fresh tileRec while we sat in the queue.
+			if (paintByTile.get(tileEntity) !== tileRec) return
+			const id  = cellId(tx, tz, ty, col, row)
+			const key = cellIdToKey(id)
+			const appliedIdx   = key !== null ? cellApplied.get(key)?.index : undefined
+			const appliedStage = (key !== null ? cellApplied.get(key)?.stage ?? 0 : 0) as 0 | 1 | 2
+			const preexisting = appliedIdx ?? renderedIndex.get(id) ?? PALETTE_NONE
+			const painted   = preexisting !== PALETTE_NONE
+			// If server already reports a regrown stage (1 or 2), spawn the
+			// cube at that intermediate height instead of the flat slab.
+			const regrownThickness = appliedStage > 0 ? SNOW_FILL_STAGE_HEIGHT[appliedStage - 1] : null
+			const thickness = regrownThickness ?? (painted ? PAINTED_THICKNESS : CUBE_HEIGHT)
+			const e = engine.addEntity()
+			Transform.create(e, {
+				position: Vector3.create(wx, wy + thickness / 2, wz),
+				scale:    Vector3.create(cellSize, thickness, cellSize),
+			})
+			MeshRenderer.setBox(e)
+			const mat = painted
+				? (cellMaterialForIndex(preexisting) ?? CUBE_GREY_MAT)
+				: CUBE_GREY_MAT
+			Material.setPbrMaterial(e, mat)
+			cellEntity.set(id, e)
+			cellData.set(id, { entity: e, kind: 'cube', basePos: Vector3.create(wx, wy, wz), cellSize })
+			renderedIndex.set(id, preexisting)
+			// Server owns regrowth timing now — nothing to schedule locally.
+			// If we spawned at a regrown intermediate height, snap the material
+			// back to grey so the painted team color is not showing through
+			// half-standing snow.
+			if (regrownThickness !== null) {
+				Material.setPbrMaterial(e, CUBE_GREY_MAT)
+			}
+			tileRec!.entities.push(e)
+			tileRec!.ids.push(id)
 		})
-		MeshRenderer.setBox(e)
-		const mat = painted
-			? (cellMaterialForIndex(preexisting) ?? CUBE_GREY_MAT)
-			: CUBE_GREY_MAT
-		Material.setPbrMaterial(e, mat)
-		cellEntity.set(id, e)
-		cellData.set(id, { entity: e, kind: 'cube', basePos: Vector3.create(wx, wy, wz), cellSize })
-		renderedIndex.set(id, preexisting)
-		// Server owns regrowth timing now — nothing to schedule locally.
-		// If we spawned at a regrown intermediate height, snap the material
-		// back to grey so the painted team color is not showing through
-		// half-standing snow.
-		if (regrownThickness !== null) {
-			Material.setPbrMaterial(e, CUBE_GREY_MAT)
-		}
-		tileRec!.entities.push(e)
-		tileRec!.ids.push(id)
 	}
 
   // Ramp: space incline cells along the SLOPE so they tile flush.
@@ -1026,6 +1061,16 @@ function spawnCellsForTileImmediate(
       spawnCube(wx, wy, wz, col, row)
     }
   }
+
+  // Tail thunk: once every cube for this tile has been drained from the
+  // queue and rendered, tear down the far-plane LOD proxy. Guarantees the
+  // proxy is only removed AFTER cubes are on screen — no swap flicker.
+  // Guarded the same way as the cell thunks: if the tile despawned mid-
+  // fill, leave the far-plane alone so the ground still reads as snow.
+  cellSpawnQueue.push(() => {
+    if (paintByTile.get(tileEntity) !== tileRec) return
+    removeFarPlaneForTile(tileEntity)
+  })
 }
 
 // MARK: coverage
