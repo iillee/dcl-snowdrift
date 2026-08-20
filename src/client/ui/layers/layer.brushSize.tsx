@@ -423,7 +423,10 @@ const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 // (4 px) leaves the fill flush with / bleeding over the border edge.
 // Must remain > TORCH_BORDER_W so the fill sits inside the border on
 // every platform (see handoff #2 note re: mobile bleed at inset<=border).
-const TORCH_FUEL_INSET       = TORCH_BORDER_W + 2
+// Gutter inside the border matches the heat bar's FRAME_PAD (8 px)
+// so the fuel fill and the warm/cold segments sit with the same
+// visual inset from their frames.
+const TORCH_FUEL_INSET       = TORCH_BORDER_W + 8
 // Matches GOLD / COL_WARM RGB. Alpha kept just under 1 so the icon
 // on top still reads cleanly, but high enough that the dark panel
 // doesn't desaturate the fill (previous 0.55 looked muddy/olive
