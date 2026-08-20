@@ -424,10 +424,11 @@ const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 // Must remain > TORCH_BORDER_W so the fill sits inside the border on
 // every platform (see handoff #2 note re: mobile bleed at inset<=border).
 const TORCH_FUEL_INSET       = TORCH_BORDER_W + 2
-// Matches GOLD / COL_WARM RGB for a unified warm accent language;
-// alpha kept low so the fuel fill reads as a translucent drain
-// rather than a solid panel behind the icon.
-const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.80, 0.30, 0.55)
+// Matches GOLD / COL_WARM RGB. Alpha kept just under 1 so the icon
+// on top still reads cleanly, but high enough that the dark panel
+// doesn't desaturate the fill (previous 0.55 looked muddy/olive
+// against black).
+const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.80, 0.30, 0.90)
 
 
 // MARK: SnowflakeIcon
