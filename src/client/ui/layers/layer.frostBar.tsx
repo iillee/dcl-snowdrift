@@ -214,7 +214,10 @@ class FrostBarLayer extends Layer {
 			// Snowflake mirrors the flame: same target size, same visibility
 			// gate so the icon vanishes rather than overflowing as the cold
 			// panel shrinks to a sliver.
-			const showSnowIcon = coldW >= flameSize + 4
+			// Snowflake reads a touch large next to the flame at matched size,
+			// so nudge it down ~15% for visual parity.
+			const snowSize     = Math.round(flameSize * 0.85)
+			const showSnowIcon = coldW >= snowSize + 4
 			segments.push(
 				<UiEntity
 					key          = "ui_FrostBar_cold"
@@ -228,7 +231,7 @@ class FrostBarLayer extends Layer {
 					uiBackground = {{ color: COL_COLD }}
 				>
 					{showSnowIcon && (
-						<SnowflakeIcon color = {Color4.White()} size = {flameSize} />
+						<SnowflakeIcon color = {Color4.White()} size = {snowSize} />
 					)}
 				</UiEntity>,
 			)
