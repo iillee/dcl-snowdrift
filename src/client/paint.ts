@@ -673,8 +673,12 @@ export function drainPaintOutbox(max: number, targetStage: 0 | 1 = 0): string[] 
  *
  * targetStage=1 is a stomp: server only demotes cells at stage 2 or
  * PALETTE_NONE (pristine), leaving stage 0/1 untouched. We mirror
- * that skip locally so we don't enqueue no-ops. No optimistic visual
- * for stomps — the server-echoed stage-1 CRDT drives the render.
+ * that skip locally so we don't enqueue no-ops, and run an
+ * optimistic local stage-1 tween (advanceSnowFillStage) so the
+ * stomp reads instantly under the avatar instead of lagging by the
+ * server round-trip. cellApplied is patched to {index=team, stage=1}
+ * so subsequent brush passes in the same frame don't re-fire, and
+ * the server-echoed CRDT is a no-op reconcile in the steady case.
  */
 export function enqueuePaintCandidate(id: string, targetStage: 0 | 1 = 0): void {
 	// Drop ids the server cannot pack (e.g. ramp rows outside 0..SIZE-1).
@@ -689,6 +693,19 @@ export function enqueuePaintCandidate(id: string, targetStage: 0 | 1 = 0): void 
 		// is valid. Otherwise gate on the applied stage.
 		if (indexHere !== PALETTE_NONE && appliedStage < 2) return
 		paintOutboxStomp.add(id)
+
+		// Optimistic local render: tween the cube down to stage-1 height
+		// immediately. Only if we have a team assigned (needed for the
+		// stored index in cellApplied); pre-roster stomps just wait for
+		// the server echo.
+		if (localTeam === Team.None) return
+		const index = teamPaletteIndex(localTeam)
+		const data  = cellData.get(id)
+		if (data && data.kind === 'cube') {
+			advanceSnowFillStage(id, 1)
+			cellApplied.set(key, { index, stage: 1 })
+			renderedIndex.set(id, index)
+		}
 		return
 	}
 

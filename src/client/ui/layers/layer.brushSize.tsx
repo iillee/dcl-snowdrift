@@ -274,7 +274,11 @@ function TorchButton() {
 	const lit         = isTorchLit()
 	const raised      = isTorchRaised()
 	const highlight   = lit || raised
-	const iconTint    = lit ? WHITE : TORCH_ICON_DIM
+	// Both lit and unlit icons render at full white — the images
+	// themselves communicate state (torch.png vs torch_unlit.png), and
+	// dimming the unlit one made it near-invisible on the dark panel
+	// especially on mobile.
+	const iconTint    = WHITE
 	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
 	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
 
@@ -333,7 +337,6 @@ function TorchButton() {
 // action bar owns its own tuning without importing from the retired
 // hotbar layer.
 const TORCH_ICON_PX          = 40
-const TORCH_ICON_DIM         = Color4.create(0.45, 0.45, 0.45, 1)
 // Constant width to avoid the 2 px child-shift bug when toggling
 // borderWidth (see handoff #2). Border is transparent when the torch
 // is unlit; when lit it becomes TORCH_BORDER_ON at full 4 px thickness.
@@ -342,7 +345,12 @@ const TORCH_BORDER_ON        = Color4.create(1, 0.75, 0.35, 0.95)
 // Cool white outline shown when the torch is unlit — keeps the slot
 // visually anchored in the action bar even without the warm glow.
 const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
-const TORCH_FUEL_INSET       = 6
+// Distance from the outer edge of the button to the fuel-fill rect.
+// Must exceed TORCH_BORDER_W so the fill sits INSIDE the border on
+// every platform — DCL's mobile layout counts absolute-positioned
+// insets from the border box, so a value at or below TORCH_BORDER_W
+// (4 px) leaves the fill flush with / bleeding over the border edge.
+const TORCH_FUEL_INSET       = TORCH_BORDER_W + 6
 const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
 
 

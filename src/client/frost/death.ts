@@ -29,6 +29,7 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared
 import { FROST_MAX }                                             from 'src/shared/frost/tuning'
 import { getFrostLocal, resetFrostLocal }                        from 'src/client/frost/accumulation'
 import { extinguishTorch }                                       from 'src/client/torchEquip'
+import { isTopDownActive, toggleTopDownCamera }                  from 'src/client/topDownCamera'
 
 
 // MARK: Tuning
@@ -129,6 +130,14 @@ function fireDeathEmote(): void {
 function enterDying(): void {
 	if (phase !== Phase.IDLE) return
 	console.log('frost/death: enterDying: player frozen, starting sequence')
+	// Force the player back to first-person / follow camera before the
+	// death sequence plays — the emote + fade + teleport all read wrong
+	// from the top-down spectator view, and the wake beat wants the
+	// avatar filling the frame.
+	if (isTopDownActive()) {
+		console.log('frost/death: enterDying: exiting spectate mode')
+		toggleTopDownCamera()
+	}
 	phase      = Phase.COLLAPSE
 	phaseTimer = 0
 	lockPlayer()
