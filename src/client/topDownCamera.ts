@@ -27,6 +27,7 @@ import { engine, Entity, InputAction, MainCamera, PointerEventType, Transform, V
 import { Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
+import { playUiClick }                                          from 'src/client/audio'
 import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS } from 'src/shared/settings'
 
 
@@ -128,7 +129,12 @@ export function setupTopDownCamera(): void {
 	// E (IA_PRIMARY) is claimed by torchInput.ts for light/relight and
 	// must NOT be consumed here. F (IA_SECONDARY) is currently free.
 	engine.addSystem((dt: number) => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) toggleTopDownCamera()
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
+			// Match the on-HUD SpectatorButton's audio feedback so keyboard
+			// and click paths feel identical.
+			playUiClick()
+			toggleTopDownCamera()
+		}
 
 		// Pointer up always ends any in-progress desktop drag, regardless
 		// of whether top-down is still active. Safety net for edge cases

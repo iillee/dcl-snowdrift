@@ -21,6 +21,7 @@ import { frostBarLayer }      from 'src/client/ui/layers/layer.frostBar'
 // is kept in-tree for a future hand-slot revival but no longer
 // registered here.
 import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
+import { preloadLayer }       from 'src/client/ui/layers/layer.preload'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
@@ -42,6 +43,10 @@ export function setupUi() {
 	SetupUiComponentKit({
 		layers: [
 			...devLayers,
+			// Preload sits first so texture fetches for HUD PNGs kick off
+			// at scene boot rather than the first frame each icon renders.
+			// Invisible, off-screen; no z-order or interaction impact.
+			preloadLayer,
 			topDownPanLayer,
 			actionBarLayer,
 			// TorchButton is rendered inline by frostBarLayer (to its right)
