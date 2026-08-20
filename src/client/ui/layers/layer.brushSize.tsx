@@ -14,18 +14,12 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import {
-	BRUSH_MAX_CELLS,
-	BRUSH_MIN_CELLS,
-	decreaseBrush,
-	getBrushCells,
-	increaseBrush,
-} from 'src/client/brush'
+import { SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
 import { isMusicMuted, toggleMusic } from 'src/client/audio'
+import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
-import { toggleServerStats } from 'src/client/ui/layers/layer.serverStats'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
@@ -44,52 +38,16 @@ const PANEL_BG  = colors.statsBg
 const BTN_SIZE       = 72
 const BTN_MARGIN_X   = 8   // horizontal breathing room per-button (left + right)
 
-// Parcel-grid icon inside the spectator button.
-const GRID_COLS = 4
-const GRID_ROWS = 2
-const CELL_SIZE = 9
-const CELL_GAP  = 2
-
-
-// MARK: ParcelGridIcon
-function ParcelGridIcon(props: { color: Color4 }) {
-	const rows: any[] = []
-	for (let r = 0; r < GRID_ROWS; r++) {
-		const cells: any[] = []
-		for (let c = 0; c < GRID_COLS; c++) {
-			cells.push(
-				<UiEntity
-					key = {`gridCell_${r}_${c}`}
-					uiTransform = {{
-						width : CELL_SIZE,
-						height: CELL_SIZE,
-						margin: { left: c === 0 ? 0 : CELL_GAP },
-					}}
-					uiBackground = {{ color: props.color }}
-				/>
-			)
-		}
-		rows.push(
-			<UiEntity
-				key = {`gridRow_${r}`}
-				uiTransform = {{
-					flexDirection: 'row',
-					margin       : { top: r === 0 ? 0 : CELL_GAP },
-				}}
-			>
-				{cells}
-			</UiEntity>
-		)
-	}
-	return (
-		<UiEntity
-			key = "ui_ParcelGridIcon"
-			uiTransform = {{ flexDirection: 'column', alignItems: 'center' }}
-		>
-			{rows}
-		</UiEntity>
-	)
-}
+// Eye icon texture. White silhouette on transparent so the SDK tint
+// (implicit via textureMode: 'stretch') stays untouched — we express
+// the active/inactive state by swapping the icon size + a colour cast
+// via a coloured backdrop is not needed at this scale.
+const EYE_ICON_SRC = 'assets/images/eye.png'
+// Eye PNGs are wider than tall. DCL's textureMode has no 'contain'
+// (aspect-preserving fit), so we hardcode a box that roughly matches
+// the icon's aspect. Bump _W / _H together to resize.
+const EYE_ICON_W   = 60
+const EYE_ICON_H   = 40
 
 
 // MARK: BrushButton
@@ -207,105 +165,259 @@ class ActionBarLayer extends Layer {
 	}
 
 	body() {
-		const size       = getBrushCells()
-		const canDec     = size > BRUSH_MIN_CELLS
-		const canInc     = size < BRUSH_MAX_CELLS
 		const specActive = isTopDownActive()
+		// Mobile pulls the spectator + mute buttons OUT of the top-center
+		// bar entirely — the mobile-actions layer renders them as round
+		// white-bordered buttons anchored bottom-right, replacing the
+		// native DCL `E` / `F` gamepad buttons we hide via TouchScreenControls.
+		const mobile = isMobile()
 
 		return (
 			<UiEntity
 				key = "ui_BrushSize_row"
 				uiTransform = {{
-					margin       : { top: isMobile() ? 4 : 32 },
+					margin       : { top: mobile ? 4 : 32 },
 					flexDirection: 'row',
 					alignItems   : 'center',
 					justifyContent: 'center',
 				}}
 			>
-				<BrushButton
-					label     = "+"
-					onClick   = {increaseBrush}
-					enabled   = {canInc}
-					keySuffix = "inc"
-				/>
-				<BrushButton
-					label     = "-"
-					onClick   = {decreaseBrush}
-					enabled   = {canDec}
-					keySuffix = "dec"
-				/>
-				<BrushButton
-					label     = "↻"
-					onClick   = {rerollLevel}
-					enabled   = {true}
-					keySuffix = "reroll"
-					fontSize  = {isMobile() ? 56 : 40}
-					nudgeTop  = {isMobile() ? -12 : -2}
-				/>
-				<BrushButton
-					label     = "#"
-					onClick   = {toggleServerStats}
-					enabled   = {true}
-					keySuffix = "stats"
-					fontSize  = {isMobile() ? 64 : 44}
-					nudgeTop  = {isMobile() ? -14 : -4}
-				/>
-				<UiEntity
-					key = "ui_SpectatorBtn"
-					uiTransform = {{
-						width        : BTN_SIZE,
-						height       : BTN_SIZE,
-						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-						justifyContent: 'center',
-						alignItems   : 'center',
-						borderRadius : borderRadius.md,
-					}}
-					uiBackground = {{ color: PANEL_BG }}
-					onMouseDown  = {toggleTopDownCamera}
-				>
-					<ParcelGridIcon color={specActive ? GOLD : WHITE} />
-				</UiEntity>
-				<UiEntity
-					key = "ui_MuteBtn"
-					uiTransform = {{
-						width        : BTN_SIZE,
-						height       : BTN_SIZE,
-						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-						justifyContent: 'center',
-						alignItems   : 'center',
-						borderRadius : borderRadius.md,
-					}}
-					uiBackground = {{ color: PANEL_BG }}
-					onMouseDown  = {toggleMusic}
-				>
-					<UiEntity
-						key = "ui_MuteBtn_icon"
-						uiTransform = {{ width: 44, height: 44 }}
-						uiBackground = {{
-							textureMode: 'stretch',
-							texture    : { src: isMusicMuted() ? 'assets/images/muted.png' : 'assets/images/unmute.png' },
-						}}
+				{SHOW_REROLL_BUTTON && (
+					<BrushButton
+						label     = "↻"
+						onClick   = {rerollLevel}
+						enabled   = {true}
+						keySuffix = "reroll"
+						fontSize  = {mobile ? 56 : 40}
+						nudgeTop  = {mobile ? -12 : -2}
 					/>
-				</UiEntity>
-				<UiEntity
-					key = "ui_PrecipBtn"
-					uiTransform = {{
-						width        : BTN_SIZE,
-						height       : BTN_SIZE,
-						margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-						justifyContent: 'center',
-						alignItems   : 'center',
-						borderRadius : borderRadius.md,
-					}}
-					uiBackground = {{ color: PANEL_BG }}
-					onMouseDown  = {cyclePrecipitation}
-				>
-					<SnowflakeIcon color = {precipitationIconColor(getPrecipitation())} />
-				</UiEntity>
+				)}
+				{/* SpectatorButton + MuteButton are rendered inline by
+				   layer.frostBar on desktop so the whole top-centre HUD reads
+				   as one cluster (eye + mute + frost bar + torch). On mobile
+				   they live in the native gamepad slots (see touchControls.ts). */}
+				{/* TorchButton was moved out of the top-center action bar to
+				   ZoneType.TopLeft (layer.torchButton) so it doesn't collide
+				   with the frost bar which now anchors top-center. */}
+				{SHOW_PRECIPITATION_BUTTON && (
+					<UiEntity
+						key = "ui_PrecipBtn"
+						uiTransform = {{
+							width        : BTN_SIZE,
+							height       : BTN_SIZE,
+							margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+							justifyContent: 'center',
+							alignItems   : 'center',
+							borderRadius : borderRadius.md,
+						}}
+						uiBackground = {{ color: PANEL_BG }}
+						onMouseDown  = {cyclePrecipitation}
+					>
+						<SnowflakeIcon color = {precipitationIconColor(getPrecipitation())} />
+					</UiEntity>
+				)}
 			</UiEntity>
 		)
 	}
 }
+
+
+// MARK: SpectatorButton
+/**
+ * Top-down camera toggle. Same footprint as the torch button; border
+ * turns warm gold while top-down is active. Exported so the frost-bar
+ * layer can host it inline on desktop.
+ */
+export function SpectatorButton() {
+	const specActive = isTopDownActive()
+	return (
+		<UiEntity
+			key = "ui_SpectatorBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {toggleTopDownCamera}
+		>
+			<UiEntity
+				key = "ui_ViewToggle_icon_desktop"
+				uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
+				uiBackground = {{
+					textureMode: 'stretch',
+					texture    : { src: EYE_ICON_SRC },
+					color      : specActive ? GOLD : WHITE,
+				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: MuteButton
+/**
+ * Audio mute toggle. Same footprint as the torch button. Exported so
+ * the frost-bar layer can host it inline on desktop.
+ */
+export function MuteButton() {
+	return (
+		<UiEntity
+			key = "ui_MuteBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {toggleMusic}
+		>
+			<UiEntity
+				key = "ui_MuteBtn_icon"
+				uiTransform = {{ width: 34, height: 34 }}
+				uiBackground = {{
+					textureMode: 'stretch',
+					texture    : { src: isMusicMuted() ? 'assets/images/muted.png' : 'assets/images/unmute.png' },
+				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: TorchButton
+/**
+ * Torch inventory slot. Same footprint (BTN_SIZE), same PANEL_BG, same
+ * border radius as the action-bar buttons. When the torch is lit, a
+ * warm-gold fill drains from the top inside the button as fuel is
+ * consumed (inverse of the flagtag boomerang charge). Clicking the
+ * button does nothing yet — relight lives on the E key
+ * (torchInput.ts) and stays there so the input story is consistent
+ * across mouse and touch.
+ *
+ * Exported so layer.torchButton can host it in its own top-left zone
+ * (the torch was pulled out of the top-center action bar when the
+ * frost bar was moved there).
+ */
+export function TorchButton() {
+	const lit         = isTorchLit()
+	const raised      = isTorchRaised()
+	const highlight   = lit || raised
+	// Both lit and unlit icons render at full white — the images
+	// themselves communicate state (torch.png vs torch_unlit.png), and
+	// dimming the unlit one made it near-invisible on the dark panel
+	// especially on mobile.
+	const iconTint    = WHITE
+	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
+	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
+
+	const fuelHeightMax = BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2
+	const fuelHeightPx  = Math.round(fuelHeightMax * fuelFrac)
+	// Constant warm gold across the whole drain — the fill height alone
+	// communicates remaining fuel. A low-fuel warning colour was tried
+	// and rejected; if we bring it back, prefer a pulse over a hard swap.
+	const fuelColor     = TORCH_FUEL_COLOR_FULL
+
+	return (
+		<UiEntity
+			key = "ui_TorchBtn"
+			uiTransform = {{
+				width        : BTN_SIZE,
+				height       : BTN_SIZE,
+				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems   : 'center',
+				borderRadius : borderRadius.md,
+				borderWidth  : TORCH_BORDER_W,
+				borderColor  : borderColor,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+		>
+			{/* Fuel fill — anchored bottom, drains from top as fuel depletes.
+			   Rendered as an outer frame + inner bar so the horizontal gap
+			   stays symmetric. Putting the insets on the outer frame (which
+			   has no sibling flex children) sidesteps a DCL quirk where an
+			   absolute child with `left` + `right` insets rendered
+			   asymmetrically when the parent had a borderWidth + a
+			   flex-centred sibling (the torch icon), pushing the fill a few
+			   px to the right of centre. The inner bar handles the drain. */}
+			{lit && fuelFrac > 0 ? (
+				<UiEntity
+					key         = "ui_TorchBtn_fuelFrame"
+					uiTransform = {{
+						positionType   : 'absolute',
+						// Explicit width + height + top/left inset. DCL absolute
+						// elements do NOT stretch to fill via top+bottom+left+right
+						// the way CSS does — without an explicit size they collapse
+						// to their content's intrinsic dimensions and anchor to the
+						// specified corner (bottom-right in our case). Sizing the
+						// frame in px matches the visible inner content area of the
+						// button (BTN_SIZE - 2 * border - 2 * inset) and pins it to
+						// the top-left of that region, yielding a uniform gap on all
+						// four sides.
+						position       : { top: TORCH_FUEL_INSET, left: TORCH_FUEL_INSET },
+						width          : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						height         : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						flexDirection  : 'column',
+						justifyContent : 'flex-end',
+					}}
+				>
+					<UiEntity
+						key         = "ui_TorchBtn_fuelBar"
+						uiTransform = {{
+							width       : '100%',
+							height      : fuelHeightPx,
+							borderRadius: borderRadius.sm,
+						}}
+						uiBackground = {{ color: fuelColor }}
+					/>
+				</UiEntity>
+			) : null}
+			{/* Torch glyph — centred on top of the fuel fill. */}
+			<UiEntity
+				key         = "ui_TorchBtn_icon"
+				uiTransform = {{ width: TORCH_ICON_PX, height: TORCH_ICON_PX }}
+				uiBackground = {{
+					textureMode: 'stretch',
+					texture    : { src: lit ? 'assets/images/torch.png' : 'assets/images/torch_unlit.png' },
+					color      : iconTint,
+				}}
+			/>
+		</UiEntity>
+	)
+}
+
+// Torch-button visual constants — kept beside the component so the
+// action bar owns its own tuning without importing from the retired
+// hotbar layer.
+const TORCH_ICON_PX          = 40
+// Constant width to avoid the 2 px child-shift bug when toggling
+// borderWidth (see handoff #2). Border is transparent when the torch
+// is unlit; when lit it becomes TORCH_BORDER_ON at full 4 px thickness.
+const TORCH_BORDER_W         = 4
+const TORCH_BORDER_ON        = Color4.create(1, 0.75, 0.35, 0.95)
+// Cool white outline shown when the torch is unlit — keeps the slot
+// visually anchored in the action bar even without the warm glow.
+const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
+// Distance from the outer edge of the button to the fuel-fill rect.
+// Must exceed TORCH_BORDER_W so the fill sits INSIDE the border on
+// every platform — DCL's mobile layout counts absolute-positioned
+// insets from the border box, so a value at or below TORCH_BORDER_W
+// (4 px) leaves the fill flush with / bleeding over the border edge.
+// Must remain > TORCH_BORDER_W so the fill sits inside the border on
+// every platform (see handoff #2 note re: mobile bleed at inset<=border).
+const TORCH_FUEL_INSET       = TORCH_BORDER_W + 2
+const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
 
 
 // MARK: SnowflakeIcon

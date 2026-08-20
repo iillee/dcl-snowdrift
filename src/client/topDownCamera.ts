@@ -29,8 +29,6 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS } from 'src/shared/settings'
 
-import { cycleBrushDown, cycleBrushUp } from 'src/client/brush'
-
 
 // MARK: Tuning
 // Scene center at ground level.
@@ -125,12 +123,11 @@ export function setupTopDownCamera(): void {
 	})
 
 	// Hotkeys:
-	//   E (IA_PRIMARY)   = brush size UP
-	//   F (IA_SECONDARY) = brush size DOWN
-	//   1 (IA_ACTION_3)  = toggle spectator / top-down view
+	//   1 (IA_ACTION_3) = toggle spectator / top-down view
+	//
+	// E (IA_PRIMARY) is claimed by torchInput.ts for light/relight and
+	// must NOT be consumed here. F (IA_SECONDARY) is currently free.
 	engine.addSystem((dt: number) => {
-		if (inputSystem.isTriggered(InputAction.IA_PRIMARY,  PointerEventType.PET_DOWN)) cycleBrushUp()
-		if (inputSystem.isTriggered(InputAction.IA_SECONDARY, PointerEventType.PET_DOWN)) cycleBrushDown()
 		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) toggleTopDownCamera()
 
 		// Pointer up always ends any in-progress desktop drag, regardless

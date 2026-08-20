@@ -30,6 +30,12 @@ export const CAMPFIRE_MELT_RADIUS_M   = CAMPFIRE_MELT_DIAMETER_M / 2
 /** Squared radius — hot loops should compare dx*dx + dz*dz to this. */
 export const CAMPFIRE_MELT_RADIUS_SQ_M = CAMPFIRE_MELT_RADIUS_M * CAMPFIRE_MELT_RADIUS_M
 
+// MARK: Relight radius
+/** Radius (meters) inside which the player can light/relight their torch at the fire. Tighter than the melt ring so relighting requires stepping up to the flames. */
+export const CAMPFIRE_RELIGHT_RADIUS_M    = 3
+/** Squared relight radius for hot-loop distance checks. */
+export const CAMPFIRE_RELIGHT_RADIUS_SQ_M = CAMPFIRE_RELIGHT_RADIUS_M * CAMPFIRE_RELIGHT_RADIUS_M
+
 
 // MARK: Cliff buffer
 /**

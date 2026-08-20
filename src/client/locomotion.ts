@@ -64,7 +64,9 @@ let installed       = false
 
 
 // MARK: applyStageProfile
-/** Push the locomotion profile for `stage` to the player entity. */
+/**
+ * Push the locomotion profile for `stage` to the player.
+ */
 function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
 	if (stage === 0) {
 		// Melted ground: default walk speeds, but run is STILL disabled.

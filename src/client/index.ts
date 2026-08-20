@@ -33,6 +33,8 @@ import { SEED_NETWORK_ID } from 'src/shared/paintGrid'
 import { initAudio } from 'src/client/audio'
 import { initClientHandler } from 'src/client/clientHandler'
 import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
+import { initFrostAccumulation } from 'src/client/frost/accumulation'
+import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
@@ -55,6 +57,8 @@ import { setupProps } from 'src/client/props/spawn'
 // import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupTorch } from 'src/client/torch'
+import { setupTorchInput } from 'src/client/torchInput'
+import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
@@ -151,6 +155,8 @@ export async function setupClient(): Promise<void> {
 	initMazeNet()
 	initPlayerNet()
 	initLocomotionGate()
+	initFrostAccumulation()
+	setupFrostDeath()
 
 	// Register the network boundary LAST so `room.onMessage` subscribers
 	// above are all in place before the first message can arrive.
@@ -194,7 +200,11 @@ export async function setupClient(): Promise<void> {
 	setupSnowfallAudio()
 	setupSnowFootsteps()
 	setupTorch()
+	setupTorchInput()
 
+	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
+	// the mobile action layer renders scene-branded replacements.
+	setupTouchControls()
 	setupUi()
 
 	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior

@@ -110,8 +110,12 @@ function wireOutbound(): void {
 		paintFlushClock += dt
 		if (paintFlushClock < paintInterval) return
 		paintFlushClock = 0
-		const ids = drainPaintOutbox(PAINT_TICK_MAX_IDS)
-		if (ids.length === 0) return
-		room.send('paintTick', { ids })
+		// Drain melt (stage 0) and stomp (stage 1) outboxes separately —
+		// each maps to one paintTick with a coherent targetStage so the
+		// server can apply the right write policy in bulk.
+		const meltIds = drainPaintOutbox(PAINT_TICK_MAX_IDS, 0)
+		if (meltIds.length > 0) room.send('paintTick', { ids: meltIds,  targetStage: 0 })
+		const stompIds = drainPaintOutbox(PAINT_TICK_MAX_IDS, 1)
+		if (stompIds.length > 0) room.send('paintTick', { ids: stompIds, targetStage: 1 })
 	})
 }

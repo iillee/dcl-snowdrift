@@ -1,5 +1,5 @@
 /**
- * campfire.ts — placeholder campfire visual at scene center.
+ * campfire.ts - placeholder campfire visual at scene center.
  *
  * Cosmetic only for now: a single GltfContainer entity, no state, no
  * fuel decay, no light. The real fire (flame scale from fuel, ember
@@ -41,4 +41,9 @@ export function setupCampfire(): void {
 		global      : false,
 		volume      : CAMPFIRE_VOLUME,
 	})
+
+	// Relight is handled entirely by torchInput.ts: press E anywhere
+	// inside the campfire heat ring. Proximity-only — no pointer/aim
+	// required. The old pointerEventsSystem hook on this GLB was
+	// removed because it forced the player to look at the fire.
 }

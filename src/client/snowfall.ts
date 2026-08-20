@@ -66,17 +66,10 @@ type LevelProfile = {
 
 const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 	[PrecipitationLevel.CLEAR ]: null,
+	// Shifted up one step: what used to be MEDIUM is now the baseline
+	// LIGHT, old HEAVY becomes MEDIUM, and HEAVY is a new true-whiteout
+	// tier above anything we had before.
 	[PrecipitationLevel.LIGHT ]: {
-		rate       : 120,
-		lifetime   : 30,
-		gravityMult: 0.03,
-		speedMin   : 0.6,
-		speedMax   : 1.2,
-		sizeMin    : 0.05,
-		sizeMax    : 0.12,
-		alphaBirth : 0.9,
-	},
-	[PrecipitationLevel.MEDIUM]: {
 		rate       : 280,
 		lifetime   : 22,
 		gravityMult: 0.08,
@@ -86,11 +79,7 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		sizeMax    : 0.18,
 		alphaBirth : 0.95,
 	},
-	[PrecipitationLevel.HEAVY ]: {
-		// Engine caps rendered particles at ~1000, so density is pushed
-		// via BIG flakes + short lifetime (more churn through the cap)
-		// + high alpha rather than raw rate alone. Result reads as a
-		// whiteout: enough screen coverage to genuinely hurt visibility.
+	[PrecipitationLevel.MEDIUM]: {
 		rate       : 1200,
 		lifetime   : 12,
 		gravityMult: 0.28,
@@ -98,6 +87,21 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		speedMax   : 3.6,
 		sizeMin    : 0.28,
 		sizeMax    : 0.55,
+		alphaBirth : 1.0,
+	},
+	[PrecipitationLevel.HEAVY ]: {
+		// True whiteout tier. Rate + size pushed past the old HEAVY, and
+		// lifetime dropped further so more flakes churn through the
+		// ~1000-particle engine cap per second — the net effect is more
+		// screen coverage, not fewer visible flakes. Fall speed cranked
+		// so the storm feels driven, not floaty.
+		rate       : 2200,
+		lifetime   : 8,
+		gravityMult: 0.45,
+		speedMin   : 3.6,
+		speedMax   : 5.2,
+		sizeMin    : 0.42,
+		sizeMax    : 0.80,
 		alphaBirth : 1.0,
 	},
 }

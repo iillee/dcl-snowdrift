@@ -188,7 +188,7 @@ export async function setupServer(): Promise<void> {
 	// Paint ingest — client-authored cell ids, attributed to sender's team.
 	// Server writes palette indexes into per-cell PaintCell CRDT; clients
 	// observe via sync. If sender hasn't joined the roster yet, drop silently.
-	room.onMessage('paintTick', ({ ids }, context) => {
+	room.onMessage('paintTick', ({ ids, targetStage }, context) => {
 		const from = context?.from
 		if (!from) return
 		const team = getTeam(from)
@@ -201,9 +201,13 @@ export async function setupServer(): Promise<void> {
 			console.log(`[Server] paintTick from ${from} dropped: ${ids.length} ids > cap ${PAINT_TICK_MAX_IDS}`)
 			return
 		}
+		// Clamp targetStage defensively — only 0 (melt) and 1 (stomp) are
+		// valid; anything else falls back to full melt to preserve legacy
+		// message behavior.
+		const stage: 0 | 1 = targetStage === 1 ? 1 : 0
 		let gained = 0
 		for (const id of ids) {
-			if (applyPaint(id, team)) gained++
+			if (applyPaint(id, team, stage)) gained++
 		}
 		paintTicks++
 		paintIdsIn   += ids.length

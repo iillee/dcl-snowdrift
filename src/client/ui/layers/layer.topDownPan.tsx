@@ -40,8 +40,10 @@ const GOLD     = Color4.create(1.0, 0.84, 0.0, 1)
 // (menu) client HUD zones.
 const DPAD_BTN         = 72
 const DPAD_GAP         = 8
-const DPAD_MARGIN_RIGHT = 32
-const DPAD_MARGIN_BOTTOM = 360  // above the native mobile action buttons
+// Nudged in from the right edge so the d-pad clears the native
+// mobile jump/interaction cluster in the bottom-right corner.
+const DPAD_MARGIN_RIGHT = 96
+const DPAD_MARGIN_BOTTOM = 440  // above the native mobile action buttons
 
 // Vertical inset at the top of the drag catcher so it never covers the
 // top-center action bar (see layer.brushSize.tsx: top margin 32 + 72 px

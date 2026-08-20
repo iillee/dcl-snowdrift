@@ -17,8 +17,14 @@
  * they inherit the hand transform automatically.
  */
 
-import { AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer, Transform, engine } from '@dcl/sdk/ecs'
-import { Quaternion, Vector3 } from '@dcl/sdk/math'
+import {
+	AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer,
+	Material, MeshRenderer, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState,
+	PBParticleSystem_SimulationSpace, ParticleSystem, Transform, VisibilityComponent, engine,
+} from '@dcl/sdk/ecs'
+import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+
+import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
 
 
 // MARK: Tuning
@@ -41,9 +47,63 @@ const TORCH_OFFSET  = Vector3.create(0.04, 0.12, 0.10)
 const TORCH_ROTATION = Quaternion.fromEulerDegrees(90, -30, 90)
 
 
+// MARK: Flame + fuel-bar tuning
+// Both entities are parented to the AvatarAttach ANCHOR (the right
+// hand) — clean, un-rotated local axes so nudging positions is
+// intuitive: +X = out from the palm, +Y = up along the arm, +Z = forward
+// past the fingers. The torch base sits at TORCH_OFFSET; the visible
+// tip is somewhere above/forward of it after the shaft rotation.
+// Adjust FLAME_LOCAL_POS by watching the preview and reporting where
+// the sphere lands relative to the visible torch tip.
+const FLAME_LOCAL_POS  = Vector3.create(-0.11, 0.10, 0.28)
+// Flame-shrink tuning. The flame orb starts at FLAME_SIZE_MAX (full
+// fuel) and lerps down to FLAME_SIZE_MIN (empty). The shaft itself
+// stays a constant size — only the flame reads fuel remaining.
+const FLAME_SIZE_MAX   = 0.20
+const FLAME_SIZE_MIN   = 0.06
+// Base scale — replaced per-frame by the fuel-driven interpolation.
+const FLAME_SIZE       = Vector3.create(FLAME_SIZE_MAX, FLAME_SIZE_MAX, FLAME_SIZE_MAX)
+const FLAME_COLOR_HOT  = Color4.create(1.00, 0.55, 0.15, 1)
+const FLAME_EMISSIVE   = 4.0
+
+// MARK: Smoke tuning
+// Tiny smoke plume rising from the torch tip. Sized well below the
+// campfire's plume — a wisp, not a column — and parented to the same
+// right-hand anchor as the flame so it tracks the hand for free.
+// Toggled on/off via ParticleSystem.playbackState in the fuel system.
+const SMOKE_LOCAL_POS         = Vector3.create(-0.11, 0.20, 0.28)
+const SMOKE_CONE_ANGLE_DEG    = 16
+const SMOKE_CONE_RADIUS_M     = 0.05
+const SMOKE_RATE_PER_S        = 40
+const SMOKE_MAX_PARTICLES     = 160
+const SMOKE_LIFETIME_S        = 1.8
+const SMOKE_GRAVITY_MULT      = -0.18
+const SMOKE_SPEED_MIN         = 0.35
+const SMOKE_SPEED_MAX         = 0.65
+const SMOKE_WIND              = Vector3.create(0.08, 0, 0.03)
+const SMOKE_SIZE_START_MIN    = 0.15
+const SMOKE_SIZE_START_MAX    = 0.22
+const SMOKE_SIZE_END_MIN      = 0.50
+const SMOKE_SIZE_END_MAX      = 0.72
+
+
 // MARK: State
 let installed  = false
-let torchTip: Entity = 0 as Entity
+let torchTip:  Entity = 0 as Entity
+let flame:     Entity = 0 as Entity
+let smoke:     Entity = 0 as Entity
+
+// MARK: isTorchProtecting
+/**
+ * Whether the held torch is actively halting the baseline frost drop.
+ * Read by src/client/frost/accumulation.ts each poll. Torch protection
+ * requires the entity to be installed AND the flame lit — an
+ * unlit / burnt-out torch offers no warmth. Independent of campfire
+ * proximity: the fire always trumps and thaws regardless.
+ */
+export function isTorchProtecting(): boolean {
+	return installed && isTorchLit()
+}
 
 
 // MARK: setupTorch
@@ -87,7 +147,99 @@ export function setupTorch(): void {
 		invisibleMeshesCollisionMask: 0,
 	})
 
-	console.log('torch: setupTorch: attached to right hand')
+	// Layer 3: Flame — small emissive sphere at the torch tip. Parented
+	// to the ANCHOR (right hand) so its local axes are un-rotated and
+	// nudging offsets is straightforward.
+	flame = engine.addEntity()
+	Transform.create(flame, {
+		parent  : anchor,
+		position: FLAME_LOCAL_POS,
+		scale   : FLAME_SIZE,
+	})
+	MeshRenderer.setSphere(flame)
+	Material.setPbrMaterial(flame, {
+		albedoColor       : FLAME_COLOR_HOT,
+		emissiveColor     : FLAME_COLOR_HOT,
+		emissiveIntensity : FLAME_EMISSIVE,
+		roughness         : 1.0,
+	})
+	// Hidden until the fuel-tracker system flips it on next frame.
+	VisibilityComponent.create(flame, { visible: false })
+
+	// Layer 4: Smoke wisp — tiny upward cone parented to the ANCHOR so
+	// it tracks the right hand automatically. Starts stopped; the
+	// fuel-tracker system below toggles playbackState with lit state.
+	smoke = engine.addEntity()
+	Transform.create(smoke, {
+		parent  : anchor,
+		position: SMOKE_LOCAL_POS,
+		rotation: Quaternion.Identity(),
+	})
+	ParticleSystem.create(smoke, {
+		shape                : ParticleSystem.Shape.Cone({
+			angle : SMOKE_CONE_ANGLE_DEG,
+			radius: SMOKE_CONE_RADIUS_M,
+		}),
+		rate                 : SMOKE_RATE_PER_S,
+		maxParticles         : SMOKE_MAX_PARTICLES,
+		lifetime             : SMOKE_LIFETIME_S,
+		gravity              : SMOKE_GRAVITY_MULT,
+		initialVelocitySpeed : { start: SMOKE_SPEED_MIN, end: SMOKE_SPEED_MAX },
+		additionalForce      : SMOKE_WIND,
+		initialSize          : { start: SMOKE_SIZE_START_MIN, end: SMOKE_SIZE_START_MAX },
+		sizeOverTime         : { start: SMOKE_SIZE_END_MIN,   end: SMOKE_SIZE_END_MAX },
+		initialColor         : {
+			start: Color4.create(0.55, 0.54, 0.52, 0.85),
+			end  : Color4.create(0.62, 0.61, 0.59, 0.80),
+		},
+		colorOverTime        : {
+			start: Color4.create(0.75, 0.75, 0.75, 0.65),
+			end  : Color4.create(0.90, 0.90, 0.92, 0.0),
+		},
+		blendMode            : PBParticleSystem_BlendMode.PSB_ALPHA,
+		billboard            : true,
+		loop                 : true,
+		prewarm              : false,
+		// World-space simulation: the emitter rides the hand, but each
+		// spawned particle is frozen into world position at birth. So
+		// when the avatar swings their arm the plume trails naturally
+		// instead of the whole cloud whipping around with the wrist.
+		simulationSpace      : PBParticleSystem_SimulationSpace.PSS_WORLD,
+		// Start PLAYING; the per-frame system below will stop it on the
+		// first tick if the torch isn't lit. Some SDK builds ignore a
+		// PS_STOPPED initial state and never accept a later PS_PLAYING
+		// toggle — booting into PLAYING dodges that.
+		playbackState        : PBParticleSystem_PlaybackState.PS_PLAYING,
+	})
+
+	// Per-frame updater: toggle flame visibility + smoke playback on
+	// lit, shrink the flame orb in proportion to remaining fuel. Shaft
+	// stays constant.
+	engine.addSystem(() => {
+		const lit  = isTorchLit()
+		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
+
+		const vis = VisibilityComponent.getMutableOrNull(flame)
+		if (vis !== null && vis.visible !== lit) vis.visible = lit
+
+		const ps = ParticleSystem.getMutableOrNull(smoke)
+		if (ps !== null) {
+			const desired = lit
+				? PBParticleSystem_PlaybackState.PS_PLAYING
+				: PBParticleSystem_PlaybackState.PS_STOPPED
+			if (ps.playbackState !== desired) ps.playbackState = desired
+		}
+
+		const flameT = Transform.getMutableOrNull(flame)
+		if (flameT !== null) {
+			const s = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
+			flameT.scale.x = s
+			flameT.scale.y = s
+			flameT.scale.z = s
+		}
+	})
+
+	console.log('torch: setupTorch: attached to right hand, shrinking flame mounted')
 }
 
 

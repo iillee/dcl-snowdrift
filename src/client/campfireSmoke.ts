@@ -79,14 +79,15 @@ export function setupCampfireSmoke(): void {
 		initialSize          : { start: SIZE_START_MIN, end: SIZE_START_MAX },
 		sizeOverTime         : { start: SIZE_END_MIN,   end: SIZE_END_MAX },
 		initialColor         : {
-			// Warm-ish dark grey close to the fire — reads as sooty smoke.
-			start: Color4.create(0.35, 0.33, 0.30, 0.75),
-			end  : Color4.create(0.45, 0.43, 0.40, 0.65),
+			// Light warm grey close to the fire — reads as sooty smoke
+			// without going near-black against the winter sky.
+			start: Color4.create(0.60, 0.58, 0.55, 0.70),
+			end  : Color4.create(0.68, 0.66, 0.63, 0.60),
 		},
 		colorOverTime        : {
 			// Cool + fade as smoke thins into the sky.
-			start: Color4.create(0.55, 0.55, 0.55, 0.55),
-			end  : Color4.create(0.75, 0.75, 0.78, 0.0),
+			start: Color4.create(0.78, 0.78, 0.78, 0.50),
+			end  : Color4.create(0.90, 0.90, 0.92, 0.0),
 		},
 		blendMode            : PBParticleSystem_BlendMode.PSB_ALPHA,
 		billboard            : true,

@@ -71,7 +71,7 @@ export const PROP_CATALOG: PropDef[] = [
 		scale                : 6,
 		yOffset              : 0,
 		reserves             : false,
-		count                : 6,
+		count                : 3,
 		minCellsFromCampfire : 3,
 		randomYaw            : true,
 		scaleJitter          : 1 / 3,

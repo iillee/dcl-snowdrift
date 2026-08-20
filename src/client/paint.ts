@@ -49,6 +49,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
+import { isTorchLit }    from 'src/client/torchEquip'
 import { registerTile, unregisterTile, consumeReseedRequests, setTileHasPaint } from 'src/client/paintStreaming'
 
 // Team enum lives in shared/; re-exported for existing `import { Team } from 'src/client/paint'` call sites.
@@ -577,7 +578,8 @@ function removeFarPlaneForTile(tileEntity: Entity): void {
 export function clearAllPaintState() {
 	cellApplied.clear()
 	renderedIndex.clear()
-	paintOutbox.clear()
+	paintOutboxMelt.clear()
+	paintOutboxStomp.clear()
 }
 
 /**
@@ -634,22 +636,28 @@ export function resetPaintForTile(tileEntity: Entity) {
 }
 
 // MARK: Network outbox
-// Cell ids to send as paintTick commands. Not paint state — just the
-// client→server request queue, drained at PAINT_TICK_HZ after roster join.
-const paintOutbox = new Set<string>()
+// Two separate outboxes, one per targetStage. Melt (0) is the lit-torch /
+// campfire path; stomp (1) is the unlit-walk path. Drained independently
+// so each maps to a single paintTick message with a coherent targetStage.
+const paintOutboxMelt  = new Set<string>()
+const paintOutboxStomp = new Set<string>()
 
 
 // MARK: drainPaintOutbox
 
-/** Drain up to `max` pending cell ids for one paintTick. */
-export function drainPaintOutbox(max: number): string[] {
-	if (paintOutbox.size === 0) return []
+/**
+ * Drain up to `max` pending cell ids for one paintTick at the given
+ * targetStage. Callers should drain both stages per flush interval.
+ */
+export function drainPaintOutbox(max: number, targetStage: 0 | 1 = 0): string[] {
+	const box = targetStage === 1 ? paintOutboxStomp : paintOutboxMelt
+	if (box.size === 0) return []
 	const out: string[] = []
-	for (const id of paintOutbox) {
+	for (const id of box) {
 		out.push(id)
 		if (out.length >= max) break
 	}
-	for (const id of out) paintOutbox.delete(id)
+	for (const id of out) box.delete(id)
 	return out
 }
 
@@ -659,11 +667,49 @@ export function drainPaintOutbox(max: number): string[] {
 /**
  * Queue a cell id for paintTick and, once rostered, paint the mesh
  * immediately so the brush stays under the avatar.
+ *
+ * targetStage=0 (default) is a full melt — optimistic local paint runs
+ * so the brush snaps under the avatar without waiting for the server.
+ *
+ * targetStage=1 is a stomp: server only demotes cells at stage 2 or
+ * PALETTE_NONE (pristine), leaving stage 0/1 untouched. We mirror
+ * that skip locally so we don't enqueue no-ops, and run an
+ * optimistic local stage-1 tween (advanceSnowFillStage) so the
+ * stomp reads instantly under the avatar instead of lagging by the
+ * server round-trip. cellApplied is patched to {index=team, stage=1}
+ * so subsequent brush passes in the same frame don't re-fire, and
+ * the server-echoed CRDT is a no-op reconcile in the steady case.
  */
-export function enqueuePaintCandidate(id: string): void {
+export function enqueuePaintCandidate(id: string, targetStage: 0 | 1 = 0): void {
 	// Drop ids the server cannot pack (e.g. ramp rows outside 0..SIZE-1).
-	if (cellIdToKey(id) === null) return
-	paintOutbox.add(id)
+	const key = cellIdToKey(id)
+	if (key === null) return
+
+	if (targetStage === 1) {
+		// Client-side gate mirrors the server rule: stage 0 or 1 is a no-op.
+		const appliedStage = cellApplied.get(key)?.stage ?? 0
+		const indexHere    = cellApplied.get(key)?.index ?? PALETTE_NONE
+		// PALETTE_NONE means pristine snow (rendered as stage 3) — stomp
+		// is valid. Otherwise gate on the applied stage.
+		if (indexHere !== PALETTE_NONE && appliedStage < 2) return
+		paintOutboxStomp.add(id)
+
+		// Optimistic local render: tween the cube down to stage-1 height
+		// immediately. Only if we have a team assigned (needed for the
+		// stored index in cellApplied); pre-roster stomps just wait for
+		// the server echo.
+		if (localTeam === Team.None) return
+		const index = teamPaletteIndex(localTeam)
+		const data  = cellData.get(id)
+		if (data && data.kind === 'cube') {
+			advanceSnowFillStage(id, 1)
+			cellApplied.set(key, { index, stage: 1 })
+			renderedIndex.set(id, index)
+		}
+		return
+	}
+
+	paintOutboxMelt.add(id)
 	if (localTeam === Team.None) return
 	const index = teamPaletteIndex(localTeam)
 	const data  = cellData.get(id)
@@ -672,8 +718,7 @@ export function enqueuePaintCandidate(id: string): void {
 	// still matches locally so the fast path below would no-op and leave
 	// the half-grown cube standing. Force a fresh drop-down tween back to
 	// flat; the server will echo stage=0 shortly after via paintTick.
-	const key = cellIdToKey(id)
-	const appliedStage = key !== null ? cellApplied.get(key)?.stage ?? 0 : 0
+	const appliedStage = cellApplied.get(key)?.stage ?? 0
 	if (data && data.kind === 'cube' && appliedStage >= 1 && renderedIndex.get(id) === index) {
 		applyPaintIndex(id, index, true)
 		return
@@ -1252,11 +1297,13 @@ export function initPaintingSystem(
 				// ring pattern inflated the visual footprint dramatically
 				// (e.g. brush=3 painted a 5x5 ring = 25 cells).
 				const half = Math.floor(brushCells / 2)
+				// Lit torch = full melt (stage 0), unlit = stomp to stage 1.
+				const brushTargetStage: 0 | 1 = isTorchLit() ? 0 : 1
 				for (let dz = -half; dz <= half; dz++) for (let dx = -half; dx <= half; dx++) {
 					const hit = worldToCellId(sx + dx * step, y, sz + dz * step, CELL, STEP, lookupTile)
 					if (!hit) continue
 					if (Math.abs(y - hit.groundY) > 1.5) continue
-					enqueuePaintCandidate(hit.id)
+					enqueuePaintCandidate(hit.id, brushTargetStage)
 					newLifted.add(hit.id)
 				}
 			}
