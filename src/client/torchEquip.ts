@@ -22,13 +22,16 @@
  * ~2 m/s in snow, 90s = round-trip radius of roughly 60-80 m before
  * the flame dies. Tune based on playtest.
  */
-export const TORCH_FUEL_MAX_S = 90
+export const TORCH_FUEL_MAX_S = 45
 
 
 // MARK: State
 let equipped = true
 let raised   = false
-let lit      = true
+// Torch starts UNLIT on scene load. Player must walk to the campfire
+// and press E to light it. Same rule on respawn (see frost/death.ts) —
+// waking up next to the fire is the invitation to relight, not a freebie.
+let lit      = false
 let fuel     = TORCH_FUEL_MAX_S
 
 

@@ -108,6 +108,19 @@ export function initFrostAccumulation(): void {
 }
 
 
+// MARK: resetFrostLocal
+/**
+ * Zero the local accumulator AND the synced component. Called by the
+ * death FSM on wake so the player doesn't immediately re-freeze from
+ * the same 100% value the accumulator still holds internally.
+ */
+export function resetFrostLocal(): void {
+	frost            = 0
+	lastWrittenFrost = 0
+	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
+}
+
+
 // MARK: getFrostLocal
 /**
  * Read the local accumulator directly. Faster than a CRDT round-trip

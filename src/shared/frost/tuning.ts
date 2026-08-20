@@ -25,7 +25,7 @@ export const FROST_MAX = 100
  * this contribution goes to zero and only the snow-depth term (below)
  * can freeze the player.
  */
-export const FROST_TIME_BASELINE_S = 300 // 5 min from baseline alone
+export const FROST_TIME_BASELINE_S = 30 // 30s from baseline alone — punishing to make the torch a hard dependency
 
 
 // MARK: Snow-depth contribution

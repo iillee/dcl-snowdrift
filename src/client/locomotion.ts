@@ -19,6 +19,7 @@
 import { engine, AvatarLocomotionSettings, InputModifier, Transform } from '@dcl/sdk/ecs'
 
 import { getSnowStageAtWorld } from 'src/client/paint'
+import { isTorchLit } from 'src/client/torchEquip'
 import {
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_PLAYFIELD_METERS,
@@ -54,18 +55,31 @@ const SNOW_WALK_SPEED: Record<1 | 2 | 3, number> = {
 	3: 1.0,  // full snow: slow trudge, not molasses
 }
 
+// Multiplier on snow-stage walk speed when the player is in snow WITHOUT
+// a lit torch. Adds bite to the relight loop — losing the torch mid-
+// venture makes the walk home noticeably heavier. Kept modest so it
+// reads as drag, not paralysis. 1.0 = no penalty.
+const UNLIT_SNOW_SPEED_MULT = 0.65
+
 
 // MARK: State
 let pollAccum       = 0
 let currentStage:  0 | 1 | 2 | 3 = 0
 let candidateStage: 0 | 1 | 2 | 3 = 0
 let candidatePolls = 0
+// Torch-lit is tracked alongside stage so the profile updates the moment
+// the torch is lit/extinguished, without waiting for a stage change.
+let currentLit      = false
 let installed       = false
 
 
 // MARK: applyStageProfile
-/** Push the locomotion profile for `stage` to the player entity. */
-function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
+/**
+ * Push the locomotion profile for `stage` + torch state to the player.
+ * Torch-lit is a soft speed multiplier on the snow-stage walk speed;
+ * stage 0 (melted) is unaffected either way.
+ */
+function applyStageProfile(stage: 0 | 1 | 2 | 3, torchLit: boolean): void {
 	if (stage === 0) {
 		// Melted ground: default walk speeds, but run is STILL disabled.
 		// This is a snow world — even melted paths are wet/icy underfoot,
@@ -85,7 +99,8 @@ function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
 	// behavior does not sneak past the walk cap), and set walk to the
 	// stage's dragged speed. Stages 2 and 3 (mid + full snow) also
 	// disable jump — you cannot hop out of deep drifts.
-	const walk        = SNOW_WALK_SPEED[stage]
+	const baseWalk    = SNOW_WALK_SPEED[stage]
+	const walk        = torchLit ? baseWalk : baseWalk * UNLIT_SNOW_SPEED_MULT
 	const disableJump = stage >= 2
 	InputModifier.createOrReplace(engine.PlayerEntity, {
 		mode: InputModifier.Mode.Standard({ disableRun: true, disableJump }),
@@ -112,7 +127,8 @@ export function initLocomotionGate(): void {
 	installed = true
 
 	// Start assuming melted ground; the first poll corrects us within ~150 ms.
-	applyStageProfile(0)
+	currentLit = isTorchLit()
+	applyStageProfile(0, currentLit)
 
 	engine.addSystem((dt: number) => {
 		pollAccum += dt
@@ -131,22 +147,34 @@ export function initLocomotionGate(): void {
 			z >= PLAYFIELD_MIN_Z && z < PLAYFIELD_MAX_Z
 		const observed = insidePlayfield ? getSnowStageAtWorld(x, y, z) : 0
 
+		// Torch state has no hysteresis — it only flips on discrete E-press
+		// / burnout events, so any change is real. Push the profile as soon
+		// as we notice, regardless of what the snow stage is doing.
+		const lit        = isTorchLit()
+		const litChanged = lit !== currentLit
+		if (litChanged) currentLit = lit
+
 		if (observed === currentStage) {
 			candidatePolls = 0
+			if (litChanged) applyStageProfile(currentStage, currentLit)
 			return
 		}
 
 		if (observed !== candidateStage) {
 			candidateStage = observed
 			candidatePolls = 1
+			if (litChanged) applyStageProfile(currentStage, currentLit)
 			return
 		}
 
 		candidatePolls++
-		if (candidatePolls < FLIP_HYSTERESIS) return
+		if (candidatePolls < FLIP_HYSTERESIS) {
+			if (litChanged) applyStageProfile(currentStage, currentLit)
+			return
+		}
 
 		currentStage   = observed
 		candidatePolls = 0
-		applyStageProfile(currentStage)
+		applyStageProfile(currentStage, currentLit)
 	})
 }
