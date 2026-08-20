@@ -175,7 +175,9 @@ class FrostBarLayer extends Layer {
 		// of segment height so it reads clearly without crowding the pill
 		// edges, and only rendered when the warm panel is wide enough to
 		// contain it (otherwise it would overflow into the cold half).
-		const flameSize     = Math.round(segSize * 0.6)
+		// 0.9 of a segment (previously 0.6) — flame reads as the dominant
+		// warm icon inside the bar rather than a small centered dot.
+		const flameSize     = Math.round(segSize * 0.9)
 		const showFlameIcon = warmW >= flameSize + 4
 
 		const segments = []

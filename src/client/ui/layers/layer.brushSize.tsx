@@ -29,7 +29,10 @@ const { colors, fontSizes, borderRadius } = UI_THEME
 
 const WHITE     = Color4.White()
 const DIM       = Color4.create(1, 1, 1, 0.35)
-const GOLD      = Color4.create(1.0, 0.84, 0.0, 1)
+// Matches COL_WARM in layer.frostBar.tsx so every warm accent
+// (button borders, active icons, torch fuel meter) reads as the
+// same colour language as the heat bar.
+const GOLD      = Color4.create(1.00, 0.80, 0.30, 1)
 const ICE_BLUE  = Color4.create(0.65, 0.85, 1.0, 1)
 const DEEP_BLUE = Color4.create(0.40, 0.65, 1.0, 1)
 const PANEL_BG  = colors.statsBg
@@ -409,7 +412,7 @@ const TORCH_ICON_PX          = 40
 // borderWidth (see handoff #2). Border is transparent when the torch
 // is unlit; when lit it becomes TORCH_BORDER_ON at full 4 px thickness.
 const TORCH_BORDER_W         = 4
-const TORCH_BORDER_ON        = Color4.create(1, 0.75, 0.35, 0.95)
+const TORCH_BORDER_ON        = Color4.create(1.00, 0.80, 0.30, 0.95)
 // Cool white outline shown when the torch is unlit — keeps the slot
 // visually anchored in the action bar even without the warm glow.
 const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
@@ -421,7 +424,10 @@ const TORCH_BORDER_OFF       = Color4.create(1, 1, 1, 0.75)
 // Must remain > TORCH_BORDER_W so the fill sits inside the border on
 // every platform (see handoff #2 note re: mobile bleed at inset<=border).
 const TORCH_FUEL_INSET       = TORCH_BORDER_W + 2
-const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.75, 0.30, 0.55)
+// Matches GOLD / COL_WARM RGB for a unified warm accent language;
+// alpha kept low so the fuel fill reads as a translucent drain
+// rather than a solid panel behind the icon.
+const TORCH_FUEL_COLOR_FULL  = Color4.create(1.00, 0.80, 0.30, 0.55)
 
 
 // MARK: SnowflakeIcon

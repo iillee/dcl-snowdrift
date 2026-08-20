@@ -17,7 +17,8 @@ import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 const { colors, borderRadius } = UI_THEME
 
 // Muted gold, matches flagtag's active-icon tint.
-const GOLD  = Color4.create(1.0, 0.84, 0.0, 1)
+// Matches COL_WARM in layer.frostBar.tsx so warm accents are unified.
+const GOLD  = Color4.create(1.00, 0.80, 0.30, 1)
 const WHITE = Color4.White()
 
 // Horizontal 2 rows x 4 cols parcel-grid icon.
