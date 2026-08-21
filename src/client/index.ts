@@ -42,6 +42,7 @@ import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
 import {
@@ -194,6 +195,9 @@ export async function setupClient(): Promise<void> {
 	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
+	// Second, buried campfire the player has to find + light with a
+	// torch. Deterministic position per 24 h cycle; no server sync yet.
+	setupHiddenCampfire()
 	setupSnowfall()
 	// Audio requires initAudio() to have already run (camera entity is
 	// used as the parent). initAudio is called upstream in setupClient.
