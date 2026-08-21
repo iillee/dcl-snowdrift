@@ -4,6 +4,10 @@ dist/
 .parcel-cache/
 *.log
 
+# Secrets (Discord webhooks, API keys, etc.) — loaded via @dcl/sdk/server EnvVar
+.env
+.env.*
+
 # Agent skill packs (installed by tooling, not part of the scene)
 .claude/
 agent/

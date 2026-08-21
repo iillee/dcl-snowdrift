@@ -98,6 +98,11 @@ class RelightPromptLayer extends Layer {
 	body() {
 		if (!shouldShowPrompt()) return <UiEntity key="ui_RelightPrompt_hidden" uiTransform={{ display: 'none' }} />
 
+		// Mobile uses a 2x scale on every intrinsic size (chip, icon, label
+		// height, padding, font) so the tooltip reads at arm's length on a
+		// phone screen. Desktop values are unchanged.
+		const S = isMobile() ? 2 : 1
+
 		return (
 			<UiEntity
 				key         = "ui_RelightPrompt_root"
@@ -109,10 +114,12 @@ class RelightPromptLayer extends Layer {
 					// eye-line while the player is running toward the fire,
 					// not tucked down by the hotbar where it competes with
 					// the frost bar.
-					margin      : { bottom: isMobile() ? 200 : 720 },
+					// On mobile, shift right so the prompt clears the player
+					// avatar silhouette (centred on screen) and doesn't overlap it.
+					margin      : { bottom: isMobile() ? 200 : 720, left: isMobile() ? 320 : 0 },
 					flexDirection: 'row',
 					alignItems  : 'center',
-					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
+					padding     : { top: 8 * S, bottom: 8 * S, left: 12 * S, right: 14 * S },
 					borderRadius: borderRadius.sm,
 				}}
 				uiBackground = {{ color: BG }}
@@ -129,9 +136,9 @@ class RelightPromptLayer extends Layer {
 				<UiEntity
 					key         = "ui_RelightPrompt_key"
 					uiTransform = {{
-						width        : 26,
-						height       : 26,
-						margin       : { right: 10 },
+						width        : 26 * S,
+						height       : 26 * S,
+						margin       : { right: 10 * S },
 						borderRadius : borderRadius.sm,
 						justifyContent: 'center',
 						alignItems   : 'center',
@@ -142,11 +149,11 @@ class RelightPromptLayer extends Layer {
 						/* Mobile: swap the `E` key glyph for the click-hand
 						   icon so the affordance matches the DCL native
 						   pointer button the player actually taps. Sized to
-						   fit inside the 26x26 chip with a small inset so
-						   the glyph sits centred against the amber ground. */
+						   fit inside the chip (2x on mobile) with a small
+						   inset so the glyph sits centred on the amber ground. */
 						<UiEntity
 							key = "ui_RelightPrompt_handIcon"
-							uiTransform = {{ width: 20, height: 20 }}
+							uiTransform = {{ width: 20 * S, height: 20 * S }}
 							uiBackground = {{
 								textureMode: 'stretch',
 								texture    : { src: ATLAS_SRC },
@@ -175,10 +182,10 @@ class RelightPromptLayer extends Layer {
 				</UiEntity>
 				<UiEntity
 					key         = "ui_RelightPrompt_label"
-					uiTransform = {{ width: 'auto', height: 26 }}
+					uiTransform = {{ width: 'auto', height: 26 * S }}
 					uiText      = {{
 						value    : 'Light torch',
-						fontSize : fontSizes.md,
+						fontSize : fontSizes.md * S,
 						color    : FG,
 						textAlign: 'middle-left',
 					}}

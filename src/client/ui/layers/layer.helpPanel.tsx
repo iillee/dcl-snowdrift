@@ -19,6 +19,7 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { msUntilNextRebuild } from 'src/client/cycle'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import { UI_THEME } from 'src/client/ui/theme/settings'
@@ -44,6 +45,18 @@ const GAP_BELOW_BAR_PX = 16
 
 const PANEL_W = 440
 const PANEL_H = 92
+
+
+// MARK: formatCountdown
+/** Format a positive ms duration as `HH:MM:SS`. Mirrors layer.cyclePanel. */
+function formatCountdown(ms: number): string {
+	const total = Math.max(0, Math.floor(ms / 1000))
+	const h     = Math.floor(total / 3600)
+	const m     = Math.floor((total % 3600) / 60)
+	const s     = total % 60
+	const pad   = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+	return `${pad(h)}:${pad(m)}:${pad(s)}`
+}
 
 // One central bonfire is always lit from cycle start; the three hidden
 // ones toggle as players ignite them. Total = 1 + HIDDEN_CAMPFIRE_COUNT.
@@ -87,26 +100,27 @@ class HelpPanelLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
+				{/* Line 1 — objective + progress. Central bonfire counts as 1
+				   (always lit at cycle start); hidden ones tick up as they're
+				   ignited. Reads from getHiddenCampfireWarmthPositions().length
+				   so it stays in lockstep with the frost-warmth signal. */}
 				<Label
-					value    = "Find and light the hidden campfires"
-					fontSize = {fontSizes.lg}
+					value    = {`Find and light the hidden campfires: <b><color=#ffcc4d>${1 + getHiddenCampfireWarmthPositions().length}/${TOTAL_CAMPFIRES}</color></b>`}
+					fontSize = {20}
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 28, margin: { bottom: 4 } }}
+					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
 				/>
-				{/* Progress line — central bonfire counts as 1 (always lit at
-				   cycle start), hidden ones tick up as they're ignited. Reads
-				   from getHiddenCampfireWarmthPositions().length so it stays in
-				   lockstep with the frost-warmth signal instead of maintaining
-				   its own count. */}
+				{/* Line 2 — mirrors the ClockButton countdown (msUntilNextRebuild
+				   is the shared source of truth for the 24 h UTC rollover). */}
 				<Label
-					value    = {`Campfires lit: ${1 + getHiddenCampfireWarmthPositions().length}/${TOTAL_CAMPFIRES}`}
-					fontSize = {fontSizes.lg}
+					value    = {`World rebuilds in <b><color=#ffcc4d>${formatCountdown(msUntilNextRebuild())}</color></b>`}
+					fontSize = {20}
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 28 }}
+					uiTransform = {{ width: '100%', height: 26 }}
 				/>
 			</UiEntity>
 		)

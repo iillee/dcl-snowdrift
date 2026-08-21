@@ -77,7 +77,10 @@ const SMOKE_LIFETIME_S      = 4.5
 // language as flagtag's flag beacon (inner + outer plane, pulsing
 // scale, emissive gold), reusing the shared beacon-gradient /
 // beacon-alpha textures already shipped in assets/images/.
-const BEACON_ENABLED       = true
+// Hidden pits are now discovered by exploration alone — the locator
+// beacons made the search trivial once you knew what they looked like.
+// Flip back to true if we ever want to reintroduce a hint mode.
+const BEACON_ENABLED       = false
 const BEACON_GRADIENT_TEX  = 'assets/images/beacon-gradient.png'
 const BEACON_ALPHA_TEX     = 'assets/images/beacon-alpha.png'
 const BEACON_HEIGHT_M      = 110
@@ -446,6 +449,22 @@ export function getHiddenCampfireWarmthPositions(): { x: number; z: number }[] {
  */
 function handleCycleSeedChange(newSeed: number): void {
 	const oldSeed = currentSeed
+	// Hydration path: cycle.ts fires onCycleSeedChange unconditionally on
+	// the FIRST cycleState arrival, even when the server's seed matches
+	// the local Date.now()-derived seed we already booted with. In that
+	// case setupHiddenCampfire has already spawned the pits at the right
+	// positions and hiddenCampfireState broadcasts may have already lit
+	// some of them. Wiping here would strip those lit visuals (flame,
+	// audio, smoke) and respawn the beacons, leaving the player looking
+	// at unlit pits with permanent melted-frost rings and no re-broadcast
+	// coming from the server (nothing changed on its end).
+	if (newSeed === oldSeed) {
+		console.log(
+			`hiddenCampfire: cycle hydration confirmed seed=${newSeed} — ` +
+			`preserving existing lit state (${HIDDEN_CAMPFIRE_COUNT} pits)`,
+		)
+		return
+	}
 	currentSeed = newSeed
 	const positions = getHiddenCampfireWorldPositionsForSeed(newSeed)
 	console.log(

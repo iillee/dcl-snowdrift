@@ -64,6 +64,11 @@ class HiddenCampfirePromptLayer extends Layer {
 			return <UiEntity key="ui_HiddenCampfirePrompt_hidden" uiTransform={{ display: 'none' }} />
 		}
 
+		// Mobile uses a 2x scale on every intrinsic size to match the
+		// enlarged torch relight prompt so both fire-side affordances read
+		// the same at HUD scale on a phone.
+		const S = isMobile() ? 2 : 1
+
 		return (
 			<UiEntity
 				key         = "ui_HiddenCampfirePrompt_root"
@@ -71,10 +76,12 @@ class HiddenCampfirePromptLayer extends Layer {
 					// Sits slightly above the torch relight prompt's slot so
 					// on the (unlikely) frame both overlap, this one reads
 					// first — you're getting a bigger gameplay payoff.
-					margin      : { bottom: isMobile() ? 260 : 780 },
+					// On mobile, shift right so the prompt clears the player
+					// avatar silhouette (centred on screen) and doesn't overlap it.
+					margin      : { bottom: isMobile() ? 260 : 780, left: isMobile() ? 320 : 0 },
 					flexDirection: 'row',
 					alignItems  : 'center',
-					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
+					padding     : { top: 8 * S, bottom: 8 * S, left: 12 * S, right: 14 * S },
 					borderRadius: borderRadius.sm,
 				}}
 				uiBackground = {{ color: BG }}
@@ -85,9 +92,9 @@ class HiddenCampfirePromptLayer extends Layer {
 				<UiEntity
 					key         = "ui_HiddenCampfirePrompt_key"
 					uiTransform = {{
-						width        : 26,
-						height       : 26,
-						margin       : { right: 10 },
+						width        : 26 * S,
+						height       : 26 * S,
+						margin       : { right: 10 * S },
 						borderRadius : borderRadius.sm,
 						justifyContent: 'center',
 						alignItems   : 'center',
@@ -97,7 +104,7 @@ class HiddenCampfirePromptLayer extends Layer {
 					{isMobile() ? (
 						<UiEntity
 							key = "ui_HiddenCampfirePrompt_handIcon"
-							uiTransform = {{ width: 20, height: 20 }}
+							uiTransform = {{ width: 20 * S, height: 20 * S }}
 							uiBackground = {{
 								textureMode: 'stretch',
 								texture    : { src: ATLAS_SRC },
@@ -122,10 +129,10 @@ class HiddenCampfirePromptLayer extends Layer {
 				</UiEntity>
 				<UiEntity
 					key         = "ui_HiddenCampfirePrompt_label"
-					uiTransform = {{ width: 'auto', height: 26 }}
+					uiTransform = {{ width: 'auto', height: 26 * S }}
 					uiText      = {{
 						value    : 'Light campfire',
-						fontSize : fontSizes.md,
+						fontSize : fontSizes.md * S,
 						color    : FG,
 						textAlign: 'middle-left',
 					}}

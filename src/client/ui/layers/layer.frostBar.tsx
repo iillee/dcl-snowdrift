@@ -22,6 +22,11 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
 import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+
+// Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
+// while the timer lives in the HelpPanel. Flip to `true` to restore the
+// standalone HUD button + popover.
+const SHOW_CLOCK_BUTTON = false
 import { SHOW_DEV_ROLL_BUTTON } from 'src/client/devFlags'
 import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 import { FROST_MAX }                               from 'src/shared/frost/tuning'
@@ -261,7 +266,10 @@ class FrostBarLayer extends Layer {
 				   sides, giving a 16 px gap between adjacent buttons and a
 				   matching 16 px gap to the frost bar (8 button margin + 8
 				   frost-bar left margin). */}
-				{!mobile && <ClockButton />}
+				{/* ClockButton (24 h rebuild countdown) is hidden — the timer
+				   is currently surfaced in the HelpPanel instead. Re-enable by
+				   flipping SHOW_CLOCK_BUTTON to true. */}
+				{!mobile && SHOW_CLOCK_BUTTON && <ClockButton />}
 				{!mobile && <SpectatorButton />}
 				{!mobile && <HelpButton />}
 				{!mobile && <MuteButton />}
