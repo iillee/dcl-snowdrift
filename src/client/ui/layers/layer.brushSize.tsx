@@ -14,7 +14,8 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
+import { forceLocalCycleRoll } from 'src/client/cycle'
+import { SHOW_DEV_ROLL_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
 import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
@@ -109,6 +110,28 @@ function BrushButton(props: {
 }
 
 
+// MARK: forceCycleRoll
+/**
+ * Dev '⇆' handler. Runs the client-side rebuild UX immediately
+ * (splash, teleport, maze / cliffs / props reshuffle, hidden fires
+ * relocated) so we can smoke-test in a preview that's not running the
+ * auth server. Also sends devRollCycle so, IF the server is running,
+ * it does the real thing (paint clear, server-side lit-state reset,
+ * fresh cycleState broadcast that other clients see).
+ *
+ * The server's cycleState reply carries a real next-boundary seed
+ * which differs from the local +1 bump; applyCycleSeedChange will
+ * fire again for that seed and every client will land on the same
+ * canonical value. Splash + teleport re-fire is a mild double-blink;
+ * acceptable for a dev tool.
+ */
+function forceCycleRoll(): void {
+	console.log('layer.brushSize: forceCycleRoll: local rebuild + emit devRollCycle')
+	forceLocalCycleRoll()
+	room.send('devRollCycle', {})
+}
+
+
 // MARK: rerollLevel
 /**
  * Roll a fresh maze seed and publish it via SeedHolder. The synced
@@ -197,6 +220,7 @@ class ActionBarLayer extends Layer {
 						nudgeTop  = {mobile ? -12 : -2}
 					/>
 				)}
+
 				{/* SpectatorButton + MuteButton are rendered inline by
 				   layer.frostBar on desktop so the whole top-centre HUD reads
 				   as one cluster (eye + mute + frost bar + torch). On mobile
@@ -444,6 +468,45 @@ export function SpectatorButton() {
 					texture    : { src: EYE_ICON_SRC },
 					color      : specActive ? GOLD : WHITE,
 				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: DevRollButton
+/**
+ * Dev-only button that forces an immediate server cycle rollover.
+ * Same footprint + border language as the other cluster buttons so it
+ * blends in when SHOW_DEV_ROLL_BUTTON is true, and disappears entirely
+ * when it's false. Exported so layer.frostBar can host it inline in
+ * the top-centre cluster row (registering it in actionBarLayer meant
+ * it rendered underneath the frost bar and was invisible).
+ */
+export function DevRollButton() {
+	return (
+		<UiEntity
+			key = "ui_DevRollBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); forceCycleRoll() }}
+		>
+			<Label
+				value    = "⇆"
+				fontSize = {40}
+				color    = {WHITE}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%', margin: { top: isMobile() ? -12 : -4 } }}
 			/>
 		</UiEntity>
 	)

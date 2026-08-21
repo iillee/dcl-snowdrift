@@ -36,7 +36,7 @@ import {
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
-import { sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
+import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { Team } from 'src/shared/team'
 import {
@@ -151,6 +151,19 @@ export async function setupServer(): Promise<void> {
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
 	setupHiddenCampfireServer()
+
+	// World-scale reset on cycle roll: clear the entire paint canvas
+	// (virgin snow), then re-seed the central campfire's melt ring so the
+	// warm zone reappears immediately. Hidden campfires reset their own
+	// lit state + rings via their own onCycleRoll subscriber. Registered
+	// AFTER setupHiddenCampfireServer so it runs after (order == handler
+	// invocation order); doesn't matter semantically here since paint
+	// clear and hidden reset are independent, but keeps the intent clear.
+	onCycleRoll(() => {
+		console.log('[Server] cycle: clearing paint canvas + reseeding central ring')
+		clearPaintState()
+		seedStartingArea()
+	})
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
 	let paintTicks       = 0

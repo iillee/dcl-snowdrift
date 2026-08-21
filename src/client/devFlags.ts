@@ -24,3 +24,6 @@ export const SHOW_PRECIPITATION_BUTTON = false
 
 /** '#' button + bottom-left server-stats panel (CRDT + tile counts, entity budget). */
 export const SHOW_SERVER_STATS         = false
+
+/** '⇆' button that forces an immediate server cycle rollover (world regen). */
+export const SHOW_DEV_ROLL_BUTTON      = false

@@ -34,6 +34,7 @@ import {
 	pickHiddenCampfireTiles,
 	tileToWorld,
 } from 'src/shared/hiddenCampfire'
+import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { CAMPFIRE_MELT_RADIUS_M } from 'src/shared/campfire'
 import {
 	MAZE_GRID_HEIGHT,
@@ -71,6 +72,30 @@ function recomputePositions(): void {
 		const { x, z } = tileToWorld(tiles[i].tx, tiles[i].tz)
 		worldX[i] = x
 		worldZ[i] = z
+	}
+}
+
+
+// MARK: resetForCycle
+/**
+ * Wipe per-cycle state and rebroadcast a fresh unlit tuple. Called by
+ * the cycle rollover in src/server/cycle.ts. The paint clear that
+ * removes the old melt rings lives in server.ts's cycle handler —
+ * this module only owns lit-state + positions + broadcast.
+ */
+function resetForCycle(newSeed: number): void {
+	currentSeed = newSeed
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		lit[i]                = false
+		secondsSinceIgnite[i] = 0
+	}
+	recomputePositions()
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		console.log(
+			`[Server] hiddenCampfire[${i}]: reset for cycle seed=${currentSeed} ` +
+			`pos=(${worldX[i].toFixed(1)}, ${worldZ[i].toFixed(1)})`,
+		)
+		broadcastOne(i)
 	}
 }
 
@@ -162,9 +187,11 @@ export function sendHiddenCampfireStateTo(userId: string): void {
 // MARK: setupHiddenCampfireServer
 /**
  * Register handlers + broadcast the initial state. Idempotent — call
- * once during setupServer bootstrap.
+ * once during setupServer bootstrap AFTER setupCycleServer so we adopt
+ * its authoritative seed rather than sampling Date.now() a second time.
  */
 export function setupHiddenCampfireServer(): void {
+	currentSeed = getCurrentCycleSeed()
 	recomputePositions()
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		console.log(
@@ -231,6 +258,12 @@ export function setupHiddenCampfireServer(): void {
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 			if (lit[i]) seedHiddenMeltRing(i)
 		}
+	})
+
+	// Reset on cycle boundary. Registered here (not in server.ts) so
+	// this module owns its own lifecycle.
+	onCycleRoll(({ newSeed }) => {
+		resetForCycle(newSeed)
 	})
 
 	// Initial broadcast for any client that connected before this

@@ -105,6 +105,14 @@ export const Messages = {
 		seed              : Schemas.Int,
 		nextRebuildEpochMs: Schemas.Number,
 	}),
+
+	// Client → Server (DEV only): force an immediate cycle rollover for
+	// smoke-testing the reset flow before real midnight UTC arrives.
+	// Gated on the client by devFlags.ENABLE_DEV_ROLL_CYCLE + the
+	// button that emits it; server accepts unconditionally (no anti-
+	// cheat here — this is a dev affordance, remove or gate before a
+	// production deploy that exposes it to random visitors).
+	devRollCycle: Schemas.Map({}),
 }
 
 export const room = registerMessages(Messages)

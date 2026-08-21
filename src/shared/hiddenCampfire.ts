@@ -187,11 +187,29 @@ export function tileToWorld(tx: number, tz: number): { x: number; z: number } {
 // MARK: getHiddenCampfireWorldPositions
 /**
  * Convenience — full world positions for every hidden bonfire in the
- * current cycle. Y is fixed at the same base as the central campfire
- * (see CAMPFIRE_WORLD_Y). Length is always HIDDEN_CAMPFIRE_COUNT.
+ * current cycle (as computed from local Date.now()). Y is fixed at
+ * the same base as the central campfire (see CAMPFIRE_WORLD_Y).
+ * Length is always HIDDEN_CAMPFIRE_COUNT.
+ *
+ * For a specific server-supplied seed (during a cycle rollover, before
+ * local Date.now() has crossed the boundary), use
+ * getHiddenCampfireWorldPositionsForSeed(seed) instead.
  */
 export function getHiddenCampfireWorldPositions(): { x: number; z: number; tx: number; tz: number }[] {
-	return pickHiddenCampfireTiles(getHiddenCampfireSeed()).map(({ tx, tz }) => {
+	return getHiddenCampfireWorldPositionsForSeed(getHiddenCampfireSeed())
+}
+
+
+// MARK: getHiddenCampfireWorldPositionsForSeed
+/**
+ * Same as getHiddenCampfireWorldPositions() but takes an explicit
+ * seed. Used by the cycle rollover path so client + server agree on
+ * the new positions regardless of local clock skew.
+ */
+export function getHiddenCampfireWorldPositionsForSeed(
+	seed: number,
+): { x: number; z: number; tx: number; tz: number }[] {
+	return pickHiddenCampfireTiles(seed).map(({ tx, tz }) => {
 		const { x, z } = tileToWorld(tx, tz)
 		return { x, z, tx, tz }
 	})

@@ -41,11 +41,13 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { onCycleSeedChange } from 'src/client/cycle'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
 import {
 	getHiddenCampfireSeed,
 	getHiddenCampfireWorldPositions,
+	getHiddenCampfireWorldPositionsForSeed,
 	HIDDEN_CAMPFIRE_COUNT,
 	HIDDEN_IGNITE_RADIUS_M,
 	HIDDEN_IGNITE_RADIUS_SQ_M,
@@ -187,6 +189,59 @@ function removeLocatorBeacon(index: number): void {
 		engine.removeEntity(outer)
 		beaconOuterEntity[index] = null
 	}
+}
+
+
+// MARK: applyUnlitVisuals
+/**
+ * Tear down the lit visuals for pit `index` — flame model, smoke
+ * plume, crackle audio — and respawn its locator beacon. Called on
+ * cycle rollover so previously-lit pits return to their unlit state
+ * before we relocate them to the new cycle's positions.
+ */
+function applyUnlitVisuals(index: number): void {
+	litLocal[index]          = false
+	ignitionRequested[index] = false
+
+	// Tear the flame child down first — removing the parent pit later
+	// would orphan the child on the engine's next tick.
+	const flame = flameEntity[index]
+	if (flame !== null) {
+		engine.removeEntity(flame)
+		flameEntity[index] = null
+	}
+	const smoke = smokeEntity[index]
+	if (smoke !== null) {
+		engine.removeEntity(smoke)
+		smokeEntity[index] = null
+	}
+	// Remove AudioSource from the pit entity so a re-ignition later this
+	// cycle doesn't stack a second AudioSource on top. AudioSource has
+	// no explicit delete API in ECS terms — the cleanest way is to
+	// remove and respawn the pit entity itself, which we do below in
+	// relocatePit().
+
+	if (BEACON_ENABLED) spawnLocatorBeacon(index)
+
+	console.log(`hiddenCampfire[${index}]: unlit visuals torn down`)
+}
+
+
+// MARK: relocatePit
+/**
+ * Move (or respawn) pit `index` to its current stored worldX/worldZ.
+ * Called on cycle rollover after the new positions have been written.
+ * We fully destroy + recreate the pit entity instead of mutating its
+ * Transform, so any lingering components (e.g. AudioSource from the
+ * previous lit state) come off clean.
+ */
+function relocatePit(index: number): void {
+	const old = firePitEntity[index]
+	if (old !== null) {
+		engine.removeEntity(old)
+		firePitEntity[index] = null
+	}
+	spawnUnlitPit(index)
 }
 
 
@@ -383,6 +438,30 @@ export function getHiddenCampfireWarmthPositions(): { x: number; z: number }[] {
 }
 
 
+// MARK: onCycleRoll
+/**
+ * Wipe every pit's lit state, move them to the new cycle's positions,
+ * and respawn beacons. Registered with the client cycle module so it
+ * fires on hydration AND on every subsequent rollover.
+ */
+function handleCycleSeedChange(newSeed: number): void {
+	const oldSeed = currentSeed
+	currentSeed = newSeed
+	const positions = getHiddenCampfireWorldPositionsForSeed(newSeed)
+	console.log(
+		`hiddenCampfire: cycle roll old=${oldSeed} → new=${newSeed} — ` +
+		`resetting ${HIDDEN_CAMPFIRE_COUNT} pits`,
+	)
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		removeLocatorBeacon(i)
+		applyUnlitVisuals(i)
+		worldX[i] = positions[i].x
+		worldZ[i] = positions[i].z
+		relocatePit(i)
+	}
+}
+
+
 // MARK: setupHiddenCampfire
 /**
  * Spawn the three unlit pits at the current cycle positions, subscribe
@@ -423,6 +502,14 @@ export function setupHiddenCampfire(): void {
 		}
 		if (lit === 1) applyLitVisuals(index)
 	})
+
+	// Cycle rollover. Fires on hydration (first cycleState arrival)
+	// AND on every subsequent midnight-UTC roll. Handler resets lit
+	// state, moves pits, respawns beacons — the server's
+	// hiddenCampfireState broadcasts that follow will re-light any
+	// pits that are still supposed to be lit in the new cycle (none,
+	// on a real roll).
+	onCycleSeedChange(({ newSeed }) => handleCycleSeedChange(newSeed))
 
 	// Locator beacon pulse. Runs every frame until every fire lights;
 	// the early-outs keep the cost to a tight loop once beacons are

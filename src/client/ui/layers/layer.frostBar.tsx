@@ -21,7 +21,8 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
-import { ClockButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { SHOW_DEV_ROLL_BUTTON } from 'src/client/devFlags'
 import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 import { FROST_MAX }                               from 'src/shared/frost/tuning'
 
@@ -264,6 +265,7 @@ class FrostBarLayer extends Layer {
 				{!mobile && <SpectatorButton />}
 				{!mobile && <HelpButton />}
 				{!mobile && <MuteButton />}
+				{!mobile && SHOW_DEV_ROLL_BUTTON && <DevRollButton />}
 				{/* Outer frame — same tinted-black bg + rounded corners as the
 				   action-bar buttons, so the HUD reads as one system. */}
 				<UiEntity
