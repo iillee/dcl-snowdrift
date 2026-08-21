@@ -18,7 +18,7 @@
 import { engine, Transform } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, CAMPFIRE_MELT_RADIUS_SQ_M } from 'src/shared/campfire'
-import { getHiddenCampfireWarmthPos, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
+import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { FrostLevel } from 'src/shared/frost/components'
 import {
 	FROST_MAX,
@@ -76,10 +76,18 @@ export function initFrostAccumulation(): void {
 		// melt radius as the central bonfire so both fires feel like
 		// equivalent survival anchors.
 		if (!insideFire && isHiddenCampfireLit()) {
-			const hp  = getHiddenCampfireWarmthPos()
-			const hdx = x - hp.x
-			const hdz = z - hp.z
-			if (hdx * hdx + hdz * hdz <= CAMPFIRE_MELT_RADIUS_SQ_M) insideFire = true
+			// Iterate every lit hidden bonfire — the player is warmed if
+			// they're inside ANY warm ring. Loop is cheap (<= 3 entries)
+			// and short-circuits on the first hit.
+			const hps = getHiddenCampfireWarmthPositions()
+			for (const hp of hps) {
+				const hdx = x - hp.x
+				const hdz = z - hp.z
+				if (hdx * hdx + hdz * hdz <= CAMPFIRE_MELT_RADIUS_SQ_M) {
+					insideFire = true
+					break
+				}
+			}
 		}
 		if (insideFire) {
 			// Inside the fire's warm ring: linear thaw. Fire trumps torch

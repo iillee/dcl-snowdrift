@@ -29,6 +29,19 @@ import {
 } from 'src/shared/settings'
 
 
+// MARK: Multi-fire count
+/**
+ * How many hidden bonfires per cycle. All three are picked from the
+ * same 24 h seed with mutual Chebyshev separation so they don't
+ * overlap each other's melt rings. The player has to find + light
+ * each one; server tracks lit[] indexed by 0..HIDDEN_CAMPFIRE_COUNT-1.
+ */
+export const HIDDEN_CAMPFIRE_COUNT = 3
+
+/** Minimum Chebyshev tile separation between any two hidden bonfires. */
+export const HIDDEN_MIN_SEPARATION_TILES = 2
+
+
 // MARK: Reach tuning
 /** Minimum Chebyshev tile distance from the central campfire tile. */
 export const HIDDEN_MIN_TILES = 2
@@ -55,6 +68,20 @@ export const HIDDEN_IGNITE_RADIUS_SQ_M = HIDDEN_IGNITE_RADIUS_M * HIDDEN_IGNITE_
  * we'll shorten this (2–6 h) once the retention loop is fleshed out.
  */
 export const HIDDEN_CYCLE_MS = 24 * 60 * 60 * 1000
+
+
+// MARK: nextRebuildEpochMs
+/**
+ * Wall-clock ms of the next cycle boundary strictly after `now`.
+ * Because HIDDEN_CYCLE_MS = 24 h and the unix epoch sits on midnight
+ * UTC, this always lands on the next midnight UTC. Used by the server
+ * to compute the authoritative `cycleState.nextRebuildEpochMs` it
+ * broadcasts to clients — clients subtract their local Date.now() to
+ * render the countdown (see src/client/cycle.ts).
+ */
+export function nextRebuildEpochMs(now: number = Date.now()): number {
+	return (Math.floor(now / HIDDEN_CYCLE_MS) + 1) * HIDDEN_CYCLE_MS
+}
 
 
 // MARK: getHiddenCampfireSeed
@@ -90,31 +117,60 @@ const CENTER_TX = Math.floor(MAZE_GRID_WIDTH  / 2)
 const CENTER_TZ = Math.floor(MAZE_GRID_HEIGHT / 2)
 
 
-// MARK: pickHiddenCampfireTile
+// MARK: pickHiddenCampfireTiles
 /**
- * Deterministic tile pick inside the Chebyshev ring
+ * Deterministic multi-tile pick inside the Chebyshev ring
  * [HIDDEN_MIN_TILES, HIDDEN_MAX_TILES] around the central bonfire tile.
  *
- * Rejection samples the bounding box until a candidate has the right
- * distance and fits inside the maze grid. Bounded iterations so a
+ * Returns HIDDEN_CAMPFIRE_COUNT tiles with mutual Chebyshev separation
+ * of at least HIDDEN_MIN_SEPARATION_TILES, so their melt rings never
+ * overlap and the player can tell the fires apart from any beacon
+ * sightline. Rejection samples the bounding box until each slot fits
+ * (right ring, in-grid, separated); bounded iterations so a
  * pathological seed can never spin forever.
+ *
+ * Determinism: single mulberry32(seed) instance advances through the
+ * whole draw, so every peer computes the same tuple in the same order.
  */
-export function pickHiddenCampfireTile(seed: number): { tx: number; tz: number } {
-	const rand = mulberry32(seed)
-	const span = HIDDEN_MAX_TILES * 2 + 1
-	for (let i = 0; i < 64; i++) {
-		const tx = CENTER_TX + Math.floor(rand() * span) - HIDDEN_MAX_TILES
-		const tz = CENTER_TZ + Math.floor(rand() * span) - HIDDEN_MAX_TILES
-		const cheb = Math.max(Math.abs(tx - CENTER_TX), Math.abs(tz - CENTER_TZ))
-		if (cheb < HIDDEN_MIN_TILES || cheb > HIDDEN_MAX_TILES) continue
-		if (tx < 0 || tx >= MAZE_GRID_WIDTH)  continue
-		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
-		return { tx, tz }
+export function pickHiddenCampfireTiles(seed: number): { tx: number; tz: number }[] {
+	const rand    = mulberry32(seed)
+	const span    = HIDDEN_MAX_TILES * 2 + 1
+	const picks   : { tx: number; tz: number }[] = []
+	const MAX_ITERS_PER_SLOT = 128
+	for (let slot = 0; slot < HIDDEN_CAMPFIRE_COUNT; slot++) {
+		let placed = false
+		for (let i = 0; i < MAX_ITERS_PER_SLOT; i++) {
+			const tx = CENTER_TX + Math.floor(rand() * span) - HIDDEN_MAX_TILES
+			const tz = CENTER_TZ + Math.floor(rand() * span) - HIDDEN_MAX_TILES
+			const cheb = Math.max(Math.abs(tx - CENTER_TX), Math.abs(tz - CENTER_TZ))
+			if (cheb < HIDDEN_MIN_TILES || cheb > HIDDEN_MAX_TILES) continue
+			if (tx < 0 || tx >= MAZE_GRID_WIDTH)  continue
+			if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
+			// Separation check against already-placed picks.
+			let tooClose = false
+			for (const p of picks) {
+				const sep = Math.max(Math.abs(tx - p.tx), Math.abs(tz - p.tz))
+				if (sep < HIDDEN_MIN_SEPARATION_TILES) { tooClose = true; break }
+			}
+			if (tooClose) continue
+			picks.push({ tx, tz })
+			placed = true
+			break
+		}
+		if (!placed) {
+			// Deterministic fallback — walk around the ring at fixed angles.
+			// Should never trigger with the current ring/count/separation, but
+			// logs loudly if tuning ever collides so we notice in playtests.
+			console.log(`hiddenCampfire: pickHiddenCampfireTiles: WARN slot ${slot} exhausted — using deterministic fallback`)
+			const fallbackAngles = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3]
+			const a  = fallbackAngles[slot] ?? 0
+			const r  = HIDDEN_MAX_TILES
+			const tx = CENTER_TX + Math.round(Math.cos(a) * r)
+			const tz = CENTER_TZ + Math.round(Math.sin(a) * r)
+			picks.push({ tx, tz })
+		}
 	}
-	// Fallback — should never hit unless the grid is smaller than the
-	// ring. Log so we notice if tuning ever collides with grid size.
-	console.log('hiddenCampfire: pickHiddenCampfireTile: WARN rejection sampling exhausted, falling back to a corner of the ring')
-	return { tx: CENTER_TX + HIDDEN_MIN_TILES, tz: CENTER_TZ + HIDDEN_MIN_TILES }
+	return picks
 }
 
 
@@ -128,13 +184,15 @@ export function tileToWorld(tx: number, tz: number): { x: number; z: number } {
 }
 
 
-// MARK: getHiddenCampfireWorldPos
+// MARK: getHiddenCampfireWorldPositions
 /**
- * Convenience — full world position for the current cycle. Y is fixed
- * at the same base as the central campfire (see CAMPFIRE_WORLD_Y).
+ * Convenience — full world positions for every hidden bonfire in the
+ * current cycle. Y is fixed at the same base as the central campfire
+ * (see CAMPFIRE_WORLD_Y). Length is always HIDDEN_CAMPFIRE_COUNT.
  */
-export function getHiddenCampfireWorldPos(): { x: number; z: number; tx: number; tz: number } {
-	const { tx, tz } = pickHiddenCampfireTile(getHiddenCampfireSeed())
-	const { x, z }   = tileToWorld(tx, tz)
-	return { x, z, tx, tz }
+export function getHiddenCampfireWorldPositions(): { x: number; z: number; tx: number; tz: number }[] {
+	return pickHiddenCampfireTiles(getHiddenCampfireSeed()).map(({ tx, tz }) => {
+		const { x, z } = tileToWorld(tx, tz)
+		return { x, z, tx, tz }
+	})
 }

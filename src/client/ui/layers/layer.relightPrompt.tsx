@@ -27,6 +27,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isInHiddenRelightRange }                                          from 'src/client/hiddenCampfire'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch } from 'src/client/torchEquip'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
@@ -72,7 +73,11 @@ function shouldShowPrompt(): boolean {
 
 	const dx = t.position.x - CAMPFIRE_WORLD_X
 	const dz = t.position.z - CAMPFIRE_WORLD_Z
-	return dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+	if (dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M) return true
+
+	// Second valid source once the hidden campfire has been ignited —
+	// same prompt, same affordance, just a different fire.
+	return isInHiddenRelightRange()
 }
 
 

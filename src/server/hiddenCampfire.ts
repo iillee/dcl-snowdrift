@@ -1,22 +1,28 @@
 /**
- * hiddenCampfire.ts — authoritative state for the buried second campfire.
+ * hiddenCampfire.ts — authoritative state for the three buried bonfires.
  *
  * Owns:
  *   - the current cycle seed (from shared/hiddenCampfire.getHiddenCampfireSeed)
- *   - whether the cycle's hidden fire has been lit
- *   - the paint-melt ring that persists around the fire once lit, so
- *     the warm patch reads as authoritative world state and does not
- *     depend on individual clients re-melting cells.
+ *   - lit[HIDDEN_CAMPFIRE_COUNT]        — per-fire ignition flag
+ *   - secondsSinceIgnite[HIDDEN_...]    — per-fire growth clock for the
+ *                                          expanding melt ring
+ *   - worldPos[HIDDEN_...]              — cached world-space centres so
+ *                                          the ring pass doesn't recompute
+ *                                          tile→world every tick
  *
  * Message contracts:
- *   Client → Server  hiddenCampfireIgnite  { seed }
- *   Server → Client  hiddenCampfireState   { seed, lit }
+ *   Client → Server  hiddenCampfireIgnite  { seed, index }
+ *   Server → Client  hiddenCampfireState   { seed, index, lit }
+ *
+ * Broadcast granularity is per-fire — every state flip sends ONE
+ * message tagged with its index. Hydration on join sends
+ * HIDDEN_CAMPFIRE_COUNT messages in a row.
  *
  * Follow-ups:
- *   - Roll cycle at bucket boundary (reset lit=false, pick new seed,
- *     stop protecting the old ring).
- *   - Multi-campfire cycle: state becomes { seed, lit[] } and the
- *     completion moment fires when every entry flips true.
+ *   - Roll cycle at bucket boundary (reset lit[] to false, recompute
+ *     positions, stop protecting old rings).
+ *   - "All lit" completion moment — kick a celebration broadcast when
+ *     every entry flips true.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -24,10 +30,11 @@ import { engine } from '@dcl/sdk/ecs'
 import { room } from 'src/shared/messages'
 import {
 	getHiddenCampfireSeed,
-	pickHiddenCampfireTile,
+	HIDDEN_CAMPFIRE_COUNT,
+	pickHiddenCampfireTiles,
 	tileToWorld,
 } from 'src/shared/hiddenCampfire'
-import { CAMPFIRE_MELT_RADIUS_M, CAMPFIRE_MELT_RADIUS_SQ_M } from 'src/shared/campfire'
+import { CAMPFIRE_MELT_RADIUS_M } from 'src/shared/campfire'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
@@ -41,33 +48,52 @@ import { Team } from 'src/shared/team'
 import { applyPaint, markProtected } from 'src/server/paintState'
 
 
-// MARK: State
-let currentSeed = getHiddenCampfireSeed()
-let lit         = false
-let worldX      = 0
-let worldZ      = 0
+// MARK: Melt-growth tuning
+// Time (seconds) from ignition until the melt ring reaches full radius.
+// Slower than the central bonfire's instant seed so a fresh ignition
+// visibly "thaws" outward instead of snapping to a full disc. Growth
+// is linear — easy to reason about and reads well at any framerate.
+const MELT_GROWTH_DURATION_S = 10
 
-function recomputePosition(): void {
-	const { tx, tz } = pickHiddenCampfireTile(currentSeed)
-	const { x, z }   = tileToWorld(tx, tz)
-	worldX = x
-	worldZ = z
+
+// MARK: State (per-fire arrays, all length HIDDEN_CAMPFIRE_COUNT)
+let currentSeed         = getHiddenCampfireSeed()
+const lit               : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+const secondsSinceIgnite: number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+const worldX            : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+const worldZ            : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+
+
+// MARK: recomputePositions
+function recomputePositions(): void {
+	const tiles = pickHiddenCampfireTiles(currentSeed)
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		const { x, z } = tileToWorld(tiles[i].tx, tiles[i].tz)
+		worldX[i] = x
+		worldZ[i] = z
+	}
 }
 
 
 // MARK: seedHiddenMeltRing
 /**
- * Same shape as server.ts::seedStartingArea, but centred on the hidden
- * campfire's world position. Called on ignition and on every ring-
- * refresh tick so paint dropped inside the warm ring snaps back to the
- * warm state and never regrows into snow.
+ * Same shape as server.ts::seedStartingArea, but centred on hidden
+ * bonfire `index`. Called on ignition and on every ring-refresh tick
+ * so paint dropped inside a warm ring snaps back to the warm state
+ * and never regrows into snow.
  */
-function seedHiddenMeltRing(): void {
-	if (!lit) return
-	const cx = worldX
-	const cz = worldZ
-	const r  = CAMPFIRE_MELT_RADIUS_M
-	const r2 = CAMPFIRE_MELT_RADIUS_SQ_M
+function seedHiddenMeltRing(index: number): void {
+	if (!lit[index]) return
+	// Linear grow from 0 to the central campfire's full melt radius over
+	// MELT_GROWTH_DURATION_S. Once we hit the cap, later ticks re-paint
+	// the same full disc — cheap because applyPaint short-circuits on
+	// cells already at the target colour.
+	const growth = Math.min(1, secondsSinceIgnite[index] / MELT_GROWTH_DURATION_S)
+	const r      = CAMPFIRE_MELT_RADIUS_M * growth
+	if (r <= 0) return
+	const r2 = r * r
+	const cx = worldX[index]
+	const cz = worldZ[index]
 
 	const localCx = cx - MAZE_ORIGIN_OFFSET_METERS
 	const localCz = cz - MAZE_ORIGIN_OFFSET_METERS
@@ -106,20 +132,30 @@ function seedHiddenMeltRing(): void {
 }
 
 
-// MARK: broadcast
-function broadcast(): void {
-	room.send('hiddenCampfireState', { seed: currentSeed, lit })
+// MARK: broadcastOne
+function broadcastOne(index: number): void {
+	room.send('hiddenCampfireState', {
+		seed : currentSeed,
+		index,
+		lit  : lit[index] ? 1 : 0,
+	})
 }
 
 
 // MARK: sendHiddenCampfireStateTo
 /**
- * Push the current state to a specific client. Called from the
- * joinRoster handler in server.ts so new joiners immediately see the
- * fire in its correct state.
+ * Push the full lit tuple to a specific client. Called from the
+ * joinRoster handler in server.ts so new joiners immediately see
+ * every fire in its correct state (one message per fire).
  */
 export function sendHiddenCampfireStateTo(userId: string): void {
-	room.send('hiddenCampfireState', { seed: currentSeed, lit }, { to: [userId] })
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		room.send(
+			'hiddenCampfireState',
+			{ seed: currentSeed, index: i, lit: lit[i] ? 1 : 0 },
+			{ to: [userId] },
+		)
+	}
 }
 
 
@@ -129,14 +165,20 @@ export function sendHiddenCampfireStateTo(userId: string): void {
  * once during setupServer bootstrap.
  */
 export function setupHiddenCampfireServer(): void {
-	recomputePosition()
-	console.log(
-		`[Server] hiddenCampfire: cycle seed=${currentSeed} ` +
-		`pos=(${worldX.toFixed(1)}, ${worldZ.toFixed(1)}) lit=${lit}`
-	)
+	recomputePositions()
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		console.log(
+			`[Server] hiddenCampfire[${i}]: cycle seed=${currentSeed} ` +
+			`pos=(${worldX[i].toFixed(1)}, ${worldZ[i].toFixed(1)}) lit=${lit[i]}`
+		)
+	}
 
-	room.onMessage('hiddenCampfireIgnite', ({ seed }, context) => {
+	room.onMessage('hiddenCampfireIgnite', ({ seed, index }, context) => {
 		const from = context?.from ?? 'unknown'
+		console.log(
+			`[Server] hiddenCampfire: RX ignite seed=${seed} index=${index} from=${from} ` +
+			`(currentSeed=${currentSeed} lit[${index}]=${lit[index] ?? '?'})`
+		)
 		if (seed !== currentSeed) {
 			console.log(
 				`[Server] hiddenCampfire: ignite rejected from ${from} ` +
@@ -144,14 +186,30 @@ export function setupHiddenCampfireServer(): void {
 			)
 			return
 		}
-		if (lit) return
-		lit = true
-		console.log(`[Server] hiddenCampfire: ignited by ${from} (seed=${currentSeed})`)
-		seedHiddenMeltRing()
-		broadcast()
+		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) {
+			console.log(
+				`[Server] hiddenCampfire: ignite rejected from ${from} ` +
+				`— bad index ${index} (valid 0..${HIDDEN_CAMPFIRE_COUNT - 1})`
+			)
+			return
+		}
+		if (lit[index]) {
+			console.log(`[Server] hiddenCampfire[${index}]: ignite from ${from} ignored — already lit`)
+			return
+		}
+		lit[index]                = true
+		secondsSinceIgnite[index] = 0
+		console.log(`[Server] hiddenCampfire[${index}]: ignited by ${from} (seed=${currentSeed}) — broadcasting`)
+		// Broadcast BEFORE the paint pass so a ring-seeding failure can't
+		// silently swallow the state flip. Clients need the lit=true message
+		// to spawn smoke / crackle / warmth even if the melt ring lags. The
+		// ring itself grows in over MELT_GROWTH_DURATION_S on the tick below
+		// — no seed pass here, so the first frame reads as "just ignited,
+		// snow still there" and melts outward from centre.
+		broadcastOne(index)
 	})
 
-	// Keep the melt ring authoritative. Same cadence as the central
+	// Keep every lit ring authoritative. Same cadence as the central
 	// campfire ring refresh in server.ts — cheap no-op after the first
 	// pass since applyPaint short-circuits on cells already at the
 	// target colour.
@@ -159,14 +217,23 @@ export function setupHiddenCampfireServer(): void {
 	const RING_INTERVAL   = 1 / RING_REFRESH_HZ
 	let   ringClock       = 0
 	engine.addSystem((dt: number) => {
-		if (!lit) return
+		let anyLit = false
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (lit[i]) {
+				secondsSinceIgnite[i] += dt
+				anyLit = true
+			}
+		}
+		if (!anyLit) return
 		ringClock += dt
 		if (ringClock < RING_INTERVAL) return
 		ringClock = 0
-		seedHiddenMeltRing()
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (lit[i]) seedHiddenMeltRing(i)
+		}
 	})
 
 	// Initial broadcast for any client that connected before this
 	// module registered its handler.
-	broadcast()
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) broadcastOne(i)
 }

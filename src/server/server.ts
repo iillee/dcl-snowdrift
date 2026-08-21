@@ -36,6 +36,7 @@ import {
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { Team } from 'src/shared/team'
 import {
@@ -146,6 +147,9 @@ export async function setupServer(): Promise<void> {
 	initServerStats()
 	startServerStatsTick(() => coverage().total)
 	setupWeather()
+	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
+	// bucket if we ever cross-wire them.
+	setupCycleServer()
 	setupHiddenCampfireServer()
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
@@ -189,6 +193,10 @@ export async function setupServer(): Promise<void> {
 		// somebody already lit it should see smoke + hear crackle from
 		// the first frame instead of a cold pit.
 		sendHiddenCampfireStateTo(from)
+		// Authoritative countdown for the ClockButton popover — hydrated
+		// on join so a fresh client's HUD shows a correct rebuild timer
+		// from the first frame instead of trusting local Date.now().
+		sendCycleStateTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.

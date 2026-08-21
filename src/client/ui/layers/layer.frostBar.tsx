@@ -21,7 +21,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
-import { MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { ClockButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
 import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 import { FROST_MAX }                               from 'src/shared/frost/tuning'
 
@@ -245,7 +245,12 @@ class FrostBarLayer extends Layer {
 					flexDirection : 'row',
 					justifyContent: 'center',
 					alignItems    : 'center',
-					margin        : { top },
+					// Desktop: nudge the whole top-centre HUD cluster (clock, eye,
+					// mute, frost bar, torch) to the right so it clears the
+					// countdown popover that pops out to the LEFT of the clock.
+					// Mobile keeps the row centred — the desktop-only buttons
+					// (and their popovers) don't render there.
+					margin        : { top, left: mobile ? 0 : 160 },
 					pointerFilter : 'none',
 				}}
 			>
@@ -255,7 +260,9 @@ class FrostBarLayer extends Layer {
 				   sides, giving a 16 px gap between adjacent buttons and a
 				   matching 16 px gap to the frost bar (8 button margin + 8
 				   frost-bar left margin). */}
+				{!mobile && <ClockButton />}
 				{!mobile && <SpectatorButton />}
+				{!mobile && <HelpButton />}
 				{!mobile && <MuteButton />}
 				{/* Outer frame — same tinted-black bg + rounded corners as the
 				   action-bar buttons, so the HUD reads as one system. */}
