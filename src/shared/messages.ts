@@ -60,6 +60,20 @@ export const Messages = {
 	// player pressing the HUD snowflake button drives this.
 	weatherRequest: Schemas.Map({ level: Schemas.Int }),
 
+	// Server → Client: current cycle seed + whether the hidden
+	// campfire for that cycle has been ignited. Sent to a joining
+	// client on joinRoster, and broadcast to everyone when a client's
+	// hiddenCampfireIgnite is accepted. Latecomers hydrate to the
+	// already-lit state so they see smoke + hear the crackle from the
+	// first frame.
+	hiddenCampfireState: Schemas.Map({ seed: Schemas.Int, lit: Schemas.Boolean }),
+
+	// Client → Server: request to ignite the current cycle's hidden
+	// campfire. `seed` is echoed back so the server can drop stale
+	// ignitions if the cycle has rolled since the client noticed the
+	// trigger condition. Server does not currently validate position
+	// (Phase-5 anti-cheat concern) — first valid seed wins.
+	hiddenCampfireIgnite: Schemas.Map({ seed: Schemas.Int }),
 }
 
 export const room = registerMessages(Messages)

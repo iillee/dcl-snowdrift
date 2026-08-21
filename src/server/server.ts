@@ -36,6 +36,7 @@ import {
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -145,6 +146,7 @@ export async function setupServer(): Promise<void> {
 	initServerStats()
 	startServerStatsTick(() => coverage().total)
 	setupWeather()
+	setupHiddenCampfireServer()
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
 	let paintTicks       = 0
@@ -183,6 +185,10 @@ export async function setupServer(): Promise<void> {
 		// Hydrate the joiner with the current weather so their sky matches
 		// everyone else's from the first frame.
 		sendCurrentWeatherTo(from)
+		// Same for the hidden campfire — latecomers that arrive after
+		// somebody already lit it should see smoke + hear crackle from
+		// the first frame instead of a cold pit.
+		sendHiddenCampfireStateTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.
