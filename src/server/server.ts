@@ -23,6 +23,7 @@ import {
 	PAINT_TICK_MAX_IDS,
 } from 'src/shared/settings'
 
+import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import {
 	applyPaint,
 	coverage,
@@ -36,6 +37,8 @@ import {
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
+import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -131,6 +134,11 @@ function seedStartingArea(): void {
 export async function setupServer(): Promise<void> {
 	console.log('[Server] Starting Snow Drift server...')
 
+	// Load Discord webhook URL from env (DISCORD_PLAYER_JOIN_WEBHOOK).
+	// Fire-and-forget — the rest of boot doesn't depend on it, and a missing
+	// env var is a supported "notifications off" state, not an error.
+	loadDiscordWebhookUrl().catch(err => console.log('[Server] loadDiscordWebhookUrl error:', err))
+
 	const paintCap = paintGridCapacity()
 	console.log(
 		`[Server] paint grid: ${paintCap.cellCapacity} cell slots ` +
@@ -145,6 +153,23 @@ export async function setupServer(): Promise<void> {
 	initServerStats()
 	startServerStatsTick(() => coverage().total)
 	setupWeather()
+	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
+	// bucket if we ever cross-wire them.
+	setupCycleServer()
+	setupHiddenCampfireServer()
+
+	// World-scale reset on cycle roll: clear the entire paint canvas
+	// (virgin snow), then re-seed the central campfire's melt ring so the
+	// warm zone reappears immediately. Hidden campfires reset their own
+	// lit state + rings via their own onCycleRoll subscriber. Registered
+	// AFTER setupHiddenCampfireServer so it runs after (order == handler
+	// invocation order); doesn't matter semantically here since paint
+	// clear and hidden reset are independent, but keeps the intent clear.
+	onCycleRoll(() => {
+		console.log('[Server] cycle: clearing paint canvas + reseeding central ring')
+		clearPaintState()
+		seedStartingArea()
+	})
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
 	let paintTicks       = 0
@@ -177,12 +202,27 @@ export async function setupServer(): Promise<void> {
 			// We ignore the payload and use context.from as authoritative.
 			console.log(`[Server] joinRoster payload/from mismatch (payload=${userId}, from=${from}) — using from`)
 		}
+		const isNewJoiner = getTeam(from) === null
 		const team = assignTeam(from)
 		console.log(`[Server] joinRoster ${from} → team ${team === 1 ? 'RED' : 'BLUE'} (roster size ${rosterSize()})`)
+		// Fire Discord webhook only on the FIRST join per server lifetime —
+		// idempotent joinRoster calls (browser refresh, reconnect) must not
+		// re-notify. assignTeam pushes into the roster only for unseen ids,
+		// so `getTeam(from) === null` immediately before it is the reliable
+		// "new joiner" signal.
+		if (isNewJoiner) notifyPlayerJoin(from)
 		room.send('teamAssigned', { team }, { to: [from] })
 		// Hydrate the joiner with the current weather so their sky matches
 		// everyone else's from the first frame.
 		sendCurrentWeatherTo(from)
+		// Same for the hidden campfire — latecomers that arrive after
+		// somebody already lit it should see smoke + hear crackle from
+		// the first frame instead of a cold pit.
+		sendHiddenCampfireStateTo(from)
+		// Authoritative countdown for the ClockButton popover — hydrated
+		// on join so a fresh client's HUD shows a correct rebuild timer
+		// from the first frame instead of trusting local Date.now().
+		sendCycleStateTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.

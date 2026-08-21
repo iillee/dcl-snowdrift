@@ -14,7 +14,10 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
+import { forceLocalCycleRoll } from 'src/client/cycle'
+import { SHOW_DEV_ROLL_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
+import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
+import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { clearProps } from 'src/client/props/spawn'
@@ -107,6 +110,28 @@ function BrushButton(props: {
 }
 
 
+// MARK: forceCycleRoll
+/**
+ * Dev '⇆' handler. Runs the client-side rebuild UX immediately
+ * (splash, teleport, maze / cliffs / props reshuffle, hidden fires
+ * relocated) so we can smoke-test in a preview that's not running the
+ * auth server. Also sends devRollCycle so, IF the server is running,
+ * it does the real thing (paint clear, server-side lit-state reset,
+ * fresh cycleState broadcast that other clients see).
+ *
+ * The server's cycleState reply carries a real next-boundary seed
+ * which differs from the local +1 bump; applyCycleSeedChange will
+ * fire again for that seed and every client will land on the same
+ * canonical value. Splash + teleport re-fire is a mild double-blink;
+ * acceptable for a dev tool.
+ */
+function forceCycleRoll(): void {
+	console.log('layer.brushSize: forceCycleRoll: local rebuild + emit devRollCycle')
+	forceLocalCycleRoll()
+	room.send('devRollCycle', {})
+}
+
+
 // MARK: rerollLevel
 /**
  * Roll a fresh maze seed and publish it via SeedHolder. The synced
@@ -195,6 +220,7 @@ class ActionBarLayer extends Layer {
 						nudgeTop  = {mobile ? -12 : -2}
 					/>
 				)}
+
 				{/* SpectatorButton + MuteButton are rendered inline by
 				   layer.frostBar on desktop so the whole top-centre HUD reads
 				   as one cluster (eye + mute + frost bar + torch). On mobile
@@ -222,6 +248,191 @@ class ActionBarLayer extends Layer {
 			</UiEntity>
 		)
 	}
+}
+
+
+// MARK: HelpButton
+/**
+ * Bold-white "?" button. Same footprint + border language as the other
+ * top-centre HUD buttons (Clock / Spectator / Mute) so the row reads
+ * as one cluster. Click behaviour is unwired for now — placeholder for
+ * a future help / how-to-play popover.
+ */
+export function HelpButton() {
+	return (
+		<UiEntity
+			key = "ui_HelpBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); toggleHelpPanel() }}
+		>
+			{/* Bold "?" faked by stacking two labels with a 1 px offset —
+			   same trick used on the countdown text (SDK7 Label has no
+			   fontWeight prop). */}
+			<UiEntity
+				key         = "ui_HelpBtn_glyph_wrap"
+				uiTransform = {{
+					width       : BTN_SIZE,
+					height      : BTN_SIZE,
+					positionType: 'relative',
+				}}
+			>
+				<Label
+					value    = "?"
+					fontSize = {48}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{
+						width       : '100%',
+						height      : '100%',
+						positionType: 'absolute',
+						position    : { top: isMobile() ? -8 : 0, left: 0 },
+					}}
+				/>
+				<Label
+					value    = "?"
+					fontSize = {48}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{
+						width       : '100%',
+						height      : '100%',
+						positionType: 'absolute',
+						position    : { top: isMobile() ? -7 : 1, left: 1 },
+					}}
+				/>
+			</UiEntity>
+		</UiEntity>
+	)
+}
+
+
+// MARK: ClockIcon
+/**
+ * Minimalist analogue-clock glyph built from UiEntity primitives so we
+ * don't need a PNG asset. A rounded-square backdrop approximates the
+ * bezel; two absolutely-positioned bars form the hour + minute hands
+ * meeting at the centre. Colour is driven by the caller so the same
+ * component can render active/inactive states later.
+ */
+export function ClockIcon(props: { color: Color4; size?: number }) {
+	const ICON       = props.size ?? 36
+	const RING_W     = Math.max(2, Math.round(ICON * (3 / 36)))
+	const HAND_W     = Math.max(2, Math.round(ICON * (3 / 36)))
+	const HOUR_LEN   = Math.round(ICON * (10 / 36))
+	const MINUTE_LEN = Math.round(ICON * (14 / 36))
+	const centre     = ICON / 2
+	return (
+		<UiEntity
+			key         = "ui_ClockIcon"
+			uiTransform = {{ width: ICON, height: ICON, positionType: 'relative' }}
+		>
+			{/* Bezel — rounded square standing in for a circle. */}
+			<UiEntity
+				key         = "clock_bezel"
+				uiTransform = {{
+					width       : ICON,
+					height      : ICON,
+					positionType: 'absolute',
+					position    : { top: 0, left: 0 },
+					borderRadius: ICON / 2,
+					borderWidth : RING_W,
+					borderColor : props.color,
+				}}
+			/>
+			{/* Minute hand — vertical, points to 12. */}
+			<UiEntity
+				key         = "clock_minute"
+				uiTransform = {{
+					width       : HAND_W,
+					height      : MINUTE_LEN,
+					positionType: 'absolute',
+					position    : { top: centre - MINUTE_LEN, left: centre - HAND_W / 2 },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+			{/* Hour hand — horizontal, points to 3. */}
+			<UiEntity
+				key         = "clock_hour"
+				uiTransform = {{
+					width       : HOUR_LEN,
+					height      : HAND_W,
+					positionType: 'absolute',
+					position    : { top: centre - HAND_W / 2, left: centre },
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: ClockButton
+/**
+ * Cycle-clock button. Sits to the LEFT of the SpectatorButton (eye) in
+ * the top-centre HUD cluster. Click behaviour is unwired for now — the
+ * button is a placeholder for the 24 h cycle UI (countdown to next
+ * world reset). Same footprint + border language as SpectatorButton
+ * and MuteButton so the row reads as one system.
+ */
+export function ClockButton() {
+	return (
+		<UiEntity
+			key = "ui_ClockBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); toggleCyclePanel() }}
+		>
+			<ClockIcon color = {WHITE} size = {36} />
+			{/* Countdown popover — absolute-positioned sibling anchored to the
+			   LEFT of the clock button so it appears immediately left of the
+			   icon. Rendered here (instead of as a standalone kit layer) so its
+			   x-position always tracks the icon regardless of HUD layout. */}
+			<UiEntity
+				key         = "ui_ClockBtn_popoverAnchor"
+				uiTransform = {{
+					positionType: 'absolute',
+					// Right edge of the popover sits PANEL_GAP_PX left of the
+					// button's left border. `right: BTN_SIZE + PANEL_GAP_PX`
+					// places it that far from the button's own right edge, which
+					// (thanks to absolute containment inside the button) lands it
+					// just past the left edge.
+					// Nudge up by the button's border thickness so the popover's
+					// outer top edge lines up with the button's outer top edge —
+					// absolute children are positioned inside the border box, so
+					// top: 0 would otherwise sit TORCH_BORDER_W px below the row
+					// baseline shared with the neighbouring buttons.
+					position    : { top: -TORCH_BORDER_W, right: BTN_SIZE + PANEL_GAP_PX },
+					width       : PANEL_WIDTH,
+					height      : BTN_SIZE,
+					justifyContent: 'center',
+					alignItems  : 'center',
+				}}
+			>
+				<CyclePanelPopover />
+			</UiEntity>
+		</UiEntity>
+	)
 }
 
 
@@ -257,6 +468,45 @@ export function SpectatorButton() {
 					texture    : { src: EYE_ICON_SRC },
 					color      : specActive ? GOLD : WHITE,
 				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: DevRollButton
+/**
+ * Dev-only button that forces an immediate server cycle rollover.
+ * Same footprint + border language as the other cluster buttons so it
+ * blends in when SHOW_DEV_ROLL_BUTTON is true, and disappears entirely
+ * when it's false. Exported so layer.frostBar can host it inline in
+ * the top-centre cluster row (registering it in actionBarLayer meant
+ * it rendered underneath the frost bar and was invisible).
+ */
+export function DevRollButton() {
+	return (
+		<UiEntity
+			key = "ui_DevRollBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); forceCycleRoll() }}
+		>
+			<Label
+				value    = "⇆"
+				fontSize = {40}
+				color    = {WHITE}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%', margin: { top: isMobile() ? -12 : -4 } }}
 			/>
 		</UiEntity>
 	)

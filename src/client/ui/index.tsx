@@ -14,8 +14,12 @@ import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
 import { SHOW_SERVER_STATS }  from 'src/client/devFlags'
 import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
+// CyclePanel is rendered inline by ClockButton (see layer.brushSize.tsx)
+// so it's anchored to the clock icon — not a top-level kit layer.
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
-import { frostBarLayer }      from 'src/client/ui/layers/layer.frostBar'
+import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
+import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
+import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 // hotbarLayer retired — the torch button now lives inside the top
 // action bar (see layer.brushSize.tsx > TorchButton). The layer file
 // is kept in-tree for a future hand-slot revival but no longer
@@ -54,7 +58,12 @@ export function setupUi() {
 			// top-right layer.
 			frostBarLayer,
 			relightPromptLayer,
+			hiddenCampfirePromptLayer,
 			versionLayer,
+			// Help panel — slides down from the top when the HelpButton (?)
+			// is clicked. Registered above HUD chrome so its border isn't
+			// clipped by lower layers, but below deathFade / splash.
+			helpPanelLayer,
 			// Death fade must sit above gameplay HUD but below the cold-open
 			// splash so a splash-during-death still covers the screen.
 			deathFadeLayer,

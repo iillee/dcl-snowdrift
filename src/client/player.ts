@@ -21,7 +21,15 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 const SPAWN_OFFSET  = 2   // meters SW of campfire centre
 const PLAYER_STAND_Y = 2  // avatar feet clearance above the walkable slab
 
-function teleportHome(): void {
+// MARK: teleportHome
+/**
+ * Teleport the local player to the spawn pad next to the central
+ * campfire. Exported so cycle rollover can reuse it — when the world
+ * regenerates around a player they should always land on solid
+ * ground next to the fire, not wherever they were standing when the
+ * maze reshuffled.
+ */
+export function teleportHome(): void {
 	const target = {
 		x: CAMPFIRE_WORLD_X - SPAWN_OFFSET,
 		y: PLAYER_STAND_Y,

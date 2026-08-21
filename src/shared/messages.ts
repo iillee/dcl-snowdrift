@@ -60,6 +60,59 @@ export const Messages = {
 	// player pressing the HUD snowflake button drives this.
 	weatherRequest: Schemas.Map({ level: Schemas.Int }),
 
+	// Server → Client: current cycle seed + whether the hidden
+	// campfire for that cycle has been ignited. Sent to a joining
+	// client on joinRoster, and broadcast to everyone when a client's
+	// hiddenCampfireIgnite is accepted. Latecomers hydrate to the
+	// already-lit state so they see smoke + hear the crackle from the
+	// first frame.
+	// lit encoded as 0/1 (int) rather than Schemas.Boolean. In practice a
+	// Schemas.Boolean payload never reached the client through room.send,
+	// while every Int-based message on the same wire (teamAssigned,
+	// weatherState) rounds-tripped fine — so we sidestep it.
+	hiddenCampfireState: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+		lit  : Schemas.Int,
+	}),
+
+	// Client → Server: request to ignite the current cycle's hidden
+	// campfire. `seed` is echoed back so the server can drop stale
+	// ignitions if the cycle has rolled since the client noticed the
+	// trigger condition. Server does not currently validate position
+	// (Phase-5 anti-cheat concern) — first valid seed wins.
+	hiddenCampfireIgnite: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+	}),
+
+	// Server → Client: authoritative cycle state.
+	//   seed                 — current 24 h bucket id (same value as
+	//                          hiddenCampfireState.seed). Clients should
+	//                          treat THIS as canonical instead of computing
+	//                          from local Date.now(), so a peer with a
+	//                          skewed system clock never disagrees about
+	//                          which cycle is active.
+	//   nextRebuildEpochMs   — wall-clock ms (server's Date.now()) of the
+	//                          next midnight-UTC rollover. Clients render
+	//                          the countdown as `nextRebuildEpochMs -
+	//                          Date.now()`; small NTP skew (<1 s) is fine
+	//                          for a visible timer. Matches flagtag's
+	//                          CountdownTimer.roundEndTimeMs pattern.
+	// Sent to the joining client on joinRoster and broadcast to everyone
+	// on cycle rollover.
+	cycleState: Schemas.Map({
+		seed              : Schemas.Int,
+		nextRebuildEpochMs: Schemas.Number,
+	}),
+
+	// Client → Server (DEV only): force an immediate cycle rollover for
+	// smoke-testing the reset flow before real midnight UTC arrives.
+	// Gated on the client by devFlags.ENABLE_DEV_ROLL_CYCLE + the
+	// button that emits it; server accepts unconditionally (no anti-
+	// cheat here — this is a dev affordance, remove or gate before a
+	// production deploy that exposes it to random visitors).
+	devRollCycle: Schemas.Map({}),
 }
 
 export const room = registerMessages(Messages)

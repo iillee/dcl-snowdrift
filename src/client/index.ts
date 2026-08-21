@@ -41,7 +41,9 @@ import { initPaintNet, initPaintingSystem } from 'src/client/paint'
 import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
+import { setupCycleClient } from 'src/client/cycle'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
 import {
@@ -151,6 +153,11 @@ export async function setupClient(): Promise<void> {
 	// Wire event subscribers + CRDT paint observers. PaintCoverage /
 	// PaletteEntry / PaintCell / LeaderboardState are server-owned
 	// (syncEntity only on the server); clients observe replicas.
+	// Server-authoritative 24 h cycle clock. Register the listener BEFORE
+	// initClientHandler so we don't miss the hydration `cycleState` that
+	// arrives immediately after joinRoster.
+	setupCycleClient()
+
 	initPaintNet()
 	initMazeNet()
 	initPlayerNet()
@@ -194,6 +201,9 @@ export async function setupClient(): Promise<void> {
 	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
+	// Second, buried campfire the player has to find + light with a
+	// torch. Deterministic position per 24 h cycle; no server sync yet.
+	setupHiddenCampfire()
 	setupSnowfall()
 	// Audio requires initAudio() to have already run (camera entity is
 	// used as the parent). initAudio is called upstream in setupClient.

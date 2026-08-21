@@ -33,7 +33,9 @@ import {
 import { isMobile } from '@dcl/sdk/platform'
 
 import { isMusicMuted, toggleMusic }             from 'src/client/audio'
+import { toggleHelpPanel }                       from 'src/client/ui/layers/layer.helpPanel'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch }  from 'src/client/torchEquip'
 import { Transform }                             from '@dcl/sdk/ecs'
 
@@ -42,7 +44,7 @@ import { Transform }                             from '@dcl/sdk/ecs'
 let installed = false
 
 // Icon sources for the two repurposed action buttons.
-const EYE_ICON_SRC    = 'assets/images/eye.png'
+const EYE_ICON_SRC    = 'assets/images/eye3.png'
 // Padded copies (transparent border) so the glyph reads at a similar
 // visual size to the eye icon when the DCL native button stretches it
 // to fill its square footprint. Source PNGs are 455 x 408 with almost
@@ -50,6 +52,9 @@ const EYE_ICON_SRC    = 'assets/images/eye.png'
 // each axis). Regenerate with `pad-icons.js` if the source art changes.
 const MUTED_ICON_SRC  = 'assets/images/muted_padded.png'
 const UNMUTE_ICON_SRC = 'assets/images/unmute_padded.png'
+// 700x700 white "?" glyph on transparent bg. Matches the eye + mute icon
+// footprint so all three buttons read as one visual family.
+const HELP_ICON_SRC   = 'assets/images/help-v3.png'
 
 
 // MARK: applyLayout
@@ -78,6 +83,11 @@ function applyLayout(): void {
 			},
 			{
 				inputAction: InputAction.IA_ACTION_4,
+				hide       : false,
+				icon       : { tex: { $case: 'texture', texture: { src: HELP_ICON_SRC } } },
+			},
+			{
+				inputAction: InputAction.IA_ACTION_5,
 				hide       : false,
 				icon       : { tex: { $case: 'texture', texture: { src: muteSrc } } },
 			},
@@ -116,9 +126,13 @@ export function setupTouchControls(): void {
 	// we also toggled here, mobile taps would flip the camera twice per
 	// press (net: no visible change). Keep the eye dispatch there.
 	engine.addSystem(() => {
+		// ACTION_4 (`?`) opens the HelpPanel. Glyph is state-less — no re-apply.
 		if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+			toggleHelpPanel()
+		}
+		// ACTION_5 (`3`, mute) — flip music state and re-apply so the glyph tracks it.
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
 			toggleMusic()
-			// Re-apply so the mute glyph matches the new state.
 			applyLayout()
 		}
 
@@ -133,12 +147,25 @@ export function setupTouchControls(): void {
 		// for its other use (top-down drag-release in topDownCamera.ts).
 		if (inputSystem.isTriggered(InputAction.IA_POINTER, PointerEventType.PET_DOWN)) {
 			if (!isTorchEquipped()) return
+
+			// Hidden campfire ignition takes priority — mirrors the desktop
+			// E-press flow in torchInput.ts. Standing on a buried pit with a
+			// lit torch turns the tap into an ignite request, not a relight.
+			if (isReadyToIgniteHidden()) {
+				requestHiddenIgnite()
+				return
+			}
+
 			if (isTorchLit() && getTorchFuelFraction() >= 0.98) return
+
 			const t = Transform.getOrNull(engine.PlayerEntity)
 			if (t === null) return
 			const dx = t.position.x - CAMPFIRE_WORLD_X
 			const dz = t.position.z - CAMPFIRE_WORLD_Z
-			if (dx * dx + dz * dz > CAMPFIRE_RELIGHT_RADIUS_SQ_M) return
+			const nearCentral = dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+			const nearHidden  = isInHiddenRelightRange()
+			if (!nearCentral && !nearHidden) return
+
 			relightTorch()
 		}
 	})

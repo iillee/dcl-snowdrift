@@ -20,6 +20,7 @@
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import {
 	TORCH_FUEL_MAX_S,
 	consumeTorchFuel,
@@ -66,6 +67,15 @@ export function setupTorchInput(): void {
 		if (!risingEdge) return
 		if (!isTorchEquipped()) return
 
+		// Hidden campfire takes priority: if the player is standing on the
+		// buried pit with a lit torch, this E-press is an ignition attempt,
+		// not a torch top-off. The helper enforces lit-torch + in-radius +
+		// not-already-lit itself, so we can call it unconditionally.
+		if (isReadyToIgniteHidden()) {
+			requestHiddenIgnite()
+			return
+		}
+
 		const t = Transform.getOrNull(engine.PlayerEntity)
 		if (t === null) return
 		const { x, z } = t.position
@@ -73,7 +83,14 @@ export function setupTorchInput(): void {
 		const dz = z - CAMPFIRE_WORLD_Z
 		const distSq = dx * dx + dz * dz
 
-		if (distSq > CAMPFIRE_RELIGHT_RADIUS_SQ_M) {
+		// Either fire (central bonfire OR the lit hidden campfire) is a
+		// valid relight source. Hidden fire only counts once the server
+		// has broadcast lit=true, so an unlit pit still requires an
+		// ignition path (handled above via requestHiddenIgnite).
+		const nearCentral = distSq <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+		const nearHidden  = isInHiddenRelightRange()
+
+		if (!nearCentral && !nearHidden) {
 			// Outside the heat ring: no relight. Log at debug level so
 			// we can grep for it in playtest but stay quiet in normal use.
 			console.log(`torchInput: relight ignored \u2014 outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)
