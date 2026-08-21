@@ -25,6 +25,8 @@ import {
 	AudioSource,
 	Entity,
 	GltfContainer,
+	Material,
+	MeshRenderer,
 	PBParticleSystem_BlendMode,
 	ParticleSystem,
 	Transform,
@@ -61,6 +63,15 @@ const SMOKE_LIFETIME_S      = 4.5
 // MARK: State
 let firePitEntity: Entity | null = null
 let smokeEntity  : Entity | null = null
+// Debug-only locator beam — a tall bright pillar over the pit so it's
+// findable from anywhere in the scene while testing. Removed the frame
+// the fire lights. DELETE THIS BLOCK (plus spawnDebugBeam + the
+// engine.removeEntity call in applyLitVisuals) once the find-the-fire
+// loop is playable without a locator.
+let debugBeamEntity: Entity | null = null
+const DEBUG_BEAM_ENABLED  = true
+const DEBUG_BEAM_HEIGHT_M = 60
+const DEBUG_BEAM_WIDTH_M  = 1.2
 let worldX                        = 0
 let worldZ                        = 0
 let currentSeed                   = 0
@@ -78,6 +89,30 @@ function spawnUnlitPit(): void {
 		position: Vector3.create(worldX, CAMPFIRE_WORLD_Y, worldZ),
 	})
 	GltfContainer.create(firePitEntity, { src: CAMPFIRE_MODEL })
+
+	if (DEBUG_BEAM_ENABLED) spawnDebugBeam()
+}
+
+
+// MARK: spawnDebugBeam
+/**
+ * Bright emissive pillar centred on the pit so the tester can spot
+ * the hidden campfire from anywhere in the playfield. Warm gold to
+ * match the HUD accent. See DEBUG_BEAM_ENABLED for the on/off switch.
+ */
+function spawnDebugBeam(): void {
+	if (debugBeamEntity !== null) return
+	debugBeamEntity = engine.addEntity()
+	Transform.create(debugBeamEntity, {
+		position: Vector3.create(worldX, CAMPFIRE_WORLD_Y + DEBUG_BEAM_HEIGHT_M / 2, worldZ),
+		scale   : Vector3.create(DEBUG_BEAM_WIDTH_M, DEBUG_BEAM_HEIGHT_M, DEBUG_BEAM_WIDTH_M),
+	})
+	MeshRenderer.setBox(debugBeamEntity)
+	Material.setPbrMaterial(debugBeamEntity, {
+		albedoColor  : Color4.create(1.00, 0.80, 0.30, 0.55),
+		emissiveColor: Color4.create(1.00, 0.80, 0.30, 1.00),
+		emissiveIntensity: 4,
+	})
 }
 
 
@@ -131,6 +166,13 @@ function applyLitVisuals(): void {
 			loop                 : true,
 			prewarm              : false,
 		})
+	}
+
+	// Tear the locator beam down the moment the fire lights so a
+	// tester can visually confirm the ignition triggered.
+	if (debugBeamEntity !== null) {
+		engine.removeEntity(debugBeamEntity)
+		debugBeamEntity = null
 	}
 
 	console.log(`hiddenCampfire: lit (seed=${currentSeed}) at (${worldX.toFixed(1)}, ${worldZ.toFixed(1)})`)
