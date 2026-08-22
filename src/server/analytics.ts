@@ -62,12 +62,24 @@ export async function loadDiscordWebhookUrl(): Promise<void> {
  * a Discord outage never destabilises the server tick.
  */
 export function notifyPlayerJoin(address: string): void {
-	if (!DISCORD_WEBHOOK_URL || isPreview || !address) return
+	if (!address) {
+		console.log('[Analytics] notifyPlayerJoin: skipped — empty address')
+		return
+	}
+	if (isPreview) {
+		console.log(`[Analytics] notifyPlayerJoin: skipped for ${address} — preview mode`)
+		return
+	}
+	if (!DISCORD_WEBHOOK_URL) {
+		console.log(`[Analytics] notifyPlayerJoin: skipped for ${address} — no webhook URL loaded (env var missing or loadDiscordWebhookUrl not yet resolved)`)
+		return
+	}
 
 	const short   = `${address.slice(0, 6)}…${address.slice(-4)}`
 	const online  = rosterSize()
 	const content = `👋 **${short}** joined Snow Drift — **${online}** online`
 
+	console.log(`[Analytics] notifyPlayerJoin: POSTing to Discord for ${short} (${online} online)`)
 	fetch(DISCORD_WEBHOOK_URL, {
 		method : 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -76,7 +88,13 @@ export function notifyPlayerJoin(address: string): void {
 		// the whole Discord server.
 		body   : JSON.stringify({ content, allowed_mentions: { parse: [] } }),
 	}).then(
-		() => {},
+		(res) => {
+			if (res.ok) {
+				console.log(`[Analytics] notifyPlayerJoin: Discord accepted (HTTP ${res.status})`)
+			} else {
+				console.log(`[Analytics] notifyPlayerJoin: Discord rejected HTTP ${res.status} — webhook may be revoked, rate-limited, or payload invalid`)
+			}
+		},
 		(err) => console.log('[Analytics] notifyPlayerJoin: webhook POST failed:', err),
 	)
 }

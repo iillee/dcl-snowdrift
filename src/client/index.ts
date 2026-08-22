@@ -34,6 +34,7 @@ import { initAudio } from 'src/client/audio'
 import { initClientHandler } from 'src/client/clientHandler'
 import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
+import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
@@ -163,6 +164,7 @@ export async function setupClient(): Promise<void> {
 	initPlayerNet()
 	initLocomotionGate()
 	initFrostAccumulation()
+	initFrostFlash()
 	setupFrostDeath()
 
 	// Register the network boundary LAST so `room.onMessage` subscribers

@@ -1,8 +1,8 @@
 # Snow Drift — Gameloop Vision
 
-**Status:** design snapshot, pre-first-playtest. 24 h reset implemented + smoke-tested (2026-08-20).
+**Status:** design snapshot, pre-first-playtest. 24 h reset implemented + smoke-tested (2026-08-20). Cooperative + replayability design pass appended 2026-08-21 (see §12).
 **Author:** ile
-**Date:** 2026-08-20
+**Date:** 2026-08-20 (updated 2026-08-21)
 **Scope:** the core "wrap the loop" gameplay design. Complements `docs/PLAN.md` (competition build plan) by describing what the game IS once the vertical slice is stable.
 
 This is a locked design snapshot from a brainstorm session, captured before implementing the 24 h regeneration cycle and before the first public playtest. Deferred items are called out; nothing here is final until playtest data comes back.
@@ -84,6 +84,9 @@ Numeric readout ("3/4") visible somewhere subtle. Ideally the *flame size + smok
 ### Long-term goal
 Hidden fires become a *maintenance* game once the discovery loop stabilizes — the game becomes "how many fires can the community keep alive at once." Fits the cozy-multiplayer emergent-cooperation tone.
 
+### Discovery model — reframed 2026-08-21
+The beacon-vs-wayfinding debate is resolved: **no explicit wayfinding cue**. Hidden fires are discovered *only* by stumbling on a pit while gathering wood, since both wood and pits are surfaced by the same torch-melt action. Wood-hunting IS fire-hunting without the player experiencing it as a hunt. This reframes hidden fires from mandatory content into aspirational content — a bonus outcome of playing the base loop, not a task. The current gold beacons stay dev-only and are removed at deploy. Full rationale in §12.1.
+
 ---
 
 ## 6. Wood, warmth, and the fueling loop
@@ -92,6 +95,12 @@ Hidden fires become a *maintenance* game once the discovery loop stabilizes — 
 - **Discovery is passive teaching**: player sees wood → intuits "maybe this feeds the fire."
 - **Placement**: TBD. Likely coupled to tree positions so wood spawns where the world says trees have shed branches. Regenerates each cycle with the tree layout.
 - **Respawn during a cycle**: TBD — playtest will show whether players deplete the field faster than fires consume it.
+
+### Scatter tuning (added 2026-08-21)
+Wood **cannot cluster near the central fire** or players never wander far enough to stumble on hidden pits (§5, §12.1). Wood should be sparse but map-wide, with richer caches deep in the field to pull players into expedition mode. Tuning target: an average solo session should walk 40–80 m from the central fire.
+
+### Stone ring memory signal (added 2026-08-21)
+Once discovered, a hidden pit displays a shallow stone ring even when unlit. Visible only within ~10 m — enough for a returning player to spot it while passing, invisible from any distance that would give the position away. Doubles as a subtle "someone found this" community trace. Alternatives considered and rejected: persistent scorched patch (gives too much away from distance), nothing at all (harsh — a stumbled-on pit you can't relocate is a discovery wasted).
 
 ---
 
@@ -140,7 +149,75 @@ These aren't in the first playtest but are logged for later:
 
 ---
 
-## 9. What we're NOT deciding now
+## 12. Design additions — 2026-08-21 brainstorm
+
+A design session covering hidden-fire discoverability, the cooperative pillar, and replayability hooks. Nothing here is built yet. Priority-ordered.
+
+### 12.1 Hidden fires — wood-gathering as the discovery channel
+
+**Problem observed in the first small-group playtest:** hidden fires are effectively unfindable in a 128×128 field without wayfinding cues. Every explicit cue tested in brainstorm (smoke plume, compass, directional wisp from central fire) either gave the position away outright, was mobile-hostile due to render distance, or felt UI-gamey against the cozy tone.
+
+**Resolution:** wood-gathering IS fire-discovery. Both are surfaced by torch-melt. Players don't hunt fires — they gather wood and get lucky.
+
+**Consequences:**
+- No beacons at deploy. Gold beacons remain dev-only (§5).
+- Wood scatter must be map-wide, not clustered near center (§6).
+- Discovered pits get a proximity-only stone ring (§6).
+- The 24 h reset (§7) becomes emotionally stronger: it wipes the informal map players were building. That tension — *the world remembers* (persistent central fire) vs. *the world forgets* (daily reroll) — is the core cozy-game beat.
+- Buildathon judges playing 3–5 min almost certainly won't find a hidden fire. **The central-fire loop must fully carry the demo on its own**; hidden fires are the "and there's more" hook for the trailer, not something the judge experiences firsthand. Healthy constraint: if the base hangout isn't fun without the discovery layer, the discovery layer was masking a problem.
+
+### 12.2 Cooperative pillar — the mechanics
+
+The buildathon rewards social gameplay, interpreted as *cooperative* (not competitive) to preserve the cozy tone. Five mechanics; the first three together are the headline pitch — see §12.5.
+
+**12.2.1 Torch cannot be dropped — only handed off or extinguished.**
+Leading co-op mechanic candidate from PLAN §3-B1. Solo: to pick up wood you must extinguish the torch and walk back cold. Paired: the torch is immortal — one player holds it forever, hands it off when needed. The handoff itself is the game's ritual moment: two players meeting, one glowing object passing between them. Zero new systems, one rule change, biggest single social payoff. Legible in the first 90 s of play.
+
+**12.2.2 Contagious warmth with a *visible* glow between paired players.**
+Contagious warmth is already in the vision (§4 implicit, PLAN §3-B2 explicit). The visual has never been specced. Design target: when two players stand within ~3 m, both frost meters slow visibly AND a soft warm shimmer / light-strand connects them — as if their auras are holding hands. The *cozy payoff*: not just "less cold" but "you are warmer *because* they are here." Also the game's screenshot / marketing moment.
+
+**12.2.3 Chain-lighting hidden fires.**
+Torches have a ~90 s burn timer. To light a hidden fire far from the central pit, players have three options:
+- **Sprint solo** — barely possible, thrilling, frost closes hard.
+- **Relay-light with a partner** — you carry a lit torch halfway, they meet you with an unlit one, torch touches torch, they run the rest.
+- **Chain three or more players** across the map for the deepest pits.
+
+Cooperation as *literal transmission of light*. Scales naturally 2 → 5 players (the more of you, the further you can reach). Turns "we lit a hidden fire together" into a genuine collaborative story. Mobile-perfect: walking + one button.
+
+**12.2.4 Fire tending gives a small aura buff.**
+Single tap on the central fire = a 30 s warmth-regen boost for anyone within 8 m. Creates a natural "you go, I'll stay and stoke" role split without mandating it. Pairs organically divide: one adventurer, one hearth-keeper.
+
+**12.2.5 Shared visible hearth level.**
+The 4-tier flame (§4) already scales with fuel. Extend: recent-nearby-players also contribute. When 3+ people are near the central fire, the flame is visibly larger and the warm radius pushes wider — everyone benefits. Solo sees a modest fire; a group sees a bonfire. Positive-sum social "score" with no leaderboard.
+
+### 12.3 Replayability hooks
+
+**12.3.1 Named fires + community hearth log.**
+When a player first lights a hidden fire in a cycle, a one-time prompt to name it. The name is visible on the fire for the whole cycle and appended to a persistent world hearth log ("Ile's Fire, first lit 2026-08-21, kept alive for 4:22"). No stats, no leaderboard, no XP — just a record of the world's small events. The coziest form of progression: your fingerprints stay on the world. Discord will feed on this naturally.
+
+**12.3.2 Daily community outcome.**
+At midnight UTC rollover, the loading splash flashes the previous cycle's result: "Yesterday, Snow Drift kept 2 of 3 fires alive for 18 hours." One line, one number. Makes every day feel like it mattered even if you weren't there. Stretch: if the community lit all 3 fires within a cycle, the next-day sky carries a subtle aurora — silent reward, community lore.
+
+**12.3.3 Rollover as a shared vulnerability moment.**
+The 24 h reset is currently a splash + teleport (§7). Elevate it: every player online sees the same slow fade, the same short pause, a single line ("A new day begins in Snow Drift"), and then the new world. Two strangers online at midnight UTC now share a moment they didn't plan. Small production cost, high memory value.
+
+### 12.4 Mobile-friendly protections
+
+Constraints these designs must respect:
+- **Every co-op interaction is a single tap.** Torch handoff = walk up + tap. Fire poke = tap. Wood pickup = tap. No aim, no chords.
+- **Passive contribution counts.** Standing near the central fire boosts hearth level even AFK. Cozy games reward *being there*, not skill.
+- **Sessions of 3 min feel complete.** Core loop must satisfy without the discovery layer — one warm-up, one wood run, one handoff, done.
+- **The warmth aura between paired players is the marketing shot.** Make it beautiful.
+
+### 12.5 Headline pitch (three-mechanic coherence)
+
+**Torch-can't-be-dropped + chain-lighting + visible warm aura between paired players.**
+
+These three together tell one story: *this is a game where light passes between people.* That's a pitch. That's a trailer beat. That's what judges will remember. Everything else in §12.2–12.3 supports it.
+
+---
+
+## 13. What we're NOT deciding now
 
 Explicitly parked, in rough priority for the next design pass:
 
@@ -153,7 +230,7 @@ Explicitly parked, in rough priority for the next design pass:
 
 ---
 
-## 10. First playtest — what we're testing
+## 14. First playtest — what we're testing
 
 The first public playtest is NOT a test of the full loop above. It's a test of the vertical slice we already have. Success criteria:
 
@@ -170,7 +247,7 @@ Data gathered here determines:
 
 ---
 
-## 11. Non-goals for this design
+## 15. Non-goals for this design
 
 To keep the vision honest:
 

@@ -17,6 +17,7 @@ import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 // CyclePanel is rendered inline by ClockButton (see layer.brushSize.tsx)
 // so it's anchored to the clock icon — not a top-level kit layer.
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
+import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
 import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
@@ -52,6 +53,11 @@ export function setupUi() {
 			// Invisible, off-screen; no z-order or interaction impact.
 			preloadLayer,
 			topDownPanLayer,
+			// Frost segment-gain flash renders BELOW HUD chrome so the bar,
+			// buttons, and prompts stay legible while the blue tint bleeds
+			// across the world. ZoneType.FullScreen but sits early in the
+			// z-stack; deathFade / splash still cover it.
+			frostFlashLayer,
 			actionBarLayer,
 			// TorchButton is rendered inline by frostBarLayer (to its right)
 			// so the top-centre cluster stays one visual unit; no separate
