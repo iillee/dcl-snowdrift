@@ -271,8 +271,8 @@ class FrostBarLayer extends Layer {
 				   flipping SHOW_CLOCK_BUTTON to true. */}
 				{!mobile && SHOW_CLOCK_BUTTON && <ClockButton />}
 				{!mobile && <SpectatorButton />}
-				{!mobile && <HelpButton />}
 				{!mobile && <MuteButton />}
+				{!mobile && <HelpButton />}
 				{!mobile && SHOW_DEV_ROLL_BUTTON && <DevRollButton />}
 				{/* Outer frame — same tinted-black bg + rounded corners as the
 				   action-bar buttons, so the HUD reads as one system. */}

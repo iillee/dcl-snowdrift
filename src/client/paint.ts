@@ -1303,8 +1303,20 @@ export function getSnowStageAtWorld(x: number, y: number, z: number): 0 | 1 | 2 
 	const applied = cellApplied.get(key)
 	// No PaintCell CRDT for this cell (or index reset to NONE by the
 	// server's terminal regrowth transition) — treat as full snow.
-	if (!applied || applied.index === PALETTE_NONE) return 3
-	return applied.stage
+	const stage: 0 | 1 | 2 | 3 = (!applied || applied.index === PALETTE_NONE)
+		? 3
+		: applied.stage
+	if (stage === 0) return 0
+	// Airborne gate. When the player jumps above the top of the snow
+	// block at this cell, they are not in the snow — return 0 so callers
+	// (locomotion drag, footstep SFX) stay quiet mid-jump instead of
+	// treating a hop as continued contact. Tolerance allows for the
+	// avatar riding a hair above the visible top and for tiny sample
+	// jitter without flapping between stages.
+	const snowTopY = hit.groundY + SNOW_FILL_STAGE_HEIGHT[stage - 1]
+	const FOOT_ABOVE_TOP_TOLERANCE = 0.35
+	if (y > snowTopY + FOOT_ABOVE_TOP_TOLERANCE) return 0
+	return stage
 }
 
 

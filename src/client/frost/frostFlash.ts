@@ -43,13 +43,19 @@ let lastBlueCount = 0
 
 
 // MARK: coldBlocks
-// Same math the frost bar uses to decide how many cold blocks to draw.
-// Ceiling so the very first sliver of frost already reads as "1 blue".
+// Mirror of the warm-block math in layer.frostBar.tsx, then subtracted
+// from SEGMENT_COUNT to get the number of visible blue blocks. The bar
+// rounds warmth UP (Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT)))
+// so the last sliver of warmth still shows a full warm block — which
+// means the FIRST sliver of frost shows ZERO blue blocks. Earlier
+// versions of this file ceil-ed on frost directly, so the flash fired
+// on first entry into snow while the bar still looked fully warm.
 function coldBlocks(frost: number): number {
 	if (frost <= 0)         return 0
 	if (frost >= FROST_MAX) return SEGMENT_COUNT
-	const frac = frost / FROST_MAX
-	return Math.min(SEGMENT_COUNT, Math.max(1, Math.ceil(frac * SEGMENT_COUNT)))
+	const warmthPct  = 1 - frost / FROST_MAX
+	const warmBlocks = Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT))
+	return SEGMENT_COUNT - warmBlocks
 }
 
 

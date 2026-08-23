@@ -14,11 +14,13 @@
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { playUiClick } from 'src/client/audio'
 import { msUntilNextRebuild } from 'src/client/cycle'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
@@ -141,4 +143,22 @@ export function isHelpPanelVisible(): boolean {
 /** Flip visibility of the help panel (bound to the HelpButton). */
 export function toggleHelpPanel(): void {
 	helpPanelLayer.toggle()
+}
+
+
+// MARK: initHelpPanelHotkey
+/**
+ * Desktop hotkey: `3` (IA_ACTION_5) toggles the help panel, matching
+ * the `1` = spectator and `2` = mute pattern already used by the top
+ * HUD row. Skip on mobile — there is no on-screen slot bound to
+ * ACTION_5 there, and the panel is opened via the touch HelpButton.
+ */
+export function initHelpPanelHotkey(): void {
+	if (isMobile()) return
+	engine.addSystem(() => {
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+			playUiClick()
+			toggleHelpPanel()
+		}
+	})
 }

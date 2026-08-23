@@ -24,6 +24,8 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { room } from 'src/shared/messages'
+
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
 
 
@@ -220,10 +222,18 @@ export function setupTorch(): void {
 
 	// Per-frame updater: toggle flame visibility + smoke playback on
 	// lit, shrink the flame orb in proportion to remaining fuel. Shaft
-	// stays constant.
+	// stays constant. Also emits `torchLit` to the auth server whenever
+	// the local lit-state edge-changes, so other clients can mirror the
+	// flame on our avatar's held torch (see src/client/remoteTorches.ts).
+	let lastBroadcastLit: boolean | null = null
 	engine.addSystem(() => {
 		const lit  = isTorchLit()
 		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
+
+		if (lastBroadcastLit !== lit) {
+			lastBroadcastLit = lit
+			room.send('torchLit', { lit: lit ? 1 : 0 })
+		}
 
 		const vis = VisibilityComponent.getMutableOrNull(flame)
 		if (vis !== null && vis.visible !== lit) vis.visible = lit

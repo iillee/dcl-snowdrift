@@ -39,6 +39,7 @@ import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
+import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -157,6 +158,7 @@ export async function setupServer(): Promise<void> {
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
 	setupHiddenCampfireServer()
+	setupTorchServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the
@@ -223,6 +225,10 @@ export async function setupServer(): Promise<void> {
 		// on join so a fresh client's HUD shows a correct rebuild timer
 		// from the first frame instead of trusting local Date.now().
 		sendCycleStateTo(from)
+		// Hydrate held-torch lit states for everyone already in the room so
+		// the joiner sees flames instead of dark sticks until each remote
+		// player's next lit-state change.
+		sendTorchStatesTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.

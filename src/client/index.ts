@@ -31,6 +31,7 @@ import {
 import { SEED_NETWORK_ID } from 'src/shared/paintGrid'
 
 import { initAudio } from 'src/client/audio'
+import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
 import { initClientHandler } from 'src/client/clientHandler'
 import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
@@ -59,6 +60,7 @@ import { setupProps } from 'src/client/props/spawn'
 // setupSkybox() call in setupClient() for the rationale.
 // import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
+import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
@@ -130,6 +132,7 @@ engine.addSystem((dt: number) => {
 export async function setupClient(): Promise<void> {
 	if (STRESS_COUNT > 0) { runStress(STRESS_COUNT); return }
 	initAudio()
+	initHelpPanelHotkey()
 
 	// Composite-lever scrubber. The scene's main.composite still contains a
 	// decorative lever entity from an earlier iteration where pulling it
@@ -213,6 +216,7 @@ export async function setupClient(): Promise<void> {
 	setupSnowFootsteps()
 	setupTorch()
 	setupTorchInput()
+	setupRemoteTorches()
 
 	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
 	// the mobile action layer renders scene-branded replacements.

@@ -106,6 +106,22 @@ export const Messages = {
 		nextRebuildEpochMs: Schemas.Number,
 	}),
 
+	// Client → Server: broadcast the local player's torch lit state whenever
+	// it changes (relight, burn-out). Encoded 0/1 as Int for the same
+	// Schemas.Boolean-over-the-wire caveat noted on hiddenCampfireState.
+	torchLit: Schemas.Map({ lit: Schemas.Int }),
+
+	// Server → Client: relay of another player's torch lit state. The
+	// server rebroadcasts every torchLit message it receives, tagged with
+	// the sender's authenticated userId (context.from), and re-sends the
+	// full known set to joiners so latecomers see everyone's flames from
+	// the first frame. The receiver renders a torch model on that remote
+	// avatar's right hand and toggles the flame visibility to match.
+	torchLitFrom: Schemas.Map({
+		userId: Schemas.String,
+		lit   : Schemas.Int,
+	}),
+
 	// Client → Server (DEV only): force an immediate cycle rollover for
 	// smoke-testing the reset flow before real midnight UTC arrives.
 	// Gated on the client by devFlags.ENABLE_DEV_ROLL_CYCLE + the
