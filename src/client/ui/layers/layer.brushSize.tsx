@@ -20,6 +20,7 @@ import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from '
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
+import { hasLogs } from 'src/client/logsInventory'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
@@ -578,8 +579,11 @@ export function TorchButton() {
 	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
 	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
 
-	const fuelHeightMax = BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2
-	const fuelHeightPx  = Math.round(fuelHeightMax * fuelFrac)
+	// Fuel height as a percentage so it scales with the button when the
+	// UI canvas rescales (small windows, mobile). Previously computed as
+	// raw px against BTN_SIZE — that math only held at the reference
+	// canvas size, so the fill drifted out of the button on resize.
+	const fuelHeightPct = `${Math.round(fuelFrac * 100)}%` as const
 	// Constant warm gold across the whole drain — the fill height alone
 	// communicates remaining fuel. A low-fuel warning colour was tried
 	// and rejected; if we bring it back, prefer a pulse over a hard swap.
@@ -612,19 +616,22 @@ export function TorchButton() {
 				<UiEntity
 					key         = "ui_TorchBtn_fuelFrame"
 					uiTransform = {{
+						// Fill the button's content box via width/height 100% + a
+						// padding ring equal to the desired inset. This lets the
+						// inner bar use percentage sizing so it rescales with the
+						// parent when the UI canvas scales (window resize / mobile
+						// aspect changes). Previously the frame used absolute px
+						// math against BTN_SIZE, which drifted out of the button
+						// on any canvas rescale.
 						positionType   : 'absolute',
-						// Explicit width + height + top/left inset. DCL absolute
-						// elements do NOT stretch to fill via top+bottom+left+right
-						// the way CSS does — without an explicit size they collapse
-						// to their content's intrinsic dimensions and anchor to the
-						// specified corner (bottom-right in our case). Sizing the
-						// frame in px matches the visible inner content area of the
-						// button (BTN_SIZE - 2 * border - 2 * inset) and pins it to
-						// the top-left of that region, yielding a uniform gap on all
-						// four sides.
-						position       : { top: TORCH_FUEL_INSET, left: TORCH_FUEL_INSET },
-						width          : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
-						height         : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						width          : '100%',
+						height         : '100%',
+						padding        : {
+							top   : TORCH_FUEL_INSET,
+							bottom: TORCH_FUEL_INSET,
+							left  : TORCH_FUEL_INSET,
+							right : TORCH_FUEL_INSET,
+						},
 						flexDirection  : 'column',
 						justifyContent : 'flex-end',
 					}}
@@ -633,7 +640,7 @@ export function TorchButton() {
 						key         = "ui_TorchBtn_fuelBar"
 						uiTransform = {{
 							width       : '100%',
-							height      : fuelHeightPx,
+							height      : fuelHeightPct,
 							borderRadius: borderRadius.sm,
 						}}
 						uiBackground = {{ color: fuelColor }}
@@ -653,6 +660,62 @@ export function TorchButton() {
 		</UiEntity>
 	)
 }
+
+// MARK: LogsButton
+/**
+ * Empty inventory slot placeholder for wood logs — sits to the LEFT of
+ * the torch slot in the frost-bar row. Identical footprint, panel, and
+ * border-radius to TorchButton so the two slots read as a matched pair
+ * (torch + wood, the future N3 hand-slot exclusivity from PLAN.md).
+ *
+ * Intentionally empty: no icon, no fill, no click handler yet. When the
+ * wood pickup + carry loop lands, this slot gets an icon + count badge
+ * and (probably) a subtle border-on state when the player is carrying
+ * a log. Kept as its own exported component so the frost-bar layout
+ * can drop it in without importing wood state.
+ */
+export function LogsButton() {
+	const carrying    = hasLogs()
+	// Warm-gold active border matches the torch's lit state so both slots
+	// share one visual grammar for "this slot holds something".
+	const borderColor = carrying
+		? Color4.create(1.00, 0.80, 0.30, 0.95)
+		: Color4.create(1, 1, 1, 0.75)
+
+	return (
+		<UiEntity
+			key = "ui_LogsBtn"
+			uiTransform = {{
+				width         : BTN_SIZE,
+				height        : BTN_SIZE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				// Constant border width to avoid the layout-shift bug
+				// documented on TorchButton.
+				borderWidth   : 4,
+				borderColor   : borderColor,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+		>
+			{carrying ? (
+				<UiEntity
+					key         = "ui_LogsBtn_icon"
+					uiTransform = {{ width: LOGS_ICON_PX, height: LOGS_ICON_PX }}
+					uiBackground = {{
+						textureMode: 'stretch',
+						texture    : { src: 'assets/images/logs.png' },
+						color      : WHITE,
+					}}
+				/>
+			) : null}
+		</UiEntity>
+	)
+}
+
+const LOGS_ICON_PX = 40
+
 
 // Torch-button visual constants — kept beside the component so the
 // action bar owns its own tuning without importing from the retired

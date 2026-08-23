@@ -45,6 +45,9 @@ import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupLogsClient } from 'src/client/logs'
+import { setupLogsInput } from 'src/client/logsInput'
+import { setupWoodClient } from 'src/client/wood'
 import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
@@ -170,6 +173,13 @@ export async function setupClient(): Promise<void> {
 	initFrostFlash()
 	setupFrostDeath()
 
+	// Wood-log network handlers must register BEFORE initClientHandler
+	// so the initial logPileAdded broadcast (sent by the server as part
+	// of joinRoster hydration) is caught. Same rule as setupCycleClient
+	// above.
+	setupLogsClient()
+	setupWoodClient()
+
 	// Register the network boundary LAST so `room.onMessage` subscribers
 	// above are all in place before the first message can arrive.
 	initClientHandler()
@@ -206,6 +216,7 @@ export async function setupClient(): Promise<void> {
 	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
+	setupLogsInput()
 	// Second, buried campfire the player has to find + light with a
 	// torch. Deterministic position per 24 h cycle; no server sync yet.
 	setupHiddenCampfire()

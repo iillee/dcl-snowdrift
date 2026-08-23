@@ -227,6 +227,7 @@ Explicitly parked, in rough priority for the next design pass:
 4. **Wood respawn cadence.**
 5. **Central fire ceiling escalation** past 4/4 as multi-fire stage kicks in.
 6. **"Named fires"** — each fire gains a name when first lit that cycle; players build a personal hearth log over time.
+7. **Axes + tree-chopping as a v2 wood source.** Considered 2026-08-22 as a legibility upgrade ("chop tree → wood" is universally readable in a 3-minute judge session). Rejected for v1 because it fractures the "one verb: melt" thesis (§12.1) that ties wood-gathering to fire-discovery, turns the two-slot hand (§12.2.1) into a three-slot swap-dance, and requires 5+ new systems (chop input, felling anim, stump entities, respawn logic, tool-tier UI). Preserved as a strong v2 pivot for a more classic survival tone — would coexist with a torch, not replace it, and could introduce tool-tier progression that Snow Drift v1 does not currently need.
 
 ---
 

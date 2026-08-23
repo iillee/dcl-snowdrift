@@ -21,7 +21,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
 import { isTorchEquipped }                         from 'src/client/torchEquip'
-import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { ClockButton, DevRollButton, HelpButton, LogsButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
 // while the timer lives in the HelpPanel. Flip to `true` to restore the
@@ -317,6 +317,11 @@ class FrostBarLayer extends Layer {
 				{isTorchEquipped() && (
 					<TorchButton />
 				)}
+				{/* Logs slot to the RIGHT of the torch slot. Empty placeholder
+				   for the future wood-carry hand slot (PLAN.md N3). Always
+				   shown for now so the pair reads as a matched hotbar even
+				   before the pickup loop lands. */}
+				<LogsButton />
 			</UiEntity>
 		)
 	}

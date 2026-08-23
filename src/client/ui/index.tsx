@@ -27,6 +27,7 @@ import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCam
 // registered here.
 import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
 import { preloadLayer }       from 'src/client/ui/layers/layer.preload'
+import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
@@ -64,6 +65,7 @@ export function setupUi() {
 			// top-right layer.
 			frostBarLayer,
 			relightPromptLayer,
+			feedPromptLayer,
 			hiddenCampfirePromptLayer,
 			versionLayer,
 			// Help panel — slides down from the top when the HelpButton (?)

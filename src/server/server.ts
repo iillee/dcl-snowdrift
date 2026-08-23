@@ -39,6 +39,8 @@ import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
+import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
+import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
 import { Team } from 'src/shared/team'
 import {
@@ -158,6 +160,8 @@ export async function setupServer(): Promise<void> {
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
 	setupHiddenCampfireServer()
+	setupLogsServer()
+	setupWoodServer()
 	setupTorchServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
@@ -221,6 +225,12 @@ export async function setupServer(): Promise<void> {
 		// somebody already lit it should see smoke + hear crackle from
 		// the first frame instead of a cold pit.
 		sendHiddenCampfireStateTo(from)
+		// Hydrate the joiner with every wood pile currently in the world so
+		// they see logs another player dropped before they connected.
+		sendLogPilesTo(from)
+		// Same for the scattered wood chunks - the active/inactive set
+		// lives on the server, positions are seed-derived on the client.
+		sendWoodStateTo(from)
 		// Authoritative countdown for the ClockButton popover — hydrated
 		// on join so a fresh client's HUD shows a correct rebuild timer
 		// from the first frame instead of trusting local Date.now().
