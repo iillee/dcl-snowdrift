@@ -26,7 +26,9 @@ import { Color3, Color4, Quaternion, Vector3 }                                  
 import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
 import { computeWoodScatter, WoodChunk }            from 'src/shared/woodScatter'
 import { hasLogs, pickupLogs }                      from 'src/client/logsInventory'
+import { spawnLogsBounce }                          from 'src/client/logsPickupFx'
 import { room }                                     from 'src/shared/messages'
+import { getPlayer }                                from '@dcl/sdk/players'
 
 
 /**
@@ -119,9 +121,13 @@ export function setupWoodClient(): void {
 		spawnChunk(idx, /* armed */ false)
 	})
 
-	room.onMessage('woodChunkRemoved', ({ seed, idx }) => {
+	room.onMessage('woodChunkRemoved', ({ seed, idx, pickerId }) => {
 		if (seed !== currentSeed) return
 		despawnChunk(idx)
+		// Remote FX: local player already got their bounce optimistically
+		// in pickupLogs(), so only play here when someone ELSE grabbed it.
+		const me = getPlayer()?.userId.toLowerCase()
+		if (pickerId && pickerId !== me) spawnLogsBounce(pickerId)
 	})
 
 	engine.addSystem(proximityPollSystem)

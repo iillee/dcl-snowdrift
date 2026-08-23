@@ -13,10 +13,13 @@
 
 
 import { Transform, engine } from '@dcl/sdk/ecs'
+import { getPlayer }         from '@dcl/sdk/players'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { isInHiddenRelightRange }                                           from 'src/client/hiddenCampfire'
 import { playDropSfx, playPickupSfx }                                       from 'src/client/audio'
+import { spawnLogsBounce }                                                  from 'src/client/logsPickupFx'
+import { requestFeedFire }                                                  from 'src/client/hearthFuel'
 
 
 /**
@@ -46,6 +49,11 @@ export function pickupLogs(): void {
 	if (_hasLogs) return
 	_hasLogs = true
 	playPickupSfx()
+	// Cosmetic "+1 log" bounce over the local player's head. Head-bounce
+	// FX for OTHER players' pickups is triggered from the server-
+	// confirmed pickup message handlers (see wood.ts).
+	const me = getPlayer()
+	if (me) spawnLogsBounce(me.userId.toLowerCase())
 	console.log('logsInventory: pickupLogs: F slot now holds a log')
 }
 
@@ -93,8 +101,12 @@ export function isInFeedRange(): boolean {
 export function feedFire(): void {
 	if (!_hasLogs) return
 	_hasLogs = false
-	// Feed uses the drop sfx for now — will get its own "whoosh" clip
-	// when the campfire fuel state system lands.
+	// Feed uses the drop sfx for now - will get its own "whoosh" clip
+	// when the tier-scaled fire audio lands (step 3 of the fuel plan).
 	playDropSfx()
-	console.log('logsInventory: feedFire: log consumed by campfire (fuel system not yet wired)')
+	// Server owns fuel: it clamps + broadcasts + drives every visual.
+	// Local carry-state was cleared above so the F slot empties
+	// immediately; the fuel bar animates on the next broadcast.
+	requestFeedFire()
+	console.log('logsInventory: feedFire: log consumed, feedFireRequest sent')
 }

@@ -34,11 +34,23 @@ import {
 
 // MARK: Tuning constants
 /**
- * Target number of chunks the scatter tries to place per seed. Actual
- * count may be lower if rejection sampling exhausts attempts, but
- * that would signal the map + exclusions are too tight.
+ * How many chunk positions the scatter tries to place per seed. This
+ * is the POOL of candidate positions - the server only activates a
+ * subset (WOOD_ACTIVE_TARGET) at any time, and picks fresh unused
+ * idxes on trickle respawn so wood never comes back at the same spot
+ * a player just picked it up from. Large pool = many possible spawn
+ * locations per cycle before the field "runs out" (which anchors on
+ * the midnight cycle roll anyway).
  */
-export const WOOD_TARGET_COUNT = 40
+export const WOOD_POOL_SIZE = 200
+
+/**
+ * How many chunks are active in the world at any one time. Server
+ * maintains this count via the trickle respawn - drops below when
+ * players pick up faster than the trickle can refill, grows back
+ * toward this over time.
+ */
+export const WOOD_ACTIVE_TARGET = 40
 
 /**
  * Hard exclusion (m) around the central fire. Must exceed the melt
@@ -123,10 +135,10 @@ function densityWeight(r: number): number {
 export function computeWoodScatter(seed: number): WoodChunk[] {
 	const rng = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
 	const out: WoodChunk[] = []
-	const MAX_ATTEMPTS = WOOD_TARGET_COUNT * 20
+	const MAX_ATTEMPTS = WOOD_POOL_SIZE * 20
 	let attempts = 0
 
-	while (out.length < WOOD_TARGET_COUNT && attempts < MAX_ATTEMPTS) {
+	while (out.length < WOOD_POOL_SIZE && attempts < MAX_ATTEMPTS) {
 		attempts++
 		// Uniform disc sample around centre: r = R * sqrt(u), theta = 2*pi*v
 		const u = rng()
@@ -142,10 +154,10 @@ export function computeWoodScatter(seed: number): WoodChunk[] {
 		out.push({ idx: out.length, worldX, worldZ })
 	}
 
-	if (out.length < WOOD_TARGET_COUNT) {
+	if (out.length < WOOD_POOL_SIZE) {
 		console.log(
-			`woodScatter: computeWoodScatter: placed ${out.length}/${WOOD_TARGET_COUNT} ` +
-			`chunks after ${attempts} attempts (seed ${seed}) - exclusion may be too tight`
+			`woodScatter: computeWoodScatter: placed ${out.length}/${WOOD_POOL_SIZE} ` +
+			`positions after ${attempts} attempts (seed ${seed}) - exclusion may be too tight`
 		)
 	}
 	return out

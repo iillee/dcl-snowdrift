@@ -19,6 +19,7 @@ import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
 import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
 import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
+import { inventoryHotbarLayer }       from 'src/client/ui/layers/layer.inventoryHotbar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 // hotbarLayer retired — the torch button now lives inside the top
@@ -60,10 +61,12 @@ export function setupUi() {
 			// z-stack; deathFade / splash still cover it.
 			frostFlashLayer,
 			actionBarLayer,
-			// TorchButton is rendered inline by frostBarLayer (to its right)
-			// so the top-centre cluster stays one visual unit; no separate
-			// top-right layer.
 			frostBarLayer,
+			// Bottom-center hotbar hosting the Torch (E) + Wood (F) slots.
+			// Previously inlined into frostBarLayer; pulled out so the top
+			// row stays status-only and the inventory reads as a classic
+			// action bar at the bottom of the screen.
+			inventoryHotbarLayer,
 			relightPromptLayer,
 			feedPromptLayer,
 			hiddenCampfirePromptLayer,

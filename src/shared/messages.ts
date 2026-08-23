@@ -169,13 +169,40 @@ export const Messages = {
 	woodChunkActive: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
 
 	// Server -> Client: a chunk was picked up and is gone. Client removes
-	// its GLB.
-	woodChunkRemoved: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
+	// its GLB. `pickerId` is the lowercased wallet address of the player
+	// who grabbed it, so remote clients can play the head-bounce FX over
+	// the correct avatar.
+	woodChunkRemoved: Schemas.Map({
+		seed    : Schemas.Int,
+		idx     : Schemas.Int,
+		pickerId: Schemas.String,
+	}),
 
 	// Client -> Server: I walked onto chunk `idx` and want to pick it up.
 	// `seed` is echoed so the server can reject a stale pickup that arrived
 	// after a cycle roll invalidated the client's scatter.
 	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
+
+	// Client -> Server: player fed a log to the main hearth. Server
+	// validates (has-carried-log guard is client-side only for now;
+	// server trusts the request and bumps fuel by LOG_FUEL_SECONDS).
+	feedFireRequest: Schemas.Map({}),
+
+	// Server -> Client: current main-hearth fuel in seconds. Broadcast
+	// on significant change (delta > threshold, or tier crossed, or on
+	// feed) and on joinRoster hydration. `players` is the current
+	// player count baked into the packet so the client can render the
+	// "xN" drain multiplier without a separate roster subscription.
+	hearthFuelUpdate: Schemas.Map({
+		fuel   : Schemas.Float,
+		players: Schemas.Int,
+	}),
+
+	// Server -> Client: the main hearth just hit FUEL_MAX from below.
+	// One-shot celebration hook (audio, billboard flash, camera zap) -
+	// re-arms once fuel drops below Roaring tier entry (450 s), so it
+	// won't fire again until players work back up to full.
+	hearthMax: Schemas.Map({}),
 
 	// Client → Server (DEV only): force an immediate cycle rollover for
 	// smoke-testing the reset flow before real midnight UTC arrives.

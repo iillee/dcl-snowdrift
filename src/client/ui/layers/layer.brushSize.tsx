@@ -553,6 +553,37 @@ export function MuteButton() {
 }
 
 
+// MARK: KeyHintBadge
+/**
+ * Tiny "E" / "F" label pinned to the upper-left corner of an
+ * inventory slot so desktop players can see the hotkey binding at a
+ * glance. Hidden on mobile (no physical keyboard, and the touch
+ * controls own their own labels via touchControls.ts).
+ *
+ * Renders as an absolutely-positioned overlay so the parent slot's
+ * flex-centered icon + fuel fill are unaffected.
+ */
+function KeyHintBadge(props: { label: string }) {
+	if (isMobile()) return null
+	return (
+		<Label
+			key        = {`ui_KeyHint_${props.label}`}
+			value      = {props.label}
+			fontSize   = {14}
+			color      = {Color4.create(1, 1, 1, 0.85)}
+			uiTransform = {{
+				positionType: 'absolute',
+				// Nudge just inside the border so the glyph sits in the
+				// slot corner without clipping the border stroke.
+				position    : { top: 6, left: 10 },
+				width       : 16,
+				height      : 16,
+			}}
+		/>
+	)
+}
+
+
 // MARK: TorchButton
 /**
  * Torch inventory slot. Same footprint (BTN_SIZE), same PANEL_BG, same
@@ -647,6 +678,7 @@ export function TorchButton() {
 					/>
 				</UiEntity>
 			) : null}
+			<KeyHintBadge label="E" />
 			{/* Torch glyph — centred on top of the fuel fill. */}
 			<UiEntity
 				key         = "ui_TorchBtn_icon"
@@ -699,6 +731,7 @@ export function LogsButton() {
 			}}
 			uiBackground = {{ color: PANEL_BG }}
 		>
+			<KeyHintBadge label="F" />
 			{carrying ? (
 				<UiEntity
 					key         = "ui_LogsBtn_icon"

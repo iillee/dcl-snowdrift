@@ -16,6 +16,11 @@ import {
 } from 'src/shared/components'
 import { cellIdToKey, packCellByte } from 'src/shared/paintGrid'
 import {
+	MAZE_ORIGIN_OFFSET_METERS,
+	MAZE_TILE_WORLD_METERS,
+	PAINT_CELL_SIZE_METERS,
+} from 'src/shared/settings'
+import {
 	colorKey,
 	teamColor,
 	teamPaletteIndex,
@@ -241,6 +246,51 @@ export function markProtected(id: string): void {
  */
 export function unmarkProtected(id: string): void {
 	protectedCells.delete(id)
+}
+
+
+// MARK: shrinkMeltRingTo
+/**
+ * Clear every protected cell whose world center falls OUTSIDE the
+ * given radius from (cx, cz). Cells outside the new ring are:
+ *   1. Removed from the protected set (so regrowth can touch them)
+ *   2. Force-reset to PALETTE_NONE / stage 0 (visible snow, instantly)
+ *   3. Dropped from cellState so tickRegrowth stops iterating them
+ *
+ * Called by hearthFuel when the fire decays down a tier so the visible
+ * blue floor ring shrinks with the fuel. Cells INSIDE the new radius
+ * are left protected + painted.
+ */
+export function shrinkMeltRingTo(cx: number, cz: number, radiusM: number): void {
+	const r2 = radiusM * radiusM
+	let cleared = 0
+	for (const id of Array.from(protectedCells)) {
+		// id format: "tx,tz,ty:col,row" (see seedStartingArea).
+		const colon = id.indexOf(':')
+		if (colon < 0) continue
+		const tPart = id.substring(0, colon).split(',')
+		const cPart = id.substring(colon + 1).split(',')
+		if (tPart.length !== 3 || cPart.length !== 2) continue
+		const tx  = Number(tPart[0])
+		const tz  = Number(tPart[1])
+		const col = Number(cPart[0])
+		const row = Number(cPart[1])
+		const wx  = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
+		const wz  = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
+		const dx  = wx - cx
+		const dz  = wz - cz
+		if (dx * dx + dz * dz <= r2) continue // still inside - keep
+
+		protectedCells.delete(id)
+		if (writeCellComponent(id, PALETTE_NONE, 0)) {
+			cellState.delete(id)
+			coverageDirty = true
+			cleared++
+		}
+	}
+	if (cleared > 0) {
+		console.log(`[PaintState] shrinkMeltRingTo(${radiusM.toFixed(1)}m): cleared ${cleared} cells`)
+	}
 }
 
 

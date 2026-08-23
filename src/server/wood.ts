@@ -26,38 +26,63 @@
 import { engine } from '@dcl/sdk/ecs'
 
 import { room } from 'src/shared/messages'
-import { computeWoodScatter, WoodChunk } from 'src/shared/woodScatter'
+import {
+	computeWoodScatter, WoodChunk, WOOD_ACTIVE_TARGET, WOOD_POOL_SIZE,
+} from 'src/shared/woodScatter'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 
 
-/** How often (s) a random inactive chunk is reactivated. */
+/** How often (s) the trickle tries to add a fresh chunk if the active
+ *  count is below WOOD_ACTIVE_TARGET. */
 const TRICKLE_INTERVAL_S = 60
 
 
-let currentSeed  = 0
-let scatter      : WoodChunk[] = []
-const active     = new Set<number>()
-let trickleClock = TRICKLE_INTERVAL_S
+let currentSeed   = 0
+let scatter       : WoodChunk[] = []
+/** Idxes currently visible in the world. */
+const active      = new Set<number>()
+/** Idxes that have been active at any point during the current cycle.
+ *  Never reused - so trickle respawns always pick a fresh position.
+ *  Cleared on cycle roll (fresh scatter, fresh field). */
+const everSpawned = new Set<number>()
+let trickleClock  = TRICKLE_INTERVAL_S
 
 
 // MARK: rebuildScatter
 /**
- * Recompute the scatter for `seed` and mark every chunk active.
+ * Recompute the scatter for `seed` and pick a random initial
+ * WOOD_ACTIVE_TARGET subset of the pool to activate. Everything else
+ * stays dormant until a trickle respawn promotes it. `everSpawned`
+ * is initialised to the same subset so those idxes won't be picked
+ * again by trickle (fresh-position invariant).
+ *
  * Called at boot and on cycle roll. Does NOT broadcast - callers do.
  */
 function rebuildScatter(seed: number): void {
 	currentSeed = seed
 	scatter     = computeWoodScatter(seed)
 	active.clear()
-	for (const c of scatter) active.add(c.idx)
-	console.log(`[Server] wood: rebuilt scatter seed=${seed} count=${scatter.length}`)
-	// Dev aid: dump the first few chunk positions so a tester can walk
-	// straight to one instead of hunting blind. Remove once the loop is
-	// tuned.
-	for (let i = 0; i < Math.min(5, scatter.length); i++) {
-		const c = scatter[i]
-		console.log(`[Server] wood: chunk[${i}] at (${c.worldX.toFixed(1)}, ${c.worldZ.toFixed(1)})`)
+	everSpawned.clear()
+
+	// Fisher-Yates a shuffle of pool idxes, then take the first N as
+	// the initial active set. Random.random is fine here - positions
+	// are broadcast, so determinism between server restarts doesn't
+	// matter for this pick.
+	const pool = scatter.map(c => c.idx)
+	for (let i = pool.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1))
+		const t = pool[i]; pool[i] = pool[j]; pool[j] = t
 	}
+	const initialCount = Math.min(WOOD_ACTIVE_TARGET, pool.length)
+	for (let i = 0; i < initialCount; i++) {
+		active.add(pool[i])
+		everSpawned.add(pool[i])
+	}
+
+	console.log(
+		`[Server] wood: rebuilt scatter seed=${seed} pool=${scatter.length} ` +
+		`active=${active.size}/${WOOD_ACTIVE_TARGET}`
+	)
 }
 
 
@@ -81,20 +106,33 @@ export function sendWoodStateTo(userId: string): void {
 }
 
 
-// MARK: trickleReactivate
+// MARK: trickleSpawnFresh
 /**
- * Pick a random currently-inactive chunk and mark it active. No-op if
- * every chunk is already active. Broadcasts the single reactivation.
+ * If the active count is below the target AND the pool still has
+ * never-spawned idxes, pick a random fresh one, activate it, mark it
+ * as spawned-this-cycle, and broadcast. Fresh-position guarantee
+ * means a chunk NEVER reappears at a spot a player already grabbed
+ * it from in the current cycle.
+ *
+ * When everSpawned fills the pool, trickle idles until the next
+ * cycle roll clears the set.
  */
-function trickleReactivate(): void {
-	if (active.size >= scatter.length) return
-	// Build the inactive list (small map, this is cheap).
-	const inactive: number[] = []
-	for (const c of scatter) if (!active.has(c.idx)) inactive.push(c.idx)
-	if (inactive.length === 0) return
-	const pick = inactive[Math.floor(Math.random() * inactive.length)]
+function trickleSpawnFresh(): void {
+	if (active.size >= WOOD_ACTIVE_TARGET) return
+	if (everSpawned.size >= WOOD_POOL_SIZE) {
+		// Pool exhausted for this cycle; wait for cycle roll.
+		return
+	}
+	const candidates: number[] = []
+	for (const c of scatter) if (!everSpawned.has(c.idx)) candidates.push(c.idx)
+	if (candidates.length === 0) return
+	const pick = candidates[Math.floor(Math.random() * candidates.length)]
 	active.add(pick)
-	console.log(`[Server] wood: trickle reactivate idx=${pick} (${active.size}/${scatter.length})`)
+	everSpawned.add(pick)
+	console.log(
+		`[Server] wood: trickle FRESH idx=${pick} ` +
+		`(active=${active.size}/${WOOD_ACTIVE_TARGET}, everSpawned=${everSpawned.size}/${scatter.length})`
+	)
 	room.send('woodChunkActive', { seed: currentSeed, idx: pick })
 }
 
@@ -123,7 +161,14 @@ export function setupWoodServer(): void {
 		}
 		active.delete(idx)
 		console.log(`[Server] wood: pickup idx=${idx} by ${from} (${active.size}/${scatter.length} remaining)`)
-		room.send('woodChunkRemoved', { seed: currentSeed, idx })
+		// pickerId is echoed so clients can play the head-bounce FX over
+		// the correct avatar. Lowercased to match getPlayer().userId on
+		// the client.
+		room.send('woodChunkRemoved', {
+			seed    : currentSeed,
+			idx,
+			pickerId: from.toLowerCase(),
+		})
 	})
 
 	onCycleRoll(({ newSeed }) => {
@@ -137,6 +182,6 @@ export function setupWoodServer(): void {
 		trickleClock -= dt
 		if (trickleClock > 0) return
 		trickleClock = TRICKLE_INTERVAL_S
-		trickleReactivate()
+		trickleSpawnFresh()
 	})
 }
