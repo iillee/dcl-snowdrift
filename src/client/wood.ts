@@ -126,8 +126,15 @@ export function setupWoodClient(): void {
 		despawnChunk(idx)
 		// Remote FX: local player already got their bounce optimistically
 		// in pickupLogs(), so only play here when someone ELSE grabbed it.
+		// If we can't identify ourselves (getPlayer() null on early frames),
+		// skip the FX rather than risk spawning a remote-style bounce for
+		// our own pickup — that mis-attach orphans the rig at (0,0,0)
+		// and reads as a teleport bug (see logsPickupFx normalisation).
 		const me = getPlayer()?.userId.toLowerCase()
-		if (pickerId && pickerId !== me) spawnLogsBounce(pickerId)
+		if (!me)                                    return
+		if (!pickerId)                              return
+		if (pickerId.toLowerCase() === me)          return
+		spawnLogsBounce(pickerId)
 	})
 
 	engine.addSystem(proximityPollSystem)
@@ -158,7 +165,13 @@ function spawnChunk(idx: number, armed: boolean): void {
 		rotation: Quaternion.fromEulerDegrees(0, (idx * 37) % 360, 0),
 		scale   : Vector3.create(WOOD_CHUNK_SCALE, WOOD_CHUNK_SCALE, WOOD_CHUNK_SCALE),
 	})
-	GltfContainer.create(entity, { src: WOOD_CHUNK_MODEL })
+	// Colliders disabled: chunks should never block player movement or
+	// physics rays — players walk over them to pick them up.
+	GltfContainer.create(entity, {
+		src                          : WOOD_CHUNK_MODEL,
+		visibleMeshesCollisionMask   : 0,
+		invisibleMeshesCollisionMask : 0,
+	})
 
 	let beacon: Entity | null = null
 	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldZ)

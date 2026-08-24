@@ -108,7 +108,11 @@ function syncMeltRingToCurrentFuel(): void {
 	const r = hearthRadiusFromFuel(mainFuel)
 	console.log(`[Server] hearthFuel: sync melt ring to ${r.toFixed(1)}m`)
 	seedStartingArea(r)
-	shrinkMeltRingTo(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r)
+	// previousRadiusM = FUEL_MAX_BURST_RADIUS_M so any cell the main
+	// hearth ever painted (including at max-burst) is considered ours
+	// and can be swept, but cells belonging to hidden fires far from
+	// the centre are left alone. See shrinkMeltRingTo docstring.
+	shrinkMeltRingTo(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r, FUEL_MAX_BURST_RADIUS_M)
 }
 
 

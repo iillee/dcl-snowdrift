@@ -21,6 +21,7 @@ import {
 	Transform, Tween, TweenLoop, TweenSequence, engine,
 } from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
+import { getPlayer }           from '@dcl/sdk/players'
 
 
 /** How many simultaneous head-bounce FX can play. A burst >POOL_SIZE
@@ -132,6 +133,24 @@ export function spawnLogsBounce(playerId?: string): void {
 		return
 	}
 
+	// Normalise playerId. Two failure modes we're guarding against:
+	//   1. Caller passed the LOCAL player's own userId (e.g. wood.ts
+	//      seeing the server echo its own woodChunkRemoved when
+	//      getPlayer() returned null and the me-check fell through).
+	//      Explicit avatarId on the local avatar fails silently and
+	//      orphans the rig at world (0,0,0) — the "log floating at
+	//      scene origin" bug that reads as a teleport.
+	//   2. Caller passed a non-lowercased id. Avatar ids are always
+	//      lowercased in this codebase; if we hand AvatarAttach a
+	//      mixed-case id it silently fails to bind, same orphan
+	//      symptom.
+	let resolvedId = playerId ? playerId.toLowerCase() : undefined
+	const me       = getPlayer()?.userId.toLowerCase()
+	if (resolvedId && me && resolvedId === me) {
+		console.log('logsPickupFx: spawnLogsBounce: caller passed local userId, treating as local (dropping avatarId)')
+		resolvedId = undefined
+	}
+
 	// Acquire a free rig, or steal the one that will free soonest.
 	let rig: Rig | undefined = pool.find(r => !r.busy)
 	if (!rig) {
@@ -144,9 +163,9 @@ export function spawnLogsBounce(playerId?: string): void {
 
 	// Local (no playerId) -> omit avatarId so AvatarAttach binds to the
 	// local avatar automatically. Remote -> explicit avatarId.
-	if (playerId) {
+	if (resolvedId) {
 		AvatarAttach.createOrReplace(rig.anchor, {
-			avatarId     : playerId,
+			avatarId     : resolvedId,
 			anchorPointId: AvatarAnchorPointType.AAPT_HEAD,
 		})
 	} else {

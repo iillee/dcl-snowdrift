@@ -22,7 +22,8 @@ import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
 import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
-import { isRelightPromptVisible } from 'src/client/ui/layers/layer.relightPrompt'
+import { isHiddenCampfirePromptVisible } from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
+import { isRelightPromptVisible }        from 'src/client/ui/layers/layer.relightPrompt'
 import { dropLogAtPlayer } from 'src/client/logsInput'
 import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
@@ -44,12 +45,14 @@ const GOLD      = Color4.create(1.00, 0.80, 0.30, 1)
 const ICE_BLUE  = Color4.create(0.65, 0.85, 1.0, 1)
 const DEEP_BLUE = Color4.create(0.40, 0.65, 1.0, 1)
 const PANEL_BG  = colors.statsBg
-// Mobile inventory slots use a fully opaque background so the larger
-// tap targets read as solid physical buttons instead of the semi-
-// transparent HUD chrome used on desktop.
+// Inventory slots use a fully opaque background on BOTH platforms so
+// the gold hotbar-bridge strip (layer.hotbarBridge) doesn't bleed
+// through the button when the relight / feed tooltip is showing. The
+// other panels in the HUD keep the semi-transparent PANEL_BG.
 const SLOT_BG_MB = Color4.create(0.08, 0.08, 0.10, 1)
+const SLOT_BG_DT = Color4.create(0.08, 0.08, 0.10, 1)
 // MARK: slotBg
-function slotBg(): Color4 { return isMobile() ? SLOT_BG_MB : PANEL_BG }
+function slotBg(): Color4 { return isMobile() ? SLOT_BG_MB : SLOT_BG_DT }
 
 // Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
@@ -632,7 +635,13 @@ export function TorchButton() {
 	// is up — the gold reads as "this slot is being pointed at by the
 	// prompt/bridge", not as "the torch is lit". Torch lit-state is
 	// already communicated by the fuel fill + torch.png vs torch_unlit.png.
-	const borderColor = isRelightPromptVisible() ? TORCH_BORDER_ON : TORCH_BORDER_OFF
+	// Gold border while EITHER left-side tooltip is showing — both
+	// point at this slot, so both should highlight it. Relight yields
+	// its visibility to the hidden-campfire prompt on overlap, so this
+	// OR reads as "any actionable prompt is aimed at the Torch button".
+	const borderColor = (isRelightPromptVisible() || isHiddenCampfirePromptVisible())
+		? TORCH_BORDER_ON
+		: TORCH_BORDER_OFF
 
 	// Fuel height as a percentage so it scales with the button when the
 	// UI canvas rescales (small windows, mobile). Previously computed as

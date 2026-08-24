@@ -62,7 +62,13 @@ function spawnPileEntity(id: number, x: number, z: number, armed: boolean): void
 		position: Vector3.create(x, LOGS_PILE_WORLD_Y, z),
 		rotation: Quaternion.fromEulerDegrees(0, 0, 0),
 	})
-	GltfContainer.create(entity, { src: LOGS_PILE_MODEL })
+	// Colliders disabled: log piles should never block player movement
+	// (players walk right through to pick them up) or physics rays.
+	GltfContainer.create(entity, {
+		src                          : LOGS_PILE_MODEL,
+		visibleMeshesCollisionMask   : 0,
+		invisibleMeshesCollisionMask : 0,
+	})
 	piles.set(id, { entity, x, z, armed })
 	console.log(`logs: spawnPileEntity: pile #${id} spawned at (${x.toFixed(2)}, ${z.toFixed(2)}) armed=${armed}`)
 }

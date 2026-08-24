@@ -26,7 +26,7 @@ import {
 	AudioSource, Billboard, BillboardMode, Entity, Material, MaterialTransparencyMode,
 	MeshRenderer, TextAlignMode, TextShape, Transform, VisibilityComponent, engine,
 } from '@dcl/sdk/ecs'
-import { Color4, Vector3 } from '@dcl/sdk/math'
+import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { FUEL_MAX, TIER_FUEL } from 'src/shared/hearthFuel'
@@ -34,6 +34,7 @@ import { room } from 'src/shared/messages'
 import {
 	getHearthPlayerCount, getMainFireFuel,
 } from 'src/client/hearthFuel'
+import { isTopDownActive } from 'src/client/topDownCamera'
 
 
 // MARK: Layout constants
@@ -77,6 +78,12 @@ interface BillboardRig {
 	playerCountGetter: () => number
 	lastPlayers     : number
 	flashTimer      : number
+	// Base world position of the root (with BAR_Y_OFFSET already applied),
+	// captured at spawn. Referenced when swapping into / out of top-down
+	// mode so the position offset can be applied and cleanly reverted.
+	baseX           : number
+	baseY           : number
+	baseZ           : number
 }
 
 
@@ -105,7 +112,20 @@ export function spawnHearthBillboard(
 	Transform.create(root, {
 		position: Vector3.create(worldX, worldY + BAR_Y_OFFSET, worldZ),
 	})
-	Billboard.create(root, { billboardMode: BillboardMode.BM_Y })
+	// BM_Y in default view (rotates around Y so the bar always faces
+	// the eye-level camera). In top-down view the Billboard component
+	// is REMOVED and a fixed rotation is applied instead — the overhead
+	// camera has a fixed orientation, so a chasing billboard would
+	// visibly spin as the camera pans. See updateAllBillboards.
+	//
+	// Applied conditionally at spawn: if the top-down camera is already
+	// active (e.g. a hidden fire ignites while a spectator is watching),
+	// skip the Billboard so the pose-fixup block below can lay this rig
+	// flat immediately — otherwise the first render happens with an
+	// eye-level billboard for a frame or until the next camera toggle.
+	if (!isTopDownActive()) {
+		Billboard.create(root, { billboardMode: BillboardMode.BM_Y })
+	}
 
 	// White border (outermost plane).
 	const border = engine.addEntity()
@@ -201,8 +221,23 @@ export function spawnHearthBillboard(
 		fuelGetter, playerCountGetter,
 		lastPlayers: -1,   // force first-frame text refresh
 		flashTimer : 0,
+		baseX      : worldX,
+		baseY      : worldY + BAR_Y_OFFSET,
+		baseZ      : worldZ,
 	}
 	rigs.add(rig)
+
+	// If a rig spawns while the top-down camera is already active
+	// (hidden fire ignites during spectator mode), snap it into the
+	// top-down pose immediately. Otherwise the per-frame toggle below
+	// wouldn't touch it until the next camera-mode change.
+	if (isTopDownActive()) {
+		const t = Transform.getMutable(root)
+		t.rotation   = TOP_DOWN_ROT
+		t.position.x = worldX + TOP_DOWN_OFFSET_X
+		t.position.y = TOP_DOWN_GROUND_Y
+		t.position.z = worldZ + TOP_DOWN_OFFSET_Z
+	}
 
 	if (!systemInstalled) {
 		systemInstalled = true
@@ -260,6 +295,33 @@ export function setupHearthBillboard(): void {
 }
 
 
+// Tracks the last-applied camera mode so we only rewrite the
+// Billboard / Transform rotation on top-down state CHANGES, not every
+// frame.
+let lastTopDown = false
+
+// Fixed rotation applied to bar roots while the top-down camera is
+// active. Tilt the plane 90° around X to lay it flat facing up, then
+// spin -90° around Y so the text reads correctly from the overhead
+// camera's orientation.
+const TOP_DOWN_ROT = Quaternion.fromEulerDegrees(90, -90, 0)
+
+// In top-down view the bar is directly over the fire flame, hiding
+// what the player is trying to look at. Shift it -X (screen-left in
+// the overhead camera's frame) so it reads as a side label next to
+// the fire icon. Left side chosen over +Z because the smoke column
+// drifts vertically above the fire and clips the bar on that side.
+const TOP_DOWN_OFFSET_X = -4
+const TOP_DOWN_OFFSET_Z = 0
+
+// Absolute Y (metres above ground) for the flat bar in top-down mode.
+// Kept a few metres up so the bar sits ABOVE any accumulated snow
+// depth / terrain undulations and always renders in front of the
+// floor rather than getting z-fought or partially buried.
+const TOP_DOWN_GROUND_Y = 2.5
+const DEFAULT_ROT  = Quaternion.Identity()
+
+
 // MARK: updateAllBillboards
 /**
  * Per-frame paint pass. Iterates every live rig and updates its
@@ -267,6 +329,36 @@ export function setupHearthBillboard(): void {
  * Transform mutation per rig, plus TextShape/Material only on change.
  */
 function updateAllBillboards(dt: number): void {
+	// Swap between camera-chasing Billboard (eye-level view) and a
+	// FIXED rotation (top-down view) on camera-mode change. The overhead
+	// camera doesn't rotate, so a BM_ALL billboard would visibly spin as
+	// the camera pans — not what we want.
+	const topDown = isTopDownActive()
+	if (topDown !== lastTopDown) {
+		lastTopDown = topDown
+		for (const rig of rigs) {
+			const t = Transform.getMutable(rig.root)
+			if (topDown) {
+				// Remove Billboard, lay the bar flat facing up, shift to the
+				// LEFT of the fire (smoke drifts up and clips the bar if we
+				// place it above), and lift above snow depth.
+				if (Billboard.has(rig.root)) Billboard.deleteFrom(rig.root)
+				t.rotation   = TOP_DOWN_ROT
+				t.position.x = rig.baseX + TOP_DOWN_OFFSET_X
+				t.position.y = TOP_DOWN_GROUND_Y
+				t.position.z = rig.baseZ + TOP_DOWN_OFFSET_Z
+			} else {
+				// Restore Billboard, clear the fixed rotation, snap back to
+				// the base position directly over the fire.
+				t.rotation   = DEFAULT_ROT
+				t.position.x = rig.baseX
+				t.position.y = rig.baseY
+				t.position.z = rig.baseZ
+				Billboard.createOrReplace(rig.root, { billboardMode: BillboardMode.BM_Y })
+			}
+		}
+	}
+
 	for (const rig of rigs) {
 		const fuel    = rig.fuelGetter()
 		const players = rig.playerCountGetter()

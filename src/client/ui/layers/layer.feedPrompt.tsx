@@ -37,17 +37,29 @@ const HAND_TILE_ROW = 11
 
 const { fontSizes, borderRadius } = UI_THEME
 
-const BG        = Color4.create(0, 0, 0, 0.65)
-const FG        = Color4.create(1, 0.95, 0.85, 1)
-// Mobile tooltip: solid warm gold background with black text — reads
-// as a bright, opaque call-to-action anchored to the hotbar slot.
-const BG_MB     = Color4.create(1.00, 0.80, 0.30, 1)
-const FG_MB     = Color4.create(0, 0, 0, 1)
-const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
-const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
+// Solid warm gold background with black text — reads as a bright,
+// opaque call-to-action anchored to the hotbar slot. Shared by mobile
+// and desktop now that both platforms use the same tooltip design.
+const BG_GOLD     = Color4.create(1.00, 0.80, 0.30, 1)
+const FG_BLACK    = Color4.create(0, 0, 0, 1)
 // Warm gold border shared with the hotbar buttons' active state.
-const BORDER_GOLD      = Color4.create(1.00, 0.80, 0.30, 0.95)
-const MOBILE_TOOLTIP_H = 112
+const BORDER_GOLD = Color4.create(1.00, 0.80, 0.30, 0.95)
+
+// Per-platform sizing keyed off the underlying hotbar button. See
+// layer.relightPrompt for the derivation of these numbers — kept in
+// sync so the two tooltips stay symmetric around screen centre.
+// Kept in sync with layer.relightPrompt — see comments there for why
+// desktop uses 71 (not 72) and mobile is left alone at 112.
+const TOOLTIP_H_MB    = 112
+const TOOLTIP_H_DT    = 71
+const HOTBAR_HALF_MB  = 128
+const HOTBAR_HALF_DT  = 80
+const BOTTOM_MB       = 0
+const BOTTOM_DT       = 30
+const BORDER_W_MB     = 4
+const BORDER_W_DT     = 3
+const PADDING_X_MB    = 20
+const PADDING_X_DT    = 14
 
 
 // MARK: shouldShowPrompt
@@ -78,95 +90,48 @@ class FeedPromptLayer extends Layer {
 		// Hard visibility gate so bridge + tooltip snap on/off together.
 		if (!shouldShowPrompt()) return <UiEntity key="ui_FeedPrompt_hidden" uiTransform={{ display: 'none' }} />
 
-		const mobile = isMobile()
-		const S = mobile ? 2 : 1
+		const mobile   = isMobile()
+		const height   = mobile ? TOOLTIP_H_MB   : TOOLTIP_H_DT
+		const halfRow  = mobile ? HOTBAR_HALF_MB : HOTBAR_HALF_DT
+		const bottomPx = mobile ? BOTTOM_MB : BOTTOM_DT
+		const borderW  = mobile ? BORDER_W_MB    : BORDER_W_DT
+		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
+		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
+		const labelH   = Math.round(fontPx * 1.6)
 
-		// Mobile: escape the BottomCenter flex row (positionType absolute)
-		// and anchor the tooltip's LEFT edge to the zone midpoint, then
-		// push right of the Logs (F) hotbar button.
-		const MOBILE_HOTBAR_HALF_PX = 128
-		const mobileHeight = MOBILE_TOOLTIP_H
-		const borderW      = mobile ? 4 : 0
-		const borderCol    = mobile ? BORDER_GOLD : Color4.create(0, 0, 0, 0)
-
+		// Mirror of the relight tooltip on the opposite side of centre:
+		// anchor LEFT edge to screen centre, push right by halfRow so the
+		// tooltip's inner edge kisses the Logs button's outer edge.
 		return (
 			<UiEntity
 				key         = "ui_FeedPrompt_root"
-				uiTransform = {mobile ? {
+				uiTransform = {{
 					positionType : 'absolute',
-					position     : { bottom: 0, left: '50%' },
-					margin       : { left: MOBILE_HOTBAR_HALF_PX },
-					height       : mobileHeight,
+					position     : { bottom: bottomPx, left: '50%' },
+					margin       : { left: halfRow },
+					height       : height,
 					flexDirection: 'row',
 					alignItems   : 'center',
-					padding      : { top: 0, bottom: 0, left: 20, right: 20 },
+					padding      : { top: 0, bottom: 0, left: padX, right: padX },
 					borderRadius : borderRadius.md,
 					borderWidth  : borderW,
-					borderColor  : borderCol,
-				} : {
-					margin      : { bottom: 790, left: 0 },
-					flexDirection: 'row',
-					alignItems  : 'center',
-					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
-					borderRadius: borderRadius.sm,
+					borderColor  : BORDER_GOLD,
 				}}
-				uiBackground = {{ color: mobile ? BG_MB : BG }}
-				// Tapping / clicking the prompt itself also feeds. On mobile
-				// the bubble IS the primary tap target (it's the big visible
-				// thing next to the button), so it must stay live.
+				uiBackground = {{ color: BG_GOLD }}
+				// Clicking the tooltip also feeds on both platforms — the
+				// bubble IS the primary tap target next to the button.
 				onMouseDown = {feedFire}
 			>
-				{/* Mobile-only visual bridge — solid-gold rectangle extending
-				   from the tooltip's LEFT edge toward the Logs button so the
-				   seam disappears and both elements read as one shape.
-				   pointerFilter: 'none' keeps taps falling through to the
-				   button beneath. Height matches the tooltip; the negative
-				   position offset overlaps the tooltip's rounded corner on
-				   that side so the join is flush. */}
-				{/* Desktop-only key chip. Mobile relies on the Logs hotbar
-				   button being the affordance and drops the chip. */}
-				{mobile ? null : (
-					<UiEntity
-						key         = "ui_FeedPrompt_key"
-						uiTransform = {{
-							width        : 26,
-							height       : 26,
-							margin       : { right: 10 },
-							borderRadius : borderRadius.sm,
-							justifyContent: 'center',
-							alignItems   : 'center',
-						}}
-						uiBackground = {{ color: KEY_BG }}
-					>
-						<Label
-							value    = "F"
-							fontSize = {fontSizes.md}
-							color    = {Color4.White()}
-							font     = "sans-serif"
-							textAlign= "middle-center"
-							uiTransform = {{
-								width : '100%',
-								height: '100%',
-								margin: { top: -2, left: 2 },
-							}}
-						/>
-					</UiEntity>
-				)}
-				{/* <Label> (not raw uiText) so <b> markup renders bold on
-				   mobile. uiText on a bare UiEntity doesn't parse rich-text
-				   tags — they'd show as literal characters. */}
+				{/* Desktop uses <b> markup for a bolder read; only mobile is
+				   sensitive to the rich-text hitbox mismatch (see bug report). */}
 				<Label
 					key         = "ui_FeedPrompt_label"
-					// Plain string (no <b>) on mobile: rich-text measurement
-					// mismatch was making the parent's hitbox narrower than the
-					// painted gold rectangle, so taps on the outer edge did
-					// nothing. Larger fontSize (2x) already reads as prominent.
-					value       = {mobile ? 'FEED FIRE' : 'Feed fire'}
-					fontSize    = {fontSizes.md * S}
-					color       = {mobile ? FG_MB : FG}
+					value       = {mobile ? 'FEED FIRE' : '<b>FEED FIRE</b>'}
+					fontSize    = {fontPx}
+					color       = {FG_BLACK}
 					font        = "sans-serif"
 					textAlign   = "middle-left"
-					uiTransform = {{ width: 'auto', height: 26 * S }}
+					uiTransform = {{ width: 'auto', height: labelH }}
 				/>
 			</UiEntity>
 		)

@@ -222,7 +222,9 @@ function snuffFire(index: number): void {
 	secondsSinceIgnite[index] = 0
 	lit[index]                = false
 	broadcastFuel(index)
-	shrinkMeltRingTo(worldX[index], worldZ[index], 0)
+	// previousRadiusM = max possible so any cell this fire ever
+	// painted is swept; cells owned by other fires are left alone.
+	shrinkMeltRingTo(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
 }
 
@@ -325,7 +327,9 @@ export function setupHiddenCampfireServer(): void {
 			const newTier = hearthTierFromFuel(fuel[i])
 			if (newTier < prevTier) {
 				const r = hearthRadiusFromFuel(fuel[i])
-				shrinkMeltRingTo(worldX[i], worldZ[i], r)
+				// Bound to this fire's max possible radius so the shrink
+				// never touches cells owned by other fires.
+				shrinkMeltRingTo(worldX[i], worldZ[i], r, hearthRadiusFromFuel(FUEL_MAX))
 				console.log(`[Server] hiddenCampfire[${i}]: tier decay ${prevTier}->${newTier} ring->${r.toFixed(1)}m`)
 			}
 
