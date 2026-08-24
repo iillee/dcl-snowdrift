@@ -23,6 +23,26 @@ let installed = false
 let fHeldPrev = false
 
 
+// MARK: dropLogAtPlayer
+/**
+ * Clear the local F slot and ask the server to spawn a physical pile
+ * at the player's feet. Shared by the F-key handler and the mobile
+ * LogsButton tap so both drop paths produce the same visible pile.
+ * No-op if the player isn't carrying a log.
+ */
+export function dropLogAtPlayer(): void {
+	if (!hasLogs()) return
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	dropLogs()
+	if (t !== null) {
+		room.send('logDropRequest', { x: t.position.x, z: t.position.z })
+		console.log(`logsInput: dropLogAtPlayer: logDropRequest at (${t.position.x.toFixed(2)}, ${t.position.z.toFixed(2)})`)
+	} else {
+		console.log('logsInput: dropLogAtPlayer: no player transform, no pile spawned')
+	}
+}
+
+
 // MARK: setupLogsInput
 /**
  * Register the per-frame F-key handler. Idempotent - safe to call once
@@ -48,13 +68,6 @@ export function setupLogsInput(): void {
 			return
 		}
 
-		const t = Transform.getOrNull(engine.PlayerEntity)
-		dropLogs()
-		if (t !== null) {
-			room.send('logDropRequest', { x: t.position.x, z: t.position.z })
-			console.log(`logsInput: F drop -> logDropRequest at (${t.position.x.toFixed(2)}, ${t.position.z.toFixed(2)})`)
-		} else {
-			console.log('logsInput: F drop with no player transform, no pile spawned')
-		}
+		dropLogAtPlayer()
 	})
 }

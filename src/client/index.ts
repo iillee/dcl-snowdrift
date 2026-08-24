@@ -71,6 +71,8 @@ import { setupTorch } from 'src/client/torch'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
+import { setupRelightPromptVisibility } from 'src/client/ui/layers/layer.relightPrompt'
+import { setupFeedPromptVisibility }    from 'src/client/ui/layers/layer.feedPrompt'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
 
@@ -248,6 +250,12 @@ export async function setupClient(): Promise<void> {
 	// the mobile action layer renders scene-branded replacements.
 	setupTouchControls()
 	setupUi()
+
+	// Proximity-driven show/hide for the relight + feed tooltips. Split
+	// out of the layer bodies so the kit can tween the slide in/out
+	// instead of a hard swap (see layer.relightPrompt / layer.feedPrompt).
+	setupRelightPromptVisibility()
+	setupFeedPromptVisibility()
 
 	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior
 	// playfield. Deferred by PERIMETER_SPAWN_DELAY_S so campfire, maze

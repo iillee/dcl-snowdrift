@@ -20,7 +20,9 @@ import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from '
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
-import { hasLogs } from 'src/client/logsInventory'
+import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { dropLogAtPlayer } from 'src/client/logsInput'
+import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
@@ -44,6 +46,14 @@ const PANEL_BG  = colors.statsBg
 // Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
 const BTN_MARGIN_X   = 8   // horizontal breathing room per-button (left + right)
+
+// MARK: slotSize / slotIconSize
+// Mobile inventory slots (TorchButton, LogsButton) are rendered larger
+// than the top-bar action buttons so they're comfortable tap targets
+// on touch. Desktop keeps the shared BTN_SIZE so the slot row lines up
+// with the top-centre cluster.
+function slotSize(): number     { return isMobile() ? 112 : BTN_SIZE }
+function slotIconSize(): number { return isMobile() ? 64  : 40 }
 
 // Eye icon texture. White silhouette on transparent so the SDK tint
 // (implicit via textureMode: 'stretch') stays untouched — we express
@@ -602,6 +612,8 @@ export function TorchButton() {
 	const lit         = isTorchLit()
 	const raised      = isTorchRaised()
 	const highlight   = lit || raised
+	const size        = slotSize()
+	const iconPx      = slotIconSize()
 	// Both lit and unlit icons render at full white — the images
 	// themselves communicate state (torch.png vs torch_unlit.png), and
 	// dimming the unlit one made it near-invisible on the dark panel
@@ -624,8 +636,8 @@ export function TorchButton() {
 		<UiEntity
 			key = "ui_TorchBtn"
 			uiTransform = {{
-				width        : BTN_SIZE,
-				height       : BTN_SIZE,
+				width        : size,
+				height       : size,
 				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',
@@ -634,6 +646,10 @@ export function TorchButton() {
 				borderColor  : borderColor,
 			}}
 			uiBackground = {{ color: PANEL_BG }}
+			// Tap the slot to relight/top-off (mirrors the E key). Range
+			// check + hidden-campfire ignition priority live inside
+			// tryRelightAtFire, so this is a safe no-op anywhere else.
+			onMouseDown  = {tryRelightAtFire}
 		>
 			{/* Fuel fill — anchored bottom, drains from top as fuel depletes.
 			   Rendered as an outer frame + inner bar so the horizontal gap
@@ -682,7 +698,7 @@ export function TorchButton() {
 			{/* Torch glyph — centred on top of the fuel fill. */}
 			<UiEntity
 				key         = "ui_TorchBtn_icon"
-				uiTransform = {{ width: TORCH_ICON_PX, height: TORCH_ICON_PX }}
+				uiTransform = {{ width: iconPx, height: iconPx }}
 				uiBackground = {{
 					textureMode: 'stretch',
 					texture    : { src: lit ? 'assets/images/torch.png' : 'assets/images/torch_unlit.png' },
@@ -708,6 +724,8 @@ export function TorchButton() {
  */
 export function LogsButton() {
 	const carrying    = hasLogs()
+	const size        = slotSize()
+	const iconPx      = slotIconSize()
 	// Warm-gold active border matches the torch's lit state so both slots
 	// share one visual grammar for "this slot holds something".
 	const borderColor = carrying
@@ -718,8 +736,8 @@ export function LogsButton() {
 		<UiEntity
 			key = "ui_LogsBtn"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				width         : size,
+				height        : size,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
@@ -730,12 +748,20 @@ export function LogsButton() {
 				borderColor   : borderColor,
 			}}
 			uiBackground = {{ color: PANEL_BG }}
+			// Tap the slot to feed the fire if in range, or drop the log
+			// on the ground otherwise (mirrors the F key handler in
+			// logsInput.ts). No-op when the player isn't carrying a log.
+			onMouseDown  = {() => {
+				if (!hasLogs()) return
+				if (isInFeedRange()) feedFire()
+				else                 dropLogAtPlayer()
+			}}
 		>
 			<KeyHintBadge label="F" />
 			{carrying ? (
 				<UiEntity
 					key         = "ui_LogsBtn_icon"
-					uiTransform = {{ width: LOGS_ICON_PX, height: LOGS_ICON_PX }}
+					uiTransform = {{ width: iconPx, height: iconPx }}
 					uiBackground = {{
 						textureMode: 'stretch',
 						texture    : { src: 'assets/images/logs.png' },

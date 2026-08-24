@@ -15,6 +15,7 @@
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import { engine } from '@dcl/sdk/ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
@@ -40,6 +41,9 @@ const BG        = Color4.create(0, 0, 0, 0.65)
 const FG        = Color4.create(1, 0.95, 0.85, 1)
 const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
 const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
+// Warm gold border shared with the hotbar buttons' active state.
+const BORDER_GOLD      = Color4.create(1.00, 0.80, 0.30, 0.95)
+const MOBILE_TOOLTIP_H = 112
 
 
 // MARK: shouldShowPrompt
@@ -58,60 +62,73 @@ function shouldShowPrompt(): boolean {
 class FeedPromptLayer extends Layer {
 	constructor() {
 		super({
-			id  : 'feedPrompt',
-			zone: ZoneType.BottomCenter,
+			id         : 'feedPrompt',
+			zone       : ZoneType.BottomCenter,
+			// Rest position: LEFT of the hotbar row. Slide in from the
+			// right edge, sweeping leftward toward that rest — reads as
+			// popping outward to the left.
+			canBeHidden: true,
+			startHidden: true,
+			showFrom   : 'right',
 		})
 	}
 
 	body() {
-		if (!shouldShowPrompt()) return <UiEntity key="ui_FeedPrompt_hidden" uiTransform={{ display: 'none' }} />
+		// Visibility driven externally by setupFeedPromptVisibility() so the
+		// kit can tween the slide in / out instead of a hard swap.
 
-		const S = isMobile() ? 2 : 1
+		const mobile = isMobile()
+		const S = mobile ? 2 : 1
+
+		// Mobile: escape the BottomCenter flex row (positionType absolute)
+		// and anchor the tooltip's RIGHT edge to the zone midpoint, then
+		// push LEFT of the hotbar row.
+		const MOBILE_HOTBAR_HALF_PX = 128
+		const mobileHeight = MOBILE_TOOLTIP_H
+		const borderW      = mobile ? 4 : 0
+		const borderCol    = mobile ? BORDER_GOLD : Color4.create(0, 0, 0, 0)
 
 		return (
 			<UiEntity
 				key         = "ui_FeedPrompt_root"
-				uiTransform = {{
-					// Placement: stacked ABOVE the relight prompt so both can
-					// coexist inside a fire's ring without overlapping. Relight
-					// prompt sits at bottom:720 (desktop) / 200 (mobile); feed
-					// prompt lifts an extra ~70 px above it.
-					margin      : { bottom: isMobile() ? 270 : 790, left: isMobile() ? 320 : 0 },
+				uiTransform = {mobile ? {
+					positionType : 'absolute',
+					position     : { bottom: 8, right: '50%' },
+					margin       : { right: MOBILE_HOTBAR_HALF_PX },
+					height       : mobileHeight,
+					flexDirection: 'row',
+					alignItems   : 'center',
+					padding      : { top: 0, bottom: 0, left: 20, right: 20 },
+					borderRadius : borderRadius.md,
+					borderWidth  : borderW,
+					borderColor  : borderCol,
+				} : {
+					margin      : { bottom: 790, left: 0 },
 					flexDirection: 'row',
 					alignItems  : 'center',
-					padding     : { top: 8 * S, bottom: 8 * S, left: 12 * S, right: 14 * S },
+					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
 					borderRadius: borderRadius.sm,
 				}}
 				uiBackground = {{ color: BG }}
-				// Tapping the prompt itself also feeds the fire on mobile,
-				// where there's no dedicated F key. Safe outside the ring
-				// because the prompt is only rendered while in range.
+				// Tapping the prompt itself also feeds the fire — harmless
+				// fallback alongside the dedicated Logs hotbar button.
 				onMouseDown = {feedFire}
 			>
-				<UiEntity
-					key         = "ui_FeedPrompt_key"
-					uiTransform = {{
-						width        : 26 * S,
-						height       : 26 * S,
-						margin       : { right: 10 * S },
-						borderRadius : borderRadius.sm,
-						justifyContent: 'center',
-						alignItems   : 'center',
-					}}
-					uiBackground = {{ color: KEY_BG }}
-				>
-					{isMobile() ? (
-						<UiEntity
-							key = "ui_FeedPrompt_handIcon"
-							uiTransform = {{ width: 20 * S, height: 20 * S }}
-							uiBackground = {{
-								textureMode: 'stretch',
-								texture    : { src: ATLAS_SRC },
-								uvs        : getUVsForAtlasTile(HAND_TILE_COL, HAND_TILE_ROW, ATLAS_COLS, ATLAS_ROWS),
-								color      : KEY_FG,
-							}}
-						/>
-					) : (
+				{/* Desktop-only key chip. Mobile relies on the Logs hotbar
+				   button being the affordance and drops the chip. */}
+				{mobile ? null : (
+					<UiEntity
+						key         = "ui_FeedPrompt_key"
+						uiTransform = {{
+							width        : 26,
+							height       : 26,
+							margin       : { right: 10 },
+							borderRadius : borderRadius.sm,
+							justifyContent: 'center',
+							alignItems   : 'center',
+						}}
+						uiBackground = {{ color: KEY_BG }}
+					>
 						<Label
 							value    = "F"
 							fontSize = {fontSizes.md}
@@ -124,8 +141,8 @@ class FeedPromptLayer extends Layer {
 								margin: { top: -2, left: 2 },
 							}}
 						/>
-					)}
-				</UiEntity>
+					</UiEntity>
+				)}
 				<UiEntity
 					key         = "ui_FeedPrompt_label"
 					uiTransform = {{ width: 'auto', height: 26 * S }}
@@ -143,3 +160,23 @@ class FeedPromptLayer extends Layer {
 
 
 export const feedPromptLayer = new FeedPromptLayer()
+
+
+// MARK: setupFeedPromptVisibility
+/**
+ * Drive the layer's slide-in / slide-out from the proximity check.
+ * Mirror of setupRelightPromptVisibility. Idempotent.
+ */
+let _feedPromptInstalled = false
+let _feedPromptVisible   = false
+export function setupFeedPromptVisibility(): void {
+	if (_feedPromptInstalled) return
+	_feedPromptInstalled = true
+	engine.addSystem((_dt: number) => {
+		const want = shouldShowPrompt()
+		if (want === _feedPromptVisible) return
+		_feedPromptVisible = want
+		if (want) feedPromptLayer.show()
+		else      feedPromptLayer.hide()
+	})
+}

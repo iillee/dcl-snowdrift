@@ -49,6 +49,13 @@ const BG        = Color4.create(0, 0, 0, 0.65)
 const FG        = Color4.create(1, 0.95, 0.85, 1)
 const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
 const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
+// Warm gold border shared with the Torch hotbar slot's lit state
+// (TORCH_BORDER_ON in layer.brushSize). Ties the tooltip to the button
+// it pops out of — same colour language for "this thing is live now".
+const BORDER_GOLD = Color4.create(1.00, 0.80, 0.30, 0.95)
+// Hotbar button on mobile is 112 px tall (slotSize()); match it so the
+// tooltip sits at the same row height as the button it emerges from.
+const MOBILE_TOOLTIP_H = 112
 
 
 // Fuel fraction above which a lit torch is considered "full enough"
@@ -90,82 +97,95 @@ function shouldShowPrompt(): boolean {
 class RelightPromptLayer extends Layer {
 	constructor() {
 		super({
-			id  : 'relightPrompt',
-			zone: ZoneType.BottomCenter,
+			id         : 'relightPrompt',
+			zone       : ZoneType.BottomCenter,
+			// Start hidden so the tooltip crawls in when the player enters
+			// the fire ring instead of appearing pre-mounted. `showFrom:
+			// right` slides the zone in from the right side of the screen,
+			// which lands the tooltip travelling LEFTWARD into its rest
+			// position on the left of the hotbar — reads as "popping out
+			// leftward from behind the Torch button".
+			canBeHidden: true,
+			startHidden: true,
+			showFrom   : 'right',
 		})
 	}
 
 	body() {
-		if (!shouldShowPrompt()) return <UiEntity key="ui_RelightPrompt_hidden" uiTransform={{ display: 'none' }} />
+		// Visibility is now driven externally by setupRelightPromptVisibility()
+		// via layer.show() / layer.hide(), which lets the kit slide the panel
+		// in/out instead of the previous instant show/hide. The body renders
+		// unconditionally so it stays present through the whole tween.
 
+		const mobile = isMobile()
 		// Mobile uses a 2x scale on every intrinsic size (chip, icon, label
 		// height, padding, font) so the tooltip reads at arm's length on a
 		// phone screen. Desktop values are unchanged.
-		const S = isMobile() ? 2 : 1
+		const S = mobile ? 2 : 1
+		// Mobile bubble matches the hotbar button height and gets a gold
+		// border that ties it to the Torch slot's lit-state border.
+		const mobileHeight = MOBILE_TOOLTIP_H
+		const borderW      = mobile ? 4 : 0
+		const borderCol    = mobile ? BORDER_GOLD : Color4.create(0, 0, 0, 0)
+
+		// Placement:
+		//   Desktop — floats mid-screen above the hotbar (~720 up from
+		//   bottom) as a sibling in the BottomCenter flex row.
+		//   Mobile  — escapes the zone's centred flex (positionType
+		//   'absolute') and anchors its RIGHT edge to the zone midpoint
+		//   (which coincides with screen centre and hotbar-row centre),
+		//   then pushes further left by TORCH_BTN_HALF + gap so it pops
+		//   out of the LEFT side of the Torch (E) hotbar button.
+		//   The button itself is the tap affordance, so the key chip +
+		//   hand icon are dropped; only the label bubble renders.
+		const MOBILE_HOTBAR_HALF_PX = 128  // 112 (button) + 8 (margin) + 8 (breathing) ≈ half-row width
 
 		return (
 			<UiEntity
 				key         = "ui_RelightPrompt_root"
-				uiTransform = {{
-					// Placement: mobile keeps the prompt low above the hotbar
-					// (~200 px up from bottom) so the thumb-sits-here HUD
-					// stays uncluttered. Desktop pushes it well up the screen
-					// so the tooltip lands a little above vertical centre — in
-					// eye-line while the player is running toward the fire,
-					// not tucked down by the hotbar where it competes with
-					// the frost bar.
-					// On mobile, shift right so the prompt clears the player
-					// avatar silhouette (centred on screen) and doesn't overlap it.
-					margin      : { bottom: isMobile() ? 200 : 720, left: isMobile() ? 320 : 0 },
+				uiTransform = {mobile ? {
+					positionType : 'absolute',
+					// bottom: 8 matches the hotbar's MARGIN_BOTTOM_MB so the
+					// tooltip's baseline sits on the same row as the buttons.
+					position     : { bottom: 8, right: '50%' },
+					margin       : { right: MOBILE_HOTBAR_HALF_PX },
+					height       : mobileHeight,
+					flexDirection: 'row',
+					alignItems   : 'center',
+					padding      : { top: 0, bottom: 0, left: 20, right: 20 },
+					borderRadius : borderRadius.md,
+					borderWidth  : borderW,
+					borderColor  : borderCol,
+				} : {
+					margin      : { bottom: 720, left: 0 },
 					flexDirection: 'row',
 					alignItems  : 'center',
-					padding     : { top: 8 * S, bottom: 8 * S, left: 12 * S, right: 14 * S },
+					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
 					borderRadius: borderRadius.sm,
 				}}
 				uiBackground = {{ color: BG }}
 				// Tapping / clicking the prompt itself also relights. Desktop
-				// players still have E; mobile players get a click surface
-				// even without the dedicated relight-hand button in view.
+				// players still have E; mobile players have the hotbar button,
+				// but the tooltip staying tappable is a harmless fallback.
 				// Safe even outside the fire ring — the prompt only renders
 				// while shouldShowPrompt() is true, which enforces the ring.
 				onMouseDown = {relightTorch}
 			>
-				{/* Faux amber border via a 2px wrapper would double the
-				    element count; a single background + key chip reads
-				    fine at HUD scale, so we skip the border for now. */}
-				<UiEntity
-					key         = "ui_RelightPrompt_key"
-					uiTransform = {{
-						width        : 26 * S,
-						height       : 26 * S,
-						margin       : { right: 10 * S },
-						borderRadius : borderRadius.sm,
-						justifyContent: 'center',
-						alignItems   : 'center',
-					}}
-					uiBackground = {{ color: KEY_BG }}
-				>
-					{isMobile() ? (
-						/* Mobile: swap the `E` key glyph for the click-hand
-						   icon so the affordance matches the DCL native
-						   pointer button the player actually taps. Sized to
-						   fit inside the chip (2x on mobile) with a small
-						   inset so the glyph sits centred on the amber ground. */
-						<UiEntity
-							key = "ui_RelightPrompt_handIcon"
-							uiTransform = {{ width: 20 * S, height: 20 * S }}
-							uiBackground = {{
-								textureMode: 'stretch',
-								texture    : { src: ATLAS_SRC },
-								uvs        : getUVsForAtlasTile(HAND_TILE_COL, HAND_TILE_ROW, ATLAS_COLS, ATLAS_ROWS),
-								color      : KEY_FG,
-							}}
-						/>
-					) : (
-						/* Desktop: `E` key label with an optical top-nudge —
-						   DCL's text baseline sits low inside a uiText-only
-						   entity, so a flex-centred Label + small negative
-						   top margin visually centres the glyph on the chip. */
+				{/* Desktop-only key chip. Mobile shows just the label bubble
+				   because the Torch hotbar button is now the affordance. */}
+				{mobile ? null : (
+					<UiEntity
+						key         = "ui_RelightPrompt_key"
+						uiTransform = {{
+							width        : 26,
+							height       : 26,
+							margin       : { right: 10 },
+							borderRadius : borderRadius.sm,
+							justifyContent: 'center',
+							alignItems   : 'center',
+						}}
+						uiBackground = {{ color: KEY_BG }}
+					>
 						<Label
 							value    = "E"
 							fontSize = {fontSizes.md}
@@ -178,8 +198,8 @@ class RelightPromptLayer extends Layer {
 								margin: { top: -2, left: 2 },
 							}}
 						/>
-					)}
-				</UiEntity>
+					</UiEntity>
+				)}
 				<UiEntity
 					key         = "ui_RelightPrompt_label"
 					uiTransform = {{ width: 'auto', height: 26 * S }}
@@ -197,3 +217,30 @@ class RelightPromptLayer extends Layer {
 
 
 export const relightPromptLayer = new RelightPromptLayer()
+
+
+// MARK: setupRelightPromptVisibility
+/**
+ * Drive the layer's slide-in / slide-out animation from the proximity
+ * check. Previously the body() returned an empty UiEntity when out of
+ * range, which showed/hid instantly; using the kit visibility API lets
+ * the panel crawl in from the right (settling on the LEFT side of the
+ * hotbar) when the player enters the fire ring, and crawl back out
+ * when they leave.
+ *
+ * Edge-triggered off shouldShowPrompt() so we don't spam the tween
+ * every frame. Idempotent — safe to call once from client bootstrap.
+ */
+let _relightPromptInstalled = false
+let _relightPromptVisible   = false
+export function setupRelightPromptVisibility(): void {
+	if (_relightPromptInstalled) return
+	_relightPromptInstalled = true
+	engine.addSystem((_dt: number) => {
+		const want = shouldShowPrompt()
+		if (want === _relightPromptVisible) return
+		_relightPromptVisible = want
+		if (want) relightPromptLayer.show()
+		else      relightPromptLayer.hide()
+	})
+}

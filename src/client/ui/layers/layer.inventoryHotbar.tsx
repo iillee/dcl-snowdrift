@@ -25,7 +25,11 @@ import { LogsButton, TorchButton }      from 'src/client/ui/layers/layer.brushSi
  *  desktop to clear the chat bar; mobile leaves room for the touch
  *  joystick + native gamepad slots above the OS home indicator. */
 const MARGIN_BOTTOM_DT = 30
-const MARGIN_BOTTOM_MB = 80
+// Mobile: sit closer to the bottom so the larger slots don't crowd the
+// frost bar / top HUD. The native touch joystick lives bottom-left and
+// the on-screen action buttons bottom-right, leaving the bottom-centre
+// strip free for the hotbar.
+const MARGIN_BOTTOM_MB = 8
 
 
 // MARK: InventoryHotbarLayer
