@@ -32,7 +32,8 @@ import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
-import { versionLayer }       from 'src/client/ui/layers/layer.version'
+// versionLayer is retired — the version chip now lives inside the
+// help panel footer (see layer.helpPanel > ui_HelpPanel_version).
 
 
 // MARK: setupUi
@@ -70,7 +71,6 @@ export function setupUi() {
 			relightPromptLayer,
 			feedPromptLayer,
 			hiddenCampfirePromptLayer,
-			versionLayer,
 			// Help panel — slides down from the top when the HelpButton (?)
 			// is clicked. Registered above HUD chrome so its border isn't
 			// clipped by lower layers, but below deathFade / splash.

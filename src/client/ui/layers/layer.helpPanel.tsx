@@ -25,11 +25,17 @@ import { msUntilNextRebuild } from 'src/client/cycle'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import { UI_THEME } from 'src/client/ui/theme/settings'
+import { VERSION }  from 'src/shared/data/version'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
 
 const WHITE = Color4.White()
+
+// Version chip styling — mirrors layer.version.tsx (retired) so the
+// same visual language lands inside the help panel footer.
+const VERSION_BG = colors.versionBg
+const VERSION_FG = colors.versionFg
 
 // Layout: land the panel just below the top HUD button row.
 // Mirrors BAR_TOP_DT (32) / BAR_TOP_MB (4) + BTN_SIZE (72) from
@@ -46,7 +52,10 @@ const BTN_SIZE         = 72
 const GAP_BELOW_BAR_PX = 16
 
 const PANEL_W = 440
-const PANEL_H = 92
+// Bumped from 152 to make room for a dedicated version-chip row below
+// the four info lines. Each info line is ~26 tall + a 4 gap; the chip
+// row adds ~28 (24 tall + 4 gap above).
+const PANEL_H = 188
 
 
 // MARK: formatCountdown
@@ -102,7 +111,27 @@ class HelpPanelLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
-				{/* Line 1 — objective + progress. Central bonfire counts as 1
+				{/* Line 1 — top-level directive. Deliberately terse so it
+				   frames the two mechanic lines below as HOW to do it. */}
+				<Label
+					value    = {'Explore the world'}
+					fontSize = {20}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
+				/>
+				{/* Line 2 — core loop. "wood" is bold + yellow to mirror the
+				   warm-gold fuel bar so the language + colour align. */}
+				<Label
+					value    = {'Fuel the fire with <b><color=#ffcc4d>wood</color></b>'}
+					fontSize = {20}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
+				/>
+				{/* Line 3 — objective + progress. Central bonfire counts as 1
 				   (always lit at cycle start); hidden ones tick up as they're
 				   ignited. Reads from getHiddenCampfireWarmthPositions().length
 				   so it stays in lockstep with the frost-warmth signal. */}
@@ -124,6 +153,39 @@ class HelpPanelLayer extends Layer {
 					textAlign= "middle-center"
 					uiTransform = {{ width: '100%', height: 26 }}
 				/>
+				{/* Version chip — dedicated row at the bottom of the panel.
+				   Wrapper row is flex-centred so the auto-width chip sits in
+				   the middle of the panel, matching the other centered lines
+				   above. Small top margin separates it from the last info
+				   line. Same size + colours as the retired standalone chip. */}
+				<UiEntity
+					key         = "ui_HelpPanel_versionRow"
+					uiTransform = {{
+						width         : '100%',
+						height        : 24,
+						margin        : { top: 8 },
+						flexDirection : 'row',
+						justifyContent: 'center',
+						alignItems    : 'center',
+					}}
+				>
+					<UiEntity
+						key         = "ui_HelpPanel_version"
+						uiTransform = {{
+							width       : 'auto',
+							height      : 24,
+							borderRadius: borderRadius.sm,
+							padding     : { right: 4, left: 4 },
+						}}
+						uiText = {{
+							value    : VERSION,
+							fontSize : fontSizes.md,
+							color    : VERSION_FG,
+							textAlign: 'middle-center',
+						}}
+						uiBackground = {{ color: VERSION_BG }}
+					/>
+				</UiEntity>
 			</UiEntity>
 		)
 	}

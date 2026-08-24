@@ -145,9 +145,10 @@ class RelightPromptLayer extends Layer {
 				key         = "ui_RelightPrompt_root"
 				uiTransform = {mobile ? {
 					positionType : 'absolute',
-					// bottom: 8 matches the hotbar's MARGIN_BOTTOM_MB so the
-					// tooltip's baseline sits on the same row as the buttons.
-					position     : { bottom: 8, right: '50%' },
+					// bottom: 0 matches the hotbar's MARGIN_BOTTOM_MB so the
+					// tooltip's baseline sits on the same row as the buttons
+					// at the very bottom of the safe area.
+					position     : { bottom: 0, right: '50%' },
 					margin       : { right: MOBILE_HOTBAR_HALF_PX },
 					height       : mobileHeight,
 					flexDirection: 'row',

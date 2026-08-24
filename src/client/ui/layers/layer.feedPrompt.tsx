@@ -64,9 +64,10 @@ class FeedPromptLayer extends Layer {
 		super({
 			id         : 'feedPrompt',
 			zone       : ZoneType.BottomCenter,
-			// Rest position: LEFT of the hotbar row. Slide in from the
-			// right edge, sweeping leftward toward that rest — reads as
-			// popping outward to the left.
+			// Rest position: RIGHT of the Logs (F) hotbar button. Slide in
+			// from the RIGHT edge so travel distance stays short and the
+			// tooltip approaches from the same side it settles on — no
+			// cross-screen sweep.
 			canBeHidden: true,
 			startHidden: true,
 			showFrom   : 'right',
@@ -81,8 +82,8 @@ class FeedPromptLayer extends Layer {
 		const S = mobile ? 2 : 1
 
 		// Mobile: escape the BottomCenter flex row (positionType absolute)
-		// and anchor the tooltip's RIGHT edge to the zone midpoint, then
-		// push LEFT of the hotbar row.
+		// and anchor the tooltip's LEFT edge to the zone midpoint, then
+		// push right of the Logs (F) hotbar button.
 		const MOBILE_HOTBAR_HALF_PX = 128
 		const mobileHeight = MOBILE_TOOLTIP_H
 		const borderW      = mobile ? 4 : 0
@@ -93,8 +94,10 @@ class FeedPromptLayer extends Layer {
 				key         = "ui_FeedPrompt_root"
 				uiTransform = {mobile ? {
 					positionType : 'absolute',
-					position     : { bottom: 8, right: '50%' },
-					margin       : { right: MOBILE_HOTBAR_HALF_PX },
+					// bottom: 0 aligns with the hotbar row at the bottom edge of
+					// the safe area (matches MARGIN_BOTTOM_MB in inventoryHotbar).
+					position     : { bottom: 0, left: '50%' },
+					margin       : { left: MOBILE_HOTBAR_HALF_PX },
 					height       : mobileHeight,
 					flexDirection: 'row',
 					alignItems   : 'center',
