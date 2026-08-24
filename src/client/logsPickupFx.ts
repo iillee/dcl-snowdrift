@@ -114,17 +114,21 @@ export function setupLogsPickupFx(): void {
 
 // MARK: spawnLogsBounce
 /**
- * Attach a bouncing log to the given player's head and play the
- * two-phase pop/fall+shrink animation. `playerId` must be the lower-
- * cased wallet address (matches getPlayer().userId).
+ * Attach a bouncing log to a player's head and play the two-phase
+ * pop/fall+shrink animation.
+ *
+ * IMPORTANT: for the LOCAL player, pass playerId=undefined (or omit).
+ * AvatarAttach on the local avatar MUST omit avatarId - passing it
+ * explicitly fails silently and the anchor stays at Vector3.Zero(),
+ * leaving the FX rig orphaned at world (0, 0, 0). This is the same
+ * pattern used by torch.ts for the local torch attach.
+ *
+ * For REMOTE players (woodChunkRemoved handler), pass the picker's
+ * lowercased wallet address so the FX shows over their avatar.
  */
-export function spawnLogsBounce(playerId: string): void {
+export function spawnLogsBounce(playerId?: string): void {
 	if (!ready) {
 		console.log('logsPickupFx: spawnLogsBounce: pool not ready, skipping (call setupLogsPickupFx first)')
-		return
-	}
-	if (!playerId) {
-		console.log('logsPickupFx: spawnLogsBounce: empty playerId, skipping')
 		return
 	}
 
@@ -138,10 +142,18 @@ export function spawnLogsBounce(playerId: string): void {
 	rig.busy  = true
 	rig.timer = BOUNCE_DURATION_S
 
-	AvatarAttach.createOrReplace(rig.anchor, {
-		avatarId     : playerId,
-		anchorPointId: AvatarAnchorPointType.AAPT_HEAD,
-	})
+	// Local (no playerId) -> omit avatarId so AvatarAttach binds to the
+	// local avatar automatically. Remote -> explicit avatarId.
+	if (playerId) {
+		AvatarAttach.createOrReplace(rig.anchor, {
+			avatarId     : playerId,
+			anchorPointId: AvatarAnchorPointType.AAPT_HEAD,
+		})
+	} else {
+		AvatarAttach.createOrReplace(rig.anchor, {
+			anchorPointId: AvatarAnchorPointType.AAPT_HEAD,
+		})
+	}
 
 	// Reset transforms before restarting tweens (rig may have been
 	// reused mid-animation from a previous burst).

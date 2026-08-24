@@ -13,10 +13,9 @@
 
 
 import { Transform, engine } from '@dcl/sdk/ecs'
-import { getPlayer }         from '@dcl/sdk/players'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { isInHiddenRelightRange }                                           from 'src/client/hiddenCampfire'
+import { getLitHiddenFires, isInHiddenRelightRange }                        from 'src/client/hiddenCampfire'
 import { playDropSfx, playPickupSfx }                                       from 'src/client/audio'
 import { spawnLogsBounce }                                                  from 'src/client/logsPickupFx'
 import { requestFeedFire }                                                  from 'src/client/hearthFuel'
@@ -51,9 +50,11 @@ export function pickupLogs(): void {
 	playPickupSfx()
 	// Cosmetic "+1 log" bounce over the local player's head. Head-bounce
 	// FX for OTHER players' pickups is triggered from the server-
-	// confirmed pickup message handlers (see wood.ts).
-	const me = getPlayer()
-	if (me) spawnLogsBounce(me.userId.toLowerCase())
+	// confirmed pickup message handlers (see wood.ts). Pass NO playerId
+	// so AvatarAttach auto-binds to the local avatar (passing an
+	// explicit avatarId here fails silently and orphans the rig at
+	// (0,0,0) - looks like a teleport).
+	spawnLogsBounce()
 	console.log('logsInventory: pickupLogs: F slot now holds a log')
 }
 
@@ -102,11 +103,43 @@ export function feedFire(): void {
 	if (!_hasLogs) return
 	_hasLogs = false
 	// Feed uses the drop sfx for now - will get its own "whoosh" clip
-	// when the tier-scaled fire audio lands (step 3 of the fuel plan).
+	// when the tier-scaled fire audio lands.
 	playDropSfx()
-	// Server owns fuel: it clamps + broadcasts + drives every visual.
-	// Local carry-state was cleared above so the F slot empties
-	// immediately; the fuel bar animates on the next broadcast.
-	requestFeedFire()
-	console.log('logsInventory: feedFire: log consumed, feedFireRequest sent')
+	// Route to the nearest lit fire the player is standing at.
+	// Preference: hidden > main. Rationale: hidden fires require
+	// deliberate discovery + relight, so a player standing at one
+	// almost certainly means to feed IT, not the distant central
+	// hearth. Falls back to -1 (main) when no hidden fire is in range.
+	const target = pickFeedTarget()
+	requestFeedFire(target)
+	console.log(`logsInventory: feedFire: log consumed, target=${target}`)
+}
+
+
+// MARK: pickFeedTarget
+/**
+ * Determine which fire this feed goes to. Hidden fires win if the
+ * player is inside any of their feed radii (uses the same 3 m circle
+ * as isInFeedRange for consistency). Otherwise the main hearth.
+ */
+function pickFeedTarget(): number {
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	if (t === null) return -1
+	const px = t.position.x
+	const pz = t.position.z
+
+	// Nearest lit hidden fire within the feed radius.
+	const hidden = getLitHiddenFires()
+	let bestIdx  = -1
+	let bestDsq  = FEED_RADIUS_SQ
+	for (const hf of hidden) {
+		const dx  = px - hf.x
+		const dz  = pz - hf.z
+		const dsq = dx * dx + dz * dz
+		if (dsq <= bestDsq) {
+			bestDsq = dsq
+			bestIdx = hf.index
+		}
+	}
+	return bestIdx  // -1 falls through to main hearth
 }

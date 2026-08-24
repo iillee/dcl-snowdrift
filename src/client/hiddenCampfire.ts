@@ -45,6 +45,10 @@ import { onCycleSeedChange } from 'src/client/cycle'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
 import {
+	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
+} from 'src/client/hearthBillboard'
+import { getHearthPlayerCount, getHiddenFireFuel } from 'src/client/hearthFuel'
+import {
 	getHiddenCampfireSeed,
 	getHiddenCampfireWorldPositions,
 	getHiddenCampfireWorldPositionsForSeed,
@@ -102,6 +106,7 @@ const flameEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).f
 const smokeEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const beaconInnerEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const beaconOuterEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
+const billboardHandle   : (BillboardHandle | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const worldX            : number[]          = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const worldZ            : number[]          = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const litLocal          : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
@@ -218,6 +223,11 @@ function applyUnlitVisuals(index: number): void {
 		engine.removeEntity(smoke)
 		smokeEntity[index] = null
 	}
+	// Fuel-bar billboard is spawned in applyLitVisuals; tear it down
+	// symmetrically here so a snuff (or cycle roll) leaves no bar
+	// lingering above a dead pit.
+	destroyHearthBillboard(billboardHandle[index])
+	billboardHandle[index] = null
 	// Remove AudioSource from the pit entity so a re-ignition later this
 	// cycle doesn't stack a second AudioSource on top. AudioSource has
 	// no explicit delete API in ECS terms — the cleanest way is to
@@ -324,6 +334,17 @@ function applyLitVisuals(index: number): void {
 	// Tear the locator beacon down the moment the fire lights so the
 	// pillar is instant visual confirmation the ignition triggered.
 	removeLocatorBeacon(index)
+
+	// Spawn a fuel-bar billboard above this pit. Captures `index` in
+	// the closure so it reads THIS pit's live fuel; disposed in
+	// applyUnlitVisuals when the fire snuffs.
+	if (billboardHandle[index] === null) {
+		billboardHandle[index] = spawnHearthBillboard(
+			worldX[index], CAMPFIRE_WORLD_Y, worldZ[index],
+			() => getHiddenFireFuel(index),
+			getHearthPlayerCount,
+		)
+	}
 
 	console.log(
 		`hiddenCampfire[${index}]: lit (seed=${currentSeed}) at ` +
@@ -441,6 +462,21 @@ export function getHiddenCampfireWarmthPositions(): { x: number; z: number }[] {
 }
 
 
+// MARK: getLitHiddenFires
+/**
+ * World-space centre + index of every currently-lit hidden bonfire.
+ * Consumed by logsInventory.pickFeedTarget to route F-key feeds to
+ * the closest hidden fire when the player is standing at one.
+ */
+export function getLitHiddenFires(): { index: number; x: number; z: number }[] {
+	const out: { index: number; x: number; z: number }[] = []
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (litLocal[i]) out.push({ index: i, x: worldX[i], z: worldZ[i] })
+	}
+	return out
+}
+
+
 // MARK: onCycleRoll
 /**
  * Wipe every pit's lit state, move them to the new cycle's positions,
@@ -519,7 +555,15 @@ export function setupHiddenCampfire(): void {
 			console.log(`hiddenCampfire: dropping state with bad index ${index}`)
 			return
 		}
-		if (lit === 1) applyLitVisuals(index)
+		if (lit === 1) {
+			applyLitVisuals(index)
+		} else {
+			// lit=0 = snuff (fuel exhausted). Tear down flame + smoke +
+			// audio + billboard, then respawn the pit entity so a future
+			// re-ignition this cycle starts from a clean audio-less state.
+			applyUnlitVisuals(index)
+			relocatePit(index)
+		}
 	})
 
 	// Cycle rollover. Fires on hydration (first cycleState arrival)

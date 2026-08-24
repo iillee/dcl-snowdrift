@@ -163,7 +163,10 @@ export function setupHearthFuelServer(): void {
 	// Feed handler. Trust the client's has-log guard for now; server
 	// just clamps to the max. Immediate broadcast so the feeder sees
 	// their contribution land without waiting for the next threshold.
-	room.onMessage('feedFireRequest', (_data, context) => {
+	room.onMessage('feedFireRequest', ({ target }, context) => {
+		// Main hearth handler - filter to target=-1 only. Hidden fire
+		// slots (0..N-1) are handled by src/server/hiddenCampfire.ts.
+		if (target !== -1) return
 		const from     = context?.from ?? 'unknown'
 		const prev     = mainFuel
 		const prevTier = hearthTierFromFuel(prev)

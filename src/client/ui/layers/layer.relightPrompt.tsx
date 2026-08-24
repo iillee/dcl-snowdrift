@@ -47,6 +47,10 @@ const { fontSizes, borderRadius } = UI_THEME
 
 const BG        = Color4.create(0, 0, 0, 0.65)
 const FG        = Color4.create(1, 0.95, 0.85, 1)
+// Mobile tooltip: solid warm gold background with black text — reads
+// as a bright, opaque call-to-action anchored to the hotbar slot.
+const BG_MB     = Color4.create(1.00, 0.80, 0.30, 1)
+const FG_MB     = Color4.create(0, 0, 0, 1)
 const KEY_BG    = Color4.create(1, 0.75, 0.35, 0.95)
 const KEY_FG    = Color4.create(0.1, 0.05, 0, 1)
 // Warm gold border shared with the Torch hotbar slot's lit state
@@ -97,25 +101,18 @@ function shouldShowPrompt(): boolean {
 class RelightPromptLayer extends Layer {
 	constructor() {
 		super({
-			id         : 'relightPrompt',
-			zone       : ZoneType.BottomCenter,
-			// Start hidden so the tooltip crawls in when the player enters
-			// the fire ring instead of appearing pre-mounted. `showFrom:
-			// right` slides the zone in from the right side of the screen,
-			// which lands the tooltip travelling LEFTWARD into its rest
-			// position on the left of the hotbar — reads as "popping out
-			// leftward from behind the Torch button".
-			canBeHidden: true,
-			startHidden: true,
-			showFrom   : 'right',
+			id  : 'relightPrompt',
+			zone: ZoneType.BottomCenter,
+			// No slide animation — the bridge (layer.hotbarBridge) needs to
+			// pop in/out in the same frame as the tooltip so the two read as
+			// one crisp shape. Animation is gated by shouldShowPrompt() in
+			// body() instead of the kit's show/hide tween.
 		})
 	}
 
 	body() {
-		// Visibility is now driven externally by setupRelightPromptVisibility()
-		// via layer.show() / layer.hide(), which lets the kit slide the panel
-		// in/out instead of the previous instant show/hide. The body renders
-		// unconditionally so it stays present through the whole tween.
+		// Hard visibility gate so bridge + tooltip snap on/off together.
+		if (!shouldShowPrompt()) return <UiEntity key="ui_RelightPrompt_hidden" uiTransform={{ display: 'none' }} />
 
 		const mobile = isMobile()
 		// Mobile uses a 2x scale on every intrinsic size (chip, icon, label
@@ -145,9 +142,6 @@ class RelightPromptLayer extends Layer {
 				key         = "ui_RelightPrompt_root"
 				uiTransform = {mobile ? {
 					positionType : 'absolute',
-					// bottom: 0 matches the hotbar's MARGIN_BOTTOM_MB so the
-					// tooltip's baseline sits on the same row as the buttons
-					// at the very bottom of the safe area.
 					position     : { bottom: 0, right: '50%' },
 					margin       : { right: MOBILE_HOTBAR_HALF_PX },
 					height       : mobileHeight,
@@ -164,14 +158,20 @@ class RelightPromptLayer extends Layer {
 					padding     : { top: 8, bottom: 8, left: 12, right: 14 },
 					borderRadius: borderRadius.sm,
 				}}
-				uiBackground = {{ color: BG }}
-				// Tapping / clicking the prompt itself also relights. Desktop
-				// players still have E; mobile players have the hotbar button,
-				// but the tooltip staying tappable is a harmless fallback.
-				// Safe even outside the fire ring — the prompt only renders
-				// while shouldShowPrompt() is true, which enforces the ring.
+				uiBackground = {{ color: mobile ? BG_MB : BG }}
+				// Tapping / clicking the prompt itself also relights. On mobile
+				// the bubble IS the primary tap target (it's the big visible
+				// thing next to the button), so it must stay live.
 				onMouseDown = {relightTorch}
 			>
+				{/* Mobile-only visual bridge — a solid-gold rectangle that
+				   extends from the tooltip's RIGHT edge toward the Torch
+				   button, covering the seam so the two elements read as one
+				   continuous shape. pointerFilter: 'none' keeps taps falling
+				   through to whatever is beneath (the button owns its area,
+				   the tooltip owns its own). Height matches the tooltip so
+				   the top/bottom edges align; slight overlap into both sides
+				   hides the borderRadius corner on that seam. */}
 				{/* Desktop-only key chip. Mobile shows just the label bubble
 				   because the Torch hotbar button is now the affordance. */}
 				{mobile ? null : (
@@ -201,15 +201,21 @@ class RelightPromptLayer extends Layer {
 						/>
 					</UiEntity>
 				)}
-				<UiEntity
+				{/* <Label> (not raw uiText) so <b> markup renders bold on
+				   mobile. uiText on a bare UiEntity doesn't parse rich-text
+				   tags — they'd show as literal characters. */}
+				<Label
 					key         = "ui_RelightPrompt_label"
+					// Plain string (no <b>) on mobile: rich-text measurement
+					// mismatch was making the parent's hitbox narrower than the
+					// painted gold rectangle, so taps on the outer edge did
+					// nothing. Larger fontSize (2x) already reads as prominent.
+					value       = {mobile ? 'LIGHT TORCH' : 'Light torch'}
+					fontSize    = {fontSizes.md * S}
+					color       = {mobile ? FG_MB : FG}
+					font        = "sans-serif"
+					textAlign   = "middle-left"
 					uiTransform = {{ width: 'auto', height: 26 * S }}
-					uiText      = {{
-						value    : 'Light torch',
-						fontSize : fontSizes.md * S,
-						color    : FG,
-						textAlign: 'middle-left',
-					}}
 				/>
 			</UiEntity>
 		)
@@ -234,6 +240,10 @@ export const relightPromptLayer = new RelightPromptLayer()
  */
 let _relightPromptInstalled = false
 let _relightPromptVisible   = false
+// MARK: isRelightPromptVisible
+/** True while the relight tooltip is (or is animating into) view. Read by
+ *  the hotbar-bridge layer to know when to draw its gold connector. */
+export function isRelightPromptVisible(): boolean { return _relightPromptVisible }
 export function setupRelightPromptVisibility(): void {
 	if (_relightPromptInstalled) return
 	_relightPromptInstalled = true
@@ -241,7 +251,7 @@ export function setupRelightPromptVisibility(): void {
 		const want = shouldShowPrompt()
 		if (want === _relightPromptVisible) return
 		_relightPromptVisible = want
-		if (want) relightPromptLayer.show()
-		else      relightPromptLayer.hide()
+		// No show/hide call — body() gates on shouldShowPrompt() directly
+		// so the tooltip snaps in the same frame the bridge does.
 	})
 }

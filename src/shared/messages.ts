@@ -183,10 +183,11 @@ export const Messages = {
 	// after a cycle roll invalidated the client's scatter.
 	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
 
-	// Client -> Server: player fed a log to the main hearth. Server
-	// validates (has-carried-log guard is client-side only for now;
-	// server trusts the request and bumps fuel by LOG_FUEL_SECONDS).
-	feedFireRequest: Schemas.Map({}),
+	// Client -> Server: player fed a log to a fire. `target` selects
+	// which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 == the
+	// respective hidden bonfire. Server trusts the client's has-log
+	// guard for now and bumps the target's fuel by LOG_FUEL_SECONDS.
+	feedFireRequest: Schemas.Map({ target: Schemas.Int }),
 
 	// Server -> Client: current main-hearth fuel in seconds. Broadcast
 	// on significant change (delta > threshold, or tier crossed, or on
@@ -194,6 +195,18 @@ export const Messages = {
 	// player count baked into the packet so the client can render the
 	// "xN" drain multiplier without a separate roster subscription.
 	hearthFuelUpdate: Schemas.Map({
+		fuel   : Schemas.Float,
+		players: Schemas.Int,
+	}),
+
+	// Server -> Client: fuel snapshot for a hidden fire. `index` is the
+	// hidden bonfire slot (0..HIDDEN_CAMPFIRE_COUNT-1). Same throttling
+	// rules as hearthFuelUpdate. On snuff (fuel -> 0) the server also
+	// broadcasts hiddenCampfireState with lit=false; the fuel-zero
+	// packet immediately preceding it is the definitive "you saw it
+	// dying" event.
+	hiddenHearthFuelUpdate: Schemas.Map({
+		index  : Schemas.Int,
 		fuel   : Schemas.Float,
 		players: Schemas.Int,
 	}),

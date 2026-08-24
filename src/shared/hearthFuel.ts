@@ -43,6 +43,11 @@ export const FUEL_MAIN_FLOOR   = 150
 /** Hidden bonfires can burn all the way out. */
 export const FUEL_HIDDEN_FLOOR = 0
 
+/** Fuel value a hidden fire starts at when ignited. Lands in tier 3
+ *  (Warm) so a fresh discovery feels like a real fire, but the ~3.3
+ *  min solo drain window means players need to feed it to sustain. */
+export const FUEL_HIDDEN_INITIAL = 200
+
 /** Melt radius (m) for the one-shot "you filled the fire" burst that
  *  fires when fuel first reaches FUEL_MAX. Bigger than the tier-5
  *  Roaring anchor (17 m) so hitting full feels like an event, not

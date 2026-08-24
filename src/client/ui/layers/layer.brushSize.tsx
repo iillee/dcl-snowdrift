@@ -21,6 +21,8 @@ import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
+import { isRelightPromptVisible } from 'src/client/ui/layers/layer.relightPrompt'
 import { dropLogAtPlayer } from 'src/client/logsInput'
 import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
@@ -42,6 +44,12 @@ const GOLD      = Color4.create(1.00, 0.80, 0.30, 1)
 const ICE_BLUE  = Color4.create(0.65, 0.85, 1.0, 1)
 const DEEP_BLUE = Color4.create(0.40, 0.65, 1.0, 1)
 const PANEL_BG  = colors.statsBg
+// Mobile inventory slots use a fully opaque background so the larger
+// tap targets read as solid physical buttons instead of the semi-
+// transparent HUD chrome used on desktop.
+const SLOT_BG_MB = Color4.create(0.08, 0.08, 0.10, 1)
+// MARK: slotBg
+function slotBg(): Color4 { return isMobile() ? SLOT_BG_MB : PANEL_BG }
 
 // Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
@@ -620,7 +628,11 @@ export function TorchButton() {
 	// especially on mobile.
 	const iconTint    = WHITE
 	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
-	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
+	// Border: white by default, warm gold only while the Relight tooltip
+	// is up — the gold reads as "this slot is being pointed at by the
+	// prompt/bridge", not as "the torch is lit". Torch lit-state is
+	// already communicated by the fuel fill + torch.png vs torch_unlit.png.
+	const borderColor = isRelightPromptVisible() ? TORCH_BORDER_ON : TORCH_BORDER_OFF
 
 	// Fuel height as a percentage so it scales with the button when the
 	// UI canvas rescales (small windows, mobile). Previously computed as
@@ -645,7 +657,7 @@ export function TorchButton() {
 				borderWidth  : TORCH_BORDER_W,
 				borderColor  : borderColor,
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: slotBg() }}
 			// Tap the slot to relight/top-off (mirrors the E key). Range
 			// check + hidden-campfire ignition priority live inside
 			// tryRelightAtFire, so this is a safe no-op anywhere else.
@@ -726,9 +738,11 @@ export function LogsButton() {
 	const carrying    = hasLogs()
 	const size        = slotSize()
 	const iconPx      = slotIconSize()
-	// Warm-gold active border matches the torch's lit state so both slots
-	// share one visual grammar for "this slot holds something".
-	const borderColor = carrying
+	// Border: white by default, warm gold only while the Feed tooltip is
+	// up — mirrors the Torch slot so the gold border consistently means
+	// "tooltip is pointing at this slot", not "slot is holding something".
+	// Carry-state is already shown by the log icon appearing in the slot.
+	const borderColor = isFeedPromptVisible()
 		? Color4.create(1.00, 0.80, 0.30, 0.95)
 		: Color4.create(1, 1, 1, 0.75)
 
@@ -747,7 +761,7 @@ export function LogsButton() {
 				borderWidth   : 4,
 				borderColor   : borderColor,
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: slotBg() }}
 			// Tap the slot to feed the fire if in range, or drop the log
 			// on the ground otherwise (mirrors the F key handler in
 			// logsInput.ts). No-op when the player isn't carrying a log.

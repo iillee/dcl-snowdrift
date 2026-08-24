@@ -28,6 +28,7 @@ import {
 	hearthVolumeFromFuel,
 	TIER_NAMES,
 } from 'src/shared/hearthFuel'
+import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 
 
 /** Seconds it takes `currentFuel` to converge on a fresh `targetFuel`.
@@ -40,6 +41,12 @@ let currentFuel  = FUEL_MAIN_FLOOR
 let targetFuel   = FUEL_MAIN_FLOOR
 let playerCount  = 1
 let installed    = false
+
+// Per-hidden-fire lerped fuel + target. Zero-length arrays would
+// break the getter contracts; init upfront so callers can safely
+// index [0..HIDDEN_CAMPFIRE_COUNT).
+const hiddenCurrent : number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+const hiddenTarget  : number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 
 
 // MARK: setupHearthFuelClient
@@ -63,15 +70,25 @@ export function setupHearthFuelClient(): void {
 		}
 	})
 
+	room.onMessage('hiddenHearthFuelUpdate', ({ index, fuel, players }) => {
+		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		hiddenTarget[index] = fuel
+		playerCount         = players
+	})
+
 	engine.addSystem((dt: number) => {
-		if (currentFuel === targetFuel) return
-		// Frame-rate independent lerp: approach `targetFuel` at a rate
-		// that halves the remaining gap every LERP_TIME_S / ln(2).
 		const t = Math.min(1, dt / LERP_TIME_S)
-		currentFuel += (targetFuel - currentFuel) * t
-		// Snap when we're within 0.1 s of the target - avoids the tail
-		// of tiny lerp increments that never quite finish.
-		if (Math.abs(targetFuel - currentFuel) < 0.1) currentFuel = targetFuel
+		if (currentFuel !== targetFuel) {
+			currentFuel += (targetFuel - currentFuel) * t
+			if (Math.abs(targetFuel - currentFuel) < 0.1) currentFuel = targetFuel
+		}
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (hiddenCurrent[i] === hiddenTarget[i]) continue
+			hiddenCurrent[i] += (hiddenTarget[i] - hiddenCurrent[i]) * t
+			if (Math.abs(hiddenTarget[i] - hiddenCurrent[i]) < 0.1) {
+				hiddenCurrent[i] = hiddenTarget[i]
+			}
+		}
 	})
 
 	console.log('hearthFuel: setupHearthFuelClient: handler + lerp system installed')
@@ -80,13 +97,15 @@ export function setupHearthFuelClient(): void {
 
 // MARK: requestFeedFire
 /**
- * Ask the server to add one log's worth of fuel to the main hearth.
- * The local carry-slot clearing + SFX is still handled by the caller
- * (logsInventory.feedFire); this only owns the network round-trip.
+ * Ask the server to add one log's worth of fuel to a fire. `target`
+ * is -1 for the main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 for a hidden
+ * fire slot. The local carry-slot clearing + SFX is still handled by
+ * the caller (logsInventory.feedFire); this only owns the network
+ * round-trip.
  */
-export function requestFeedFire(): void {
-	room.send('feedFireRequest', {})
-	console.log('hearthFuel: requestFeedFire: feed request sent')
+export function requestFeedFire(target: number = -1): void {
+	room.send('feedFireRequest', { target })
+	console.log(`hearthFuel: requestFeedFire: target=${target}`)
 }
 
 
@@ -132,4 +151,16 @@ export function getMainFireVolume(): number {
  *  "xN drain" chip in the fuel bar UI. */
 export function getHearthPlayerCount(): number {
 	return playerCount
+}
+
+// MARK: Hidden-fire accessors
+/** Lerped fuel for hidden fire `index`. Zero when unlit. */
+export function getHiddenFireFuel(index: number): number {
+	if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return 0
+	return hiddenCurrent[index]
+}
+
+/** Live melt radius (m) for hidden fire `index`. Zero when unlit. */
+export function getHiddenFireMeltRadius(index: number): number {
+	return hearthRadiusFromFuel(getHiddenFireFuel(index))
 }

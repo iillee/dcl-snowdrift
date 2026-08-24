@@ -19,6 +19,7 @@ import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
 import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
 import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
+import { hotbarBridgeLayer }          from 'src/client/ui/layers/layer.hotbarBridge'
 import { inventoryHotbarLayer }       from 'src/client/ui/layers/layer.inventoryHotbar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
@@ -67,6 +68,10 @@ export function setupUi() {
 			// Previously inlined into frostBarLayer; pulled out so the top
 			// row stays status-only and the inventory reads as a classic
 			// action bar at the bottom of the screen.
+			// Bridge sits BEFORE the hotbar + prompts so its gold strip
+			// renders BEHIND both, hiding the seam between button and
+			// tooltip. Pointer-inert; taps still hit button / tooltip.
+			hotbarBridgeLayer,
 			inventoryHotbarLayer,
 			relightPromptLayer,
 			feedPromptLayer,
