@@ -69,6 +69,7 @@ import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchChain } from 'src/client/torchChain'
+import { setupTorchWarmth } from 'src/client/torchWarmth'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
@@ -259,6 +260,11 @@ export async function setupClient(): Promise<void> {
 		setupTorchInput()
 		setupRemoteTorches()
 		setupTorchChain()
+		// Torch-cluster warmth mechanic ("torches burn brighter together").
+		// Reads from remoteTorches for the lit-remote roster, so it must
+		// bootstrap AFTER setupRemoteTorches. Frost accumulator consumes
+		// the snapshot lazily on each poll — no ordering constraint there.
+		setupTorchWarmth()
 		console.log('[Client] setupClient: deferred cold-open spawns fired')
 	})
 

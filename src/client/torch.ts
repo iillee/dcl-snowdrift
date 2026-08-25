@@ -27,6 +27,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { room } from 'src/shared/messages'
 
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
+import { TORCH_WARMTH_TIER_FLAME_SCALE, getLocalTorchWarmthTier } from 'src/client/torchWarmth'
 
 
 // MARK: Tuning
@@ -248,7 +249,13 @@ export function setupTorch(): void {
 
 		const flameT = Transform.getMutableOrNull(flame)
 		if (flameT !== null) {
-			const s = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
+			const base   = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
+			// "Torches burn brighter together" — stack the cluster-tier
+			// multiplier on top of the fuel-driven base. Fuel shrinks the
+			// flame as it burns; cluster tier swells it when friends are
+			// close. Two players meeting = an unmissable flame-swell moment.
+			const tier   = lit ? getLocalTorchWarmthTier() : 0
+			const s      = base * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
 			flameT.scale.x = s
 			flameT.scale.y = s
 			flameT.scale.z = s
