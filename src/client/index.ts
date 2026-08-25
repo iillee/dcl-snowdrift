@@ -45,6 +45,12 @@ import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupLogsClient } from 'src/client/logs'
+import { setupLogsInput } from 'src/client/logsInput'
+import { setupWoodClient } from 'src/client/wood'
+import { setupLogsPickupFx } from 'src/client/logsPickupFx'
+import { setupHearthFuelClient } from 'src/client/hearthFuel'
+import { setupHearthBillboard }  from 'src/client/hearthBillboard'
 import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
@@ -65,6 +71,8 @@ import { setupTorch } from 'src/client/torch'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
+import { setupRelightPromptVisibility } from 'src/client/ui/layers/layer.relightPrompt'
+import { setupFeedPromptVisibility }    from 'src/client/ui/layers/layer.feedPrompt'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
 
@@ -170,6 +178,25 @@ export async function setupClient(): Promise<void> {
 	initFrostFlash()
 	setupFrostDeath()
 
+	// Wood-log network handlers must register BEFORE initClientHandler
+	// so the initial logPileAdded broadcast (sent by the server as part
+	// of joinRoster hydration) is caught. Same rule as setupCycleClient
+	// above.
+	setupLogsClient()
+	setupWoodClient()
+	// Head-bounce FX pool for wood pickups. Set up here (alongside the
+	// other pickup wiring) so the pool is ready before the first
+	// woodChunkRemoved / local pickupLogs() call can fire.
+	setupLogsPickupFx()
+	// Main-hearth fuel subscriber - MUST register before initClientHandler
+	// so the joinRoster hydration broadcast (hearthFuelUpdate) is caught
+	// on the very first frame the joiner is in the room.
+	setupHearthFuelClient()
+	// 3D fuel bar above the fire. Reads from hearthFuel state, so it's
+	// spawned AFTER the subscriber above (order isn't strictly required
+	// since it lerps from the tier-3 floor, but keeps intent tidy).
+	setupHearthBillboard()
+
 	// Register the network boundary LAST so `room.onMessage` subscribers
 	// above are all in place before the first message can arrive.
 	initClientHandler()
@@ -206,6 +233,7 @@ export async function setupClient(): Promise<void> {
 	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
+	setupLogsInput()
 	// Second, buried campfire the player has to find + light with a
 	// torch. Deterministic position per 24 h cycle; no server sync yet.
 	setupHiddenCampfire()
@@ -222,6 +250,12 @@ export async function setupClient(): Promise<void> {
 	// the mobile action layer renders scene-branded replacements.
 	setupTouchControls()
 	setupUi()
+
+	// Proximity-driven show/hide for the relight + feed tooltips. Split
+	// out of the layer bodies so the kit can tween the slide in/out
+	// instead of a hard swap (see layer.relightPrompt / layer.feedPrompt).
+	setupRelightPromptVisibility()
+	setupFeedPromptVisibility()
 
 	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior
 	// playfield. Deferred by PERIMETER_SPAWN_DELAY_S so campfire, maze

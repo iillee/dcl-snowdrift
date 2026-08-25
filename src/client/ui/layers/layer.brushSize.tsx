@@ -20,6 +20,12 @@ import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from '
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
+import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
+import { isHiddenCampfirePromptVisible } from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
+import { isRelightPromptVisible }        from 'src/client/ui/layers/layer.relightPrompt'
+import { dropLogAtPlayer } from 'src/client/logsInput'
+import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
@@ -39,10 +45,26 @@ const GOLD      = Color4.create(1.00, 0.80, 0.30, 1)
 const ICE_BLUE  = Color4.create(0.65, 0.85, 1.0, 1)
 const DEEP_BLUE = Color4.create(0.40, 0.65, 1.0, 1)
 const PANEL_BG  = colors.statsBg
+// Inventory slots use a fully opaque background on BOTH platforms so
+// the gold hotbar-bridge strip (layer.hotbarBridge) doesn't bleed
+// through the button when the relight / feed tooltip is showing. The
+// other panels in the HUD keep the semi-transparent PANEL_BG.
+const SLOT_BG_MB = Color4.create(0.08, 0.08, 0.10, 1)
+const SLOT_BG_DT = Color4.create(0.08, 0.08, 0.10, 1)
+// MARK: slotBg
+function slotBg(): Color4 { return isMobile() ? SLOT_BG_MB : SLOT_BG_DT }
 
 // Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
 const BTN_MARGIN_X   = 8   // horizontal breathing room per-button (left + right)
+
+// MARK: slotSize / slotIconSize
+// Mobile inventory slots (TorchButton, LogsButton) are rendered larger
+// than the top-bar action buttons so they're comfortable tap targets
+// on touch. Desktop keeps the shared BTN_SIZE so the slot row lines up
+// with the top-centre cluster.
+function slotSize(): number     { return isMobile() ? 112 : BTN_SIZE }
+function slotIconSize(): number { return isMobile() ? 64  : 40 }
 
 // Eye icon texture. White silhouette on transparent so the SDK tint
 // (implicit via textureMode: 'stretch') stays untouched — we express
@@ -552,6 +574,37 @@ export function MuteButton() {
 }
 
 
+// MARK: KeyHintBadge
+/**
+ * Tiny "E" / "F" label pinned to the upper-left corner of an
+ * inventory slot so desktop players can see the hotkey binding at a
+ * glance. Hidden on mobile (no physical keyboard, and the touch
+ * controls own their own labels via touchControls.ts).
+ *
+ * Renders as an absolutely-positioned overlay so the parent slot's
+ * flex-centered icon + fuel fill are unaffected.
+ */
+function KeyHintBadge(props: { label: string }) {
+	if (isMobile()) return null
+	return (
+		<Label
+			key        = {`ui_KeyHint_${props.label}`}
+			value      = {props.label}
+			fontSize   = {14}
+			color      = {Color4.create(1, 1, 1, 0.85)}
+			uiTransform = {{
+				positionType: 'absolute',
+				// Nudge just inside the border so the glyph sits in the
+				// slot corner without clipping the border stroke.
+				position    : { top: 6, left: 10 },
+				width       : 16,
+				height      : 16,
+			}}
+		/>
+	)
+}
+
+
 // MARK: TorchButton
 /**
  * Torch inventory slot. Same footprint (BTN_SIZE), same PANEL_BG, same
@@ -570,16 +623,31 @@ export function TorchButton() {
 	const lit         = isTorchLit()
 	const raised      = isTorchRaised()
 	const highlight   = lit || raised
+	const size        = slotSize()
+	const iconPx      = slotIconSize()
 	// Both lit and unlit icons render at full white — the images
 	// themselves communicate state (torch.png vs torch_unlit.png), and
 	// dimming the unlit one made it near-invisible on the dark panel
 	// especially on mobile.
 	const iconTint    = WHITE
 	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
-	const borderColor = highlight ? TORCH_BORDER_ON : TORCH_BORDER_OFF
+	// Border: white by default, warm gold only while the Relight tooltip
+	// is up — the gold reads as "this slot is being pointed at by the
+	// prompt/bridge", not as "the torch is lit". Torch lit-state is
+	// already communicated by the fuel fill + torch.png vs torch_unlit.png.
+	// Gold border while EITHER left-side tooltip is showing — both
+	// point at this slot, so both should highlight it. Relight yields
+	// its visibility to the hidden-campfire prompt on overlap, so this
+	// OR reads as "any actionable prompt is aimed at the Torch button".
+	const borderColor = (isRelightPromptVisible() || isHiddenCampfirePromptVisible())
+		? TORCH_BORDER_ON
+		: TORCH_BORDER_OFF
 
-	const fuelHeightMax = BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2
-	const fuelHeightPx  = Math.round(fuelHeightMax * fuelFrac)
+	// Fuel height as a percentage so it scales with the button when the
+	// UI canvas rescales (small windows, mobile). Previously computed as
+	// raw px against BTN_SIZE — that math only held at the reference
+	// canvas size, so the fill drifted out of the button on resize.
+	const fuelHeightPct = `${Math.round(fuelFrac * 100)}%` as const
 	// Constant warm gold across the whole drain — the fill height alone
 	// communicates remaining fuel. A low-fuel warning colour was tried
 	// and rejected; if we bring it back, prefer a pulse over a hard swap.
@@ -589,8 +657,8 @@ export function TorchButton() {
 		<UiEntity
 			key = "ui_TorchBtn"
 			uiTransform = {{
-				width        : BTN_SIZE,
-				height       : BTN_SIZE,
+				width        : size,
+				height       : size,
 				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',
@@ -598,7 +666,11 @@ export function TorchButton() {
 				borderWidth  : TORCH_BORDER_W,
 				borderColor  : borderColor,
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: slotBg() }}
+			// Tap the slot to relight/top-off (mirrors the E key). Range
+			// check + hidden-campfire ignition priority live inside
+			// tryRelightAtFire, so this is a safe no-op anywhere else.
+			onMouseDown  = {tryRelightAtFire}
 		>
 			{/* Fuel fill — anchored bottom, drains from top as fuel depletes.
 			   Rendered as an outer frame + inner bar so the horizontal gap
@@ -612,19 +684,22 @@ export function TorchButton() {
 				<UiEntity
 					key         = "ui_TorchBtn_fuelFrame"
 					uiTransform = {{
+						// Fill the button's content box via width/height 100% + a
+						// padding ring equal to the desired inset. This lets the
+						// inner bar use percentage sizing so it rescales with the
+						// parent when the UI canvas scales (window resize / mobile
+						// aspect changes). Previously the frame used absolute px
+						// math against BTN_SIZE, which drifted out of the button
+						// on any canvas rescale.
 						positionType   : 'absolute',
-						// Explicit width + height + top/left inset. DCL absolute
-						// elements do NOT stretch to fill via top+bottom+left+right
-						// the way CSS does — without an explicit size they collapse
-						// to their content's intrinsic dimensions and anchor to the
-						// specified corner (bottom-right in our case). Sizing the
-						// frame in px matches the visible inner content area of the
-						// button (BTN_SIZE - 2 * border - 2 * inset) and pins it to
-						// the top-left of that region, yielding a uniform gap on all
-						// four sides.
-						position       : { top: TORCH_FUEL_INSET, left: TORCH_FUEL_INSET },
-						width          : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
-						height         : BTN_SIZE - TORCH_BORDER_W * 2 - TORCH_FUEL_INSET * 2,
+						width          : '100%',
+						height         : '100%',
+						padding        : {
+							top   : TORCH_FUEL_INSET,
+							bottom: TORCH_FUEL_INSET,
+							left  : TORCH_FUEL_INSET,
+							right : TORCH_FUEL_INSET,
+						},
 						flexDirection  : 'column',
 						justifyContent : 'flex-end',
 					}}
@@ -633,17 +708,18 @@ export function TorchButton() {
 						key         = "ui_TorchBtn_fuelBar"
 						uiTransform = {{
 							width       : '100%',
-							height      : fuelHeightPx,
+							height      : fuelHeightPct,
 							borderRadius: borderRadius.sm,
 						}}
 						uiBackground = {{ color: fuelColor }}
 					/>
 				</UiEntity>
 			) : null}
+			<KeyHintBadge label="E" />
 			{/* Torch glyph — centred on top of the fuel fill. */}
 			<UiEntity
 				key         = "ui_TorchBtn_icon"
-				uiTransform = {{ width: TORCH_ICON_PX, height: TORCH_ICON_PX }}
+				uiTransform = {{ width: iconPx, height: iconPx }}
 				uiBackground = {{
 					textureMode: 'stretch',
 					texture    : { src: lit ? 'assets/images/torch.png' : 'assets/images/torch_unlit.png' },
@@ -653,6 +729,75 @@ export function TorchButton() {
 		</UiEntity>
 	)
 }
+
+// MARK: LogsButton
+/**
+ * Empty inventory slot placeholder for wood logs — sits to the LEFT of
+ * the torch slot in the frost-bar row. Identical footprint, panel, and
+ * border-radius to TorchButton so the two slots read as a matched pair
+ * (torch + wood, the future N3 hand-slot exclusivity from PLAN.md).
+ *
+ * Intentionally empty: no icon, no fill, no click handler yet. When the
+ * wood pickup + carry loop lands, this slot gets an icon + count badge
+ * and (probably) a subtle border-on state when the player is carrying
+ * a log. Kept as its own exported component so the frost-bar layout
+ * can drop it in without importing wood state.
+ */
+export function LogsButton() {
+	const carrying    = hasLogs()
+	const size        = slotSize()
+	const iconPx      = slotIconSize()
+	// Border: white by default, warm gold only while the Feed tooltip is
+	// up — mirrors the Torch slot so the gold border consistently means
+	// "tooltip is pointing at this slot", not "slot is holding something".
+	// Carry-state is already shown by the log icon appearing in the slot.
+	const borderColor = isFeedPromptVisible()
+		? Color4.create(1.00, 0.80, 0.30, 0.95)
+		: Color4.create(1, 1, 1, 0.75)
+
+	return (
+		<UiEntity
+			key = "ui_LogsBtn"
+			uiTransform = {{
+				width         : size,
+				height        : size,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				// Constant border width to avoid the layout-shift bug
+				// documented on TorchButton.
+				borderWidth   : 4,
+				borderColor   : borderColor,
+			}}
+			uiBackground = {{ color: slotBg() }}
+			// Tap the slot to feed the fire if in range, or drop the log
+			// on the ground otherwise (mirrors the F key handler in
+			// logsInput.ts). No-op when the player isn't carrying a log.
+			onMouseDown  = {() => {
+				if (!hasLogs()) return
+				if (isInFeedRange()) feedFire()
+				else                 dropLogAtPlayer()
+			}}
+		>
+			<KeyHintBadge label="F" />
+			{carrying ? (
+				<UiEntity
+					key         = "ui_LogsBtn_icon"
+					uiTransform = {{ width: iconPx, height: iconPx }}
+					uiBackground = {{
+						textureMode: 'stretch',
+						texture    : { src: 'assets/images/logs.png' },
+						color      : WHITE,
+					}}
+				/>
+			) : null}
+		</UiEntity>
+	)
+}
+
+const LOGS_ICON_PX = 40
+
 
 // Torch-button visual constants — kept beside the component so the
 // action bar owns its own tuning without importing from the retired

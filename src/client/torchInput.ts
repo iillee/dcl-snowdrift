@@ -37,6 +37,44 @@ let installed  = false
 let eHeldPrev  = false
 
 
+// MARK: tryRelightAtFire
+/**
+ * Shared relight entry-point used by BOTH the E-key handler and the
+ * mobile TorchButton tap. Runs the full gate stack:
+ *   - torch must be equipped
+ *   - hidden-campfire ignition takes priority if the player is on the pit
+ *   - otherwise the player must be inside the central OR hidden fire radius
+ *
+ * Silently no-ops when any gate fails, so callers can wire it directly
+ * to an onMouseDown without worrying about accidental relights from
+ * anywhere on the map.
+ */
+export function tryRelightAtFire(): void {
+	if (!isTorchEquipped()) return
+
+	if (isReadyToIgniteHidden()) {
+		requestHiddenIgnite()
+		return
+	}
+
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	if (t === null) return
+	const { x, z } = t.position
+	const dx = x - CAMPFIRE_WORLD_X
+	const dz = z - CAMPFIRE_WORLD_Z
+	const nearCentral = dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+	const nearHidden  = isInHiddenRelightRange()
+
+	if (!nearCentral && !nearHidden) {
+		console.log(`torchInput: tryRelightAtFire: outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)
+		return
+	}
+
+	relightTorch()
+	console.log(`torchInput: tryRelightAtFire: torch relit (fuel restored to ${TORCH_FUEL_MAX_S}s)`)
+}
+
+
 // MARK: setupTorchInput
 /**
  * Register the per-frame torch fuel + E-relight system. Idempotent \u2014
@@ -65,40 +103,7 @@ export function setupTorchInput(): void {
 		eHeldPrev = eHeld
 
 		if (!risingEdge) return
-		if (!isTorchEquipped()) return
-
-		// Hidden campfire takes priority: if the player is standing on the
-		// buried pit with a lit torch, this E-press is an ignition attempt,
-		// not a torch top-off. The helper enforces lit-torch + in-radius +
-		// not-already-lit itself, so we can call it unconditionally.
-		if (isReadyToIgniteHidden()) {
-			requestHiddenIgnite()
-			return
-		}
-
-		const t = Transform.getOrNull(engine.PlayerEntity)
-		if (t === null) return
-		const { x, z } = t.position
-		const dx = x - CAMPFIRE_WORLD_X
-		const dz = z - CAMPFIRE_WORLD_Z
-		const distSq = dx * dx + dz * dz
-
-		// Either fire (central bonfire OR the lit hidden campfire) is a
-		// valid relight source. Hidden fire only counts once the server
-		// has broadcast lit=true, so an unlit pit still requires an
-		// ignition path (handled above via requestHiddenIgnite).
-		const nearCentral = distSq <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
-		const nearHidden  = isInHiddenRelightRange()
-
-		if (!nearCentral && !nearHidden) {
-			// Outside the heat ring: no relight. Log at debug level so
-			// we can grep for it in playtest but stay quiet in normal use.
-			console.log(`torchInput: relight ignored \u2014 outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)
-			return
-		}
-
-		relightTorch()
-		console.log(`torchInput: torch relit at fire (fuel restored to ${TORCH_FUEL_MAX_S}s)`)
+		tryRelightAtFire()
 	})
 
 	console.log('torchInput: setupTorchInput: fuel drain + E-relight active')

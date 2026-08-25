@@ -39,7 +39,11 @@ import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
+import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
+import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
+import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
+import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { Team } from 'src/shared/team'
 import {
 	MAZE_GRID_HEIGHT,
@@ -74,11 +78,19 @@ const PAINT_SUMMARY_INTERVAL_S = 5
  * matching src/shared/maze/generator.ts tile placement (SW pivot,
  * MAZE_ORIGIN_OFFSET_METERS = 0 on the flat canvas).
  */
-function seedStartingArea(): void {
+/**
+ * Paint the central melt ring at the given radius. Defaults to the
+ * baseline CAMPFIRE_MELT_RADIUS_M (8 m == tier 3 "Warm"); the
+ * hearth-fuel server calls this with the current fuel-derived radius
+ * on upward tier crossings so the visible blue floor ring expands
+ * with a well-fed fire. Cells stay protected once painted, so a
+ * shrinking fire leaves a "high-water mark" until the next cycle roll.
+ */
+export function seedStartingArea(radiusM: number = CAMPFIRE_MELT_RADIUS_M): void {
 	const cx = CAMPFIRE_WORLD_X
 	const cz = CAMPFIRE_WORLD_Z
-	const r  = CAMPFIRE_MELT_RADIUS_M
-	const r2 = CAMPFIRE_MELT_RADIUS_SQ_M
+	const r  = radiusM
+	const r2 = radiusM * radiusM
 
 	// Convert the fire's WORLD position back to the interior playfield's
 	// grid space by subtracting the playfield origin offset. Every cell
@@ -123,7 +135,7 @@ function seedStartingArea(): void {
 	if (painted > 0) {
 		console.log(
 			`[Server] seedStartingArea: painted ${painted} cells in a ` +
-			`${CAMPFIRE_MELT_DIAMETER_M}m ring at (${cx.toFixed(1)}, ${cz.toFixed(1)})`
+			`${(r * 2).toFixed(1)}m ring at (${cx.toFixed(1)}, ${cz.toFixed(1)})`
 		)
 	}
 }
@@ -158,7 +170,13 @@ export async function setupServer(): Promise<void> {
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
 	setupHiddenCampfireServer()
+	setupLogsServer()
+	setupWoodServer()
 	setupTorchServer()
+	// Fuel model for the main hearth. Registered late (after roster/cycle
+	// so decayRate has a real player count immediately) but before the
+	// joinRoster handler is invoked - hydration below needs it live.
+	setupHearthFuelServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the
@@ -168,6 +186,10 @@ export async function setupServer(): Promise<void> {
 	// invocation order); doesn't matter semantically here since paint
 	// clear and hidden reset are independent, but keeps the intent clear.
 	onCycleRoll(() => {
+		// Cycle wipes fuel-driven expansion too - baseline ring is the
+		// correct visual reset. Fuel state itself is handled by the
+		// hearthFuel server (main hearth clamps back to floor as decay
+		// continues).
 		console.log('[Server] cycle: clearing paint canvas + reseeding central ring')
 		clearPaintState()
 		seedStartingArea()
@@ -198,7 +220,11 @@ export async function setupServer(): Promise<void> {
 		// once persistent multi-player sessions matter.
 		console.log(`[Server] joinRoster from ${from}: clearing paint + reseeding`)
 		clearPaintState()
-		seedStartingArea()
+		// Reseed at the CURRENT fuel-derived radius (not the baseline)
+		// so a browser refresh doesn't erase an expanded melt ring from
+		// the fed fire. Fuel state survives client reconnects; the
+		// visible ring should too.
+		seedStartingArea(hearthRadiusFromFuel(getMainFireFuel()))
 		if (from !== userId) {
 			// Not an error — client may not have context.from's exact address casing.
 			// We ignore the payload and use context.from as authoritative.
@@ -221,6 +247,12 @@ export async function setupServer(): Promise<void> {
 		// somebody already lit it should see smoke + hear crackle from
 		// the first frame instead of a cold pit.
 		sendHiddenCampfireStateTo(from)
+		// Hydrate the joiner with every wood pile currently in the world so
+		// they see logs another player dropped before they connected.
+		sendLogPilesTo(from)
+		// Same for the scattered wood chunks - the active/inactive set
+		// lives on the server, positions are seed-derived on the client.
+		sendWoodStateTo(from)
 		// Authoritative countdown for the ClockButton popover — hydrated
 		// on join so a fresh client's HUD shows a correct rebuild timer
 		// from the first frame instead of trusting local Date.now().
@@ -229,6 +261,9 @@ export async function setupServer(): Promise<void> {
 		// the joiner sees flames instead of dark sticks until each remote
 		// player's next lit-state change.
 		sendTorchStatesTo(from)
+		// Current main-hearth fuel snapshot so the joiner's fire visuals
+		// (radius, upcoming billboard) match the room from the first frame.
+		sendHearthFuelStateTo(from)
 	})
 
 	// Paint ingest — client-authored cell ids, attributed to sender's team.

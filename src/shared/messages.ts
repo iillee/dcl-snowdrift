@@ -122,6 +122,101 @@ export const Messages = {
 		lit   : Schemas.Int,
 	}),
 
+	// Server → Client: a log pile has appeared in the world. Broadcast
+	// on drop (someone dropped a log), on initial spawn (server boot,
+	// cycle roll), and rebroadcast to joiners as hydration. `id` is a
+	// server-owned autoincrementing int, unique for the server's lifetime.
+	logPileAdded: Schemas.Map({
+		id: Schemas.Int,
+		// Schemas.Number (not Float) — Float payloads were arriving empty on
+		// the client in this SDK build; Number rounds-trips reliably (same
+		// choice as cycleState.nextRebuildEpochMs).
+		x : Schemas.Number,
+		z : Schemas.Number,
+	}),
+
+	// Server → Client: a log pile is gone (someone picked it up, or the
+	// cycle rolled and cleared the world). Clients that don't know the
+	// id (missed the add) should silently ignore.
+	logPileRemoved: Schemas.Map({ id: Schemas.Int }),
+
+	// Client → Server: I walked onto pile `id` and want to pick it up.
+	// Server first-come-first-serve: only the first request for a given
+	// id succeeds; subsequent requests are silently dropped. In a race
+	// two clients can both believe they picked up the pile — acceptable
+	// for the cozy tone; anti-cheat / strict serialisation is deferred.
+	logPickupRequest: Schemas.Map({ id: Schemas.Int }),
+
+	// Client → Server: I dropped my carried log at world position (x, z).
+	// Server unconditionally spawns a new pile at that position with a
+	// fresh id and broadcasts logPileAdded. Server does NOT track who is
+	// carrying (yet) — that state stays local; a client that lies about
+	// carrying could spawn free piles, tolerated for now.
+	logDropRequest: Schemas.Map({ x: Schemas.Number, z: Schemas.Number }),
+
+	// Server -> Client: full active-set snapshot for the current cycle.
+	// Sent on join hydration and on cycle roll. `indices` are the chunk
+	// idx values (from computeWoodScatter(seed)) that are currently
+	// alive; everything else is inactive/picked-up.
+	woodActiveSet: Schemas.Map({
+		seed   : Schemas.Int,
+		indices: Schemas.Array(Schemas.Int),
+	}),
+
+	// Server -> Client: a chunk came back online (trickle respawn). Client
+	// looks up the position via its own computeWoodScatter(seed) and
+	// spawns the GLB.
+	woodChunkActive: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
+
+	// Server -> Client: a chunk was picked up and is gone. Client removes
+	// its GLB. `pickerId` is the lowercased wallet address of the player
+	// who grabbed it, so remote clients can play the head-bounce FX over
+	// the correct avatar.
+	woodChunkRemoved: Schemas.Map({
+		seed    : Schemas.Int,
+		idx     : Schemas.Int,
+		pickerId: Schemas.String,
+	}),
+
+	// Client -> Server: I walked onto chunk `idx` and want to pick it up.
+	// `seed` is echoed so the server can reject a stale pickup that arrived
+	// after a cycle roll invalidated the client's scatter.
+	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
+
+	// Client -> Server: player fed a log to a fire. `target` selects
+	// which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 == the
+	// respective hidden bonfire. Server trusts the client's has-log
+	// guard for now and bumps the target's fuel by LOG_FUEL_SECONDS.
+	feedFireRequest: Schemas.Map({ target: Schemas.Int }),
+
+	// Server -> Client: current main-hearth fuel in seconds. Broadcast
+	// on significant change (delta > threshold, or tier crossed, or on
+	// feed) and on joinRoster hydration. `players` is the current
+	// player count baked into the packet so the client can render the
+	// "xN" drain multiplier without a separate roster subscription.
+	hearthFuelUpdate: Schemas.Map({
+		fuel   : Schemas.Float,
+		players: Schemas.Int,
+	}),
+
+	// Server -> Client: fuel snapshot for a hidden fire. `index` is the
+	// hidden bonfire slot (0..HIDDEN_CAMPFIRE_COUNT-1). Same throttling
+	// rules as hearthFuelUpdate. On snuff (fuel -> 0) the server also
+	// broadcasts hiddenCampfireState with lit=false; the fuel-zero
+	// packet immediately preceding it is the definitive "you saw it
+	// dying" event.
+	hiddenHearthFuelUpdate: Schemas.Map({
+		index  : Schemas.Int,
+		fuel   : Schemas.Float,
+		players: Schemas.Int,
+	}),
+
+	// Server -> Client: the main hearth just hit FUEL_MAX from below.
+	// One-shot celebration hook (audio, billboard flash, camera zap) -
+	// re-arms once fuel drops below Roaring tier entry (450 s), so it
+	// won't fire again until players work back up to full.
+	hearthMax: Schemas.Map({}),
+
 	// Client → Server (DEV only): force an immediate cycle rollover for
 	// smoke-testing the reset flow before real midnight UTC arrives.
 	// Gated on the client by devFlags.ENABLE_DEV_ROLL_CYCLE + the

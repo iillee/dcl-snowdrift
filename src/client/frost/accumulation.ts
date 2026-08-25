@@ -19,6 +19,7 @@ import { engine, Transform } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, CAMPFIRE_MELT_RADIUS_SQ_M } from 'src/shared/campfire'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
+import { getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { FrostLevel } from 'src/shared/frost/components'
 import {
 	FROST_MAX,
@@ -71,7 +72,13 @@ export function initFrostAccumulation(): void {
 		// ── Warmth first: fire trumps snow every time ─────────────
 		const dx = x - CAMPFIRE_WORLD_X
 		const dz = z - CAMPFIRE_WORLD_Z
-		let insideFire = dx * dx + dz * dz <= CAMPFIRE_MELT_RADIUS_SQ_M
+		// Main hearth's warm ring now grows/shrinks with fuel (see
+		// hearthFuel.ts). getMainFireMeltRadiusSq() returns the current
+		// squared radius; it's clamped so the main fire never drops below
+		// tier 3 (8 m == the historic CAMPFIRE_MELT_RADIUS_M). Fed above
+		// tier 3 it can reach ~17 m at Roaring.
+		const mainMeltRSq = getMainFireMeltRadiusSq()
+		let insideFire = dx * dx + dz * dz <= mainMeltRSq
 		// Hidden second campfire also thaws once it's been lit. Same
 		// melt radius as the central bonfire so both fires feel like
 		// equivalent survival anchors.

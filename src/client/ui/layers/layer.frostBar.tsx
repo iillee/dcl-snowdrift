@@ -20,8 +20,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
-import { isTorchEquipped }                         from 'src/client/torchEquip'
-import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton, TorchButton } from 'src/client/ui/layers/layer.brushSize'
+import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
 // while the timer lives in the HelpPanel. Flip to `true` to restore the
@@ -311,12 +310,9 @@ class FrostBarLayer extends Layer {
 						{segments}
 					</UiEntity>
 				</UiEntity>
-				{/* Torch slot to the RIGHT of the frost bar. Only shown when
-				   the player is holding a torch; mobile touch paths do not
-				   use this button. */}
-				{isTorchEquipped() && (
-					<TorchButton />
-				)}
+				{/* Torch + Logs slots moved to layer.inventoryHotbar
+				   (bottom-center) - the frost bar now only owns the
+				   segmented cold gauge. */}
 			</UiEntity>
 		)
 	}

@@ -18,6 +18,7 @@ import { PBParticleSystem_BlendMode, ParticleSystem, Transform, engine } from '@
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { getMainFireSmokeHeight } from 'src/client/hearthFuel'
 
 
 // MARK: Tuning
@@ -96,4 +97,24 @@ export function setupCampfireSmoke(): void {
 	})
 
 	console.log('campfireSmoke: setupCampfireSmoke: plume spawned above campfire')
+
+	// Tier-scaled plume. Tuning constants above are the tier-3 "Warm"
+	// baseline (multiplier == 1.0). Bigger fires push the column HIGHER
+	// and let particles LAST LONGER - explicitly NOT scaling rate or
+	// particle size, so a Roaring hearth doesn't turn into a soot cloud.
+	// Column height comes from launch velocity * lifetime, so scaling
+	// both compounds nicely into a taller plume.
+	//
+	// Throttled to only rewrite when the multiplier drifts by > 0.05 -
+	// ParticleSystem mutations aren't as cheap as Transform mutations
+	// and per-frame writes here would be wasteful.
+	let lastMult = -1
+	engine.addSystem(() => {
+		const mult = getMainFireSmokeHeight()
+		if (Math.abs(mult - lastMult) < 0.05) return
+		lastMult   = mult
+		const ps   = ParticleSystem.getMutable(emitter)
+		ps.initialVelocitySpeed = { start: INITIAL_SPEED_MIN * mult, end: INITIAL_SPEED_MAX * mult }
+		ps.lifetime             = LIFETIME_S * mult
+	})
 }

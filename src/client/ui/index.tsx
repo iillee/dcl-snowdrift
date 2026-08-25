@@ -19,6 +19,8 @@ import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
 import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
 import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
+import { hotbarBridgeLayer }          from 'src/client/ui/layers/layer.hotbarBridge'
+import { inventoryHotbarLayer }       from 'src/client/ui/layers/layer.inventoryHotbar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 // hotbarLayer retired — the torch button now lives inside the top
@@ -27,10 +29,12 @@ import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCam
 // registered here.
 import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
 import { preloadLayer }       from 'src/client/ui/layers/layer.preload'
+import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
-import { versionLayer }       from 'src/client/ui/layers/layer.version'
+// versionLayer is retired — the version chip now lives inside the
+// help panel footer (see layer.helpPanel > ui_HelpPanel_version).
 
 
 // MARK: setupUi
@@ -59,13 +63,19 @@ export function setupUi() {
 			// z-stack; deathFade / splash still cover it.
 			frostFlashLayer,
 			actionBarLayer,
-			// TorchButton is rendered inline by frostBarLayer (to its right)
-			// so the top-centre cluster stays one visual unit; no separate
-			// top-right layer.
 			frostBarLayer,
+			// Bottom-center hotbar hosting the Torch (E) + Wood (F) slots.
+			// Previously inlined into frostBarLayer; pulled out so the top
+			// row stays status-only and the inventory reads as a classic
+			// action bar at the bottom of the screen.
+			// Bridge sits BEFORE the hotbar + prompts so its gold strip
+			// renders BEHIND both, hiding the seam between button and
+			// tooltip. Pointer-inert; taps still hit button / tooltip.
+			hotbarBridgeLayer,
+			inventoryHotbarLayer,
 			relightPromptLayer,
+			feedPromptLayer,
 			hiddenCampfirePromptLayer,
-			versionLayer,
 			// Help panel — slides down from the top when the HelpButton (?)
 			// is clicked. Registered above HUD chrome so its border isn't
 			// clipped by lower layers, but below deathFade / splash.

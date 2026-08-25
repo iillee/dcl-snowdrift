@@ -37,6 +37,16 @@ import {
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { CAMPFIRE_MELT_RADIUS_M } from 'src/shared/campfire'
 import {
+	FUEL_HIDDEN_FLOOR,
+	FUEL_HIDDEN_INITIAL,
+	FUEL_MAX,
+	LOG_FUEL_SECONDS,
+	hearthDecayRate,
+	hearthRadiusFromFuel,
+	hearthTierFromFuel,
+} from 'src/shared/hearthFuel'
+import { rosterSize } from 'src/server/roster'
+import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
 	MAZE_ORIGIN_OFFSET_METERS,
@@ -46,7 +56,7 @@ import {
 } from 'src/shared/settings'
 import { Team } from 'src/shared/team'
 
-import { applyPaint, markProtected } from 'src/server/paintState'
+import { applyPaint, markProtected, shrinkMeltRingTo } from 'src/server/paintState'
 
 
 // MARK: Melt-growth tuning
@@ -63,6 +73,18 @@ const lit               : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(fals
 const secondsSinceIgnite: number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const worldX            : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const worldZ            : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/** Live fuel per hidden fire. Zero when unlit. Set to FUEL_HIDDEN_INITIAL
+ *  on ignition; drained per frame; snuffs (lit=false) at 0. */
+const fuel              : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/** Throttle state for hiddenHearthFuelUpdate broadcasts, per fire. */
+const lastBroadcastFuel : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-999)
+const lastBroadcastTier : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
+const heartbeatClock    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+
+/** Same tuning as main hearth. Broadcast on fuel delta > 3s, tier
+ *  change, or 2s heartbeat while lit. */
+const BROADCAST_FUEL_DELTA  = 3
+const BROADCAST_HEARTBEAT_S = 2
 
 
 // MARK: recomputePositions
@@ -88,6 +110,10 @@ function resetForCycle(newSeed: number): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		lit[i]                = false
 		secondsSinceIgnite[i] = 0
+		fuel[i]               = 0
+		lastBroadcastFuel[i]  = -999
+		lastBroadcastTier[i]  = -1
+		heartbeatClock[i]     = 0
 	}
 	recomputePositions()
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -109,12 +135,14 @@ function resetForCycle(newSeed: number): void {
  */
 function seedHiddenMeltRing(index: number): void {
 	if (!lit[index]) return
-	// Linear grow from 0 to the central campfire's full melt radius over
-	// MELT_GROWTH_DURATION_S. Once we hit the cap, later ticks re-paint
-	// the same full disc — cheap because applyPaint short-circuits on
-	// cells already at the target colour.
-	const growth = Math.min(1, secondsSinceIgnite[index] / MELT_GROWTH_DURATION_S)
-	const r      = CAMPFIRE_MELT_RADIUS_M * growth
+	// Ring size follows the fuel-derived radius (matches main hearth's
+	// live tier -> radius mapping) with an initial-grow-in fade on top
+	// so a fresh ignition still visibly "thaws" outward from 0 to the
+	// current fuel radius over MELT_GROWTH_DURATION_S. Once the fade
+	// completes, the radius tracks fuel directly - grows on feed,
+	// shrinks on decay.
+	const grow = Math.min(1, secondsSinceIgnite[index] / MELT_GROWTH_DURATION_S)
+	const r    = hearthRadiusFromFuel(fuel[index]) * grow
 	if (r <= 0) return
 	const r2 = r * r
 	const cx = worldX[index]
@@ -167,11 +195,45 @@ function broadcastOne(index: number): void {
 }
 
 
+// MARK: broadcastFuel
+function broadcastFuel(index: number, userId?: string): void {
+	const opts = userId ? { to: [userId] } : undefined
+	room.send('hiddenHearthFuelUpdate', {
+		index,
+		fuel   : fuel[index],
+		players: rosterSize(),
+	}, opts)
+	lastBroadcastFuel[index] = fuel[index]
+	lastBroadcastTier[index] = hearthTierFromFuel(fuel[index])
+	heartbeatClock[index]    = 0
+}
+
+
+// MARK: snuffFire
+/**
+ * Fuel hit zero. Flip lit=false, retract the melt ring to nothing,
+ * broadcast the state change. Rebroadcast fuel=0 first so any client
+ * that hasn't received the last fuel packet yet sees the definitive
+ * "went out" moment before the lit-state flip.
+ */
+function snuffFire(index: number): void {
+	console.log(`[Server] hiddenCampfire[${index}]: SNUFFED (fuel exhausted)`)
+	fuel[index]               = 0
+	secondsSinceIgnite[index] = 0
+	lit[index]                = false
+	broadcastFuel(index)
+	// previousRadiusM = max possible so any cell this fire ever
+	// painted is swept; cells owned by other fires are left alone.
+	shrinkMeltRingTo(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
+	broadcastOne(index)
+}
+
+
 // MARK: sendHiddenCampfireStateTo
 /**
- * Push the full lit tuple to a specific client. Called from the
- * joinRoster handler in server.ts so new joiners immediately see
- * every fire in its correct state (one message per fire).
+ * Push the full lit tuple + fuel snapshots to a specific client.
+ * Called from the joinRoster handler in server.ts so new joiners
+ * immediately see every fire in its correct state.
  */
 export function sendHiddenCampfireStateTo(userId: string): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -180,6 +242,7 @@ export function sendHiddenCampfireStateTo(userId: string): void {
 			{ seed: currentSeed, index: i, lit: lit[i] ? 1 : 0 },
 			{ to: [userId] },
 		)
+		if (lit[i]) broadcastFuel(i, userId)
 	}
 }
 
@@ -226,7 +289,11 @@ export function setupHiddenCampfireServer(): void {
 		}
 		lit[index]                = true
 		secondsSinceIgnite[index] = 0
-		console.log(`[Server] hiddenCampfire[${index}]: ignited by ${from} (seed=${currentSeed}) — broadcasting`)
+		fuel[index]               = FUEL_HIDDEN_INITIAL
+		console.log(
+			`[Server] hiddenCampfire[${index}]: ignited by ${from} ` +
+			`(seed=${currentSeed}, fuel=${FUEL_HIDDEN_INITIAL}s tier ${hearthTierFromFuel(FUEL_HIDDEN_INITIAL)})`
+		)
 		// Broadcast BEFORE the paint pass so a ring-seeding failure can't
 		// silently swallow the state flip. Clients need the lit=true message
 		// to spawn smoke / crackle / warmth even if the melt ring lags. The
@@ -234,23 +301,53 @@ export function setupHiddenCampfireServer(): void {
 		// — no seed pass here, so the first frame reads as "just ignited,
 		// snow still there" and melts outward from centre.
 		broadcastOne(index)
+		broadcastFuel(index)
 	})
 
-	// Keep every lit ring authoritative. Same cadence as the central
-	// campfire ring refresh in server.ts — cheap no-op after the first
-	// pass since applyPaint short-circuits on cells already at the
-	// target colour.
+	// Fuel decay + ring refresh + broadcast throttling. Runs every
+	// frame; ring refresh coalesces at 4 Hz; broadcasts fire on delta.
 	const RING_REFRESH_HZ = 4
 	const RING_INTERVAL   = 1 / RING_REFRESH_HZ
 	let   ringClock       = 0
 	engine.addSystem((dt: number) => {
-		let anyLit = false
+		const players   = rosterSize()
+		const drainRate = hearthDecayRate(players)
+		let anyLit      = false
+
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-			if (lit[i]) {
-				secondsSinceIgnite[i] += dt
-				anyLit = true
+			if (!lit[i]) continue
+			anyLit                 = true
+			secondsSinceIgnite[i] += dt
+			const prev             = fuel[i]
+			const prevTier         = hearthTierFromFuel(prev)
+			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - drainRate * dt)
+
+			// Downward tier crossing on decay -> shrink the ring so it
+			// visibly retracts in step with fuel loss.
+			const newTier = hearthTierFromFuel(fuel[i])
+			if (newTier < prevTier) {
+				const r = hearthRadiusFromFuel(fuel[i])
+				// Bound to this fire's max possible radius so the shrink
+				// never touches cells owned by other fires.
+				shrinkMeltRingTo(worldX[i], worldZ[i], r, hearthRadiusFromFuel(FUEL_MAX))
+				console.log(`[Server] hiddenCampfire[${i}]: tier decay ${prevTier}->${newTier} ring->${r.toFixed(1)}m`)
 			}
+
+			// Snuff on fuel exhaustion. snuffFire handles broadcasts +
+			// ring retraction to zero.
+			if (fuel[i] <= 0 && prev > 0) {
+				snuffFire(i)
+				continue
+			}
+
+			// Throttled fuel broadcast.
+			heartbeatClock[i] += dt
+			const fuelDrifted = Math.abs(fuel[i] - lastBroadcastFuel[i]) >= BROADCAST_FUEL_DELTA
+			const tierChanged = newTier !== lastBroadcastTier[i]
+			const heartbeatDue = heartbeatClock[i] >= BROADCAST_HEARTBEAT_S
+			if (fuelDrifted || tierChanged || heartbeatDue) broadcastFuel(i)
 		}
+
 		if (!anyLit) return
 		ringClock += dt
 		if (ringClock < RING_INTERVAL) return
@@ -258,6 +355,31 @@ export function setupHiddenCampfireServer(): void {
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 			if (lit[i]) seedHiddenMeltRing(i)
 		}
+	})
+
+	// Feed handler - filter by target index. -1 means main hearth
+	// (handled by src/server/hearthFuel.ts); anything in [0, N) is a
+	// hidden fire slot. Ignites nothing - fire must already be lit.
+	room.onMessage('feedFireRequest', ({ target }, context) => {
+		if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
+		const from = context?.from ?? 'unknown'
+		if (!lit[target]) {
+			console.log(`[Server] hiddenCampfire[${target}]: feed from ${from} ignored - not lit`)
+			return
+		}
+		const prev     = fuel[target]
+		const prevTier = hearthTierFromFuel(prev)
+		fuel[target]   = Math.min(FUEL_MAX, prev + LOG_FUEL_SECONDS)
+		const newTier  = hearthTierFromFuel(fuel[target])
+		console.log(
+			`[Server] hiddenCampfire[${target}]: feed by ${from} ` +
+			`${prev.toFixed(1)}s -> ${fuel[target].toFixed(1)}s (tier ${newTier})`
+		)
+		// Upward tier crossing -> repaint ring at the wider radius. The
+		// ring-refresh tick above would eventually notice, but immediate
+		// feedback on feed feels much better.
+		if (newTier > prevTier) seedHiddenMeltRing(target)
+		broadcastFuel(target)
 	})
 
 	// Reset on cycle boundary. Registered here (not in server.ts) so

@@ -107,6 +107,33 @@ export function playClaimSfx(): void {
   })
 }
 
+// MARK: playPickupSfx
+/**
+ * Play the wood-pickup pop. Camera-parented + global so no 3D falloff
+ * on the local player. Reuses the shared click entity to avoid leaking
+ * an AudioSource per SFX.
+ */
+export function playPickupSfx(): void {
+  if (!muteClickEnt) return
+  AudioSource.createOrReplace(muteClickEnt, {
+    audioClipUrl: 'assets/sounds/pop.mp3',
+    playing: true, loop: false, volume: 0.6, global: true,
+  })
+}
+
+// MARK: playDropSfx
+/**
+ * Play the wood-drop thud. Same entity reuse pattern as playPickupSfx.
+ * Uses the project's dedicated droplogs.mp3 clip.
+ */
+export function playDropSfx(): void {
+  if (!muteClickEnt) return
+  AudioSource.createOrReplace(muteClickEnt, {
+    audioClipUrl: 'assets/sounds/droplogs.mp3',
+    playing: true, loop: false, volume: 0.7, global: true,
+  })
+}
+
 export function toggleMusic(): void {
   playUiClick()
   const a = AudioSource.getMutableOrNull(musicEnt) as

@@ -136,38 +136,11 @@ export function setupTouchControls(): void {
 			applyLayout()
 		}
 
-		// Mobile pointer-button → relight, gated by the same rule as the
-		// desktop E-press: torch equipped, inside the fire heat ring, and
-		// either unlit or not full. The DCL native pointer button (the
-		// small hand glyph just left of jump) fires IA_POINTER on tap; we
-		// reuse it here so mobile players have an obvious touch surface
-		// without a scene-drawn extra button overlapping the HUD.
-		//
-		// Outside these conditions we do nothing — IA_POINTER stays free
-		// for its other use (top-down drag-release in topDownCamera.ts).
-		if (inputSystem.isTriggered(InputAction.IA_POINTER, PointerEventType.PET_DOWN)) {
-			if (!isTorchEquipped()) return
-
-			// Hidden campfire ignition takes priority — mirrors the desktop
-			// E-press flow in torchInput.ts. Standing on a buried pit with a
-			// lit torch turns the tap into an ignite request, not a relight.
-			if (isReadyToIgniteHidden()) {
-				requestHiddenIgnite()
-				return
-			}
-
-			if (isTorchLit() && getTorchFuelFraction() >= 0.98) return
-
-			const t = Transform.getOrNull(engine.PlayerEntity)
-			if (t === null) return
-			const dx = t.position.x - CAMPFIRE_WORLD_X
-			const dz = t.position.z - CAMPFIRE_WORLD_Z
-			const nearCentral = dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
-			const nearHidden  = isInHiddenRelightRange()
-			if (!nearCentral && !nearHidden) return
-
-			relightTorch()
-		}
+		// Note: the old IA_POINTER → relight handler was removed. It fired
+		// on ANY UI tap on mobile, which meant tapping the Logs (F) hotbar
+		// button also relit the torch when the player was in the fire ring.
+		// The dedicated Torch hotbar button (layer.brushSize > TorchButton)
+		// now owns mobile relight via its onMouseDown → tryRelightAtFire().
 	})
 
 	console.log('touchControls: setupTouchControls: mobile layout applied (E/F hidden, 1=eye, 2=mute)')
