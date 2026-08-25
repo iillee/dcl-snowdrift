@@ -13,9 +13,10 @@
  *   NEARBY  count       (other lit torches within CLUSTER_PROXIMITY_M)
  *   TOTAL   count       (all lit torches in scene, local + remote)
  *
- * Positioned top-left so it doesn't collide with the frost bar
- * (bottom-center), version chip (bottom-right), or action bar
- * (top-center).
+ * Positioned top-right — top-left was covered by the native mobile
+ * comms/minimap chrome, top-center is the action bar, bottom-center
+ * is the frost bar, bottom-right is the version chip. Top-right is
+ * the only corner left clear on both platforms.
  */
 
 import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
@@ -43,7 +44,7 @@ class TorchWarmthDebugLayer extends Layer {
 	constructor() {
 		super({
 			id  : 'torchWarmthDebug',
-			zone: ZoneType.TopLeft,
+			zone: ZoneType.TopRight,
 		})
 	}
 
@@ -63,7 +64,7 @@ class TorchWarmthDebugLayer extends Layer {
 				uiTransform = {{
 					width        : PANEL_WIDTH,
 					padding      : spacing.sm,
-					margin       : { top: 8, left: 8 },
+					margin       : { top: 8, right: 8 },
 					borderRadius : borderRadius.sm,
 					flexDirection: 'column',
 					pointerFilter: 'none',
