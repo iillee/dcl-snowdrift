@@ -19,6 +19,7 @@
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
+import { playTorchSfxLocal }                                                 from 'src/client/audio'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import {
@@ -35,6 +36,23 @@ import {
 // MARK: Module state
 let installed  = false
 let eHeldPrev  = false
+// Post-relight cooldown. Blocks a follow-up relight (no double-tap
+// spam of the whoosh SFX) AND hides the relight prompt so the player
+// isn't nagged to press E again while the torch is fresh. Cleared
+// automatically by wall-clock comparison — no timer entity needed.
+const RELIGHT_COOLDOWN_MS = 5000
+let   relightCooldownUntilMs = 0
+
+
+// MARK: isTorchRelightOnCooldown
+/**
+ * True while the post-relight cooldown window is active. Consumed by
+ * layer.relightPrompt to suppress the tooltip for RELIGHT_COOLDOWN_MS
+ * after each successful ignition.
+ */
+export function isTorchRelightOnCooldown(): boolean {
+	return Date.now() < relightCooldownUntilMs
+}
 
 
 // MARK: tryRelightAtFire
@@ -51,6 +69,10 @@ let eHeldPrev  = false
  */
 export function tryRelightAtFire(): void {
 	if (!isTorchEquipped()) return
+	// Post-relight cooldown swallows the input entirely — no SFX, no
+	// fuel top-off, no state change. Prevents accidental double-taps
+	// from firing the whoosh twice in a row.
+	if (isTorchRelightOnCooldown()) return
 
 	if (isReadyToIgniteHidden()) {
 		requestHiddenIgnite()
@@ -71,6 +93,12 @@ export function tryRelightAtFire(): void {
 	}
 
 	relightTorch()
+	relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
+	// Torch ignition SFX fires here — on the successful relight action
+	// itself, not on an isTorchLit() state edge. Topping off a still-lit
+	// torch doesn't flip lit false->true, so an edge-based trigger would
+	// silently skip every relight except the one after a full burnout.
+	playTorchSfxLocal()
 	console.log(`torchInput: tryRelightAtFire: torch relit (fuel restored to ${TORCH_FUEL_MAX_S}s)`)
 }
 

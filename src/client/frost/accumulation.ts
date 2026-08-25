@@ -28,6 +28,7 @@ import {
 	FROST_TIME_SNOW_STAGE_S,
 	FROST_TIME_TO_THAW_S,
 } from 'src/shared/frost/tuning'
+import { playFrostChunkSfx } from 'src/client/audio'
 import { getSnowStageAtWorld } from 'src/client/paint'
 import { isTorchProtecting } from 'src/client/torch'
 
@@ -39,6 +40,11 @@ import { isTorchProtecting } from 'src/client/torch'
 let sampleAccum      = 0
 let frost            = 0
 let lastWrittenFrost = 0
+// Matches SEGMENT_COUNT in layer.frostBar.tsx. Kept as a local literal
+// (instead of importing from a UI layer) so the accumulator has no
+// downward dependency on the UI. Update both if the bar changes.
+const FROST_BAR_SEGMENTS = 10
+let lastChunkIndex = 0
 
 // Any change bigger than this triggers a CRDT write. 0.5% chosen so a
 // full 0->100 sweep produces ~200 writes over minutes, not thousands.
@@ -86,11 +92,15 @@ export function initFrostAccumulation(): void {
 			// Iterate every lit hidden bonfire — the player is warmed if
 			// they're inside ANY warm ring. Loop is cheap (<= 3 entries)
 			// and short-circuits on the first hit.
+			// Per-pit dynamic warmth radius (grows with fuel tier), matching
+			// the main hearth's behaviour. Was previously a static
+			// CAMPFIRE_MELT_RADIUS_SQ_M, which under-served maxed-out hidden
+			// pits (visible melt ring > warmth ring).
 			const hps = getHiddenCampfireWarmthPositions()
 			for (const hp of hps) {
 				const hdx = x - hp.x
 				const hdz = z - hp.z
-				if (hdx * hdx + hdz * hdz <= CAMPFIRE_MELT_RADIUS_SQ_M) {
+				if (hdx * hdx + hdz * hdz <= hp.radiusSq) {
 					insideFire = true
 					break
 				}
@@ -123,6 +133,15 @@ export function initFrostAccumulation(): void {
 				if (frost > FROST_MAX) frost = FROST_MAX
 			}
 		}
+		// Play the frost SFX only when a new blue chunk fills on the bar
+		// (edge trigger on the visible segment index). Ambient wading
+		// through shallow snow that never fills a full segment stays
+		// silent — the cue is reserved for perceptible progress toward
+		// freezing. Chunks can also DECREASE (thaw); we only fire on
+		// the upward edge.
+		const chunkIndex = Math.floor((frost / FROST_MAX) * FROST_BAR_SEGMENTS)
+		if (chunkIndex > lastChunkIndex) playFrostChunkSfx()
+		lastChunkIndex = chunkIndex
 
 		// Debounced CRDT write.
 		if (Math.abs(frost - lastWrittenFrost) >= FROST_WRITE_EPSILON) {
@@ -142,6 +161,7 @@ export function initFrostAccumulation(): void {
 export function resetFrostLocal(): void {
 	frost            = 0
 	lastWrittenFrost = 0
+	lastChunkIndex   = 0
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 }
 

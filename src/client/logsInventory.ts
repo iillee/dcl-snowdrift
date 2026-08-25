@@ -16,7 +16,7 @@ import { Transform, engine } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { getLitHiddenFires, isInHiddenRelightRange }                        from 'src/client/hiddenCampfire'
-import { playDropSfx, playPickupSfx }                                       from 'src/client/audio'
+import { playDropSfx, playPickupSfx, playSurgeSfxLocal }                    from 'src/client/audio'
 import { spawnLogsBounce }                                                  from 'src/client/logsPickupFx'
 import { requestFeedFire }                                                  from 'src/client/hearthFuel'
 
@@ -102,9 +102,12 @@ export function isInFeedRange(): boolean {
 export function feedFire(): void {
 	if (!_hasLogs) return
 	_hasLogs = false
-	// Feed uses the drop sfx for now - will get its own "whoosh" clip
-	// when the tier-scaled fire audio lands.
-	playDropSfx()
+	// Ignition surge is the whoosh on log placement. Replaces the earlier
+	// drop-sfx placeholder — stacking both createOrReplaces on the shared
+	// SFX entity in the same frame caused audible glitches on the fire's
+	// looping crackle. Local-global because the player is standing right
+	// at the fire, so the feedback should be loud + reliable.
+	playSurgeSfxLocal()
 	// Route to the nearest lit fire the player is standing at.
 	// Preference: hidden > main. Rationale: hidden fires require
 	// deliberate discovery + relight, so a player standing at one

@@ -533,3 +533,43 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 - Melt SFX (paint sound removed; needs a dedicated non-crunch clip).
 - Torch scale currently non-uniform in Y/Z; may want a slightly stretched log GLB variant instead so scale can be uniform.
 - Instant-spawn ring size (8) may need to grow if spawn-shove recurs at edge of ring.
+
+---
+
+### 2026-08-24 session (audio polish pass)
+
+**New SFX clips:** `assets/sounds/surge.mp3` (fire ignition whoosh), `assets/sounds/torch.mp3` (torch ignition), `assets/sounds/frost.mp3` (chunk-crossing cold cue, 8 s source, first 3 s only).
+
+**Audio module (`src/client/audio.ts`) hardening:**
+- Dedicated `surgeSfxEnt` (camera-parented) so surge/torch never collide with the shared `muteClickEnt` (click / drop / pickup). Two `AudioSource.createOrReplace` calls on the same entity in one frame were producing audible glitches on nearby fire loops.
+- Every one-shot SFX now includes `currentTime: 0` in its `createOrReplace` payload. Without it the CRDT diff-check drops a repeated identical component write and the second (and every subsequent) play is a silent no-op — this was the root cause of "torch relight only plays on first light". Fix pattern mirrors the SDK's own `AudioSource.playSound` helper (see `@dcl/ecs/dist/components/extended/AudioSource.js`).
+- New helpers: `playSurgeSfxLocal()` (camera-parented global), `playSurgeSfxAt(position)` (3D positional, spawns throwaway entity + 5 s cleanup system for remote-player fire ignition audibility), `playTorchSfxLocal()` (volume 0.18), `playFrostChunkSfx()` (one-shot with auto-silencer system that cuts at `FROST_SFX_WINDOW_S = 3.0` so the trailing hiss of the 8 s clip never plays).
+
+**Feed-fire audio wiring (`src/client/logsInventory.ts`):**
+- `feedFire()` no longer stacks `playDropSfx()` before `playSurgeSfxLocal()` on the same shared entity — the drop write never played and the double-`createOrReplace` in one tick was the primary "fire loop breaks after feed" trigger.
+- Surge is now the sole SFX on log placement (local-global, 0.7). `dropLogs()` still uses `playDropSfx()` for actual on-ground drops.
+
+**Fire loop stability (`src/client/campfire.ts`):**
+- Main hearth's per-frame `AudioSource.getMutable(root).volume = ...` now writes only when the new value differs from the last write by ≥ `0.005`. Before the guard, the fuel lerp after a feed produced a fresh CRDT AudioSource state every tick, and the current renderer treated each as a restart — audibly the crackle "sped up / glitched" for ~250 ms after every feed. Static-state ticks were already a no-op because the value didn't change.
+
+**Hidden campfire ignition audio (`src/client/hiddenCampfire.ts`):**
+- `applyLitVisuals()` now calls `playSurgeSfxAt(pitPos)` on the unlit→lit transition (idempotency guarded by the existing `litLocal[index]` early-out). Fires for every client on receipt of `hiddenCampfireState { lit: 1 }`, so remote players hear the whoosh spatially when someone lights a pit.
+
+**Hidden campfire flame scaling (`src/client/hiddenCampfire.ts`):**
+- New per-frame system inside `setupHiddenCampfire()` snaps each lit pit's flame GLB scale on tier change via `hearthFlameScaleFromFuel(getHiddenFireFuel(i))` — mirrors the main hearth's tier-snap pattern from `campfire.ts`. Per-pit `lastFlameTier` cache; only mutates the Transform when tier actually changes. Resets cached tier to `-1` when the flame entity is torn down so re-ignition triggers a fresh scale apply.
+
+**Hidden campfire warmth radius fix (`src/client/hiddenCampfire.ts` + `src/client/frost/accumulation.ts`):**
+- Bug: standing at the edge of a maxed hidden pit's visible melt disc still applied frost damage. Root cause: `getHiddenCampfireWarmthPositions()` returned only `{x,z}` and the frost accumulator compared against the static `CAMPFIRE_MELT_RADIUS_SQ_M` (historic tier-3 8 m radius). Pits fed above tier 3 (12 m / 17 m) melted snow past the warmth ring.
+- Fix: `getHiddenCampfireWarmthPositions()` now returns `{x, z, radiusSq}` per lit pit using per-index `getHiddenFireMeltRadius(i)`; accumulator iterates `hp.radiusSq` instead of the constant. Warmth now grows/shrinks with fuel exactly like the main hearth, matching what's visible on the ground.
+
+**Frost SFX trigger (`src/client/frost/accumulation.ts`):**
+- Edge-triggered on **new-blue-chunk crossings**, not continuous damage. Tracks `lastChunkIndex = Math.floor((frost / FROST_MAX) * FROST_BAR_SEGMENTS)` (10 segments, matches `layer.frostBar.tsx`); fires `playFrostChunkSfx()` only when the index increases. Ambient wading through shallow snow that never fills a full segment stays silent. Thawing (index decreasing) is silent by design. Reset to `0` in `resetFrostLocal()` so death-wake doesn't fire a phantom chunk.
+
+**Torch relight audio + cooldown (`src/client/torchInput.ts` + `src/client/ui/layers/layer.relightPrompt.tsx`):**
+- SFX now fires directly from `tryRelightAtFire()` on every successful relight action (not on `isTorchLit()` state edge). Topping off a still-lit torch doesn't flip `lit` false→true, so the edge-based trigger silently skipped every relight except after a full burnout.
+- `RELIGHT_COOLDOWN_MS = 5000` swallows follow-up E-presses (no SFX, no fuel top-off, no state change), preventing whoosh double-taps.
+- `shouldShowPrompt()` in `layer.relightPrompt.tsx` returns `false` while `isTorchRelightOnCooldown()` is true, hiding the tooltip during the cooldown window. Applies only to the relight-torch path; hidden-pit ignition (`requestHiddenIgnite`) is unaffected.
+
+**Deferred / follow-ups:**
+- Hidden campfires use static `CAMPFIRE_VOLUME` (no per-frame writes) — no epsilon guard needed today, but the same pattern will be required if they gain a tier-scaled volume like the main hearth.
+- Snowfall loop seam experiment (dual staggered AudioSources at half-volume) was tried and reverted — original single-source implementation kept.

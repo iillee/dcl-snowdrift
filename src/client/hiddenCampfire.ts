@@ -41,13 +41,15 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { playSurgeSfxAt } from 'src/client/audio'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
+import { hearthFlameScaleFromFuel, hearthTierFromFuel } from 'src/shared/hearthFuel'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
 } from 'src/client/hearthBillboard'
-import { getHearthPlayerCount, getHiddenFireFuel } from 'src/client/hearthFuel'
+import { getHearthPlayerCount, getHiddenFireFuel, getHiddenFireMeltRadius } from 'src/client/hearthFuel'
 import {
 	getHiddenCampfireSeed,
 	getHiddenCampfireWorldPositions,
@@ -267,6 +269,11 @@ function relocatePit(index: number): void {
 function applyLitVisuals(index: number): void {
 	if (litLocal[index]) return
 	litLocal[index] = true
+
+	// Ignition surge: 3D-positional whoosh at the pit so nearby players
+	// hear the fire come to life. Fires on the unlit -> lit transition
+	// only (litLocal early-out above guarantees idempotency).
+	playSurgeSfxAt(Vector3.create(worldX[index], CAMPFIRE_WORLD_Y, worldZ[index]))
 	if (firePitEntity[index] === null) spawnUnlitPit(index)
 	const pit = firePitEntity[index]!
 
@@ -449,14 +456,21 @@ export function isHiddenCampfireLit(): boolean {
 
 // MARK: getHiddenCampfireWarmthPositions
 /**
- * World-space centres of every CURRENTLY LIT hidden bonfire. Frost
- * accumulation iterates and treats any point within CAMPFIRE_MELT_RADIUS_M
- * of any entry as inside a warm ring.
+ * World-space centres of every CURRENTLY LIT hidden bonfire, each
+ * annotated with its live melt radius squared (m^2). Frost accumulation
+ * iterates and treats any point within `radiusSq` of an entry as inside
+ * that pit's warm ring. Radius grows/shrinks per fuel tier just like the
+ * main hearth (see hearthFuel.getHiddenFireMeltRadius). Previously this
+ * returned only positions and the caller compared against a static
+ * CAMPFIRE_MELT_RADIUS_SQ_M, which meant maxed-out hidden pits still
+ * chilled the player at the edges of their VISIBLE melt ring.
  */
-export function getHiddenCampfireWarmthPositions(): { x: number; z: number }[] {
-	const out: { x: number; z: number }[] = []
+export function getHiddenCampfireWarmthPositions(): { x: number; z: number; radiusSq: number }[] {
+	const out: { x: number; z: number; radiusSq: number }[] = []
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		if (litLocal[i]) out.push({ x: worldX[i], z: worldZ[i] })
+		if (!litLocal[i]) continue
+		const r = getHiddenFireMeltRadius(i)
+		out.push({ x: worldX[i], z: worldZ[i], radiusSq: r * r })
 	}
 	return out
 }
@@ -589,6 +603,29 @@ export function setupHiddenCampfire(): void {
 			innerT.scale = Vector3.create(BEACON_INNER_WIDTH_M * pulse, BEACON_HEIGHT_M, 1)
 			const outerT = Transform.getMutable(outer)
 			outerT.scale = Vector3.create(BEACON_OUTER_WIDTH_M * (2 - pulse), BEACON_HEIGHT_M, 1)
+		}
+	})
+
+	// Flame scale per hidden pit. Mirrors the main campfire's tier-snap
+	// pattern (src/client/campfire.ts): only mutate the Transform on tier
+	// change so a growing GLB reads as morphing, not a continuous
+	// squishing lerp. Per-pit tier cache avoids scanning fuel every frame.
+	const lastFlameTier: number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
+	engine.addSystem(() => {
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			const flame = flameEntity[i]
+			if (flame === null) {
+				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1
+				continue
+			}
+			const fuel = getHiddenFireFuel(i)
+			const tier = hearthTierFromFuel(fuel)
+			if (tier === lastFlameTier[i]) continue
+			lastFlameTier[i] = tier
+			const s = hearthFlameScaleFromFuel(fuel)
+			const t = Transform.getMutableOrNull(flame)
+			if (t !== null) t.scale = Vector3.create(s, s, s)
+			console.log(`hiddenCampfire[${i}]: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
 		}
 	})
 }

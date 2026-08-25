@@ -67,7 +67,17 @@ export function setupCampfire(): void {
 	// (feels punchy - a growing GLB reads as morphing). Volume lerps
 	// every frame off the hearthFuel volume curve, which is already
 	// smoothed by the client-side fuel lerp.
-	let lastTier = -1
+	// Only write to the AudioSource when the volume actually moves past
+	// an epsilon. Per-frame `getMutable(root).volume = X` marks the
+	// component dirty and, while the fuel is lerping after a feed, the
+	// CRDT ships a new AudioSource state every tick — which the current
+	// renderer treats as "restart", producing an audible sped-up glitch
+	// on the crackle loop. Static-state ticks are already a no-op because
+	// the value doesn't change; we just need to skip near-equal writes
+	// during the lerp too.
+	const VOLUME_WRITE_EPSILON = 0.005
+	let lastTier         = -1
+	let lastWrittenVol   = -1
 	engine.addSystem(() => {
 		const tier = getMainFireTier()
 		if (tier !== lastTier) {
@@ -76,8 +86,10 @@ export function setupCampfire(): void {
 			lastTier = tier
 			console.log(`campfire: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
 		}
-		// Volume every frame - cheap (single float mutation) and stays
-		// in sync with the smooth fuel lerp.
-		AudioSource.getMutable(root).volume = CAMPFIRE_VOLUME * getMainFireVolume()
+		const vol = CAMPFIRE_VOLUME * getMainFireVolume()
+		if (Math.abs(vol - lastWrittenVol) >= VOLUME_WRITE_EPSILON) {
+			AudioSource.getMutable(root).volume = vol
+			lastWrittenVol = vol
+		}
 	})
 }

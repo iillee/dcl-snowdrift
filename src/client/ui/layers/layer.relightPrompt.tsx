@@ -30,6 +30,7 @@ import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from
 import { isInHiddenRelightRange }                                          from 'src/client/hiddenCampfire'
 import { isHiddenCampfirePromptVisible }                                   from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch } from 'src/client/torchEquip'
+import { isTorchRelightOnCooldown }                                        from 'src/client/torchInput'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
 
@@ -97,6 +98,10 @@ const TOP_OFF_HIDE_THRESHOLD = 0.98
  */
 function shouldShowPrompt(): boolean {
 	if (!isTorchEquipped()) return false
+	// Post-relight cooldown: hide the prompt for a few seconds after a
+	// successful ignition so the player isn't nagged to press E again
+	// while the whoosh SFX is still playing and the torch is fresh.
+	if (isTorchRelightOnCooldown()) return false
 	// Yield the flush hotbar slot to the hidden-campfire tooltip when
 	// it would show on the same frame — igniting the buried pit is the
 	// higher-value action, so it takes precedence over the top-off /
