@@ -35,4 +35,4 @@ export const SHOW_DEV_ROLL_BUTTON      = false
  * lets you confirm the mechanic fired without watching both flames at
  * once. See src/client/ui/layers/layer.torchWarmthDebug.tsx.
  */
-export const SHOW_TORCH_WARMTH_DEBUG   = true
+export const SHOW_TORCH_WARMTH_DEBUG   = false
