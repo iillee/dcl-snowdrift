@@ -68,7 +68,7 @@ import { isTorchLit } from 'src/client/torchEquip'
 export const TORCH_WARMTH_TIER_RADIUS_M: readonly number[] = [
 	1.5, // solo    — 3×3 cells (matches brush=3 torch melt paint)
 	2.5, // paired  — 5×5 cells
-	3.5, // cluster — 7×7 cells
+	2.5, // cluster — currently mirrors paired; see collapse note below
 ]
 /**
  * Torch melt-brush footprint (odd cell count, N×N square) per cluster
@@ -93,8 +93,27 @@ export const TORCH_WARMTH_TIER_RADIUS_M: readonly number[] = [
 export const TORCH_WARMTH_TIER_BRUSH_CELLS: readonly number[] = [
 	3, // solo    — 3×3 brush (unchanged from historical BRUSH_TORCH_LIT)
 	5, // paired  — 5×5 brush
-	7, // cluster — 7×7 brush
+	5, // cluster — currently mirrors paired; see collapse note below
 ]
+
+/*
+ * Tier-2 (cluster) collapse note — 2026-08-25:
+ *
+ * Every effect table above intentionally has identical values at tier 1
+ * and tier 2 while we playtest the base mechanic. Rationale:
+ *   - 7×7 brush was too aggressive on wood-chunk / hidden-pit surface
+ *     rate; would have needed a woodScatter re-tune before shipping.
+ *   - Two tiers of visible payoff are easier to teach than three
+ *     during a 3-minute judge session.
+ *   - Tier DETECTION still fires at 2+ (see computeTier), so the debug
+ *     HUD shows the cluster case is being recognised. Adding tier-2-
+ *     specific effects later (SFX, sparkle, ground shimmer accent, a
+ *     third flame-color step) requires only bumping table entries — no
+ *     detection or plumbing changes.
+ *
+ * If playtest shows paired doesn't feel distinct enough from cluster,
+ * re-open these tables and split them again.
+ */
 /**
  * Flame-visual scale multiplier per cluster tier. Applied on top of the
  * fuel-driven flame shrink (see src/client/torch.ts). Chosen aggressive
@@ -103,7 +122,7 @@ export const TORCH_WARMTH_TIER_BRUSH_CELLS: readonly number[] = [
 export const TORCH_WARMTH_TIER_FLAME_SCALE: readonly number[] = [
 	1.0,
 	1.35,
-	1.7,
+	1.35, // cluster mirrors paired — see collapse note above
 ]
 /**
  * Flame-emissive multiplier per cluster tier. Stacks with scale so a
@@ -115,7 +134,7 @@ export const TORCH_WARMTH_TIER_FLAME_SCALE: readonly number[] = [
 export const TORCH_WARMTH_TIER_EMISSIVE_MULT: readonly number[] = [
 	1.0,
 	1.3,
-	1.55,
+	1.3, // cluster mirrors paired — see collapse note above
 ]
 /**
  * Distance in meters between two torch-holders' positions at which
