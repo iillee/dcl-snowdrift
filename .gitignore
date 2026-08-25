@@ -13,3 +13,11 @@ dist/
 agent/
 thumbnails/
 assets/images/screenshot/
+
+# Source art files (Blender, SketchUp) and their backups
+*.blend
+*.blend[0-9]*
+*.skp
+*.skb
+*.bak
+*~
