@@ -40,6 +40,7 @@ import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze, runAfterInnerRing } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
+import { setupPaintResync } from 'src/client/paintResync'
 import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
@@ -173,6 +174,15 @@ export async function setupClient(): Promise<void> {
 	setupCycleClient()
 
 	initPaintNet()
+	// Periodic safety net that recovers cells whose visual dispatch was
+	// silently dropped by syncCellsFromCrdt (typically: cell entity had
+	// not yet spawned when the observer ran). Fires every 20 s after a
+	// 5 s cold-open grace, skips the player's current tile. Non-invasive:
+	// correctly-rendered cells no-op via renderedIndex short-circuit; only
+	// actually-stuck cells animate, and they use the normal drop tween so
+	// the recovery reads as "delayed melt" rather than "glitch". See the
+	// module header in paintResync.ts for the full design note.
+	setupPaintResync()
 	initMazeNet()
 	initPlayerNet()
 	initLocomotionGate()
