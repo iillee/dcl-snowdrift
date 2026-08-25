@@ -23,7 +23,8 @@ import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { getTorchWarmthDebugInfo } from 'src/client/torchWarmth'
+import { getBrushCells }             from 'src/client/brush'
+import { getTorchWarmthDebugInfo }   from 'src/client/torchWarmth'
 import { UI_THEME }                from 'src/client/ui/theme/settings'
 
 
@@ -73,6 +74,7 @@ class TorchWarmthDebugLayer extends Layer {
 			>
 				<Row label = "TIER"   value = {`${info.localTier}`}                        valueColor = {tierColor} />
 				<Row label = "RADIUS" value = {`${info.localRadius.toFixed(1)}m`}          />
+				<Row label = "BRUSH"  value = {`${getBrushCells()}×${getBrushCells()}`}    valueColor = {tierColor} />
 				<Row label = "NEARBY" value = {`${info.nearbyLit}`}                        />
 				<Row label = "TOTAL"  value = {`${info.totalLit}${info.localLit ? '' : ' *'}`} />
 			</UiEntity>

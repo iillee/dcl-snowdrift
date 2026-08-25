@@ -2,9 +2,15 @@
  * brush.ts — melt brush footprint, derived from torch state.
  *
  * Brush size is NOT player-controlled. It is a strict function of the
- * torch:
- *   - Torch lit          -> BRUSH_TORCH_LIT (3x3) melt footprint
- *   - Torch unlit / none -> BRUSH_UNLIT     (1x1) stomp footprint
+ * torch AND, when lit, the local cluster tier from torchWarmth.ts:
+ *   - Torch unlit / none          -> BRUSH_UNLIT (1x1) stomp footprint
+ *   - Torch lit, solo    (tier 0) -> 3x3 melt (BRUSH_TORCH_LIT baseline)
+ *   - Torch lit, paired  (tier 1) -> 5x5 melt
+ *   - Torch lit, cluster (tier 2) -> 7x7 melt
+ *
+ * The lit-brush size lives in torchWarmth.TORCH_WARMTH_TIER_BRUSH_CELLS
+ * alongside the matching warmth-disc radii, so the "where I melt is
+ * where I heat" semantic parity is enforced at a single source of truth.
  *
  * When we later add torch upgrades or double-torch cells per PLAN.md's
  * B1 candidates, add cases here — the accumulation and paint systems
@@ -12,11 +18,20 @@
  */
 
 import { isTorchLit } from 'src/client/torchEquip'
+import {
+	TORCH_WARMTH_TIER_BRUSH_CELLS,
+	getLocalTorchWarmthTier,
+} from 'src/client/torchWarmth'
 
 
 // MARK: Sizes
-/** Melt footprint when the torch flame is burning. */
-export const BRUSH_TORCH_LIT = 3
+/**
+ * Melt footprint when the torch flame is burning AND the local player
+ * is solo (no other lit torch within CLUSTER_PROXIMITY_M). Kept as an
+ * exported const for any downstream module that needs the baseline
+ * (currently none outside historical references).
+ */
+export const BRUSH_TORCH_LIT = TORCH_WARMTH_TIER_BRUSH_CELLS[0]
 /**
  * Fallback footprint when the torch is out. Kept above 0 so a
  * torchless player can still crawl home instead of being stranded.
@@ -29,9 +44,14 @@ export const BRUSH_UNLIT     = 1
 
 // MARK: getBrushCells
 /**
- * Current brush footprint as an odd cell count (1 or 3). Read every
- * frame by the painting system.
+ * Current brush footprint as an odd cell count (1, 3, 5, or 7). Read
+ * every frame by the painting system. When lit, scales with the local
+ * cluster tier from torchWarmth.ts so paired/clustered players carve
+ * wider trails than solo ones — measurable cooperation payoff visible
+ * in the world's persistent melt state.
  */
 export function getBrushCells(): number {
-	return isTorchLit() ? BRUSH_TORCH_LIT : BRUSH_UNLIT
+	if (!isTorchLit()) return BRUSH_UNLIT
+	const tier = getLocalTorchWarmthTier()
+	return TORCH_WARMTH_TIER_BRUSH_CELLS[tier]
 }

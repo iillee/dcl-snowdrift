@@ -71,6 +71,31 @@ export const TORCH_WARMTH_TIER_RADIUS_M: readonly number[] = [
 	3.5, // cluster — 7×7 cells
 ]
 /**
+ * Torch melt-brush footprint (odd cell count, N×N square) per cluster
+ * tier. Consumed by src/client/brush.ts::getBrushCells() so that a lit
+ * torch's melt paint grows in lockstep with its warmth disc — keeping
+ * the semantic "where I melt is where I heat" true at every tier, not
+ * just solo.
+ *
+ * Gameplay consequence: paired/clustered players carve WIDER trails
+ * through the snow than solo players do. This is intentional — group
+ * play leaves persistent visible evidence in the world ("someone was
+ * here with a friend"), pairs cover more ground per step, and wood
+ * chunks / hidden pits under the melt footprint are revealed faster
+ * when players travel together. Trades some solo challenge for a
+ * legible, measurable cooperation payoff.
+ *
+ * The scatter density tuning in src/shared/woodScatter.ts and the
+ * hidden-pit spacing in src/shared/hiddenCampfire.ts may need a
+ * follow-up pass once real playtest data shows how much faster paired
+ * play actually surfaces content.
+ */
+export const TORCH_WARMTH_TIER_BRUSH_CELLS: readonly number[] = [
+	3, // solo    — 3×3 brush (unchanged from historical BRUSH_TORCH_LIT)
+	5, // paired  — 5×5 brush
+	7, // cluster — 7×7 brush
+]
+/**
  * Flame-visual scale multiplier per cluster tier. Applied on top of the
  * fuel-driven flame shrink (see src/client/torch.ts). Chosen aggressive
  * enough that meeting a friend is an unmissable visual event.
