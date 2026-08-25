@@ -389,6 +389,47 @@ Explicit cut list to protect the playtest window. Anything below the line is pos
 - Named fires / hearth log
 - Trailer, VISION.md (both saved for the final week)
 
+### Sprint plan (2026-08-26 → 08-28)
+
+Decided 2026-08-25 evening after the warmth-together smoke test passed. Priority is closing the gameplay loop with a minimum-viable win condition so playtesters get a peak moment, plus a light onboarding pass to protect the first-90-seconds experience.
+
+**Day 1 — Wed 08-26**
+- Merge `warmth-together` branch to main. Flip `SHOW_TORCH_WARMTH_DEBUG = false` and verify `SHOW_SERVER_STATS = false` before merge.
+- Build **hearth 4/4 celebration** (vision §8 small variant). Client watches `hearthFuel` state for the tier-3 → tier-4 edge; triggers a brief particle burst (reuse smoke system with warm colour + higher rate for ~3 s), audio swell (reuse `surge.mp3` or add a dedicated cue), transient outward melt push (already visible via `getMainFireMeltRadiusSq()` scaling). No text overlay — subtle. Idempotent per tier-edge: don't refire while at 4/4; refire on next 3→4 transition. Est ~4 h.
+- Why this first: it fires often enough to actually be experienced in a 5-min playtest session with 2–3 players. Closes the base loop with a visible payoff.
+
+**Day 2 — Thu 08-27**
+- Build **all-3-lit celebration** (vision §8 big variant). Server: `hiddenCampfire.ts` tracks lit count, broadcasts `allFiresLit` when count hits 3. Client: full-screen warm-gold fade layer with "The village is warm" text (~6 s), pause snowfall via weather override, warm ambient audio, then fade. Idempotent per cycle — fires once per world regen, resets on 24 h rollover. If a fire dies during the celebration, still complete the sequence. Est ~1 day.
+- Why this second: unlikely to fire in the playtest (hidden fires are hard to find in a short session), but it's the trailer beat and the aspirational peak. Even seeing the *possibility* in the world changes how players think about the game.
+- Afternoon if time: **first-90-seconds spawn polish**. Spawn on/near central fire with one log at feet and torch pre-lit. This is the #1 playtest failure hypothesis; a 2-hour tuning pass is high ROI.
+
+**Day 3 — Fri 08-28**
+- Morning: cold-open self-tests on desktop + mobile (fresh browser, no cache). Discord post + playtest questions finalised. Final bug buffer.
+- Evening: **playtest event.** Observe silently via top-down camera. Collect written feedback afterward against the 3–5 questions.
+
+### Explicit cut list for the sprint
+
+If time gets tight this week, cut in this order (last things go first):
+
+1. All-3-lit celebration (nice-to-have; hearth 4/4 is the must-ship)
+2. First-90-seconds spawn polish (playtest data will guide this anyway)
+3. Any tuning that requires re-playtesting to validate (wood scatter density, hidden pit spacing)
+
+Hearth 4/4 celebration is the floor. If Wednesday runs long, drop everything else before dropping it.
+
+### Not in scope this sprint
+
+Explicit list — do not touch even if tempted:
+
+- Contagious warmth glow strand between players (warmth-together's flame swell + brush widening substitutes for now)
+- Community warmth-minutes counter (needs persistence; save for after playtest data)
+- Ground shimmer / warmth-disc floor decal (playtest will tell us if we need it)
+- Named fires / community hearth log
+- Torch island / mandatory fetch quest
+- Stone-ring memory signal on discovered pits
+- Trailer, VISION.md, README player-facing pass (saved for the final week 09-05 → 09-11)
+- Any wood-scatter or hidden-pit re-tuning before playtest data comes in
+
 ### Playtest-specific prep (Days 1–3)
 
 Small additions that ONLY exist to serve data collection:
