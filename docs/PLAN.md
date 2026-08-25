@@ -350,6 +350,97 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 
 ---
 
+## 13a. Reconciliation — 2026-08-25 (Day 8 of 19)
+
+Honest audit of PLAN v2 (2026-08-15) against what actually shipped. Written at the calendar halfway point so remaining scope is visible.
+
+### Systems table (N1–N17) status
+
+| # | System | Planned | Shipped | Notes |
+|---|---|---|---|---|
+| N1 | Campfire (fuel/flame/radius/decay) | M | **YES** | `shared/hearthFuel.ts`, `client/campfire.ts`, 4-tier flame scaling, tier-snap audio |
+| N2 | Warmth (per-player drain + aura) | M | **PARTIAL** | Frost accumulation + thaw shipped (`client/frost/`). Contagious warmth aura between players NOT built — this is the §12.5 headline mechanic and still owed. |
+| N3 | Single-slot inventory (torch XOR wood) | M | **YES (revised)** | Two-slot in practice: torch is persistent (can't drop, only extinguish or hand off — per vision §12.2.1); wood is the second slot. Feed/drop via F, relight via E. |
+| N4 | Torch (equip/melt/burn/drop) | M | **YES (revised)** | 40 s fuel, personal melt via unlit-stomp stage-1, hand-anchored model + smoke wisp. Drop replaced with can't-drop rule. |
+| N5 | Wood under snow | S | **PARTIAL** | Scatter shipped (`shared/woodScatter.ts`, deterministic per cycle, 40 chunks, 12–80 m from fire). Hearth pile system also shipped (`server/logs.ts`). "Invisible until melt reveals" gate explicitly deferred so scatter density could tune against visible baseline. |
+| N6 | Feed-fire interaction | S | **YES** | F-key within 3 m of central fire OR any lit hidden pit. |
+| N7 | Snowfall real-time regrowth | S | **YES (reframed)** | Regrowth is cycle-scoped rather than real-time-per-cell; the 24 h reset does the heavy lifting. |
+| N8 | Mobile HUD | M | **YES** | Frost bar, torch button w/ fuel drain, feed/relight prompts, action bar, touch controls, snowflake weather nudge. Multiple polish passes (v2.10, v2.12). |
+| N9 | Melt shader + fire VFX | L | **PARTIAL** | Fire VFX shipped (breathing flame, smoke, spatial crackle, surge SFX). Custom melt shader NOT shipped — using cube tween + cube→plane demotion instead, which reads well enough on mobile. |
+| N10 | Snow environment | M | **YES** | Skybox, cool palette, 4-tier weather, snowfall particles, wind vector shared with smoke. Fog dome attempted and dropped (Bevy back-face culling). |
+| N11 | Audio layer | M | **YES** | Positional fire, wind ambient, footsteps (distance-cadence), snowfall, torch ignition, surge, frost chunk cue, chain-light whoosh. v2.14 hardening pass. |
+| N12 | Dawn sequence + run end | M | **NO (superseded)** | Replaced by the 24 h cycle reset from `docs/gameloop-vision.md` §7. Splash + teleport + world regen at midnight UTC. No "share your night" post-run. |
+| N13 | Persistent state (in-memory) | S | **PARTIAL** | Cycle state + hidden fire lit-state + paint state persist within a server process. Not verified across server restarts. |
+| N14 | Cairn markers | S | **NO** | Replaced by the stone-ring-around-discovered-pits idea (`gameloop-vision.md` §6), also not built yet. |
+| N15 | Cube→plane demotion (perf) | M | **YES** | Shipped in v2.12 mobile hitch fix with time-sliced work queue (`CELLS_PER_FRAME = 24`) — different mechanism than planned, same outcome. |
+| N16 | 90-second choreography | S | **NO** | Spawn/onboarding pass not done. Torch quest from vision §3 (fetch-from-island) not built either. |
+| N17 | Post-run share screen | S | **NO** | Cut with N12. |
+
+### Shipped beyond original plan
+
+Things PLAN v2 didn't scope that landed anyway:
+
+- **24 h world regeneration cycle** (`server/cycle.ts`) — this replaced the entire "session-ends-at-dawn" concept with a persistent world that rolls at midnight UTC. Bigger design win than N12 would have been.
+- **Hidden bonfires** (3 per cycle, deterministic seed, discoverable via wood-hunting) — became the retention layer instead of cairns.
+- **Chain-lighting** (torch-to-torch ignition, v2.14) — the §12.5 headline social mechanic, shipped mid-week 2.
+- **Maze / cliffs / prop scatter** with per-cycle reroll — atmospheric layer no plan item covered.
+- **Weather system** — server-authoritative 4-tier precipitation with client-side snowfall + audio + locomotion coupling.
+- **Top-down spectator camera** with hybrid follow + pan (desktop drag, mobile d-pad).
+- **Frost death sequence** with fade + teleport + wake-on-input (v2.10).
+- **Paint tile CRDT refactor** (v2.7) — one synced entity per tile instead of per cell; unblocked the whole scale-up.
+
+### Cut, deferred, or replaced
+
+| Original | Fate |
+|---|---|
+| Axe / wood-chopping | Cut on Day 1 — one-verb (melt) design. Preserved as v2 pivot in vision §13.7. |
+| Torch drop mechanic | Replaced by can't-drop-only-hand-off-or-extinguish (vision §12.2.1). |
+| Dawn sequence / run end (N12) | Replaced by 24 h cycle. |
+| Post-run "share your night" (N17) | Cut. |
+| Cairns (N14) | Replaced by proximity-visible stone rings around discovered pits (not yet built). |
+| Melt shader (N9 shader part) | Deferred; cube tween + demotion carries the visual. |
+| Persistent state across server restart (N13 full) | Deferred to v1.1. |
+| Fog dome | Attempted, dropped — Bevy back-face culling. |
+| Contagious warmth aura | Owed — biggest gap vs. original pitch. |
+| Onboarding choreography (N16) | Not started. |
+| Torch island / mandatory fetch quest (vision §3) | Not built. |
+
+### Timeline reality check
+
+Today is **Day 8** of 19 (2026-08-25). Working time to submission: ~10 days. Original Week 2 focus ("beautiful pass + friendzone completion") is where we are, and the picture is:
+
+- **Ahead of plan** on: multiplayer social mechanics (chain-lighting, hidden fires), persistent world (24 h reset already shipped and smoke-tested), audio polish, atmosphere.
+- **On plan** for: mobile HUD, perf (real-device tested each update), core loop playability, fire VFX.
+- **Behind or unstarted**: contagious warmth aura (headline visual — the §12.5 marketing shot), onboarding choreography (Day 13), trailer/pitch deliverables (Day 16), `docs/VISION.md`.
+
+### Remaining critical path (revised for 10 days)
+
+Ordered by judging-impact-per-hour. Cut ruthlessly below the line if any slips.
+
+1. **Contagious warmth + visible glow between paired players** — this is the §12.5 headline the whole pitch rests on. Without it, the "cozy multiplayer" thesis is verbal, not visible. **Highest ROI item remaining.**
+2. **First-90-seconds choreography** — spawn beside fire, one log at feet, torch discoverable within 20 s. Torch-island fetch quest (vision §3) is *nice*, but simple spawn-tuning gets 80% of the value in 10% of the time.
+3. **Multiplayer full-session test on real devices** (Day 12 in original plan). Non-negotiable.
+4. **Trailer** (60–90 s, mood + mechanic + warmth-glow shot).
+5. **`docs/VISION.md`** — one-page continued-work pitch.
+6. **README pitched at players not devs** — done in this pass (2026-08-25).
+
+Below the line (ship without if time runs out):
+
+- Stone-ring memory signal on discovered pits
+- Torch island fetch quest (onboarding ritual)
+- Named fires / community hearth log
+- Daily community outcome line at rollover splash
+- Melt shader upgrade
+- Real cross-restart persistence (Storage API)
+
+### Risks worth naming
+
+- **Contagious warmth is the pitch and it doesn't exist yet.** Everything else can be trimmed; this can't. Budget 2 days.
+- **No playtest with strangers has happened.** Everything above assumes the loop is fun. First real playtest may invalidate priorities.
+- **Trailer is a full day of work** and the temptation to skip it for "one more feature" is the classic jam mistake. Protect Day 16.
+
+---
+
 ## 14. Change log
 
 - **2026-08-24 v2.14** — Chain-lighting shipped (co-op mechanic #2 of the vision §12.5 headline triad). Torch-to-torch ignition on 2 m proximity, auto-fire (no key press), pure duplication (giver's fuel untouched), receiver gets a fixed 20 s (half of the new 40 s full-torch cap). Rule is deliberately one sentence: "lit torch touches unlit torch = ignition, always" — no fuel gates, no thresholds, learnable from a single observation. Full-torch fuel dropped 45 s → 40 s so half-torch is a round 20 s and the HUD math reads clean. **Files:** new `src/shared/messages.ts` schema `chainLightRequest { targetUserId }`; new `src/server/torch.ts` handler verifies sender-lit + target-unlit against the existing `torchLitByUser` cache, flips target to lit, rebroadcasts via the standard `torchLitFrom` pipe so every client (including the target) reacts through the same channel already used for regular relights; new `src/client/torchChain.ts` runs a 150 ms proximity poll (matches wood/logs cadence), fires `chainLightRequest` when local is lit + remote is unlit + distance < 2 m + per-pair 3 s cooldown expired, plays `playSurgeSfxAt(remoteTipPos)` for 3D positional whoosh at the target; also receives `torchLitFrom` for the local user's own id (self-echo filter in `remoteTorches.ts` skips it) and calls `relightTorchPartial(20)` + `playTorchSfxLocal()` when the incoming lit=1 disagrees with local lit-state (extinguish edges ignored). `src/client/remoteTorches.ts` extended with `isRemoteTorchLit(id)` + `getRemoteTorchUserIds()` exports plus a `remoteLitByUser` mirror map so the chain detector can iterate proximity candidates without re-querying `PlayerIdentityData`; also removes lit entries alongside torch teardown on player leave. `src/client/torchEquip.ts` gains `relightTorchPartial(fuelSeconds)` which **sets** rather than adds fuel — avoids the "invisible gift" case where a fresh receiver (fuel=full but unlit) would clamp back to max on an additive refill and the HUD would show no change. **Debug during build:** the first pass failed silently because the server's `bin/index.js` didn't have the new `chainLightRequest` message type registered — `EventBus` threw `Unknown event type: chainLightRequest` and dropped the packet. Root cause: server code is compiled ahead-of-time and hot-reload updates client-only; a full preview restart was required after adding a shared-message schema entry. Filed as a mental-note for future shared-schema changes. **Discussion trail (design pass over the review with claude/opendcl):** proximity radius set to 2 m ("torches genuinely have to meet") over 3–4 m for ritual feel; receiver gets 50 % over full 45/40 to preserve central-hearth gravity per vision §4 (infinite chain-relight at 100 % broke the leash and made the campfire feel optional); pure duplication over fuel-transfer because giver-cost had no thematic upside and would punish the helper; "both lit" case explicitly does nothing (no mid-torch top-off, no invisible fuel threshold) so the rule stays one sentence. Torch-can't-be-drop (vision §12.2.1) reconfirmed as de-facto shipped already (torch has no drop path in `logsInput.ts`; only extinguishes via burnout). Branch: `chain-lighting` → merged to main.

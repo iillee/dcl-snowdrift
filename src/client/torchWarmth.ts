@@ -66,6 +66,18 @@ export const TORCH_WARMTH_TIER_FLAME_SCALE: readonly number[] = [
 	1.7,
 ]
 /**
+ * Flame-emissive multiplier per cluster tier. Stacks with scale so a
+ * clustered flame is BOTH bigger AND brighter than a solo one. Base is
+ * the solo flame's emissive intensity as set in torch.ts /
+ * remoteTorches.ts (currently 1.6); tier 2 pushes to ~2.5 which is
+ * still under the tone-mapper's white-out threshold.
+ */
+export const TORCH_WARMTH_TIER_EMISSIVE_MULT: readonly number[] = [
+	1.0,
+	1.3,
+	1.55,
+]
+/**
  * Distance in meters between two torch-holders' positions at which
  * they count as "clustered". Deliberately larger than
  * torchChain.CHAIN_LIGHT_RADIUS_M (2 m) so the warmth bonus kicks in
@@ -248,6 +260,50 @@ export function getLocalTorchWarmthTier(): 0 | 1 | 2 {
  */
 export function getRemoteTorchWarmthTier(userIdLower: string): 0 | 1 | 2 {
 	return remoteTiers.get(userIdLower) ?? 0
+}
+
+
+// MARK: getTorchWarmthDebugInfo
+/**
+ * Snapshot of raw cluster metrics for the local player — total lit
+ * torches in scene, nearby lit count within CLUSTER_PROXIMITY_M of the
+ * local player, and the resulting tier. Consumed only by the dev HUD
+ * layer (gated by devFlags.SHOW_TORCH_WARMTH_DEBUG); safe to read every
+ * frame, no allocation.
+ */
+export interface TorchWarmthDebugInfo {
+	totalLit    : number
+	nearbyLit   : number
+	localTier   : 0 | 1 | 2
+	localRadius : number
+	localLit    : boolean
+}
+export function getTorchWarmthDebugInfo(): TorchWarmthDebugInfo {
+	const total     = snapshot.length
+	const localLit  = isTorchLit()
+	let   nearby    = 0
+	if (localLit) {
+		const t = Transform.getOrNull(engine.PlayerEntity)
+		if (t !== null) {
+			const lx = t.position.x
+			const lz = t.position.z
+			for (const d of snapshot) {
+				const dx = d.x - lx
+				const dz = d.z - lz
+				const dsq = dx * dx + dz * dz
+				// Exclude self (distance ~0). Any other lit torch within
+				// proximity counts, regardless of the cap that clamps tier.
+				if (dsq > 0.01 && dsq <= CLUSTER_PROXIMITY_SQ_M) nearby++
+			}
+		}
+	}
+	return {
+		totalLit   : total,
+		nearbyLit  : nearby,
+		localTier  : localTier,
+		localRadius: TORCH_WARMTH_TIER_RADIUS_M[localTier],
+		localLit,
+	}
 }
 
 

@@ -27,7 +27,11 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { room } from 'src/shared/messages'
 
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
-import { TORCH_WARMTH_TIER_FLAME_SCALE, getLocalTorchWarmthTier } from 'src/client/torchWarmth'
+import {
+	TORCH_WARMTH_TIER_EMISSIVE_MULT,
+	TORCH_WARMTH_TIER_FLAME_SCALE,
+	getLocalTorchWarmthTier,
+} from 'src/client/torchWarmth'
 
 
 // MARK: Tuning
@@ -247,18 +251,31 @@ export function setupTorch(): void {
 			if (ps.playbackState !== desired) ps.playbackState = desired
 		}
 
+		// "Torches burn brighter together" — cluster tier stacks a size
+		// AND emissive multiplier on top of the fuel-driven base. Fuel
+		// shrinks the flame as it burns; cluster tier swells + brightens
+		// it when friends are close. Two players meeting = an unmissable
+		// flame-swell moment both visually AND in ambient light.
+		const tier = lit ? getLocalTorchWarmthTier() : 0
+
 		const flameT = Transform.getMutableOrNull(flame)
 		if (flameT !== null) {
-			const base   = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
-			// "Torches burn brighter together" — stack the cluster-tier
-			// multiplier on top of the fuel-driven base. Fuel shrinks the
-			// flame as it burns; cluster tier swells it when friends are
-			// close. Two players meeting = an unmissable flame-swell moment.
-			const tier   = lit ? getLocalTorchWarmthTier() : 0
-			const s      = base * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
+			const base = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
+			const s    = base * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
 			flameT.scale.x = s
 			flameT.scale.y = s
 			flameT.scale.z = s
+		}
+
+		// Emissive brightness — mutate in place so we don't churn the
+		// full PBR material record every frame. Only writes on tier change
+		// to keep the CRDT diff quiet.
+		const mat = Material.getMutableOrNull(flame)
+		if (mat !== null && mat.material?.$case === 'pbr') {
+			const want = FLAME_EMISSIVE * TORCH_WARMTH_TIER_EMISSIVE_MULT[tier]
+			if (mat.material.pbr.emissiveIntensity !== want) {
+				mat.material.pbr.emissiveIntensity = want
+			}
 		}
 	})
 
