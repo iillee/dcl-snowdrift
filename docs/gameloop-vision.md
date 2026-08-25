@@ -176,13 +176,15 @@ Leading co-op mechanic candidate from PLAN §3-B1. Solo: to pick up wood you mus
 **12.2.2 Contagious warmth with a *visible* glow between paired players.**
 Contagious warmth is already in the vision (§4 implicit, PLAN §3-B2 explicit). The visual has never been specced. Design target: when two players stand within ~3 m, both frost meters slow visibly AND a soft warm shimmer / light-strand connects them — as if their auras are holding hands. The *cozy payoff*: not just "less cold" but "you are warmer *because* they are here." Also the game's screenshot / marketing moment.
 
-**12.2.3 Chain-lighting hidden fires.**
-Torches have a ~90 s burn timer. To light a hidden fire far from the central pit, players have three options:
+**12.2.3 Chain-lighting hidden fires.** *(shipped 2026-08-24, see PLAN v2.14)*
+Torches have a 40 s burn timer. To light a hidden fire far from the central pit, players have three options:
 - **Sprint solo** — barely possible, thrilling, frost closes hard.
-- **Relay-light with a partner** — you carry a lit torch halfway, they meet you with an unlit one, torch touches torch, they run the rest.
+- **Relay-light with a partner** — you carry a lit torch, they meet you with an unlit one, torch touches torch (within 2 m, auto-fires), their torch lights with 20 s of fuel (half a full torch), they run the rest.
 - **Chain three or more players** across the map for the deepest pits.
 
-Cooperation as *literal transmission of light*. Scales naturally 2 → 5 players (the more of you, the further you can reach). Turns "we lit a hidden fire together" into a genuine collaborative story. Mobile-perfect: walking + one button.
+Cooperation as *literal transmission of light*. Scales naturally 2 → 5 players (the more of you, the further you can reach). Turns "we lit a hidden fire together" into a genuine collaborative story. Mobile-perfect: walking + zero buttons.
+
+**v1 rule set (locked):** lit torch touches unlit torch = ignition, always. Pure duplication (giver's fuel untouched, no cost, no gate). Receiver gets exactly 20 s regardless of giver's fuel level — half-torch feels weaker than a campfire relight, preserving central-hearth gravity (§4). Both-lit case does nothing (no top-off) so the rule stays legible in one sentence.
 
 **12.2.4 Fire tending gives a small aura buff.**
 Single tap on the central fire = a 30 s warmth-regen boost for anyone within 8 m. Creates a natural "you go, I'll stay and stoke" role split without mandating it. Pairs organically divide: one adventurer, one hearth-keeper.

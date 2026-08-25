@@ -19,10 +19,11 @@
 /**
  * Full-tank torch fuel in seconds. Relight restores to this. Sized as
  * the exploration leash from the campfire — with default walk speed
- * ~2 m/s in snow, 90s = round-trip radius of roughly 60-80 m before
- * the flame dies. Tune based on playtest.
+ * ~2 m/s in snow, this is the round-trip radius before the flame
+ * dies. Kept as a round number so the chain-light half-transfer
+ * (20 s) also reads cleanly.
  */
-export const TORCH_FUEL_MAX_S = 45
+export const TORCH_FUEL_MAX_S = 40
 
 
 // MARK: State
@@ -85,6 +86,26 @@ export function relightTorch(): void {
 export function extinguishTorch(): void {
 	lit = false
 }
+
+
+// MARK: relightTorchPartial
+/**
+ * Ignite the torch and SET fuel to a specific amount (clamped to max).
+ * Used by chain-lighting so a receiver always ends up with exactly
+ * the transfer amount — the fuel bar visibly reflects "you got a
+ * half torch" every time, regardless of whether the receiver was
+ * burnt-out (fuel=0) or freshly loaded (fuel=45, unlit). Setting
+ * rather than adding avoids the invisible-gift case where a fresh
+ * torch's fuel clamps at max and the bar shows no change.
+ */
+export function relightTorchPartial(fuelSeconds: number): void {
+	if (!equipped) return
+	lit  = true
+	fuel = fuelSeconds > TORCH_FUEL_MAX_S ? TORCH_FUEL_MAX_S : fuelSeconds
+}
+
+
+
 
 
 // MARK: getTorchFuelSeconds

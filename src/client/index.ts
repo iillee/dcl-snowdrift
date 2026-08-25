@@ -68,6 +68,7 @@ import { setupProps } from 'src/client/props/spawn'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
+import { setupTorchChain } from 'src/client/torchChain'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
@@ -245,6 +246,7 @@ export async function setupClient(): Promise<void> {
 	setupTorch()
 	setupTorchInput()
 	setupRemoteTorches()
+	setupTorchChain()
 
 	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
 	// the mobile action layer renders scene-branded replacements.
