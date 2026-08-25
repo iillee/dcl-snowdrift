@@ -41,6 +41,12 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
+import {
+	TORCH_WARMTH_TIER_EMISSIVE_MULT,
+	TORCH_WARMTH_TIER_FLAME_SCALE,
+	getRemoteTorchWarmthTier,
+} from 'src/client/torchWarmth'
+
 
 // MARK: Tuning
 // Kept identical to src/client/torch.ts so the local and remote torches
@@ -162,6 +168,41 @@ function createRemoteTorch(userIdLower: string): void {
 }
 
 
+// MARK: setupRemoteFlameScaler
+// Per-frame updater that scales every remote's flame by its current
+// cluster tier (see src/client/torchWarmth.ts). Mirrors the flame swell
+// on the LOCAL torch in torch.ts so both parties see each other's
+// flame grow when they meet. Remote flames don't have a fuel-driven
+// base shrink (fuel isn't synced) — they render at the constant
+// FLAME_SIZE, so the tier multiplier applies directly.
+function setupRemoteFlameScaler(): void {
+	engine.addSystem(() => {
+		remoteTorches.forEach((rt, userIdLower) => {
+			const lit  = remoteLitByUser.get(userIdLower) === true
+			const tier = lit ? getRemoteTorchWarmthTier(userIdLower) : 0
+
+			const t = Transform.getMutableOrNull(rt.flame)
+			if (t !== null) {
+				const s = FLAME_SIZE * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
+				if (t.scale.x !== s) {
+					t.scale.x = s
+					t.scale.y = s
+					t.scale.z = s
+				}
+			}
+
+			const mat = Material.getMutableOrNull(rt.flame)
+			if (mat !== null && mat.material?.$case === 'pbr') {
+				const want = FLAME_EMISSIVE * TORCH_WARMTH_TIER_EMISSIVE_MULT[tier]
+				if (mat.material.pbr.emissiveIntensity !== want) {
+					mat.material.pbr.emissiveIntensity = want
+				}
+			}
+		})
+	})
+}
+
+
 // MARK: removeRemoteTorch
 function removeRemoteTorch(userIdLower: string): void {
 	const rt = remoteTorches.get(userIdLower)
@@ -244,6 +285,8 @@ export function setupRemoteTorches(): void {
 		reconClock = 0
 		reconcileRemoteTorches()
 	})
+
+	setupRemoteFlameScaler()
 
 	console.log('remoteTorches: setupRemoteTorches: reconcile + torchLitFrom relay active')
 }

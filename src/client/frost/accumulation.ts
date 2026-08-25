@@ -31,6 +31,7 @@ import {
 import { playFrostChunkSfx } from 'src/client/audio'
 import { getSnowStageAtWorld } from 'src/client/paint'
 import { isTorchProtecting } from 'src/client/torch'
+import { getLitTorchWarmthPositions } from 'src/client/torchWarmth'
 
 
 // MARK: Module state
@@ -118,7 +119,28 @@ export function initFrostAccumulation(): void {
 			// wading through deep drifts.
 			let ratePerSec = 0
 
-			if (!isTorchProtecting()) {
+			// Protection can come from the local player's own lit torch OR
+			// from standing inside any other lit torch's warmth disc. See
+			// src/client/torchWarmth.ts — disc radius scales with cluster
+			// tier so a pair/group of torches covers meaningfully more
+			// ground than a solo torch. Own torch already places us at the
+			// center of our own disc, but check isTorchProtecting() first
+			// as a short-circuit (avoids iterating discs 99 % of the time
+			// for a lit solo player).
+			let inTorchWarmth = isTorchProtecting()
+			if (!inTorchWarmth) {
+				const discs = getLitTorchWarmthPositions()
+				for (const d of discs) {
+					const tdx = x - d.x
+					const tdz = z - d.z
+					if (tdx * tdx + tdz * tdz <= d.radiusSq) {
+						inTorchWarmth = true
+						break
+					}
+				}
+			}
+
+			if (!inTorchWarmth) {
 				ratePerSec += FROST_MAX / FROST_TIME_BASELINE_S
 			}
 
