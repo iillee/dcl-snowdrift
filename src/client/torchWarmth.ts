@@ -41,19 +41,34 @@ import { isTorchLit } from 'src/client/torchEquip'
 
 
 // MARK: Tuning
-/** Base warmth-disc radius for a solo lit torch, in meters. */
-const TORCH_WARMTH_BASE_RADIUS_M = 2.0
 /**
  * Warmth-disc radius per cluster tier, indexed by
  *   0 — solo (no other lit torch within proximity)
  *   1 — paired (exactly one other lit torch within proximity)
  *   2 — cluster (two or more other lit torches within proximity, capped)
- * A pair sees each torch cover ~2.25× the area of solo; a cluster ~4×.
+ *
+ * Values are chosen to align with the world's 1 m paint-grid rather
+ * than continuous meters — everything else in Snow Drift (melt paint,
+ * brush size, snow depth sampling) speaks in whole-cell footprints, so
+ * warmth should too:
+ *
+ *   1.5 m radius → 3×3 cells  (9 cells)  — MATCHES TORCH MELT PAINT.
+ *                                          Solo warmth == solo melt.
+ *                                          "Where I melt is where I heat."
+ *   2.5 m radius → 5×5 cells  (~21, corners clipped)
+ *   3.5 m radius → 7×7 cells  (~45, corners clipped)
+ *
+ * At paired/cluster tiers, warmth grows BEYOND the melt footprint —
+ * meaning a wood-runner can stand on unmelted deep snow (still slowed
+ * by locomotion, still exposed to snow-depth frost) but be baseline-
+ * frost-protected by a friend's expanded disc. This is intentional:
+ * togetherness relaxes the frost constraint while keeping the movement
+ * constraint. "You can go further together, just slower."
  */
 export const TORCH_WARMTH_TIER_RADIUS_M: readonly number[] = [
-	TORCH_WARMTH_BASE_RADIUS_M,       // 2.0 m
-	TORCH_WARMTH_BASE_RADIUS_M * 1.5, // 3.0 m
-	TORCH_WARMTH_BASE_RADIUS_M * 2.0, // 4.0 m
+	1.5, // solo    — 3×3 cells (matches brush=3 torch melt paint)
+	2.5, // paired  — 5×5 cells
+	3.5, // cluster — 7×7 cells
 ]
 /**
  * Flame-visual scale multiplier per cluster tier. Applied on top of the
