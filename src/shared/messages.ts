@@ -111,6 +111,19 @@ export const Messages = {
 	// Schemas.Boolean-over-the-wire caveat noted on hiddenCampfireState.
 	torchLit: Schemas.Map({ lit: Schemas.Int }),
 
+	// Client → Server: request to light another player's torch by
+	// touching torches. Sender must currently have a lit torch (server
+	// verifies against its torchLitByUser cache). No proximity check
+	// server-side — trust the client's geometry test for v1; the harm
+	// ceiling is "someone's torch lit for free", not exploit-worthy.
+	// On success, server flips the target's cached lit state and
+	// broadcasts the standard torchLitFrom relay so every client
+	// (including the target) sees the flame come on through the
+	// existing pipe.
+	chainLightRequest: Schemas.Map({
+		targetUserId: Schemas.String,
+	}),
+
 	// Server → Client: relay of another player's torch lit state. The
 	// server rebroadcasts every torchLit message it receives, tagged with
 	// the sender's authenticated userId (context.from), and re-sends the

@@ -58,4 +58,34 @@ export function setupTorchServer(): void {
 		// need a per-message `to:` allowlist here.
 		room.send('torchLitFrom', { userId: id, lit: litInt })
 	})
+
+	// MARK: chainLightRequest handler
+	// Torch-to-torch ignition. Sender's authenticated id must currently
+	// map to lit=1; target must exist in the cache and be unlit. On
+	// success we flip the target's cached state and rebroadcast via the
+	// same torchLitFrom pipe so all clients (including the target, who
+	// will react locally by relighting) see the flame come on.
+	room.onMessage('chainLightRequest', ({ targetUserId }, context) => {
+		const from = context?.from
+		if (!from) {
+			console.log('torchServer: chainLightRequest: no context.from, dropping')
+			return
+		}
+		const senderId = from.toLowerCase()
+		const targetId = (targetUserId || '').toLowerCase()
+		if (!targetId || targetId === senderId) {
+			console.log('torchServer: chainLightRequest: invalid target, dropping')
+			return
+		}
+		if (torchLitByUser.get(senderId) !== 1) {
+			console.log(`torchServer: chainLightRequest: sender ${senderId} not lit, dropping`)
+			return
+		}
+		if (torchLitByUser.get(targetId) === 1) {
+			// Target already lit — no-op, not an error.
+			return
+		}
+		torchLitByUser.set(targetId, 1)
+		room.send('torchLitFrom', { userId: targetId, lit: 1 })
+	})
 }

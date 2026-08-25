@@ -72,9 +72,34 @@ interface RemoteTorch {
 }
 
 const remoteTorches       = new Map<string, RemoteTorch>()
+// Mirror of the server's known-lit set for remote players. Read by
+// torchChain.ts to skip already-lit targets before sending a request.
+const remoteLitByUser     = new Map<string, boolean>()
 let   installed           = false
 let   reconClock          = 0
 let   localUserIdLower    = ''
+
+
+// MARK: isRemoteTorchLit
+/**
+ * True if we currently believe the given remote's torch is lit.
+ * Backed by the same `torchLitFrom` relay that drives the flame
+ * visibility; safe to poll every tick. Unknown ids return false.
+ */
+export function isRemoteTorchLit(userIdLower: string): boolean {
+	return remoteLitByUser.get(userIdLower) === true
+}
+
+
+// MARK: getRemoteTorchUserIds
+/**
+ * Snapshot of every remote player we currently have a torch attached
+ * to. Used by torchChain.ts to iterate proximity candidates without
+ * re-querying PlayerIdentityData.
+ */
+export function getRemoteTorchUserIds(): string[] {
+	return Array.from(remoteTorches.keys())
+}
 
 
 // MARK: resolveLocalUserId
@@ -162,6 +187,7 @@ function setRemoteLit(userIdLower: string, lit: boolean): void {
 	if (!target) return
 	const vis = VisibilityComponent.getMutableOrNull(target.flame)
 	if (vis !== null && vis.visible !== lit) vis.visible = lit
+	remoteLitByUser.set(userIdLower, lit)
 }
 
 
@@ -183,7 +209,10 @@ function reconcileRemoteTorches(): void {
 
 	// Anyone we're tracking who isn't in the scene anymore -> tear down.
 	remoteTorches.forEach((_rt, id) => {
-		if (!seen.has(id)) removeRemoteTorch(id)
+		if (!seen.has(id)) {
+			removeRemoteTorch(id)
+			remoteLitByUser.delete(id)
+		}
 	})
 }
 
