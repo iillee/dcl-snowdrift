@@ -350,6 +350,79 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 
 ---
 
+## 13b. Playtest-first re-scope — 2026-08-25 (evening)
+
+**Two calendar shifts landed this evening:**
+
+1. Buildathon deadline moved **2026-09-04 → 2026-09-11**. Adds a full week of working time; the total window is now ~26 days from Aug 15 start, ~17 days remaining from today.
+2. An **unofficial playtest / show-and-tell in 3 days** (target 2026-08-28) becomes the immediate short-term milestone. Purpose: get the vertical slice in front of real players, collect data, use the following ~2 weeks of extra time to act on it.
+
+### What this changes
+
+The critical path in §13a assumed "ship-or-die" execution against a 10-day window. With +7 days AND a playtest gate at day 3, the strategy inverts:
+
+- **Days 1–3 (now → 08-28)**: freeze scope. Ship what's built. The playtest is a data-collection event, not a feature demo. Anything not already solid gets cut from the playtest build.
+- **Days 4–10 (08-29 → 09-04)**: playtest-driven work. What the data says people don't understand, don't enjoy, or don't notice becomes the priority queue. This is where the extra week pays off — previously we would have been guessing.
+- **Days 11–17 (09-05 → 09-11)**: trailer, VISION.md, final polish, submission prep. Same shape as the old Days 15–19 buffer, now with real breathing room.
+
+### v1 playtest scope — what ships on 08-28
+
+Everything currently on `main` PLUS the `warmth-together` branch merged. That includes:
+
+- Full survival loop (frost, torch fuel, feed fire, wood scatter, hearth pile, chain-lighting)
+- 24 h world regeneration with hidden campfires
+- Warmth-together (5×5 melt + brighter/bigger flame at paired tier)
+- Death sequence, mobile HUD, all audio, weather, top-down camera
+
+### What DOES NOT ship for 08-28
+
+Explicit cut list to protect the playtest window. Anything below the line is post-playtest only:
+
+- Contagious warmth glow between paired players (the visible aura strand — warmth-together's flame swell substitutes for now)
+- All-lit celebration sequence (vision §8)
+- Community warmth-minutes counter (vision §12.3)
+- Ground shimmer / warmth-disc floor decal
+- Torch-warmth SFX layer
+- Onboarding choreography (spawn tuning, first-90s)
+- Torch island / fetch quest
+- Stone-ring memory signal on discovered pits
+- Named fires / hearth log
+- Trailer, VISION.md (both saved for the final week)
+
+### Playtest-specific prep (Days 1–3)
+
+Small additions that ONLY exist to serve data collection:
+
+1. **Dev flags for the playtest build.** `SHOW_TORCH_WARMTH_DEBUG = false` before merge to main. `SHOW_SERVER_STATS = false`. Verify no dev-only chrome ships accidentally.
+2. **A short pre-playtest checklist run**: solo cold-open on desktop AND mobile (fresh browser session, no cache), 5-min session on each. Note any first-90s confusion privately before real players hit it — that's data too.
+3. **Discord post** with the World URL, a one-paragraph pitch, and 3–5 written questions to ask playtesters. Sample questions: "What did you understand you were supposed to do in the first 60 seconds?", "Did meeting another player feel different from playing alone? How?", "Did you find yourself returning to the central fire? Why or why not?", "Was there a moment that felt cozy? Was there a moment that felt confusing or annoying?"
+4. **A quiet way to observe.** Spectator top-down camera already exists (SHOW_DEV_ROLL_BUTTON style toggle, no need to expose to players). If possible, have it on during the playtest for silent observation.
+
+### Post-playtest priority hypothesis (Days 4–10)
+
+Written as hypotheses to be confirmed or overturned by data — not commitments:
+
+- **Most likely to need work**: onboarding / first-90-seconds. Players who don't understand the fire is central will drift and quit.
+- **Second-most likely**: warmth-together's read. If the flame swell + brush widening isn't obvious, the ground shimmer disc gets promoted from "nice-to-have" to "critical".
+- **Third**: hidden fire discovery pacing. May be too slow (invisible for 15 min) or too easy (paired play surfaces them in 2 min) — tune wood scatter density accordingly.
+- **Fourth**: the co-op mechanics don't produce the emergent roles we hope for. If everyone just runs solo alongside each other, revisit the chain-light-vs-warmth-together tradeoff from the design discussion earlier today.
+
+### Timeline (revised)
+
+| Date | Milestone |
+|---|---|
+| 2026-08-25 | Warmth-together shipped on branch, calendar shift acknowledged |
+| 2026-08-26 | Merge warmth-together to main after final smoke test. Flip dev flags off. |
+| 2026-08-27 | Cold-open self-tests on desktop + mobile. Discord post prepped. |
+| 2026-08-28 | **Playtest event.** Collect data. |
+| 2026-08-29–09-04 | Act on playtest findings. Ship the top 3 issues only. |
+| 2026-09-05–09-08 | Contagious warmth polish (if still relevant), any deferred v1 items from cut list above. |
+| 2026-09-09 | Trailer + VISION.md + README player-facing pass. |
+| 2026-09-10 | Final deploy + submission dry run. |
+| 2026-09-11 | **Submission deadline.** Buffer day. |
+
+---
+
 ## 13a. Reconciliation — 2026-08-25 (Day 8 of 19)
 
 Honest audit of PLAN v2 (2026-08-15) against what actually shipped. Written at the calendar halfway point so remaining scope is visible.
