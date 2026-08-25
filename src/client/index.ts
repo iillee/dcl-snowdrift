@@ -194,6 +194,20 @@ export async function setupClient(): Promise<void> {
 	// so the joinRoster hydration broadcast (hearthFuelUpdate) is caught
 	// on the very first frame the joiner is in the room.
 	setupHearthFuelClient()
+	// Remote-torch + chain-light subscribers MUST register before
+	// initClientHandler for the same reason as the hydration paths
+	// above: the server's sendTorchStatesTo(joiner) inside joinRoster
+	// pushes a `torchLitFrom` per already-lit remote, and any handler
+	// registered later (e.g. deferred to runAfterInnerRing) misses that
+	// initial hydration. Symptom before this move: a late-joining
+	// desktop client never sees a mobile player's lit state, so
+	// warmth-together ignores them as "unlit" — while the mobile can
+	// still chain-light the desktop because mobile has correct local
+	// state. torchWarmth doesn't subscribe to messages but depends on
+	// remoteTorches being installed, so it moves with the pair.
+	setupRemoteTorches()
+	setupTorchChain()
+	setupTorchWarmth()
 	// 3D fuel bar above the fire. Reads from hearthFuel state, so it's
 	// spawned AFTER the subscriber above (order isn't strictly required
 	// since it lerps from the tier-3 floor, but keeps intent tidy).
@@ -258,13 +272,11 @@ export async function setupClient(): Promise<void> {
 		setupSnowfallAudio()
 		setupTorch()
 		setupTorchInput()
-		setupRemoteTorches()
-		setupTorchChain()
-		// Torch-cluster warmth mechanic ("torches burn brighter together").
-		// Reads from remoteTorches for the lit-remote roster, so it must
-		// bootstrap AFTER setupRemoteTorches. Frost accumulator consumes
-		// the snapshot lazily on each poll — no ordering constraint there.
-		setupTorchWarmth()
+		// setupRemoteTorches / setupTorchChain / setupTorchWarmth moved
+		// out of this deferred block — see the joinRoster-hydration
+		// ordering comment above initClientHandler(). The local torch
+		// visual (setupTorch above) has no message subscribers and can
+		// stay deferred alongside the rest of the cold-open spawns.
 		console.log('[Client] setupClient: deferred cold-open spawns fired')
 	})
 
