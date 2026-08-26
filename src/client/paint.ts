@@ -49,6 +49,7 @@ import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 export { MASKS, type Mask }
 
 import { getBrushCells } from 'src/client/brush'
+import { recordApplyPaintDrop, recordSpawnGuardDrop, recordStageDrop } from 'src/client/paintDebug'
 import { isTorchLit }    from 'src/client/torchEquip'
 import { registerTile, unregisterTile, consumeReseedRequests, setTileHasPaint } from 'src/client/paintStreaming'
 
@@ -367,7 +368,13 @@ let   paintClockMs         = 0
  */
 function advanceSnowFillStage(id: string, stage: 1 | 2): void {
 	const data = cellData.get(id)
-	if (!data || data.kind !== 'cube') return
+	if (!data || data.kind !== 'cube') {
+		// Diagnostic: no visual will fire. Unlike applyPaintIndex this
+		// does not poison any short-circuit state, but a missed stage
+		// hydration still leaves a cell visually behind the CRDT.
+		recordStageDrop(id)
+		return
+	}
 
 	const targetScaleY = SNOW_FILL_STAGE_HEIGHT[stage - 1]
 	const targetY      = data.basePos.y + targetScaleY / 2
@@ -762,7 +769,14 @@ export function applyPaintIndex(id: string, index: number, force: boolean): void
 	if (!force && renderedIndex.get(id) === index) return
 	renderedIndex.set(id, index)
 	const data = cellData.get(id)
-	if (!data) return
+	if (!data) {
+		// Diagnostic: this is the poisoning drop — renderedIndex is now
+		// advanced with no visual to back it, so any future re-dispatch
+		// at the same (id, index) will short-circuit. Counted for the
+		// Option B decision. See paintDebug.ts.
+		recordApplyPaintDrop(id)
+		return
+	}
 	const painted = index !== PALETTE_NONE
 
 	if (data.kind === 'cube') {
@@ -932,11 +946,14 @@ function spawnCellsForTileImmediate(
 	// Enqueued onto cellSpawnQueue to time-slice the tile's spawn cost.
 	const spawnOne = (wx: number, wy: number, wz: number, rot: any, col: number, row: number, scaleY: number = cellSize) => {
 		cellSpawnQueue.push(() => {
+			const id  = cellId(tx, tz, ty, col, row)
 			// Guard: if the tile was despawned (or re-spawned, giving it a
 			// fresh tileRec) between enqueue and drain, drop this thunk so
 			// we do not leak orphan cell entities into the void.
-			if (paintByTile.get(tileEntity) !== tileRec) return
-			const id  = cellId(tx, tz, ty, col, row)
+			if (paintByTile.get(tileEntity) !== tileRec) {
+				recordSpawnGuardDrop(id)
+				return
+			}
 			const key = cellIdToKey(id)
 			const appliedIdx = key !== null ? cellApplied.get(key)?.index : undefined
 			const preexisting = appliedIdx ?? renderedIndex.get(id) ?? PALETTE_NONE
@@ -962,10 +979,13 @@ function spawnCellsForTileImmediate(
 	// Enqueued onto cellSpawnQueue to time-slice the tile's spawn cost.
 	const spawnCube = (wx: number, wy: number, wz: number, col: number, row: number) => {
 		cellSpawnQueue.push(() => {
+			const id  = cellId(tx, tz, ty, col, row)
 			// See spawnOne guard: bail if the tile has been despawned or
 			// respawned with a fresh tileRec while we sat in the queue.
-			if (paintByTile.get(tileEntity) !== tileRec) return
-			const id  = cellId(tx, tz, ty, col, row)
+			if (paintByTile.get(tileEntity) !== tileRec) {
+				recordSpawnGuardDrop(id)
+				return
+			}
 			const key = cellIdToKey(id)
 			const appliedIdx   = key !== null ? cellApplied.get(key)?.index : undefined
 			const appliedStage = (key !== null ? cellApplied.get(key)?.stage ?? 0 : 0) as 0 | 1 | 2

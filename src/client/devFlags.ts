@@ -36,3 +36,17 @@ export const SHOW_DEV_ROLL_BUTTON      = false
  * once. See src/client/ui/layers/layer.torchWarmthDebug.tsx.
  */
 export const SHOW_TORCH_WARMTH_DEBUG   = false
+
+/**
+ * Rollup counter log for the paint-sync race investigation. Prints one
+ * line every PAINT_SYNC_DEBUG_ROLLUP_S seconds counting three
+ * suspected drop paths (see src/client/paintDebug.ts):
+ *   - applyPaintIndex dropped because cellData was missing (poisons
+ *     renderedIndex; blocks future re-dispatch short-circuit).
+ *   - advanceSnowFillStage dropped because cellData was missing.
+ *   - spawnCube closure dropped because paintByTile guard mismatched
+ *     (tile despawned / respawned between enqueue and drain).
+ * Also samples one recent id per bucket so a real cell can be
+ * cross-checked in-world. OFF for deploy — noisy.
+ */
+export const SHOW_PAINT_SYNC_DEBUG     = true

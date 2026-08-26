@@ -40,6 +40,7 @@ import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initMazeNet, rebuildMaze, runAfterInnerRing } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
+import { setupPaintDebug }   from 'src/client/paintDebug'
 import { setupPaintResync } from 'src/client/paintResync'
 import { initPlayerNet } from 'src/client/player'
 import { runStress } from 'src/client/stress'
@@ -183,6 +184,9 @@ export async function setupClient(): Promise<void> {
 	// the recovery reads as "delayed melt" rather than "glitch". See the
 	// module header in paintResync.ts for the full design note.
 	setupPaintResync()
+	// Paint-sync drop-counter rollup. No-op unless SHOW_PAINT_SYNC_DEBUG
+	// is on in devFlags. See paintDebug.ts for what it counts and why.
+	setupPaintDebug()
 	initMazeNet()
 	initPlayerNet()
 	initLocomotionGate()
