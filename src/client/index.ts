@@ -38,7 +38,7 @@ import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
-import { initMazeNet, rebuildMaze, runAfterInnerRing } from 'src/client/maze/rebuild'
+import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
 import { initPaintNet, initPaintingSystem } from 'src/client/paint'
 import { setupPaintResync } from 'src/client/paintResync'
 import { initPlayerNet } from 'src/client/player'
@@ -208,7 +208,7 @@ export async function setupClient(): Promise<void> {
 	// initClientHandler for the same reason as the hydration paths
 	// above: the server's sendTorchStatesTo(joiner) inside joinRoster
 	// pushes a `torchLitFrom` per already-lit remote, and any handler
-	// registered later (e.g. deferred to runAfterInnerRing) misses that
+	// registered later (e.g. after the tile cascade completes) misses that
 	// initial hydration. Symptom before this move: a late-joining
 	// desktop client never sees a mobile player's lit state, so
 	// warmth-together ignores them as "unlit" — while the mobile can
@@ -254,41 +254,28 @@ export async function setupClient(): Promise<void> {
 
 	// Campfire + its VFX/audio come FIRST so they claim the initial
 	// asset-load bandwidth. The player spawns next to the fire and needs
-	// it visible on the first frame; everything else can wait until the
-	// inner ring of snow tiles has finished spawning (see
-	// runAfterInnerRing block below).
+	// it visible on the first frame; perimeter cliffs are large 4x-scale
+	// GLBs at scene edges that the player won't see for several seconds
+	// of walking.
 	setupCampfire()
 	setupCampfireSmoke()
 	setupLogsInput()
+	// Second, buried campfire the player has to find + light with a
+	// torch. Deterministic position per 24 h cycle; no server sync yet.
+	setupHiddenCampfire()
+	setupSnowfall()
+	// Audio requires initAudio() to have already run (camera entity is
+	// used as the parent). initAudio is called upstream in setupClient.
+	setupSnowfallAudio()
 	setupSnowFootsteps()
-
-	// ─── Deferred cold-open spawns ──────────────────────────────
-	// These systems either aren't visible on spawn, aren't interactable
-	// in the first seconds of gameplay, or sit behind the (still-loading)
-	// outer maze rings. Deferring them until the inner ring is complete
-	// frees GLB-fetch bandwidth for the campfire + inner tiles during
-	// the splash-covered load window — splash drops noticeably sooner.
-	//
-	// Trees / props (setupProps) intentionally still spawn eagerly via
-	// the seed watcher above — they're a core part of the visual pitch
-	// and should be present the moment the splash lifts.
-	runAfterInnerRing(() => {
-		// Buried campfire the player has to find + light with a torch.
-		// Deterministic position per 24 h cycle; no server sync yet.
-		setupHiddenCampfire()
-		setupSnowfall()
-		// Audio requires initAudio() to have already run (camera entity
-		// is used as the parent). initAudio is called upstream.
-		setupSnowfallAudio()
-		setupTorch()
-		setupTorchInput()
-		// setupRemoteTorches / setupTorchChain / setupTorchWarmth moved
-		// out of this deferred block — see the joinRoster-hydration
-		// ordering comment above initClientHandler(). The local torch
-		// visual (setupTorch above) has no message subscribers and can
-		// stay deferred alongside the rest of the cold-open spawns.
-		console.log('[Client] setupClient: deferred cold-open spawns fired')
-	})
+	// Local torch visuals + fuel-drain / relight input. Kept eager (no
+	// message subscribers, no hydration-order dependency) alongside the
+	// other cold-open spawns above. Message-subscriber siblings
+	// (setupRemoteTorches / setupTorchChain / setupTorchWarmth) are
+	// installed further up before joinRoster — see the hydration-order
+	// comment there. Do NOT re-add them here.
+	setupTorch()
+	setupTorchInput()
 
 	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
 	// the mobile action layer renders scene-branded replacements.
@@ -302,16 +289,18 @@ export async function setupClient(): Promise<void> {
 	setupFeedPromptVisibility()
 
 	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior
-	// playfield. Deferred until the inner ring of snow tiles has finished
-	// spawning, so the campfire + player-visible tiles get first crack
-	// at the asset loader. Cliffs land exactly as the splash lifts and
-	// the horizon becomes visible for the first time.
-	//
-	// (Previously used a 3-second wall-clock timer, which fired either
-	// before the inner ring on fast machines or after on slow ones —
-	// neither was right. Gating on the inner-ring latch makes the visual
-	// sequence identical across machines.)
-	runAfterInnerRing(() => {
+	// playfield. Deferred by PERIMETER_SPAWN_DELAY_S so campfire, maze
+	// centre ring, and player-spawn assets get first crack at the asset
+	// loader. The player will not see the cliffs until they walk far
+	// enough that the maze centre is comfortably resolved anyway.
+	const PERIMETER_SPAWN_DELAY_S = 3
+	let perimAccum = 0
+	let perimDone  = false
+	engine.addSystem((dt: number) => {
+		if (perimDone) return
+		perimAccum += dt
+		if (perimAccum < PERIMETER_SPAWN_DELAY_S) return
+		perimDone = true
 		setupPerimeter()
 	})
 }
