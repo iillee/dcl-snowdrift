@@ -169,19 +169,30 @@ function syncCellsFromCrdt(): void {
 		if (!shadow || shadow.length !== incoming.length || needsReseed) {
 			// First observation OR tile just streamed in — seed the shadow
 			// to zeros so every non-zero byte is treated as a change and
-			// dispatched. On a reseed, also drop the `cellApplied` records
-			// so the dispatch path does not short-circuit.
+			// dispatched. Also drop the tile's `cellApplied` records so the
+			// dispatch path below does not short-circuit on stale-race data.
+			//
+			// Why unconditional (was gated on needsReseed until 2026-08-26):
+			// under the center-out load-in (d06486e), always-spawned tiles'
+			// register-time reseed request can be drained by a syncCellsFrom
+			// Crdt pass BEFORE the tile's PaintTile CRDT entity is
+			// observable. When PaintTile finally shows up, needsReseed is
+			// false and any cellApplied entries left behind by an earlier
+			// silent-drop dispatch (applyPaintIndex hit !data, returned,
+			// but syncCellsFromCrdt still advanced cellApplied at the end
+			// of its diff loop) short-circuit this diff — the cell renders
+			// as snow forever. Wiping cellApplied on every fresh shadow is
+			// safe: empty entries are no-ops; only stale race entries are
+			// affected, and clearing them lets the diff below re-dispatch.
 			shadow = new Uint8Array(incoming.length)
 			tileShadow.set(entity, shadow)
-			if (needsReseed) {
-				const baseCellKey = joinCellKey(tileKey, 0)
-				for (let i = 0; i < PAINT_CELLS_PER_TILE; i++) {
-					cellApplied.delete(baseCellKey + i)
-				}
-				// Shadow was zeroed above; the count must follow so the
-				// re-walk below re-derives it from the incoming bytes.
-				tileNonZeroCount.set(tileKey, 0)
+			const baseCellKey = joinCellKey(tileKey, 0)
+			for (let i = 0; i < PAINT_CELLS_PER_TILE; i++) {
+				cellApplied.delete(baseCellKey + i)
 			}
+			// Shadow was zeroed above; the count must follow so the
+			// re-walk below re-derives it from the incoming bytes.
+			tileNonZeroCount.set(tileKey, 0)
 		}
 
 		const prevCount = tileNonZeroCount.get(tileKey) ?? 0
