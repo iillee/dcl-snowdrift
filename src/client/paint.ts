@@ -744,11 +744,26 @@ export function enqueuePaintCandidate(id: string, targetStage: 0 | 1 = 0): void 
 	const appliedStage = cellApplied.get(key)?.stage ?? 0
 	if (data && data.kind === 'cube' && appliedStage >= 1 && renderedIndex.get(id) === index) {
 		applyPaintIndex(id, index, true)
+		// Patch cellApplied to match the optimistic visual. Gameplay
+		// reads (frost accumulation, locomotion snow-drag) source their
+		// stage from cellApplied via getSnowStageAtWorld — without this
+		// write, the cube tweens down but frost keeps ticking and the
+		// player keeps trudging until the server round-trips the
+		// paintTick echo (~200-400ms typical). See the stomp branch
+		// above for the symmetric pattern.
+		cellApplied.set(key, { index, stage: 0 })
 		return
 	}
 
 	if (renderedIndex.get(id) === index) return
 	applyPaintIndex(id, index, false)
+	// Same reasoning as the mid-regrowth branch above: gameplay layer
+	// polls cellApplied, so we must mirror the visual optimism there
+	// too or frost / locomotion lag the visible melt by one server
+	// round-trip. This omission was the cause of the "snow visually
+	// gone but still slow-walking + frost damage" symptom observed
+	// on 2026-08-25 (see docs/handoff-paint-sync-mobile.md follow-up).
+	cellApplied.set(key, { index, stage: 0 })
 }
 
 

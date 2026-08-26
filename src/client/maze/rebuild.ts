@@ -76,58 +76,10 @@ export function isRebuilding(): boolean {
 }
 
 // Set to true the first time the spawn queue drains after a rebuild.
-// Used by the loading splash for the rebuild-override safety check.
+// Used by the loading splash to know when to fade out on cold-open.
 let firstRebuildComplete = false
 export function isInitialLoadComplete(): boolean {
   return firstRebuildComplete
-}
-
-// ─── Inner-ring latch (cold-open splash gate) ───────────────────────
-// Splash drops as soon as every tile within INNER_RING_RADIUS_TILES of
-// the campfire has spawned. The outer rings continue to stream in
-// behind the player over the next few seconds — they're outside the
-// visible viewport at spawn, so pop-in isn't perceivable.
-//
-// 8 tiles = 128m radius around the campfire. Tune down if outer-ring
-// pop-in becomes visible from the spawn spot, tune up if the splash
-// still feels too long.
-const INNER_RING_RADIUS_TILES = 8
-let innerRingRemaining = 0
-let firstInnerRingComplete = false
-
-/**
- * True once the inner ring of tiles (radius INNER_RING_RADIUS_TILES
- * around the campfire) has finished spawning for the first time.
- * Cold-open splash gates on this so the player sees a complete local
- * playfield the moment the splash lifts.
- */
-export function isInnerRingLoadComplete(): boolean {
-  return firstInnerRingComplete
-}
-
-// Callbacks queued while the inner ring is still spawning. Fired
-// once, in registration order, the frame the latch flips. Callers
-// registering AFTER the latch has already flipped run immediately.
-const innerRingCallbacks: Array<() => void> = []
-
-
-// MARK: runAfterInnerRing
-/**
- * Run `cb` once the inner ring has finished spawning. If the inner
- * ring is already complete, `cb` runs on the next microtask (never
- * synchronously, to keep call-site ordering predictable).
- *
- * Use this to defer non-essential entity spawns (torches, snowfall,
- * hidden campfire, perimeter cliffs) so they don't compete with the
- * campfire + inner tiles for asset-load bandwidth during the
- * splash-covered cold-open window.
- */
-export function runAfterInnerRing(cb: () => void): void {
-  if (firstInnerRingComplete) {
-    Promise.resolve().then(cb)
-    return
-  }
-  innerRingCallbacks.push(cb)
 }
 
 // ─── Rebuild entry point ────────────────────────────────────────────
@@ -169,32 +121,7 @@ export function rebuildMaze(seed: number): void {
     `(${reserved.length} cells reserved by perimeter)`
   )
 
-  // Center-out spawn order. Sort every tile by squared distance from
-  // the campfire so the player-visible inner ring materialises first;
-  // outer rings stream in behind the (already-lifted) splash.
-  //
-  // Was previously sorted by `p.order` (row-major scan order from the
-  // generator), which meant the cascade swept from (0,0) toward the
-  // far corner — the player watched an empty splash while tiles
-  // filled in from a corner they couldn't see.
-  const tiles = getPlacedTilesInOrder().slice().sort((a, b) => {
-    const adx = (a.x + 0.5) - CAMPFIRE_TX_F
-    const adz = (a.z + 0.5) - CAMPFIRE_TZ_F
-    const bdx = (b.x + 0.5) - CAMPFIRE_TX_F
-    const bdz = (b.z + 0.5) - CAMPFIRE_TZ_F
-    return (adx * adx + adz * adz) - (bdx * bdx + bdz * bdz)
-  })
-
-  // Count tiles falling inside the inner ring so the drain loop can
-  // flip the splash-drop latch the moment the last one spawns.
-  const R2 = INNER_RING_RADIUS_TILES * INNER_RING_RADIUS_TILES
-  innerRingRemaining = 0
-  for (const p of tiles) {
-    const dx = (p.x + 0.5) - CAMPFIRE_TX_F
-    const dz = (p.z + 0.5) - CAMPFIRE_TZ_F
-    if (dx * dx + dz * dz <= R2) innerRingRemaining++
-  }
-
+  const tiles = getPlacedTilesInOrder()
   spawnQueue = tiles.map((p, i) => ({ p, delay: i * STAGGER }))
 
   // Teleport orb pair — deterministic on the current seed: generateWithRetry
@@ -225,33 +152,8 @@ export function initMazeNet(): void {
 engine.addSystem((dt: number) => {
   if (spawnQueue.length === 0) return
   spawnClock += dt
-  const R2 = INNER_RING_RADIUS_TILES * INNER_RING_RADIUS_TILES
   while (spawnQueue.length && spawnQueue[0].delay <= spawnClock) {
-    const p = spawnQueue.shift()!.p
-    spawnTileWithGrow(p)
-    // Decrement inner-ring counter as each inner tile lands; flip the
-    // cold-open latch when the last inner tile spawns.
-    if (!firstInnerRingComplete && innerRingRemaining > 0) {
-      const dx = (p.x + 0.5) - CAMPFIRE_TX_F
-      const dz = (p.z + 0.5) - CAMPFIRE_TZ_F
-      if (dx * dx + dz * dz <= R2) {
-        innerRingRemaining--
-        if (innerRingRemaining === 0) {
-          firstInnerRingComplete = true
-          console.log(
-            `rebuild: inner ring complete — splash may drop, ` +
-            `firing ${innerRingCallbacks.length} deferred setup(s)`
-          )
-          // Drain the deferred-setup queue. Errors in one callback
-          // must not skip the rest — log and continue.
-          for (const cb of innerRingCallbacks) {
-            try { cb() }
-            catch (err) { console.log(`rebuild: deferred callback threw: ${err}`) }
-          }
-          innerRingCallbacks.length = 0
-        }
-      }
-    }
+    spawnTileWithGrow(spawnQueue.shift()!.p)
   }
   // Latch the first-drain complete signal for the loading splash.
   if (spawnQueue.length === 0 && !firstRebuildComplete) {

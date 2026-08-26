@@ -18,7 +18,7 @@ import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { isInitialLoadComplete, isInnerRingLoadComplete, isRebuilding } from 'src/client/maze/rebuild'
+import { isInitialLoadComplete, isRebuilding } from 'src/client/maze/rebuild'
 
 
 const SPLASH_IMAGE = 'assets/images/snowdrift.png'
@@ -55,23 +55,13 @@ export function showRebuildSplash(durationMs: number): void {
  *      still in flight (large mazes take >3 s to fill in).
  */
 function isSplashActive(): boolean {
-	// Cold-open: drop the splash as soon as the inner ring around the
-	// campfire has finished spawning, not the entire 900-tile playfield.
-	// Outer rings continue to stream in behind the player.
-	if (!isInnerRingLoadComplete()) return true
+	if (!isInitialLoadComplete()) return true
 	if (Date.now() < rebuildOverrideUntilMs) return true
 	// Once the override window has opened at least once (i.e. we're
 	// past cold-open and a rebuild has been requested), keep the
 	// splash up until the tile cascade finishes. Without this the
 	// splash uncovers a half-built maze on slower machines.
-	//
-	// Uses the full-drain latch (isInitialLoadComplete + isRebuilding)
-	// rather than the inner-ring latch — mid-session rollovers should
-	// stay covered for the entire rebuild, not just the inner ring.
 	if (rebuildOverrideUntilMs > 0 && isRebuilding()) return true
-	// Silence unused-import lint now that isInitialLoadComplete is
-	// only referenced conditionally above.
-	void isInitialLoadComplete
 	return false
 }
 

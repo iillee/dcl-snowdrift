@@ -205,6 +205,33 @@ export function consumeReseedRequests(): Set<number> {
 const EMPTY_SET: Set<number> = new Set()
 
 
+// MARK: requestResyncForSpawnedTiles
+/**
+ * Safety-net entry point for paintResync.ts. Adds every currently-
+ * spawned tile's key to reseedRequests so the next syncCellsFromCrdt
+ * pass wipes their shadow + cellApplied and re-dispatches every
+ * non-zero PaintTile byte. Recovers cells whose visual dispatch was
+ * silently dropped (cell entity did not exist when the diff ran).
+ *
+ * @param exceptTileKey  Optional tile key to skip — typically the tile
+ *                       the local player is currently standing on, so
+ *                       an in-flight drop tween from a just-painted
+ *                       cell is not clobbered by a redundant re-dispatch.
+ *                       Pass null / undefined to reseed everything.
+ * @returns              Count of tiles queued for reseed.
+ */
+export function requestResyncForSpawnedTiles(exceptTileKey: number | null = null): number {
+	let count = 0
+	for (const entry of tiles.values()) {
+		if (!entry.spawnedNow) continue
+		if (entry.tileKey === exceptTileKey) continue
+		reseedRequests.add(entry.tileKey)
+		count++
+	}
+	return count
+}
+
+
 // MARK: Poll system
 //
 // Throttled per-frame walk over the registry. Local player position is
