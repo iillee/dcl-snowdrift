@@ -34,12 +34,15 @@ import { onCycleRoll } from 'src/server/cycle'
 
 
 /**
- * Delay (s) before the hearth pile respawns after the world empties.
- * Short enough that a solo tester never sits wood-less for long, long
- * enough that the respawn reads as "someone brought more from the shed"
- * rather than an instant re-materialisation.
+ * Delay (s) before the hearth pile respawns after the slot goes empty.
+ * Tuned to gate the spam-feed loop: without a cooldown, a player could
+ * pick up the hearth pile, feed the fire, and repeat every ~4 s — the
+ * fire never actually needed the wood loop. 10 s forces players to
+ * either wait or venture out to a scattered chunk / other pile, which
+ * is the intended gameplay pressure. Still short enough that a solo
+ * tester never sits wood-less for a frustrating stretch.
  */
-const HEARTH_RESPAWN_DELAY_S = 4
+const HEARTH_RESPAWN_DELAY_S = 10
 
 /**
  * Squared-metre radius around the hearth slot (INITIAL_LOGS_PILE_X/Z)
