@@ -37,12 +37,19 @@ const CENTER_X = SCENE_WORLD_SIZE_X_METERS / 2
 const CENTER_Z = SCENE_WORLD_SIZE_Z_METERS / 2
 
 // Altitude. Kept inside DCL mobile's ~100 m fog band. Higher = more
-// scene visible, but risks hitting fog + culling. Mobile drops lower
-// because the portrait viewport makes 30 m read as "tiny ant world" —
-// 20 m keeps the player + campfire legibly sized on a phone.
-const CAM_ALTITUDE_DESKTOP = 30
-const CAM_ALTITUDE_MOBILE  = 20
-const CAM_ALTITUDE         = isMobile() ? CAM_ALTITUDE_MOBILE : CAM_ALTITUDE_DESKTOP
+// scene visible, but risks hitting fog + culling. Mobile default is
+// lower because the portrait viewport makes 30 m read as "tiny ant
+// world" — 20 m keeps the player + campfire legibly sized on a phone.
+// Now dynamic: user can zoom in / out via UI buttons between
+// CAM_ALTITUDE_MIN and CAM_ALTITUDE_MAX. The default value below is
+// the altitude on first entry to spectator mode; subsequent toggles
+// preserve the user's last zoom level.
+const CAM_ALTITUDE_DESKTOP_DEFAULT = 30
+const CAM_ALTITUDE_MOBILE_DEFAULT  = 20
+const CAM_ALTITUDE_DEFAULT         = isMobile() ? CAM_ALTITUDE_MOBILE_DEFAULT : CAM_ALTITUDE_DESKTOP_DEFAULT
+const CAM_ALTITUDE_MIN             = 12
+const CAM_ALTITUDE_MAX             = 75  // mobile fog begins to appear beyond this
+const CAM_ALTITUDE_STEP            = 6
 
 // Small horizontal offset so lookAtEntity produces a real forward
 // vector — required for WASD axis alignment. See old header comment.
@@ -67,7 +74,9 @@ const PAN_BOUNDS_MARGIN = 4
 // Mobile d-pad pan speed (world m/s). Scaled with altitude so the
 // on-screen pan feel (screens/s) stays constant across zoom levels.
 // Baseline: 22 m/s at 30 m altitude → ~0.6 screens/s per axis.
-const DPAD_PAN_SPEED = 22 * (CAM_ALTITUDE / 30)
+// Now derived at call time from currentAltitude so pan feel stays
+// constant as the user zooms.
+const DPAD_PAN_SPEED_BASE = 22
 
 // Desktop drag: minimum cumulative pixel movement before a click starts
 // panning. Prevents quick taps from stealing pan focus. Reset on release.
@@ -85,6 +94,7 @@ const DRAG_M_PER_PX = 0.025
 let camEntity:      Entity | null = null
 let lookTargetEnt:  Entity | null = null
 let active                        = false
+let currentAltitude               = CAM_ALTITUDE_DEFAULT
 
 // Camera modes.
 const enum Mode { FOLLOW, FREE }
@@ -116,7 +126,7 @@ export function setupTopDownCamera(): void {
 
 	camEntity = engine.addEntity()
 	Transform.create(camEntity, {
-		position: Vector3.create(targetPos.x + CAM_EAST_OFFSET, CAM_ALTITUDE, targetPos.z),
+		position: Vector3.create(targetPos.x + CAM_EAST_OFFSET, currentAltitude, targetPos.z),
 	})
 	VirtualCamera.create(camEntity, {
 		lookAtEntity:      lookTargetEnt,
@@ -200,6 +210,7 @@ function updateCamera(dt: number): void {
 	if (camEntity !== null) {
 		const t = Transform.getMutable(camEntity)
 		t.position.x = targetPos.x + CAM_EAST_OFFSET
+		t.position.y = currentAltitude
 		t.position.z = targetPos.z
 	}
 }
@@ -346,7 +357,41 @@ export function endPan(): void {
 
 
 // MARK: getDpadSpeed
-/** Exposed so the UI can pass the tuned constant into {@link beginPan}. */
+/** Exposed so the UI can pass the tuned constant into {@link beginPan}.
+ *  Scales with current altitude so on-screen pan feel stays constant
+ *  across zoom levels (baseline: 22 m/s at 30 m altitude). */
 export function getDpadSpeed(): number {
-	return DPAD_PAN_SPEED
+	return DPAD_PAN_SPEED_BASE * (currentAltitude / 30)
+}
+
+
+// MARK: zoomIn
+/** Move the camera closer to the ground by one step. Clamped at min. */
+export function zoomIn(): void {
+	if (!active) return
+	const next = currentAltitude - CAM_ALTITUDE_STEP
+	currentAltitude = next < CAM_ALTITUDE_MIN ? CAM_ALTITUDE_MIN : next
+}
+
+
+// MARK: zoomOut
+/** Move the camera further from the ground by one step. Clamped at max. */
+export function zoomOut(): void {
+	if (!active) return
+	const next = currentAltitude + CAM_ALTITUDE_STEP
+	currentAltitude = next > CAM_ALTITUDE_MAX ? CAM_ALTITUDE_MAX : next
+}
+
+
+// MARK: canZoomIn
+/** True if the camera can move closer (not already at min altitude). */
+export function canZoomIn(): boolean {
+	return active && currentAltitude > CAM_ALTITUDE_MIN
+}
+
+
+// MARK: canZoomOut
+/** True if the camera can move further away (not already at max altitude). */
+export function canZoomOut(): boolean {
+	return active && currentAltitude < CAM_ALTITUDE_MAX
 }
