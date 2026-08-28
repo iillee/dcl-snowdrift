@@ -230,6 +230,13 @@ export const Messages = {
 	// won't fire again until players work back up to full.
 	hearthMax: Schemas.Map({}),
 
+	// Server → Client: server didn't recognise a paintTick's sender.
+	// Sent (rate-limited) when the sender's userId is not in the roster,
+	// which happens if the server restarted mid-session and lost the
+	// in-memory roster. Client responds by re-issuing joinRoster so the
+	// player is transparently re-registered and paint resumes syncing.
+	pleaseRejoin: Schemas.Map({}),
+
 	// Client → Server (DEV only): force an immediate cycle rollover for
 	// smoke-testing the reset flow before real midnight UTC arrives.
 	// Gated on the client by devFlags.ENABLE_DEV_ROLL_CYCLE + the

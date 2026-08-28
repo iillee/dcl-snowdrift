@@ -18,6 +18,15 @@ import { PrecipitationLevel, setPrecipitation } from 'src/client/snowfall'
 
 let myTeam: Team = Team.None
 
+/**
+ * When true, the outbound tick will re-send joinRoster on its next
+ * iteration. Set by the pleaseRejoin handler (server telling us it
+ * doesn't recognise our wallet, typically after a mid-session server
+ * restart wiped the in-memory roster) so we transparently recover
+ * without the player having to refresh.
+ */
+let needsRejoin = false
+
 /** How often to log while waiting for CRDT sync with the auth server. */
 const SYNC_LOG_INTERVAL_MS = 1000
 /** After this, keep waiting but warn that the Multiplayer Server is likely down. */
@@ -55,6 +64,18 @@ function wireInbound(): void {
 	room.onMessage('weatherState', ({ level }) => {
 		const clamped = Math.max(0, Math.min(3, level | 0)) as PrecipitationLevel
 		setPrecipitation(clamped)
+	})
+
+	// Server → client rejoin nudge. Server sends this (rate-limited) when
+	// a paintTick arrives from a wallet the server doesn't have in its
+	// roster — typically because the server restarted and lost the
+	// in-memory roster. Flag the outbound loop to re-issue joinRoster on
+	// its next tick. Also clear myTeam so paint queueing pauses until the
+	// re-assignment reply lands, matching the fresh-boot behaviour.
+	room.onMessage('pleaseRejoin', () => {
+		console.log('[Client] pleaseRejoin received — re-issuing joinRoster')
+		needsRejoin = true
+		myTeam      = Team.None
 	})
 }
 
@@ -97,8 +118,9 @@ function wireOutbound(): void {
 			return
 		}
 
-		if (!joinSent) {
-			joinSent = true
+		if (!joinSent || needsRejoin) {
+			joinSent    = true
+			needsRejoin = false
 			const userId = resolveJoinUserId()
 			console.log(`[Client] isStateSyncronized — → joinRoster ${userId}`)
 			room.send('joinRoster', { userId })

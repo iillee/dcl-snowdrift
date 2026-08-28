@@ -203,6 +203,15 @@ export async function setupServer(): Promise<void> {
 	let paintDroppedTeam = 0
 	let paintSummaryClock = 0
 
+	// Per-user rate limiters. Both keyed by wallet address, both value =
+	// last-event timestamp in ms since epoch. Bounded in size by roster
+	// churn (only real players ever end up here); no eviction sweep
+	// needed for the sessions we run.
+	const lastRejoinNudgeMs: Map<string, number> = new Map()
+	const lastDroppedLogMs : Map<string, number> = new Map()
+	const REJOIN_NUDGE_COOLDOWN_MS = 5000
+	const DROPPED_LOG_COOLDOWN_MS  = 60000
+
 	// Roster handler — assign or look up a player's team.
 	// Client sends joinRoster once on boot; we reply teamAssigned to that sender only.
 	// Idempotent: repeated calls for the same userId return the same team.
@@ -274,6 +283,23 @@ export async function setupServer(): Promise<void> {
 		const team = getTeam(from)
 		if (team === null) {
 			paintDroppedTeam++
+			// Log this user at most once per minute so a mid-session
+			// server restart is visible in the log without flooding it.
+			const nowLog = Date.now()
+			const lastLog = lastDroppedLogMs.get(from) ?? 0
+			if (nowLog - lastLog >= DROPPED_LOG_COOLDOWN_MS) {
+				lastDroppedLogMs.set(from, nowLog)
+				console.log(`[Server] paintTick droppedTeam: ${from} not in roster (likely post-restart) — sending pleaseRejoin`)
+			}
+			// Nudge the client to re-issue joinRoster, at most once every
+			// REJOIN_NUDGE_COOLDOWN_MS per user, so a burst of paintTicks
+			// from one un-rostered client doesn't spam pleaseRejoin.
+			const nowNudge = Date.now()
+			const lastNudge = lastRejoinNudgeMs.get(from) ?? 0
+			if (nowNudge - lastNudge >= REJOIN_NUDGE_COOLDOWN_MS) {
+				lastRejoinNudgeMs.set(from, nowNudge)
+				room.send('pleaseRejoin', {}, { to: [from] })
+			}
 			return
 		}
 		if (ids.length > PAINT_TICK_MAX_IDS) {
