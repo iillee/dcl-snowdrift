@@ -215,16 +215,15 @@ export async function setupServer(): Promise<void> {
 			console.log(`[Server] joinRoster rejected: no context.from (payload userId=${userId})`)
 			return
 		}
-		// Dev-friendly: wipe canvas + reseed on every client join so a browser
-		// refresh gives a clean slate. TODO: remove or gate behind a flag
-		// once persistent multi-player sessions matter.
-		console.log(`[Server] joinRoster from ${from}: clearing paint + reseeding`)
-		clearPaintState()
-		// Reseed at the CURRENT fuel-derived radius (not the baseline)
-		// so a browser refresh doesn't erase an expanded melt ring from
-		// the fed fire. Fuel state survives client reconnects; the
-		// visible ring should too.
-		seedStartingArea(hearthRadiusFromFuel(getMainFireFuel()))
+		// NOTE: previously wiped + reseeded the canvas on every joinRoster
+		// as a "dev-friendly" browser-refresh reset. That leaked into
+		// production and any join / reconnect erased every other player's
+		// work — confirmed via 2026-08-28 playtest logs (10 players, 6195
+		// painted cells collapsed to seed 488 when the 11th joined). Paint
+		// state now hydrates via CRDT tile replication automatically; the
+		// joiner-specific hydrations below cover everything else (weather,
+		// wood, cycle, torches, fuel, hidden campfire).
+		console.log(`[Server] joinRoster from ${from}`)
 		if (from !== userId) {
 			// Not an error — client may not have context.from's exact address casing.
 			// We ignore the payload and use context.from as authoritative.
