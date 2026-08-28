@@ -73,9 +73,9 @@ let coverageDirty = false
 // tuning changes. CLEAR (0) freezes regrowth.
 const STAGE_INTERVAL_MS: Record<number, number | null> = {
 	0: null,   // CLEAR:  frozen
-	1: 15000,  // LIGHT:  15 s per stage (slow drift-back)
-	2: 10000,  // MEDIUM: 10 s per stage (baseline)
-	3:  5000,  // HEAVY:   5 s per stage (whiteout re-buries in 15 s)
+	1: 30000,  // LIGHT:  30 s per stage (full re-bury 90 s)
+	2: 20000,  // MEDIUM: 20 s per stage (full re-bury 60 s)
+	3: 12000,  // HEAVY:  12 s per stage (full re-bury 36 s)
 }
 
 

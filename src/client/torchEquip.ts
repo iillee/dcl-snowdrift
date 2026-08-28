@@ -23,7 +23,7 @@
  * dies. Kept as a round number so the chain-light half-transfer
  * (20 s) also reads cleanly.
  */
-export const TORCH_FUEL_MAX_S = 40
+export const TORCH_FUEL_MAX_S = 30
 
 
 // MARK: State
@@ -94,7 +94,7 @@ export function extinguishTorch(): void {
  * Used by chain-lighting so a receiver always ends up with exactly
  * the transfer amount — the fuel bar visibly reflects "you got a
  * half torch" every time, regardless of whether the receiver was
- * burnt-out (fuel=0) or freshly loaded (fuel=45, unlit). Setting
+ * burnt-out (fuel=0) or freshly loaded (fuel=30, unlit). Setting
  * rather than adding avoids the invisible-gift case where a fresh
  * torch's fuel clamps at max and the bar shows no change.
  */
