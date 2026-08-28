@@ -251,22 +251,29 @@ export function unmarkProtected(id: string): void {
 
 // MARK: shrinkMeltRingTo
 /**
- * Clear every protected cell that belongs to THIS fire's ring but
- * falls OUTSIDE the new radius from (cx, cz). Cells outside the new
- * ring are:
- *   1. Removed from the protected set (so regrowth can touch them)
- *   2. Force-reset to PALETTE_NONE / stage 0 (visible snow, instantly)
- *   3. Dropped from cellState so tickRegrowth stops iterating them
+ * Release every protected cell that belongs to THIS fire's ring but
+ * falls OUTSIDE the new radius from (cx, cz). Released cells:
+ *   1. Are removed from the protected set (so regrowth can touch them)
+ *   2. Keep their current painted state — snowfall regrowth will
+ *      naturally advance them stage 0 → 1 → 2 → 3 (back to full snow)
+ *      at the current precipitation cadence via tickRegrowth. This
+ *      avoids the unnatural "snow pops in instantly" snap on tier
+ *      downshifts; the outskirts of a decaying fire visibly fade
+ *      back to snow as flakes accumulate again.
  *
  * `previousRadiusM` bounds which cells are considered THIS fire's:
  * only cells within previousRadiusM of (cx, cz) can be affected.
- * This prevents a shrink on fire A from clearing cells owned by
+ * This prevents a shrink on fire A from unprotecting cells owned by
  * fire B far away — the protected set is global and doesn't record
  * ownership, so without this bound a shrink on the main hearth
- * would wipe every hidden campfire's ring, and vice versa. Callers
+ * would release every hidden campfire's ring, and vice versa. Callers
  * should pass a slightly generous upper bound (e.g. the fire's max
  * possible melt radius) so any straggler cell from an earlier peak
  * still gets swept.
+ *
+ * `tickRegrowth` was keeping `paintedAtMs` fresh while the cell was
+ * protected, so the regrowth clock starts from "now" the instant we
+ * release — no backlog of missed stage transitions.
  *
  * Called by hearthFuel when the fire decays down a tier so the visible
  * blue floor ring shrinks with the fuel. Cells INSIDE the new radius
@@ -275,7 +282,7 @@ export function unmarkProtected(id: string): void {
 export function shrinkMeltRingTo(cx: number, cz: number, radiusM: number, previousRadiusM: number): void {
 	const r2     = radiusM * radiusM
 	const prevR2 = previousRadiusM * previousRadiusM
-	let cleared  = 0
+	let released = 0
 	for (const id of Array.from(protectedCells)) {
 		// id format: "tx,tz,ty:col,row" (see seedStartingArea).
 		const colon = id.indexOf(':')
@@ -296,14 +303,10 @@ export function shrinkMeltRingTo(cx: number, cz: number, radiusM: number, previo
 		if (d2 <= r2)    continue // still inside the new radius — keep
 
 		protectedCells.delete(id)
-		if (writeCellComponent(id, PALETTE_NONE, 0)) {
-			cellState.delete(id)
-			coverageDirty = true
-			cleared++
-		}
+		released++
 	}
-	if (cleared > 0) {
-		console.log(`[PaintState] shrinkMeltRingTo(${radiusM.toFixed(1)}m, prev=${previousRadiusM.toFixed(1)}m): cleared ${cleared} cells`)
+	if (released > 0) {
+		console.log(`[PaintState] shrinkMeltRingTo(${radiusM.toFixed(1)}m, prev=${previousRadiusM.toFixed(1)}m): released ${released} cells to natural regrowth`)
 	}
 }
 
