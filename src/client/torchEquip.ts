@@ -23,7 +23,7 @@
  * dies. Kept as a round number so the chain-light half-transfer
  * (20 s) also reads cleanly.
  */
-export const TORCH_FUEL_MAX_S = 40
+export const TORCH_FUEL_MAX_S = 30
 
 
 // MARK: State

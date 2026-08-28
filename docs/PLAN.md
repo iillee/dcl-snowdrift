@@ -350,6 +350,45 @@ Not on the calendar because it's ~15 min at a time. But it compounds.
 
 ---
 
+## 13c. Pilgrimage pivot — 2026-08-27
+
+**Live workplan:** `docs/pilgrimage-camp-workplan.md` — rolling session-handoff doc with current state, phase checklist (P0–P7), and per-session log. Read that for build status; this section stays as the design rationale.
+
+**Playtest gap identified:** short loop (feed fire, ~30 s) and long loop (light all 3 hidden fires, multi-hour community) are both legible, but nothing sits in the mid-length "I played 10 min and *did something*" band. Judges finish the short loop in under a minute and have no next thing.
+
+**Pivot:** introduce a **distant camp at the edge of the map** as the game's mid-length goal. Reach it before your torch dies — solo by leapfrogging waypoint fires, or with a partner by chain-lighting torches directly. See `docs/gameloop-vision.md` §16 for the full design.
+
+**Key constraints locked:**
+- Mobile fog: fade at 76 m, full at 100 m. Camp sits ~120 m from central hearth, *beyond* the fog line. A tall vertical beacon (smoke column + light shaft) is the only thing visible from spawn; the camp itself resolves out of the mist in the last ~20 m of approach.
+- Two waypoint fires at ~40 m and ~80 m on the direct route. New entity class, separate from hidden fires. Deterministic per cycle. Unlit at cycle start — first pilgrim of the day lights them, subsequent pilgrims benefit (cross-time cozy co-op).
+- Rewards: **snowshoes** (one mechanical item, cycle-scoped, awarded on first arrival) + **"XXXX wuz here" sign** (persistent-social) + **daily arrival count** in midnight-UTC splash.
+- Return trip: **one-way warm-wind teleport** to central hearth. Optional — players can stay at camp.
+- Hidden fires (§5, vision §12.1) demoted to secondary aspirational content. Not ripped out. Wood-gathering discovery mechanic unchanged.
+- Long-lasting lantern and voice radio **cut** from reward pool (would invalidate chain-lighting / scope creep respectively).
+
+**Nothing shipped is being ripped out.** This is a reframing of existing systems (torch, waypoints-as-hidden-fires-cousin, chain-lighting, warmth aura, 24 h reset) around a new focal point. Central hearth remains a valid hangout for players who don't want the pilgrimage.
+
+**Systems to build:**
+
+| # | System | Complexity | Notes |
+|---|---|---|---|
+| P1 | Camp entity (fire, tents, sign) at deterministic per-cycle position ~120 m from hearth | M | Reuses hidden-fire spawn pattern; visual pass needed for "established camp" feel |
+| P2 | Tall vertical beacon (smoke column + light shaft) tuned to punch through fog | M | Real-device visibility test is the gate |
+| P3 | Waypoint fire entity class (deterministic route, unlit at cycle start, full warmth station when lit) | M | Cousin of hidden fire, distinct component |
+| P4 | Arrival detection + snowshoes reward + faster-on-snow modifier | S | AvatarLocomotionSettings scoped to cycle |
+| P5 | "XXXX wuz here" sign entity + persistent arrival log | S | In-memory list, mirrors existing worldState pattern |
+| P6 | Warm-wind return teleport from camp | S | `movePlayerTo` from RestrictedActions |
+| P7 | Midnight-UTC splash extension: "N souls reached the camp" line | XS | Extends existing splash |
+| P8 | Compass UI (mobile fallback, gated on P2 visibility test) | S | Skip if beacon reads on device |
+
+Complexity: XS = <½ day, S = ½–1 day, M = 1–2 days.
+
+**Ordering suggestion (not yet slotted into the calendar):** P1 + P2 first (highest risk is fog/beacon visibility on mobile — de-risk immediately). Then P3 (route infrastructure). Then P4–P7 (reward + arrival flow). P8 only if P2 fails the mobile visibility test.
+
+**Open questions** logged in vision §16.10.
+
+---
+
 ## 13b. Playtest-first re-scope — 2026-08-25 (evening)
 
 **Two calendar shifts landed this evening:**

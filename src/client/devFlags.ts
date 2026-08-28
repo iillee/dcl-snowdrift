@@ -26,7 +26,7 @@ export const SHOW_PRECIPITATION_BUTTON = false
 export const SHOW_SERVER_STATS         = false
 
 /** '⇆' button that forces an immediate server cycle rollover (world regen). */
-export const SHOW_DEV_ROLL_BUTTON      = false
+export const SHOW_DEV_ROLL_BUTTON      = true
 
 /**
  * Small top-right readout showing the local torch's cluster tier, disc

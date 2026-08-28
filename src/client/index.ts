@@ -52,6 +52,7 @@ import { setupWoodClient } from 'src/client/wood'
 import { setupLogsPickupFx } from 'src/client/logsPickupFx'
 import { setupHearthFuelClient } from 'src/client/hearthFuel'
 import { setupHearthBillboard }  from 'src/client/hearthBillboard'
+import { setupCamp } from 'src/client/camp'
 import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
@@ -263,6 +264,9 @@ export async function setupClient(): Promise<void> {
 	// Second, buried campfire the player has to find + light with a
 	// torch. Deterministic position per 24 h cycle; no server sync yet.
 	setupHiddenCampfire()
+	// Distant pilgrimage camp (docs/gameloop-vision.md §16). Always lit,
+	// deterministic per-cycle position ~120 m from the central hearth.
+	setupCamp()
 	setupSnowfall()
 	// Audio requires initAudio() to have already run (camera entity is
 	// used as the parent). initAudio is called upstream in setupClient.

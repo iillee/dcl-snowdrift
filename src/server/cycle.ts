@@ -37,6 +37,14 @@ import { room } from 'src/shared/messages'
 let currentSeed         = 0
 let currentNextRebuild  = 0
 let rollCount           = 0
+/**
+ * Monotonically-increasing offset added on top of the time-based day
+ * bucket. Bumped by manual/dev rollovers so a mid-day reroll produces
+ * a genuinely different seed instead of re-sampling the same bucket
+ * and broadcasting a no-op. Reset implicitly on process restart
+ * (initial value 0) — acceptable since dev rolls are ephemeral.
+ */
+let devRollOffset       = 0
 
 type RollHandler = (info: { newSeed: number; oldSeed: number }) => void
 const rollHandlers: RollHandler[] = []
@@ -107,13 +115,19 @@ export function sendCycleStateTo(userId: string): void {
  * message). Normally invoked automatically by the boundary-detection
  * system in setupCycleServer().
  */
-export function rollCycle(): void {
+export function rollCycle(force: boolean = false): void {
 	const oldSeed = currentSeed
-	currentSeed        = getHiddenCampfireSeed()
+	if (force) {
+		// Manual/dev roll: bump the offset so the derived seed is
+		// guaranteed to differ from the current one, even mid-day when
+		// the time bucket hasn't advanced.
+		devRollOffset++
+	}
+	currentSeed        = (getHiddenCampfireSeed() + devRollOffset) >>> 0
 	currentNextRebuild = nextRebuildEpochMs()
 	rollCount++
 	console.log(
-		`[Server] cycle: ROLL #${rollCount} old=${oldSeed} \u2192 new=${currentSeed} ` +
+		`[Server] cycle: ROLL #${rollCount} (${force ? 'forced' : 'timed'}) old=${oldSeed} \u2192 new=${currentSeed} ` +
 		`nextRebuild=${new Date(currentNextRebuild).toISOString()}`,
 	)
 	// Fire subscribers in registration order. Wrap each in try/catch so
@@ -136,7 +150,7 @@ export function rollCycle(): void {
  * bootstrap alongside the other server subsystems.
  */
 export function setupCycleServer(): void {
-	currentSeed        = getHiddenCampfireSeed()
+	currentSeed        = (getHiddenCampfireSeed() + devRollOffset) >>> 0
 	currentNextRebuild = nextRebuildEpochMs()
 	console.log(
 		`[Server] cycle: seed=${currentSeed} ` +
@@ -163,6 +177,6 @@ export function setupCycleServer(): void {
 	room.onMessage('devRollCycle', (_payload, context) => {
 		const from = context?.from ?? 'unknown'
 		console.log(`[Server] cycle: devRollCycle received from ${from} - forcing rollover`)
-		rollCycle()
+		rollCycle(true)
 	})
 }

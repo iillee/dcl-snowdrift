@@ -37,6 +37,7 @@ import {
 import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { reseedCampRing, setupCampServer } from 'src/server/camp'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
@@ -169,6 +170,10 @@ export async function setupServer(): Promise<void> {
 	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
+	// Camp server owns the pilgrimage camp's persistent melt ring +
+	// per-cycle position. Registered right after setupCycleServer so it
+	// adopts the same authoritative seed on the first frame.
+	setupCampServer()
 	setupHiddenCampfireServer()
 	setupLogsServer()
 	setupWoodServer()
@@ -193,6 +198,13 @@ export async function setupServer(): Promise<void> {
 		console.log('[Server] cycle: clearing paint canvas + reseeding central ring')
 		clearPaintState()
 		seedStartingArea()
+		// Camp position moves per cycle (getCampWorldPosition is
+		// seed-derived); repaint its ring after the wipe so the
+		// pilgrimage destination has a warm floor from frame one of
+		// the new cycle. setupCampServer's onCycleRoll subscriber
+		// also reseeds — both are idempotent, whichever runs second
+		// is a no-op on already-blue cells.
+		reseedCampRing()
 	})
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
@@ -225,6 +237,11 @@ export async function setupServer(): Promise<void> {
 		// the fed fire. Fuel state survives client reconnects; the
 		// visible ring should too.
 		seedStartingArea(hearthRadiusFromFuel(getMainFireFuel()))
+		// Camp ring is wiped by clearPaintState too — repaint it here so
+		// a joiner (or a browser refresh mid-session) doesn't find the
+		// pilgrimage destination sitting on virgin snow until the next
+		// ring-refresh tick.
+		reseedCampRing()
 		if (from !== userId) {
 			// Not an error — client may not have context.from's exact address casing.
 			// We ignore the payload and use context.from as authoritative.

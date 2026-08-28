@@ -18,6 +18,7 @@
 import { engine, Transform } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, CAMPFIRE_MELT_RADIUS_SQ_M } from 'src/shared/campfire'
+import { getCampWarmth } from 'src/client/camp'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { FrostLevel } from 'src/shared/frost/components'
@@ -89,6 +90,17 @@ export function initFrostAccumulation(): void {
 		// Hidden second campfire also thaws once it's been lit. Same
 		// melt radius as the central bonfire so both fires feel like
 		// equivalent survival anchors.
+		// Pilgrimage camp: always lit, static warm ring (same radius as
+		// the central hearth baseline). getCampWarmth() returns null
+		// before setupCamp has run — harmless during the first few frames.
+		if (!insideFire) {
+			const camp = getCampWarmth()
+			if (camp !== null) {
+				const cdx = x - camp.x
+				const cdz = z - camp.z
+				if (cdx * cdx + cdz * cdz <= camp.radiusSq) insideFire = true
+			}
+		}
 		if (!insideFire && isHiddenCampfireLit()) {
 			// Iterate every lit hidden bonfire — the player is warmed if
 			// they're inside ANY warm ring. Loop is cheap (<= 3 entries)

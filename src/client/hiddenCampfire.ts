@@ -86,7 +86,12 @@ const SMOKE_LIFETIME_S      = 4.5
 // Hidden pits are now discovered by exploration alone — the locator
 // beacons made the search trivial once you knew what they looked like.
 // Flip back to true if we ever want to reintroduce a hint mode.
-const BEACON_ENABLED       = false
+// Temporarily re-enabled while we rework waypoint placement for the
+// pilgrimage pivot (docs/gameloop-vision.md §16) — the gold pillars
+// give a visible reference for judging distances between the central
+// hearth, hidden fires, waypoints, and the outskirts camp. Flip back
+// to false before deploy.
+const BEACON_ENABLED       = true
 const BEACON_GRADIENT_TEX  = 'assets/images/beacon-gradient.png'
 const BEACON_ALPHA_TEX     = 'assets/images/beacon-alpha.png'
 const BEACON_HEIGHT_M      = 110
@@ -522,10 +527,16 @@ function handleCycleSeedChange(newSeed: number): void {
 		`resetting ${HIDDEN_CAMPFIRE_COUNT} pits`,
 	)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		removeLocatorBeacon(i)
-		applyUnlitVisuals(i)
+		// Update positions FIRST. applyUnlitVisuals() below respawns the
+		// locator beacon, and spawnLocatorBeacon reads worldX/worldZ at
+		// call time — if we update after, the beacon lands at the old
+		// cycle's coordinates and the pit (spawned later in relocatePit)
+		// lands at the new ones, leaving orphan beacons floating over
+		// empty snow.
 		worldX[i] = positions[i].x
 		worldZ[i] = positions[i].z
+		removeLocatorBeacon(i)
+		applyUnlitVisuals(i)
 		relocatePit(i)
 	}
 }

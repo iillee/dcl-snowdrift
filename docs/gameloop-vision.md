@@ -258,3 +258,114 @@ To keep the vision honest:
 - **Not competitive.** No PvP, no leaderboard combat. Warmth is shared, not fought over.
 - **Not a puzzle game.** Discovery is the reward, but the mechanics are straightforward.
 - **Not a solo game.** Solo is peaceful and possible, but the loop *sings* with 2–5 players cooperating.
+
+---
+
+## 16. The Pilgrimage Pivot — 2026-08-27
+
+**Status:** design pivot, post-first-playtest. Not yet implemented. Supersedes §5 (hidden fires as the long goal) and §12.1 (wood-gathering as the sole discovery channel) in the specific sense that hidden fires are demoted from the game's headline long-loop to secondary aspirational content; the pilgrimage below becomes the primary mid-length goal. Nothing already shipped is being ripped out — this is a *reframing* of existing systems around a new focal point.
+
+### 16.1 What changed and why
+
+**Playtest finding (2026-08-26):** the game has a legible short loop (feed the fire, ~30 s) and a legible long loop (light all 3 hidden fires, community-scale, multi-hour), but nothing in between. Players finished the short loop in under a minute and had no next thing to aim at. The long loop is invisible in a 3–5 minute judge session and effectively unfindable solo (per §12.1's own admission).
+
+**Diagnosis:** we shipped a hangout without a horizon. Cozy hangouts work when the *vibe* carries them, but a Buildathon judge has a 3-minute attention window that vibe alone can't fill (this was already flagged in PLAN §3-B). We need a clear, per-session goal that a judge can name in one breath and pursue without instruction.
+
+**The pivot in one line:**
+
+> *A distant camp waits at the edge of the world. Reach it before your torch dies — alone by leapfrogging waypoint fires, or with strangers by chain-lighting torches along the way.*
+
+### 16.2 The camp
+
+- **One camp per cycle.** Deterministic position per seed, always on the outskirts of the play area. Direction reshuffles every 24 h at midnight UTC (same cycle rollover as hidden fires).
+- **Distance from spawn: ~120 m+.** This sits *beyond* the mobile fog line (fade starts at 76 m, full fog at 100 m). The camp itself is invisible from spawn — but a **tall vertical beacon** (smoke column + light shaft, tuned to poke above the fog envelope) is visible from anywhere on the map. Players walk toward the beacon; the camp resolves out of the mist in the last ~20 m.
+- **Why the fog is a feature, not a bug:** the beacon reads as *distant landmark*, the arrival reads as *revelation*. You don't see the camp until you've earned it. The tech constraint becomes atmosphere.
+- **The camp is a place, not a win screen.** More established than the central hearth — larger fire, some tents or lanterns, a subtle sense of prior habitation. Players who arrive can stay and hang out; later arrivals see them already warm. It's a *second hangout*, positioned as reward and destination in one.
+- **Fallback wayfinding:** if the vertical beacon doesn't read on mobile after real-device testing, add a compass UI arrow (mobile-only, camp-only). Compass is the safety net, not the default — it's the most game-y UI element in an otherwise atmospheric game, and we save it for if we need it.
+
+### 16.3 The route — waypoint fires
+
+A new entity class, distinct from hidden fires (§5). Where hidden fires are scattered and discovered by luck, waypoints are deterministic infrastructure on the direct line to camp.
+
+- **Two waypoint fires per cycle**, roughly at 40 m and 80 m along the direct spawn→camp line (slight jitter for terrain).
+- **Visibly unlit at cycle start.** A stone ring / bare pit on the ground, findable when close but not a beacon from distance. Players see the next waypoint only after they've reached the previous one.
+- **First pilgrim of the cycle lights them.** Every subsequent pilgrim of that cycle benefits — the waypoints stay lit for the whole 24 h. This creates **cross-time cozy co-op**: someone playing at 06:00 UTC paves the road for someone at 15:00 UTC without ever meeting them. The first arrival of the day is doing something genuinely heroic; the tenth is walking a warm trail.
+- **Waypoints act as full warmth stations while lit** — you can refill torch, thaw frost, catch your breath. They are safe spots, not just markers.
+
+### 16.4 Solo vs co-op
+
+**Solo path.** Leapfrog waypoint to waypoint. If waypoints are unlit (first pilgrim), you must light each one on arrival before continuing — this makes the *first* solo pilgrimage of the cycle the hardest possible run of the game. If waypoints are already lit (subsequent pilgrim), you just walk through the warm zones. Chain-lighting between torches is not available to a solo player, so waypoint infrastructure is mandatory.
+
+**Co-op path.** Two or more players can chain-light torches along the route (per shipped §12.2.3 rules — torch touches torch, ignition, receiver gets 20 s). This lets a pair skip waypoints entirely and go directly, or use waypoints as fallback if the relay times out. A group of 3+ can reach the camp in one go with disciplined handoffs.
+
+**Tuning target:** solo trip on lit waypoints ~3–4 min. Solo first-of-day (all waypoints cold) ~6–8 min and genuinely tense. Two-player relay ~2–3 min. This gives a clear mid-loop shape at every party size and every point in the day.
+
+### 16.5 Rewards for arrival
+
+Three rewards, only one of which is mechanical. This ratio is deliberate — mechanical rewards that trivialise the game's own challenge are anti-cozy.
+
+**16.5.1 Snowshoes (mechanical, cycle-scoped).**
+Awarded on first arrival at camp each cycle. Faster movement on snow for the rest of the cycle. Not a permanent unlock, not carried across cycles. Legible ("you're faster now"), pro-social (you can support newcomers faster, gather wood faster, help chain-light more efficiently), and doesn't invalidate the pilgrimage itself since you've already done it. If we ship one mechanical item, this is it.
+
+**16.5.2 "XXXX wuz here" sign (persistent-social).**
+A wooden sign at the camp lists everyone who has arrived that cycle, in order. The first name of the cycle gets a distinguishing mark ("First to camp — 03:42 UTC"). Persistent for the full cycle, then archived to a rolling `docs/hearthlog` (community lore layer, mirrors §12.3.1 named-fires). Zero balance impact, endless replay hook, coziest possible acknowledgement.
+
+**16.5.3 Daily arrival count (community outcome).**
+At the midnight-UTC splash (per §12.3.2), the previous cycle's arrivals are reported alongside fires-alive: *"Yesterday, Snow Drift kept 2 of 3 fires alive for 18 hours. 7 souls reached the camp."* One number, one line. Makes the community feel legible without a leaderboard.
+
+**Cut / deferred rewards.** Explicitly noted so we don't drift back into them:
+- **Long-lasting lantern** — considered, cut. Invalidates chain-lighting (the co-op verb §12.5 identifies as the game's heart). If we ever revisit, "torch with 1.5× fuel that still chain-lights" is the only shape that's safe.
+- **Voice radio to origin camp** — parked for post-v1. Voice comms, mic permissions, moderation, and the "how does this reach the central camp" plumbing are all a rabbit hole. Kept in vision as post-v1 fantasy only.
+- **Additional camps (multi-pilgrimage).** One camp for v1 to concentrate community focus. If the loop works, v1.1 can add 2–3 more camps around the perimeter for choose-your-pilgrimage variety. Do not build ahead of playtest confirmation.
+
+### 16.6 The return trip
+
+Arriving at the camp offers a **one-way "warm wind home" teleport** (or a fade-to-black cut back to the central hearth). Available at any time after arrival, no cost. The pilgrimage is the game; the return is admin. Making players walk back cold with their reward is punitive and cuts against the cozy tone.
+
+Players who *want* to stay at the camp and hang out can do so — the teleport is a button they press when ready, not automatic.
+
+### 16.7 What happens to the central fire
+
+The central fire's role narrows but does not diminish. It is now, explicitly:
+
+1. **The trailhead** — where you start, where you equip a torch, where every pilgrimage begins.
+2. **The homebody hangout** — for players who don't want to do the pilgrimage. The feed-fire loop (§4, §6) stays fully intact. Someone can log in, hang out at the central hearth, tend the flame, chat, and never leave. This is a valid and supported way to play.
+3. **The fallback warm spot** — if you turn back mid-pilgrimage, the central fire is always there, always at floor level 2 (§4).
+
+**Two audiences, both served.** Adventurers get the pilgrimage; hangout-ers get the hearth. Neither audience is subsidised at the other's expense. The warmth aura between paired players (§12.2.2) is still the game's cozy heartbeat regardless of which mode you're playing.
+
+### 16.8 What happens to hidden fires (§5)
+
+Hidden fires are **demoted from primary long-loop to secondary aspirational content**. They still exist, still reroll each cycle, still contribute warmth when lit, still get named (§12.3.1). But they are no longer the game's headline long goal — the pilgrimage is the mid-loop, and lighting all hidden fires becomes the "and there's more" community stretch for the deepest engaged players.
+
+This is *more* honest to what §12.1 already concluded: hidden fires are unfindable without wayfinding in a 128×128 field, and adding wayfinding felt wrong. Making them aspirational rather than mandatory resolves the tension. Wood-gathering still surfaces them by chance (§12.1 mechanic unchanged) — the difference is that a player who never finds one has not missed the game.
+
+### 16.9 Mobile / perf constraints locked
+
+Numbers to design against:
+- **Fog:** fade starts at 76 m, full fog at 100 m. Confirmed on default settings across devices.
+- **Camp position:** ~120 m from central hearth. Beyond the fog line by design.
+- **Beacon:** must be vertical (tall thin geometry stays visible farther than volume). Smoke column + light shaft. Height tuned so the top is visible from spawn even when the base is invisible.
+- **Waypoints:** ~40 m and ~80 m from central hearth, both inside the clear-view envelope.
+- **Compass UI:** fallback only, mobile-only, gated on real-device visibility testing.
+
+### 16.10 Open questions for next design pass
+
+Not blocking, but worth resolving before or during implementation:
+
+1. **Beacon tuning.** How tall does the smoke column / light shaft need to be to punch through 100 m fog on a mid-range Android? Requires early real-device test.
+2. **Camp visuals.** What does "more established" mean concretely — larger hearth, tents, lanterns, a totem, a partial cabin? Aesthetic pass needed. Should feel like *someone else's camp*, not just a bigger version of the central hearth.
+3. **Snowshoes visual + audio.** Do other players see them on your feet? Distinct footstep SFX? Free polish opportunity.
+4. **First-arrival recognition scope.** Does the first arrival of the cycle trigger a world-wide cue (aurora flash, distant horn) or is it purely a sign entry? Leaning sign-only for v1 to avoid spam if a cycle sees rapid solo runs, but the aurora-flash version is emotionally stronger if it can be gated correctly.
+5. **Camp fire fuel.** Does the camp fire also decay and need feeding, or is it eternal like the central fire's floor? Leaning eternal — arriving at a fire that might be out on arrival is a bad first impression.
+6. **Waypoint durability.** Do lit waypoints stay lit for the full 24 h regardless, or can they burn out? Leaning full 24 h — burnable waypoints make the cross-time co-op story (§16.3) fragile.
+7. **What if the first pilgrim never comes?** If a cycle sees zero pilgrimages until hour 20, does anything happen? Probably nothing — the game shouldn't nag. But worth naming so it's an intentional non-decision.
+
+### 16.11 Tone check
+
+This pivot is a real tonal shift: cozy hangout → cozy pilgrimage. We're moving from "sit by the fire with strangers" to "there's a place to go." That's a different audience appeal — closer to Journey or A Short Hike than to Cozy Grove.
+
+The mitigation is that the pilgrimage is *available, not mandatory*. Central hearth remains a full hangout. Warmth aura between paired players still gives the "just being here together" mechanic. Someone who wants a chill hangout still has one. Someone who wants a goal now has one.
+
+If real playtest shows the pilgrimage overshadows the hangout — if nobody's staying at the central fire anymore — that's a tuning problem to address then (make the pilgrimage longer, rarer, harder to start), not a reason to walk back the pivot.
+
