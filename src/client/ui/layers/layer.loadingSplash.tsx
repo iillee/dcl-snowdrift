@@ -23,6 +23,20 @@ import { isInitialLoadComplete, isRebuilding } from 'src/client/maze/rebuild'
 
 const SPLASH_IMAGE = 'assets/images/snowdrift.png'
 
+// Minimum time (ms) the cold-open splash stays visible from module
+// load, even if the first maze rebuild's spawn queue drains sooner.
+// Without this, fast clients (small maze / good network) can complete
+// the whole cascade in <200 ms and never perceive the splash — the
+// player watches the world assemble in front of them instead of
+// getting a clean curtain. 2 s matches the perceived duration of the
+// cycle-rollover splash so both feel like the same beat.
+const COLD_OPEN_MIN_MS = 2000
+
+// Wall-clock ms at which this module first loaded. Used to enforce
+// COLD_OPEN_MIN_MS. Captured at import time so it reflects true scene
+// start, not the first frame the splash system happens to tick.
+const coldOpenStartedAtMs = Date.now()
+
 
 // MARK: Rebuild override state
 // Absolute wall-clock ms until which the splash forces itself visible
@@ -56,6 +70,12 @@ export function showRebuildSplash(durationMs: number): void {
  */
 function isSplashActive(): boolean {
 	if (!isInitialLoadComplete()) return true
+	// Cold-open minimum: even if the first cascade drained very quickly,
+	// keep the splash up until COLD_OPEN_MIN_MS has elapsed since module
+	// load. Guarantees every player sees the splash regardless of client
+	// speed — playtest 2026-08-28 surfaced fast clients that skipped it
+	// entirely and watched the maze assemble live, which was disorienting.
+	if (Date.now() - coldOpenStartedAtMs < COLD_OPEN_MIN_MS) return true
 	if (Date.now() < rebuildOverrideUntilMs) return true
 	// Once the override window has opened at least once (i.e. we're
 	// past cold-open and a rebuild has been requested), keep the
