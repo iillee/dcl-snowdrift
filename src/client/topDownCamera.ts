@@ -66,10 +66,14 @@ const FOLLOW_RATE = 5.0
 // sub-millimeter jitter from continuous exponential lerp.
 const FOLLOW_SNAP_EPSILON = 0.05
 
-// How far outside the scene bounds the camera is allowed to pan. Small
-// negative overpan lets players frame edge content without the void
-// filling half the screen. Positive would prevent seeing the edges.
-const PAN_BOUNDS_MARGIN = 4
+// How far outside the scene bounds the camera *focus point* is allowed
+// to sit. Scaled with altitude so at high zoom the player can still
+// centre the edge of the scene on screen — otherwise a fixed small
+// margin means edge cells are always stuck against the viewport border
+// when zoomed out. Baseline value applies at 30 m; grows linearly so
+// at 75 m altitude margin is ~10 m, letting the focus point sit clearly
+// outside the map to frame corner content.
+const PAN_BOUNDS_MARGIN_BASE = 4
 
 // Mobile d-pad pan speed (world m/s). Scaled with altitude so the
 // on-screen pan feel (screens/s) stays constant across zoom levels.
@@ -86,8 +90,11 @@ const DRAG_START_THRESHOLD_PX = 3
 // worldPerPx = visibleHeight / screenHeight. At altitude 30m with a
 // ~60° vertical FOV and a 1080-tall canvas: 34.6 / 1080 ≈ 0.032 m/px.
 // Kept as a single constant instead of deriving from FOV (which the
-// SDK doesn't expose reliably) — tune by feel.
-const DRAG_M_PER_PX = 0.025
+// SDK doesn't expose reliably) — tune by feel. Calibrated at 30 m
+// altitude; scaled by (currentAltitude / 30) at call time so drag
+// feel (screens/s) stays constant across zoom levels, matching the
+// d-pad speed model.
+const DRAG_M_PER_PX_BASE = 0.025
 
 
 // MARK: Module state
@@ -219,10 +226,11 @@ function updateCamera(dt: number): void {
 // MARK: clampToBounds
 /** Keep the camera focus inside the scene, with a small overpan margin. */
 function clampToBounds(): void {
-	const minX = -PAN_BOUNDS_MARGIN
-	const maxX = SCENE_WORLD_SIZE_X_METERS + PAN_BOUNDS_MARGIN
-	const minZ = -PAN_BOUNDS_MARGIN
-	const maxZ = SCENE_WORLD_SIZE_Z_METERS + PAN_BOUNDS_MARGIN
+	const margin = PAN_BOUNDS_MARGIN_BASE * (currentAltitude / 30)
+	const minX = -margin
+	const maxX = SCENE_WORLD_SIZE_X_METERS + margin
+	const minZ = -margin
+	const maxZ = SCENE_WORLD_SIZE_Z_METERS + margin
 	if (targetPos.x < minX) targetPos.x = minX
 	if (targetPos.x > maxX) targetPos.x = maxX
 	if (targetPos.z < minZ) targetPos.z = minZ
@@ -304,8 +312,11 @@ export function applyPanDelta(dxPx: number, dyPx: number): void {
 	// Signs empirically corrected after playtest (initial derivation of
 	// screen-top=+X was wrong — see the matching note in the d-pad
 	// axis map in layer.topDownPan.tsx).
-	targetPos.x +=  dyPx * DRAG_M_PER_PX
-	targetPos.z += -dxPx * DRAG_M_PER_PX
+	// Altitude scaling: pixel-to-world ratio grows linearly with camera
+	// height so one screen of drag always covers ~one screen of world.
+	const mPerPx = DRAG_M_PER_PX_BASE * (currentAltitude / 30)
+	targetPos.x +=  dyPx * mPerPx
+	targetPos.z += -dxPx * mPerPx
 }
 
 

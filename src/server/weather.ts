@@ -37,6 +37,13 @@ const CHANGE_INTERVAL_MAX_S = 75
 // jumping to a fully random level. Higher = smoother weather arcs.
 const STEP_TRANSITION_P = 0.75
 
+// Probability that a ±1 step goes DOWN (toward CLEAR) rather than up.
+// > 0.5 biases the equilibrium toward calmer weather so players get
+// sustained clear-sky windows to build without snow re-burying work.
+// At 0.65, combined with the 25 % random-jump path, CLEAR sits around
+// ~50 % of the time and HEAVY drops to ~8 %.
+const STEP_DOWN_P = 0.65
+
 
 // MARK: State
 let currentLevel      = INITIAL_LEVEL
@@ -56,7 +63,7 @@ function pickNextLevel(): number {
 		// stays in-range.
 		if (currentLevel === MIN_LEVEL) return currentLevel + 1
 		if (currentLevel === MAX_LEVEL) return currentLevel - 1
-		return currentLevel + (Math.random() < 0.5 ? -1 : 1)
+		return currentLevel + (Math.random() < STEP_DOWN_P ? -1 : 1)
 	}
 	// Full-random jump excluding the current level.
 	let next = Math.floor(Math.random() * (MAX_LEVEL - MIN_LEVEL))

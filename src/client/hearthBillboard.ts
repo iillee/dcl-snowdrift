@@ -54,10 +54,13 @@ const MAX_BURST_SFX        = 'assets/sounds/pop.mp3'
 
 // MARK: Colours
 const COL_BORDER     = Color4.create(1, 1, 1, 1)
-const COL_BACKDROP   = Color4.create(0, 0, 0, 0.75)
+const COL_BACKDROP   = Color4.create(1, 1, 1, 1)
 const COL_FILL       = Color4.create(1.00, 0.80, 0.30, 1.00)
 const COL_FLASH      = Color4.create(1.00, 1.00, 0.95, 1.00)
-const COL_TICK       = Color4.create(1, 1, 1, 0.55)
+// Ticks are OPAQUE on purpose — an earlier alpha-blend version
+// z-fought against the opaque fill plane at close range, making
+// individual ticks disappear under billboard rotation.
+const COL_TICK       = Color4.create(1, 1, 1, 1)
 const COL_MULT_TEXT  = Color4.create(1, 1, 1, 1)
 const COL_MULT_STROKE = Color4.create(0, 0, 0, 1)
 
@@ -141,7 +144,10 @@ export function spawnHearthBillboard(
 		castShadows      : false,
 	})
 
-	// Dark backdrop just in front of the border.
+	// White backdrop behind the fill — the unfilled portion reads as a
+	// bright panel that pops against the snowy environment, while the
+	// yellow fill and black ticks/border stack on top for a high-contrast
+	// gauge look.
 	const backdrop = engine.addEntity()
 	Transform.create(backdrop, {
 		parent  : root,
@@ -151,7 +157,7 @@ export function spawnHearthBillboard(
 	MeshRenderer.setPlane(backdrop)
 	Material.setPbrMaterial(backdrop, {
 		albedoColor      : COL_BACKDROP,
-		transparencyMode : MaterialTransparencyMode.MTM_ALPHA_BLEND,
+		transparencyMode : MaterialTransparencyMode.MTM_OPAQUE,
 		castShadows      : false,
 	})
 
@@ -181,13 +187,16 @@ export function spawnHearthBillboard(
 		const tick = engine.addEntity()
 		Transform.create(tick, {
 			parent  : root,
-			position: Vector3.create(0, -BAR_HEIGHT / 2 + BAR_HEIGHT * frac, -0.020),
+			// z = -0.050 keeps a comfortable 4 cm gap in front of the fill
+			// plane (fill sits at z ≈ -0.010). Prior value of -0.020 was
+			// only 1 cm and z-fought under billboard rotation.
+			position: Vector3.create(0, -BAR_HEIGHT / 2 + BAR_HEIGHT * frac, -0.050),
 			scale   : Vector3.create(TICK_WIDTH, TICK_HEIGHT, 1),
 		})
 		MeshRenderer.setPlane(tick)
 		Material.setPbrMaterial(tick, {
 			albedoColor      : COL_TICK,
-			transparencyMode : MaterialTransparencyMode.MTM_ALPHA_BLEND,
+			transparencyMode : MaterialTransparencyMode.MTM_OPAQUE,
 			castShadows      : false,
 		})
 	}
