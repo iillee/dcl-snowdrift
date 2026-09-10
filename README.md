@@ -40,6 +40,7 @@ The existing implementation (torch, snow melt, wood pickup, hearth feed, chain-l
 - World reset on next-player-return after fire death.
 - **Day 10 territory unlock** — NE satellite pit thaws.
 - **Day 30 tool unlock** — torch fuel duration +30%.
+- **Block redesign + level visual development** — art pass on hearth, torch, wood, and satellite pit dressing plus environment-layout tuning, lifting the world from greybox to a cohesive winter-survival look.
 - Discord integration for equinox announcements, milestones, and world-reset notices.
 
 Cut from v1 to keep the loop tight (returning in v1.5): lore/story fragments, named survivor plaques, Day 20+/Day 75+/Day 100 unlocks. The v2 aspiration is the *melt* win-condition — the community activates ancient tech, the planet's orbit corrects, snow melts, grass returns.

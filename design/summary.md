@@ -48,6 +48,7 @@ The emergent behavior we're designing for: **players naturally forming shifts**.
 - World reset triggered by the next player to return after the fire dies with the server empty.
 - **One territory unlock at Day 10** — a satellite pit NE of the hearth thaws, opening new ground for wood.
 - **One tool unlock at Day 30** — torch fuel duration +30%.
+- **Block redesign + level visual development** — an art pass on the core props (hearth, torch, wood, satellite pit) and an environment-layout tuning pass, lifting the world from greybox to a cohesive winter-survival look.
 - Discord integration for equinox announcements, milestone posts, and world-reset notices.
 
 Live at `snowdrift.dcl.eth` by Week 6.

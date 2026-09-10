@@ -24,7 +24,7 @@
 
 **Current status.** Playable core loop in SDK7, live at `snowdrift.dcl.eth`. The current build (v0 baseline) implements the verbs — torch, hearth, wood-gathering by melting snow, frost-death, torch chain-lighting, weather, day/night cycle. The v1 delivery pivots this from cozy hangout to survival-quota with scheduled equinox events, persistent world day-count, and progressive community unlocks (territory + tools + lore).
 
-**At end of v1 (Week 6).** Live in `snowdrift.dcl.eth` with: the full quota-per-night survival loop, two scheduled equinox events daily on real-world timestamps, world day-count persistence with reset-on-fire-death, first three community unlocks (Day 5 lore fragment, Day 10 territory, Day 30 torch upgrade), Discord integration announcing equinoxes and record milestones, and a public repo.
+**At end of v1 (Week 6).** Live in `snowdrift.dcl.eth` with: the full quota-per-night survival loop, two scheduled equinox events daily on real-world timestamps, world day-count persistence with reset-on-fire-death, first three community unlocks (Day 5 lore fragment, Day 10 territory, Day 30 torch upgrade), a **level visual redesign** (block/prop art pass + environment layout iteration) that lifts the world from greybox baseline to a cohesive winter-survival look, Discord integration announcing equinoxes and record milestones, and a public repo.
 
 **Playable link.** `https://play.decentraland.org/?realm=snowdrift.dcl.eth`
 
@@ -307,7 +307,7 @@ The sky is always wrong. The sun sits low and blue-white on the horizon at all h
 | **Week 1** | Foundation swap. Fuel floor cut; empty-server run-reset installed. Day/night phase clock replaces the cycle reroll. Frost tuning driven by phase cold-multiplier. Basic quota bar HUD. Ship existing paint-sync Option A safety net (already on `paint-sync-safety` branch) — no new Option B work in v1. |
 | **Week 2** | **Functional core-loop test version** — program-required playtest bar. Nightly wood quota with roster scaling. Dawn/dusk transitions. First equinox event (scheduled heavy weather + max cold multiplier). Playtest with 3+ testers targeting `H1-07` (solo achievability). **Tune, tune, tune until it's fun.** |
 | **Week 3** | Persistence + first unlocks. World day-count + high-score record. World-reset on next-player-return after fire death. Day 10 territory unlock (NE satellite pit — proves the ladder). Day 30 torch upgrade (proves the tool axis). |
-| **Week 4** | Polish + playtest. Discord integration hooks (equinox announce + milestone posts + reset announce). Mobile perf pass on owner's device + one mid-tier reference. Second playtest with 3–5 testers. Bug-and-feel pass. |
+| **Week 4** | Polish + playtest + **level visual pass**. Block/prop redesign (hearth, torch, wood, satellite pit dressing) and environment layout tuning to raise the world from greybox to a cohesive winter-survival look. Discord integration hooks (equinox announce + milestone posts + reset announce). Mobile perf pass on owner's device + one mid-tier reference. Second playtest with 3–5 testers. Bug-and-feel pass. |
 
 ### Weeks 5–6 (live-launch)
 
@@ -355,10 +355,11 @@ Per-item estimates, honestly padded:
 | Day 10 territory unlock (repurposes hidden-campfire infra) | 4–6 |
 | Day 30 torch upgrade | 3–5 |
 | Discord integration hooks | 3–5 |
+| Block redesign + level visual development (art pass, layout tuning) | 8–12 |
 | Polish, playtest, tune-for-fun, mobile perf pass | 15–20 |
-| **Total** | **57–85** |
+| **Total** | **65–97** |
 
-Fits inside the 60–80 build budget with a small overflow band. **The polish + playtest line is deliberately generous** — owner directive: *make sure it is fun first*.
+Runs slightly over the 60–80 build budget with the added level-visual line — the overflow is absorbed by the generous polish + playtest band, which folds art iteration and feel tuning into the same block. **Owner directive: make sure it is fun first, and make sure it looks like the world it's meant to be.**
 
 ---
 
