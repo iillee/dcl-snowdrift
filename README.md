@@ -2,9 +2,9 @@
 
 A shared-world winter survival game for Decentraland.
 
-> **Melt the snow to find wood. Feed the fire to survive the night. Twice a real day the equinox tests whether "together" was enough.**
+> **Hold the light against the storm.**
 
-One frozen planet, one central hearth, one shared clock. Every player who logs in is in the same world on the same in-game day. Keep the fire fed and the day-count climbs. Let it die with no one around to save it, and the next player to arrive spawns into a fresh Day 1 — with a splash telling them which day the world was lost on.
+Snow Drift is a co-op survival scene where fires create islands of warmth in a hostile snowscape. Days are for gathering wood and expanding the network of lit fires. Nights are for defending them — the storm pushes back, snow reclaims territory, fuel drains faster. Occasionally a **solstice** arrives: the longest, coldest night of the year. Only the best-tended fires survive it.
 
 **Deploy target:** [`snowdrift.dcl.eth`](https://play.decentraland.org/?realm=snowdrift.dcl.eth) (Decentraland World)
 **Runtime:** SDK7 (`@dcl/sdk` 7.26.x, pinned exact) with authoritative headless server
@@ -12,42 +12,63 @@ One frozen planet, one central hearth, one shared clock. Every player who logs i
 
 ---
 
-## The pivot
+## Design status
 
-Snow Drift began as a cozy hangout with a 24-hour world reset. The design has since pivoted to a **shared-time survival game** with tidal progression, a persistent world day-count, and a scheduled storm event (the *equinox*) twice per real day. Design work lives in [`design/`](design/):
+Snow Drift began as a cozy hangout, pivoted to a survival-quota loop, and is now consolidating around **man-vs-storm territory defense**. Two big design decisions are open and get resolved via prototype during the 4-week v1 build:
 
+- **Retention model** — roguelike run vs. persistent-world calendar (decided end of Week 1 prototype in Week 2)
+- **Defense mechanic** — single-hearth quota vs. multi-fire territory (decided end of Week 2 prototype)
+
+Design work lives in [`design/`](design/) and [`docs/`](docs/):
+
+- [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md) — the current 4-week execution plan (source of truth)
 - [`design/gdd.md`](design/gdd.md) — full GDD (submission-ready)
-- [`design/summary.md`](design/summary.md) — 5-minute plain-English review
+- [`design/summary.md`](design/summary.md) — plain-English overview
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions
-- [`design/hypothesis-log.md`](design/hypothesis-log.md) — hypotheses parked for playtest
+- [`docs/survival-pivot-plan.md`](docs/survival-pivot-plan.md) — earlier pivot design (partially superseded by v1-4week-plan)
 
-The existing implementation (torch, snow melt, wood pickup, hearth feed, chain-lighting, authoritative server, mobile perf) is the foundation the survival loop is being built on top of.
+The existing implementation (torch, snow melt, wood pickup, hearth feed, chain-lighting, authoritative server, mobile perf, weather, day/night cycle infrastructure, paint-CRDT) is the foundation the survival loop is being built on top of.
 
 ## How it plays (v1 target)
 
-- Spawn cold at a lit central hearth. HUD shows day counter, countdown to next night, shared wood quota.
+- Spawn near a lit fire. HUD shows day + season + a countdown to nightfall.
 - Grab a torch. Its warmth melts snow beneath you as you walk, revealing buried wood.
-- Bring wood back to the fire. Quota bar ticks. Fire brightens.
-- Night falls, cold accelerates, everyone huddles and feeds the flame until dawn.
-- Twice per real 24 h at fixed UTC times (target 08:00 / 20:00), the **equinox** storm hits — longer, colder, harder. Survive it and the world enters a short grace period.
-- Fire dies with no one around → world sits dead until the next player logs in and triggers a Day 1 reset.
+- Explore. Discover other fires on the map; light them to expand your safe territory. (Territory-defense mechanic pending Week 2 prototype decision.)
+- Bring wood back to any lit fire. Each fire drains fuel independently and must be tended.
+- Night falls, cold accelerates, players huddle at fires to keep them alive until dawn.
+- Seasons progress. Winter deepens. Nights get longer, snow gets heavier, cold gets sharper — leading up to the **winter solstice**: the longest and hardest night.
+- Survive the solstice with any fire still lit → the recovery seasons begin (thaw, spring). Fail with all fires dead and no one around → the world resets. That reset is a story ("winter reclaimed the village"), not a game-over screen.
+
+## Design pillars
+
+- **Man vs. storm, not man vs. mob.** No combat in v1. The enemy is cold and snow.
+- **Fire = safety, distance = stakes.** Emotional center is huddling around light together.
+- **Multiplayer scales the design, doesn't gate it.** Solo is barely-viable; groups thrive.
+- **Failure is a story, not a game-over screen.** Resets are events in the world's history.
+- **Players help fires, not hurt them.** No extinguish action, no fuel drain — no grief vectors by construction.
 
 ## What's shipping in v1 (4 weeks)
 
-- Full survival quota loop (gather → feed → survive → day++).
-- Two scheduled equinox events per real day.
-- Persistent world day-count and all-time high score, both visible on the hearth.
-- World reset on next-player-return after fire death.
-- **Day 10 territory unlock** — NE satellite pit thaws.
-- **Day 30 tool unlock** — torch fuel duration +30%.
-- **Block redesign + level visual development** — art pass on hearth, torch, wood, and satellite pit dressing plus environment-layout tuning, lifting the world from greybox to a cohesive winter-survival look.
-- Discord integration for equinox announcements, milestones, and world-reset notices.
+- Full day/night phase clock with server-time authority
+- Seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring)
+- Sleeping-ember failure model (60 s relight grace at fuel-out)
+- Empty-server run/world reset when all fires dead + roster empty
+- Whichever defense mechanic wins the Week 2 prototype:
+  - *Single-hearth branch:* wood quota bar + dusk-snapshot penalty
+  - *Territory branch:* multi-fire territory with off-territory hostility + fire archetypes (warmth + grove)
+- Winter solstice event with warning phase, whiteout weather, and post-solstice recovery arc
+- Block redesign + environment-layout tuning (art pass toward a cohesive winter-survival look)
+- Multiplayer playtest with 3+ players during Week 3
 
-Cut from v1 to keep the loop tight (returning in v1.5): lore/story fragments, named survivor plaques, Day 20+/Day 75+/Day 100 unlocks. The v2 aspiration is the *melt* win-condition — the community activates ancient tech, the planet's orbit corrects, snow melts, grass returns.
+Meta-progression across cycles (some carry-forward on a "territory held" success tier) is **direction-locked but form-deferred** — will be scoped in Week 4 or land in v1.1.
+
+## Non-goals (v1)
+
+No combat / mobs, no leaderboards, no permadeath, no tool tiers, no personal gear, no NPCs, no wallet-gated content, no trailer work until Week 4.
 
 ## Status
 
-Vertical slice playable. Cozy-hangout loop (torch → melt → wood → feed → warmth) closed end-to-end. Chain-lighting between players shipped. Authoritative server, mobile perf, and 24 h regeneration all live. Survival pivot in progress — see [`docs/survival-pivot-plan.md`](docs/survival-pivot-plan.md) and [`docs/PLAN.md`](docs/PLAN.md).
+Vertical slice playable. Cozy-hangout loop (torch → melt → wood → feed → warmth) closed end-to-end. Chain-lighting between players shipped. Authoritative server, mobile perf, and 24 h regeneration all live. Survival pivot in progress against the plan in [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md).
 
 ## Running locally
 
@@ -73,7 +94,7 @@ src/
   server/    # authoritative state, roster, spawners, cycle, weather
   shared/    # components, messages, pure logic shared by both
 assets/      # models, images, audio, source files
-design/      # GDD, summary, decisions, hypotheses (design pivot)
+design/      # GDD, summary, decisions, hypotheses
 docs/        # plan, vision, bug reports, handoffs, archived design
 ```
 

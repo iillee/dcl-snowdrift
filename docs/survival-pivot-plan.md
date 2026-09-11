@@ -1,14 +1,14 @@
 # Snow Drift — Survival Pivot Plan
 
 **Author:** opendcl session with ile, 2026-09-09
-**Status:** design + implementation plan, pre-code
+**Status:** ⚠️ **PARTIALLY SUPERSEDED** by [`docs/v1-4week-plan.md`](v1-4week-plan.md) (2026-09-11). This doc's *design goals, pillars, and system-repurposing table (§1–4)* remain valid as background. The *4-week schedule, retention model (scheduled solstice every 12 h), and single-hearth assumption* have been replaced — v1 now treats retention and defense mechanic as open decisions resolved by prototype in Weeks 1–2. See `v1-4week-plan.md` §3 for the new decision gates.
 **Context:** Snow Drift is being repurposed from the cozy multiplayer hangout described in `docs/gameloop-vision.md` into a harsher, quota-driven survival experience for a **Creator Success Program** submission (not the game jam). The cozy vision doc is now superseded by this one.
 
 ---
 
 ## 1. New design in one paragraph
 
-*Snow Drift is a shared-world winter survival game with a wood quota loop. Each in-game day, players gather wood and bank it at the central hearth to survive the coming night. Nights get progressively colder and longer as the winter equinox approaches. The equinox is a boss-storm event — the hardest night to survive. Two equinoxes fire every real 24 hours (roughly 12 h apart), giving two scheduled "everyone log in" moments per day. If a group survives an equinox, the game enters a grace period, then ramps back up toward the next one. If the central fire ever goes out with nobody tending it, the run resets from scratch. Solo is possible; multiplayer is better — quota scales with roster size.*
+*Snow Drift is a shared-world winter survival game with a wood quota loop. Each in-game day, players gather wood and bank it at the central hearth to survive the coming night. Nights get progressively colder and longer as the winter solstice approaches. The solstice is a boss-storm event — the hardest night to survive. Two solsticees fire every real 24 hours (roughly 12 h apart), giving two scheduled "everyone log in" moments per day. If a group survives an solstice, the game enters a grace period, then ramps back up toward the next one. If the central fire ever goes out with nobody tending it, the run resets from scratch. Solo is possible; multiplayer is better — quota scales with roster size.*
 
 ---
 
@@ -18,9 +18,9 @@
 - **Multiplayer-first, solo-viable.** Quota scales with roster; solo is barely-survivable, groups thrive.
 - **Two nested loops.**
   - **Micro (per day, minutes):** gather wood → bank at hearth → survive the night.
-  - **Macro (per ~12h real-time):** days escalate toward equinox → equinox event → grace period → repeat.
+  - **Macro (per ~12h real-time):** days escalate toward solstice → solstice event → grace period → repeat.
 - **Failure is meaningful but not brick-the-session.** Death respawns you; but if the *hearth* dies with the server empty, the run resets.
-- **Scheduled retention beat.** Two equinoxes per real 24 h. Players know when to log in.
+- **Scheduled retention beat.** Two solsticees per real 24 h. Players know when to log in.
 - **Server-authoritative persistence.** Stockpile + hearth persist across sessions as long as someone (or the fire) is still there.
 
 ---
@@ -34,9 +34,9 @@
    - "Sleeping ember" state — fire visually out, can be relit for ~60 s before reset. Playtest-kind.
    Leaning toward ember.
 4. **Empty-server grace period.** How long can the server sit empty before the run resets? 5 min? Instant on fire-death only?
-5. **Failure carry-over.** Does anything persist across a reset? Day-count high score? Best equinox survived? Nothing?
-6. **Equinox warning window.** How much lead-time before the storm hits (siren, sky change)? 2 min? 5?
-7. **Grace period length.** After surviving an equinox, how many easy days before the ramp restarts?
+5. **Failure carry-over.** Does anything persist across a reset? Day-count high score? Best solstice survived? Nothing?
+6. **Solstice warning window.** How much lead-time before the storm hits (siren, sky change)? 2 min? 5?
+7. **Grace period length.** After surviving an solstice, how many easy days before the ramp restarts?
 8. **Hidden campfires.** Cut, keep as warmth waypoints for wood runs, or repurpose? (Deferred.)
 9. **Scene size.** 32×32 parcels may be too big for a survival arena. Revisit if wood-run pacing is off.
 10. **Torch chain / warmth aura.** Keep — reads well as co-op survival. No changes planned.
@@ -59,19 +59,19 @@
 
 | System | Change |
 |---|---|
-| `server/cycle.ts` | Repurpose from "24 h cozy reroll" to authoritative day/night/equinox phase clock. Keep the `onCycleRoll` subscriber pattern — becomes `onPhaseChange`. |
-| `server/hearthFuel.ts` + `shared/hearthFuel.ts` | Drop or gate `FUEL_MAIN_FLOOR`. Fire must be able to die. Add phase-driven decay multiplier so night drains faster than day, equinox drains hardest. |
-| `server/weather.ts` | Stop being random. Bind weather to phase: DAY = LIGHT, NIGHT = MEDIUM, EQUINOX = HEAVY (whiteout). Keep the `weatherRequest` handler dev-flagged. |
-| `shared/frost/tuning.ts` | Add phase-driven cold multiplier. Baseline freeze time shortens at night, shortens further during equinox. |
-| Snow depth & melt tuning (`paint.ts` regrowth cadence + `FROST_TIME_SNOW_STAGE_S`) | Tune harsher. Deep snow should be a real threat at night, near-lethal during equinox. Regrowth accelerates when the sun's down. |
+| `server/cycle.ts` | Repurpose from "24 h cozy reroll" to authoritative day/night/solstice phase clock. Keep the `onCycleRoll` subscriber pattern — becomes `onPhaseChange`. |
+| `server/hearthFuel.ts` + `shared/hearthFuel.ts` | Drop or gate `FUEL_MAIN_FLOOR`. Fire must be able to die. Add phase-driven decay multiplier so night drains faster than day, solstice drains hardest. |
+| `server/weather.ts` | Stop being random. Bind weather to phase: DAY = LIGHT, NIGHT = MEDIUM, SOLSTICE = HEAVY (whiteout). Keep the `weatherRequest` handler dev-flagged. |
+| `shared/frost/tuning.ts` | Add phase-driven cold multiplier. Baseline freeze time shortens at night, shortens further during solstice. |
+| Snow depth & melt tuning (`paint.ts` regrowth cadence + `FROST_TIME_SNOW_STAGE_S`) | Tune harsher. Deep snow should be a real threat at night, near-lethal during solstice. Regrowth accelerates when the sun's down. |
 | `client/ui/layers/layer.frostBar.tsx` | Add a "Night in X:XX" pill and a wood-quota bar alongside the existing frost meter. |
 
 ### Cut or defer
 
 | System | Rationale |
 |---|---|
-| Cozy 24 h reroll behavior (world seed regen, splash, teleport) | Replaced by the new phase loop. Splash/teleport UX can be reused for equinox arrival. |
-| `client/ui/layers/layer.loadingSplash.tsx` (rebuild-triggered path) | Repurpose for equinox onset instead of world reroll. |
+| Cozy 24 h reroll behavior (world seed regen, splash, teleport) | Replaced by the new phase loop. Splash/teleport UX can be reused for solstice arrival. |
+| `client/ui/layers/layer.loadingSplash.tsx` (rebuild-triggered path) | Repurpose for solstice onset instead of world reroll. |
 | Hidden campfires (`server/hiddenCampfire.ts`, `client/hiddenCampfire.ts`) | Deferred. Not in the way of pivot; will decide keep-vs-cut once the base loop is in. |
 | Torch island quest (from cozy vision doc §3) | Cut. Onboarding is now "the fire is dying, get wood." |
 | Named fires + community hearth log (cozy vision §12.3.1) | Deferred. Nice to have, not core. |
@@ -83,9 +83,9 @@
 ```
 server/phase.ts           NEW — replaces the reroll half of cycle.ts
   ├─ dayNumber                     // increments each dawn
-  ├─ phase: 'DAY' | 'DUSK' | 'NIGHT' | 'EQUINOX_WARN' | 'EQUINOX' | 'GRACE'
+  ├─ phase: 'DAY' | 'DUSK' | 'NIGHT' | 'SOLSTICE_WARN' | 'SOLSTICE' | 'GRACE'
   ├─ phaseStartedAt / phaseDurationS
-  ├─ coldMultiplier                // 1.0 baseline; scales with dayNumber, spikes at equinox
+  ├─ coldMultiplier                // 1.0 baseline; scales with dayNumber, spikes at solstice
   ├─ onPhaseChange subscribers     // weather, hearthFuel, frost tuning, HUD
   └─ evaluateSurvival()            // called at dawn: was the hearth alive all night?
 
@@ -128,8 +128,8 @@ Ordered by leverage (smallest, most reversible first). Do NOT batch — each ste
 
 ### Step 2 — Introduce the phase clock
 - Repurpose `server/cycle.ts` → `server/phase.ts`.
-- Phases: DAY / DUSK / NIGHT / EQUINOX_WARN / EQUINOX / GRACE.
-- Start with dumb values: 5 min day, 1 min dusk, 3 min night. Equinox fires every 12 real hours; grace lasts 2 in-game days after survival.
+- Phases: DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE.
+- Start with dumb values: 5 min day, 1 min dusk, 3 min night. Solstice fires every 12 real hours; grace lasts 2 in-game days after survival.
 - Bind weather + skybox + `FROST_TIME_BASELINE_S` to `coldMultiplier`.
 - HUD "Night in X:XX" pill.
 - **Effect:** world has a rhythm. Cold gets worse at night. Weather stops being random.
@@ -145,15 +145,15 @@ Ordered by leverage (smallest, most reversible first). Do NOT batch — each ste
 - Faster regrowth when phase != DAY.
 - Higher max snow stage or steeper stage transitions if playtest shows it's too soft.
 
-### Step 5 — Equinox event
-- `EQUINOX_WARN` phase: siren audio, sky darkens, 2 min countdown HUD.
-- `EQUINOX` phase: HEAVY weather locked, `coldMultiplier` peaks, night duration doubled.
+### Step 5 — Solstice event
+- `SOLSTICE_WARN` phase: siren audio, sky darkens, 2 min countdown HUD.
+- `SOLSTICE` phase: HEAVY weather locked, `coldMultiplier` peaks, night duration doubled.
 - Survive it (hearth alive at end) → `GRACE` phase for 1–2 in-game days.
-- Failure = `runReset('equinox_failed')`.
+- Failure = `runReset('solstice_failed')`.
 
 ### Step 6 — Persistence + polish
-- Day count / best equinox survived (if we want any progression).
-- Equinox arrival cinematic (reuse loading splash pattern).
+- Day count / best solstice survived (if we want any progression).
+- Solstice arrival cinematic (reuse loading splash pattern).
 - Onboarding: first-30-seconds prompts (torch → wood → hearth).
 
 ---
@@ -180,7 +180,7 @@ Ordered by leverage (smallest, most reversible first). Do NOT batch — each ste
 
 1. A solo player can survive day 1 comfortably and starts to sweat by day 3.
 2. A pair of players can survive further than a solo player, and the reason is legible ("we split up to gather").
-3. The first equinox is memorable — either a triumph or a wipe. Both are acceptable outcomes.
+3. The first solstice is memorable — either a triumph or a wipe. Both are acceptable outcomes.
 4. When the hearth dies with the server empty, the reset feels earned, not arbitrary.
 5. Mobile performance holds through a full day/night cycle.
 

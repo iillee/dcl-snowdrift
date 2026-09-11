@@ -1,5 +1,5 @@
-*Work in progress · grown from `gdd-template.md`*
-*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · owner sign-off pending on §7 wording + §8 comparables cells*
+*Work in progress · revised 2026-09-11 against `docs/v1-4week-plan.md`*
+*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · two open design decisions gated by Week 1–2 prototypes (see §0.1)*
 
 # Snow Drift
 
@@ -18,17 +18,34 @@
 
 **Snow Drift** is a shared-world winter survival scene for Decentraland.
 
-> *Melt the snow to find wood. Feed the fire to survive the night. Twice a real day the equinox tests whether "together" was enough.*
+> *Hold the light against the storm.*
 
-**Primary player.** Players who already enjoy cozy-toned co-op survival games (Don't Starve Together, The Long Dark, Valheim's early-game loop), arriving alone or in a small group of 2–3 from an Event, a Discord community, or a friend invite — looking for a persistent shared-world game with scheduled reasons to log in and a community record to push.
+**Primary player.** Players who enjoy cozy-toned co-op survival games (Don't Starve Together, The Long Dark, Valheim's early-game loop), arriving alone or in a small group of 2–3 from an Event, a Discord community, or a friend invite — looking for a persistent shared-world game with escalating stakes and a community-scale run to push.
 
-**Current status.** Playable core loop in SDK7, live at `snowdrift.dcl.eth`. The current build (v0 baseline) implements the verbs — torch, hearth, wood-gathering by melting snow, frost-death, torch chain-lighting, weather, day/night cycle. The v1 delivery pivots this from cozy hangout to survival-quota with scheduled equinox events, persistent world day-count, and progressive community unlocks (territory + tools + lore).
+**Current status.** Playable core loop in SDK7, live at `snowdrift.dcl.eth`. The current build (v0 baseline) implements the verbs — torch, hearth, wood-gathering by melting snow, frost-death, torch chain-lighting, weather, day/night cycle. The v1 delivery pivots this from cozy hangout to **man-vs-storm territory defense**: seasons progress, cold deepens, and a winter solstice event tests whether the fires have been tended well enough to survive.
 
-**At end of v1 (Week 6).** Live in `snowdrift.dcl.eth` with: the full quota-per-night survival loop, two scheduled equinox events daily on real-world timestamps, world day-count persistence with reset-on-fire-death, first three community unlocks (Day 5 lore fragment, Day 10 territory, Day 30 torch upgrade), a **level visual redesign** (block/prop art pass + environment layout iteration) that lifts the world from greybox baseline to a cohesive winter-survival look, Discord integration announcing equinoxes and record milestones, and a public repo.
+**At end of v1 (Week 4).** Live at `snowdrift.dcl.eth` with: a day/night phase clock, a full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), the sleeping-ember failure model, empty-server world reset, the winner of the Week 2 defense-mechanic prototype (single-hearth quota OR multi-fire territory with 2 fire archetypes), a winter solstice event with warning + whiteout + recovery arc, a **level visual redesign** (block/prop art pass + environment-layout iteration) that lifts the world from greybox to a cohesive winter-survival look, and a first multiplayer playtest during Week 3.
 
 **Playable link.** `https://play.decentraland.org/?realm=snowdrift.dcl.eth`
 
-> **⚠️ Reviewer note on the playable link:** this URL currently serves the **v0 baseline** — the pre-pivot *cozy* multiplayer hangout described in `docs/gameloop-vision.md`. The **v1 build described in this GDD** is a design pivot that redeploys to the same URL at Week 6. What you see today proves the *verbs* (torch, hearth, wood, frost death, weather, torch-chain, day/night, mobile playability); the *survival-quota loop, scheduled equinoxes, day-count persistence, and progressive unlocks* are the v1 delivery.
+> **⚠️ Reviewer note on the playable link:** this URL currently serves the **v0 baseline** — the pre-pivot *cozy* multiplayer hangout described in `docs/gameloop-vision.md`. The **v1 build described in this GDD** redeploys to the same URL at Week 4. What you see today proves the *verbs* (torch, hearth, wood, frost death, weather, torch-chain, day/night, mobile playability); the *seasonal cycle, solstice event, sleeping-ember failure model, and defense mechanic* are the v1 delivery.
+
+---
+
+## 0.1 Open design decisions (resolved by prototype)
+
+Two load-bearing design decisions are deliberately open at start of v1 and get locked via prototype in Weeks 1–2. This GDD describes v1 in terms that work for either resolution; specific mechanics diverge in §9's weekly milestones.
+
+**Decision A — Retention model (locked mid-Week 2):**
+- *Roguelike run:* the run is the unit of play; `dayNumber` and `season` reset on failure; strong pitch hook ("how deep can your village go?").
+- *Persistent-world calendar:* the world has its own calendar that ticks even when empty; visitors drop in and check the season; DCL-native worldbuilding, softer retention hook.
+
+**Decision B — Defense mechanic (locked end of Week 2):**
+- *Single-hearth quota:* one central fire, banked-wood quota per night, dusk-snapshot penalty; simpler, shorter design surface.
+- *Multi-fire territory:* a network of fires with individual tending, off-territory hostility, fire archetypes (warmth + grove) that gate map access; deeper, stronger fit for the "man vs. storm" pitch.
+
+**Direction lock (form deferred) — Meta-progression:**
+Surviving winter with territory intact carries *something* forward into the next cycle. Communal only (no personal gear, no per-player upgrades). Concrete form (Legacy counter, well-tended hearth buff, starter woodpile, warmth memory) decided during v1 build once the loop feels real. Full detail in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) §3.
 
 **Retroactive v0 ask.** The scene as it exists today (the cozy multiplayer hangout in `docs/gameloop-vision.md` — now superseded by this GDD) represents ~14 sessions of work over the pre-pivot window. Full engineering changelog in `README.md` v2.7–v2.14+.
 
@@ -36,9 +53,11 @@
 
 ## 1. Player Promise
 
-> **Melt the snow to find wood. Feed the fire to survive the night. Twice a real day the equinox tests whether "together" was enough.**
+> **Hold the light against the storm.**
 
-*(24 words, owner-confirmed)**
+*(6 words, owner-confirmed 2026-09-11)*
+
+**Longer form:** *Warm the ground to find wood. Tend the fires against the cold. Winter deepens season by season until the solstice tests whether the light was tended well enough to survive.*
 
 **Familiar comparison:** *(dropped — the promise stands without it; comparables live in §8)*
 
@@ -53,7 +72,7 @@
 | Game | Where it lands | What worked (to keep) | What didn't fit this audience | What we do differently |
 |---|---|---|---|---|
 | **GONE Fishing** (Steam, app 3645890) | Outside DCL — the **daily quota loop** reference | Collaborative progression gated by a nightly quota; missing the quota resets progress; the shared-fate stakes drive coordination. | `[agent-decided]` Hard restart on a missed quota assumes a committed friend group in one session. DCL's shared world has drop-ins, latecomers and strangers — punishing everyone because one player logged off would be brutal. | Only the *world* can lose. Individual players respawn; the run only resets if the central hearth dies during a storm with no one tending it. Quota is a survival cushion, not a hard gate. |
-| **Snowpunks** (DCL scene) | Inside DCL — the **big-storm boss-event** reference | Upgrading a base toward a scheduled storm event; the storm has real teeth and rewards preparation. | `[agent-decided]` The political/faction layer reads great with committed players and terrible with drop-in strangers on a public shared world. | No politics, no PvP, no factions. One shared hearth; everyone's on the same side against the storm. Twist: the storm is on a **real-world clock** (two equinoxes per real day), turning it into a scheduled retention beat instead of a per-session climax. |
+| **Frostpunks** (DCL scene) | Inside DCL — the **big-storm boss-event** reference | Upgrading a base toward a scheduled storm event; the storm has real teeth and rewards preparation. | `[agent-decided]` The political/faction layer reads great with committed players and terrible with drop-in strangers on a public shared world. | No politics, no PvP, no factions. One shared hearth; everyone's on the same side against the storm. Twist: the storm is on a **real-world clock** (two solsticees per real day), turning it into a scheduled retention beat instead of a per-session climax. |
 
 *Two `[agent-decided]` cells above — my inferences from your one-line descriptions of what each game does. Overrule any wording that misreads the source.*
 
@@ -63,7 +82,7 @@ For players who already enjoy **cozy-toned co-op survival games (Don't Starve To
 
 ### How the first group arrives
 
-The first group comes through **the CSP program's DCL Events feed and Snow Drift's Discord** at the scheduled equinox timestamps — the equinox itself is the recurring arrival channel. Individual players arrive through Discover, friend invites, and streamer content once the loop is stable and the record is climbing.
+The first group comes through **the CSP program's DCL Events feed and Snow Drift's Discord** at the scheduled solstice timestamps — the solstice itself is the recurring arrival channel. Individual players arrive through Discover, friend invites, and streamer content once the loop is stable and the record is climbing.
 
 ### Deliberately not for
 
@@ -87,7 +106,7 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 **3–10 min.** Day 2. Quota higher; a *"Cold ×1.4"* chip appears. Wood near the hearth is gone — you walk further. Torch drops low; you hand off to an incoming player. First coordination beat.
 
-**Stopping point.** Day 3. HUD reads *"Equinox in 8:23"*. You know tomorrow's reason to return.
+**Stopping point.** Day 3. HUD reads *"Solstice in 8:23"*. You know tomorrow's reason to return.
 
 **5/10 rule** (80% of first-time players perform the first useful action within 5 sec and can state the immediate goal within 10 sec): `[HYPOTHESIS]` H1-02.
 
@@ -101,14 +120,16 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 ## 4. Why Players Come Back
 
+> **⚠️ Section status:** the return hooks below describe the **roguelike + scheduled-solstice** resolution as one possible v1 shape (the original pivot direction). Weeks 1–2 prototypes may resolve differently — in particular if the persistent-world calendar model wins §0.1 Decision A, the retention framing shifts from "scheduled log-in for the solstice" to "check on the world, see what season it is." See [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) §3.2 for the decision criteria.
+
 ### 4.3 Return hooks (2)
 
-**Hook 1 — ⚡ The scheduled equinox.**
+**Hook 1 — ⚡ The scheduled solstice.**
 - **Trigger:** two real-world timestamps published, ~12 h apart (target 08:00 and 20:00 UTC; final times set by playtest).
 - **What players anticipate:** the world will be in a defense at exactly that time — they want to be there.
-- **Reminder channel:** Discord announcement 15 min before every equinox; in-world HUD countdown always visible when logged in.
+- **Reminder channel:** Discord announcement 15 min before every solstice; in-world HUD countdown always visible when logged in.
 - **No-reminder fallback:** the HUD countdown is the reminder. It is the last thing you see before you log off (§2 stopping point).
-- **D1 coverage:** always — two events per real day means the next equinox is always inside 12 hours.
+- **D1 coverage:** always — two events per real day means the next solstice is always inside 12 hours.
 
 **Hook 2 — 🏆 Beat the world's high-score day count. Unlock more of the game as it survives.**
 - **Trigger:** hearth displays *"Best Run: Day 62 · Current: Day 34"*. The gap is the retention pull. Progressive unlocks (see 4.2) mean the world *literally grows* the longer it survives.
@@ -121,18 +142,18 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 ### 4.1 The D1 (next-day) sentence
 
-A player who enjoyed their first session returns the next day because **Hook 1** — an equinox is scheduled at 20:00 UTC and they want to be there to defend the fire.
+A player who enjoyed their first session returns the next day because **Hook 1** — an solstice is scheduled at 20:00 UTC and they want to be there to defend the fire.
 
 ### 4.2 Progression chain
 
 | When | What persists / what becomes possible | How another player can tell |
 |---|---|---|
 | **End of first session** | The world's day count — the number you contributed to. Nothing personal persists. | They see the record + current-day numbers on the hearth. |
-| **End of first week** | You've lived through multiple equinoxes and probably one reset. You know which satellite pit sites are thawed at the current day count. Your torch has visibly upgraded once. | Your torch's fuel bar is visibly longer than a first-session player's; you know routes that first-day players don't. |
-| **Week 3+** | You're a regular — present at equinoxes on schedule. You've seen the world at higher day counts than most, and know what territory unlocks past Day 40+. You've participated in at least one record-push. | You show up in Discord threads about equinox timing; you're one of the players others follow toward known-good routes when night falls. |
+| **End of first week** | You've lived through multiple solsticees and probably one reset. You know which satellite pit sites are thawed at the current day count. Your torch has visibly upgraded once. | Your torch's fuel bar is visibly longer than a first-session player's; you know routes that first-day players don't. |
+| **Week 3+** | You're a regular — present at solsticees on schedule. You've seen the world at higher day counts than most, and know what territory unlocks past Day 40+. You've participated in at least one record-push. | You show up in Discord threads about solstice timing; you're one of the players others follow toward known-good routes when night falls. |
 
 **End of first week (scene, 3–4 sentences):**
-> It's Sunday evening. You log in — the hearth reads *Day 41 · Best: 62*. You've been here for four equinoxes; you missed one. Someone in the group chat: *"we're 21 days from the record, can we do it?"* You head out with a torch that burns 30% longer — the Day 30 unlock. The northeast satellite pit, thawed at Day 20, is your first stop. Tonight's equinox is at 20:00 UTC. You're not going to miss another.
+> It's Sunday evening. You log in — the hearth reads *Day 41 · Best: 62*. You've been here for four solsticees; you missed one. Someone in the group chat: *"we're 21 days from the record, can we do it?"* You head out with a torch that burns 30% longer — the Day 30 unlock. The northeast satellite pit, thawed at Day 20, is your first stop. Tonight's solstice is at 20:00 UTC. You're not going to miss another.
 
 ### Unlocks (progressive, community-scale)
 
@@ -142,7 +163,7 @@ Tied to the world's current day count, lost on world reset. Concrete list — it
 |---|---|---|---|
 | **Day 5** | First **lore fragment** — a journal page thaws near the hearth. | Lore | *(v1.5)* |
 | **Day 10** | First **satellite pit site** thaws — territory NE of the central hearth. | Territory | **v1** |
-| **Day 15** | Second **lore fragment** — context for the equinox. | Lore | *(v1.5)* |
+| **Day 15** | Second **lore fragment** — context for the solstice. | Lore | *(v1.5)* |
 | **Day 20** | Second **satellite pit site** thaws — territory SW. | Territory | *(v1.5)* |
 | **Day 30** | **Torch upgrade tier 1** — fuel duration +30%. | Tool | **v1** |
 | **Day 40** | Third **lore fragment** — the world before the winter. | Lore | *(v1.5)* |
@@ -152,7 +173,7 @@ Tied to the world's current day count, lost on world reset. Concrete list — it
 
 **Three unlock categories woven together:** *territory* (what map you can reach), *tools* (how well you can work it), *lore* (why you're here at all). Every ~10 days the player has a reason to push forward, and the reasons rotate so it never feels like grinding one axis.
 
-**Lore content itself:** `TBD: written by owner; premise-first drafting at §7 (World, Look & Story)`. Fragments are short (a paragraph each), diegetic (found objects the player can read in-world), and the whole set answers *"why is it winter, and what happens after the equinoxes stop?"* by Day 100.
+**Lore content itself:** `TBD: written by owner; premise-first drafting at §7 (World, Look & Story)`. Fragments are short (a paragraph each), diegetic (found objects the player can read in-world), and the whole set answers *"why is it winter, and what happens after the solsticees stop?"* by Day 100.
 
 **Currency / tradable rewards:** none. All progression is community-level and resets with the world. No wallet interactions, no NFTs required to play.
 
@@ -188,29 +209,29 @@ No personal progression persists (per §4). But the hearth carries **survivor pl
 
 ### Population and thresholds
 
-**Realistic baseline: 1–2 players concurrent, most of the time.** 3+ concentrates at scheduled equinox timestamps (Hook 1) and Discord-pushed events. The design is tuned around this: solo-and-duo is the *primary mode*, groups are the *social peak*.
+**Realistic baseline: 1–2 players concurrent, most of the time.** 3+ concentrates at scheduled solstice timestamps (Hook 1) and Discord-pushed events. The design is tuned around this: solo-and-duo is the *primary mode*, groups are the *social peak*.
 
 | Row | Value | Notes |
 |---|---|---|
 | **Quiet-hours count** | **1 player** | The expected default. Solo can gather, tend, feed, survive normal nights, and participate in the community record push over multiple sessions. Sees all lore + tool + territory unlocks (they belong to the world, not the individual). |
-| **Solo equinox** | **Very hard, not impossible** | Quota scales down for a solo defender, but the cold ramp still fires. Expected outcome: solo equinox survivals are rare and memorable; more often the world resets. The reset *is* the story. |
-| **Social threshold (design clicks)** | **3 players** | Full role coordination emerges. Achievable during scheduled equinox events with even a small Discord push. |
+| **Solo solstice** | **Very hard, not impossible** | Quota scales down for a solo defender, but the cold ramp still fires. Expected outcome: solo solstice survivals are rare and memorable; more often the world resets. The reset *is* the story. |
+| **Social threshold (design clicks)** | **3 players** | Full role coordination emerges. Achievable during scheduled solstice events with even a small Discord push. |
 | **Meaningful step from solo** | **2 players** | Not full role emergence, but role-splitting starts (one gathers while the other tends). Materially better survival odds than 1. |
-| **Ideal group size (event)** | **3–6** | Realistic Discord-group scale at equinox times. |
+| **Ideal group size (event)** | **3–6** | Realistic Discord-group scale at solstice times. |
 | **v1 tested maximum** | **8 players** | Honest ceiling for the 4-week timeline. Program baseline reaches 20; we don't stress-test what won't happen at this scale. `[HYPOTHESIS]` H1-06 covers the 8-player 30fps mobile target. |
 
 **Solo-meets-another-player by design:** single spawn point at the central hearth. Any player logging in during another's session lands next to them by geometry — no matchmaking system needed. If solo hours are truly solo, they play until logout or reset.
 
-**Wood scatter + quota tuning implication:** density and per-day quota formula must feel achievable for 1 player through normal days. The DIFFICULTY comes from equinoxes and the compounding cold ramp, not from the daily grind being solo-hostile. `[OPEN: waiting on Week 2 playtest tuning]`.
+**Wood scatter + quota tuning implication:** density and per-day quota formula must feel achievable for 1 player through normal days. The DIFFICULTY comes from solsticees and the compounding cold ramp, not from the daily grind being solo-hostile. `[OPEN: waiting on Week 2 playtest tuning]`.
 
 ### Disappearance test
 
 *If every other player vanished but their traces (melted paths, banked wood, hearth fuel, day-count history) remained, what breaks?*
 
-- **What survives:** the gather-and-feed loop still works. A solo player can play a full session. The verbs, the day/night rhythm, and even individual equinoxes as timed challenges still function — with a scaled-down quota.
-- **What breaks:** the equinox becomes a solo endurance test instead of a communal defense — the **emotional peak of the game evaporates**. The high-score day count, still visible, feels *borrowed* — someone else set it. Torch-chain and every other role-coordination beat have no B to respond. Lore fragments unlock but nobody to share the *"did you see this?"* with.
+- **What survives:** the gather-and-feed loop still works. A solo player can play a full session. The verbs, the day/night rhythm, and even individual solsticees as timed challenges still function — with a scaled-down quota.
+- **What breaks:** the solstice becomes a solo endurance test instead of a communal defense — the **emotional peak of the game evaporates**. The high-score day count, still visible, feels *borrowed* — someone else set it. Torch-chain and every other role-coordination beat have no B to respond. Lore fragments unlock but nobody to share the *"did you see this?"* with.
 
-Honest one-line: **solo play is complete-feeling for a session; the record run and the equinox as event are the parts that require other players to matter.**
+Honest one-line: **solo play is complete-feeling for a session; the record run and the solstice as event are the parts that require other players to matter.**
 
 ### Robustness and colour
 
@@ -224,7 +245,7 @@ A player who just watches sees a lit hearth with a countdown, a shared quota bar
 Logging in to find the hearth burning low with 90 seconds of fuel left, the previous player's Discord message still fresh, and dropping your first log in just before it snuffs — the day streak saved by a shift handoff neither of you planned in detail. The target emergent pattern of the game.
 
 **Bring-a-friend.**
-A new friend spawns next to you at the hearth with nothing to learn — hand them a torch and point at the snow. Duo doubles your reach and unlocks the 2-player role-splitting threshold; if you time the invite before the next equinox, they see the game's peak on their first session.
+A new friend spawns next to you at the hearth with nothing to learn — hand them a torch and point at the snow. Duo doubles your reach and unlocks the 2-player role-splitting threshold; if you time the invite before the next solstice, they see the game's peak on their first session.
 
 ---
 
@@ -249,7 +270,7 @@ Zero chords, zero aim, zero hover-dependent UI. Every verb maps to walking or a 
 
 ### Small-screen UI
 
-Top strip: day count + equinox countdown + high-score record. Bottom strip: shared quota bar + personal frost bar + torch fuel icon. Everything else is diegetic — fire size, snow depth, other players' torches, thawed territory. No inventory screen, no minimap, no multi-panel menus.
+Top strip: day count + solstice countdown + high-score record. Bottom strip: shared quota bar + personal frost bar + torch fuel icon. Everything else is diegetic — fire size, snow depth, other players' torches, thawed territory. No inventory screen, no minimap, no multi-panel menus.
 
 ### Performance targets
 
@@ -262,7 +283,7 @@ Top strip: day count + equinox countdown + high-score record. Bottom strip: shar
 
 ### Biggest performance risk + plan
 
-**Risk:** snowfall + hearth particles + melt-tile CRDT updates during a nighttime scene with 8 concurrent players. The paint-sync tile refactor (repo README v2.7) already handled the tile-CRDT case at scale; the outstanding concern is particle count during HEAVY weather + equinox effects. `[HYPOTHESIS]` H1-06 covers the 8-player 30 fps mobile target.
+**Risk:** snowfall + hearth particles + melt-tile CRDT updates during a nighttime scene with 8 concurrent players. The paint-sync tile refactor (repo README v2.7) already handled the tile-CRDT case at scale; the outstanding concern is particle count during HEAVY weather + solstice effects. `[HYPOTHESIS]` H1-06 covers the 8-player 30 fps mobile target.
 
 **Plan:** cap engine particles at 1000/sec globally; snowfall rate on mobile drops one tier below the desktop equivalent (mobile HEAVY = desktop MEDIUM density, at the same visible weather level). Contingency: if the mobile lean-variant still fails H1-06 at Week 2 playtest, drop mobile v1 tested max from 8 to 6 concurrent players and update §5 accordingly.
 
@@ -276,7 +297,7 @@ None load-bearing. Click-drag spectator pan is desktop-only (mouse-native input)
 
 ### The world (2 sentences)
 
-The planet has been knocked from its orbit — no one alive remembers when — and the sun has slipped too far away for warmth. What passes for a "day" and an "equinox" here are wobbles of a broken world, and somewhere beneath the snow lies the tech that once held it in place. `[agent-decided]` *(wording; premise content owner-directed)*
+The planet has been knocked from its orbit — no one alive remembers when — and the sun has slipped too far away for warmth. What passes for a "day" and an "solstice" here are wobbles of a broken world, and somewhere beneath the snow lies the tech that once held it in place. `[agent-decided]` *(wording; premise content owner-directed)*
 
 ### Visual signature
 
@@ -294,9 +315,11 @@ The sky is always wrong. The sun sits low and blue-white on the horizon at all h
 
 ## 9. 4 Week Plan (v1 scope)
 
-**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Snow Drift · 60–80 total build hours over weeks 1–4. Weeks 5–6 are for going live, not building. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours. *(This number lives in `design/decisions.md` since the template has no team section.)*
+**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Snow Drift · 60–80 total build hours over weeks 1–4. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
 
-**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). Week 1–4 is the **pivot from cozy to survival-quota**, not from scratch. Full pivot plan in `docs/survival-pivot-plan.md`.
+**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). The 4 weeks are a **pivot from cozy hangout to man-vs-storm territory defense**, not a build from scratch. Source-of-truth plan lives in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md).
+
+**Structure:** Week 1 = backbone (temporal infrastructure). Week 2 = design decisions (two prototypes, two decision gates). Week 3 = build the winning game + first playtest. Week 4 = polish + ship.
 
 ### Weekly milestones
 
@@ -304,62 +327,40 @@ The sky is always wrong. The sun sits low and blue-white on the horizon at all h
 
 | Week | Playable state |
 |---|---|
-| **Week 1** | Foundation swap. Fuel floor cut; empty-server run-reset installed. Day/night phase clock replaces the cycle reroll. Frost tuning driven by phase cold-multiplier. Basic quota bar HUD. Ship existing paint-sync Option A safety net (already on `paint-sync-safety` branch) — no new Option B work in v1. |
-| **Week 2** | **Functional core-loop test version** — program-required playtest bar. Nightly wood quota with roster scaling. Dawn/dusk transitions. First equinox event (scheduled heavy weather + max cold multiplier). Playtest with 3+ testers targeting `H1-07` (solo achievability). **Tune, tune, tune until it's fun.** |
-| **Week 3** | Persistence + first unlocks. World day-count + high-score record. World-reset on next-player-return after fire death. Day 10 territory unlock (NE satellite pit — proves the ladder). Day 30 torch upgrade (proves the tool axis). |
-| **Week 4** | Polish + playtest + **level visual pass**. Block/prop redesign (hearth, torch, wood, satellite pit dressing) and environment layout tuning to raise the world from greybox to a cohesive winter-survival look. Discord integration hooks (equinox announce + milestone posts + reset announce). Mobile perf pass on owner's device + one mid-tier reference. Second playtest with 3–5 testers. Bug-and-feel pass. |
-
-### Weeks 5–6 (live-launch)
-
-World-name deployment (`snowdrift.dcl.eth`). Public repo cleanup. Set live equinox schedule (target 08:00 + 20:00 UTC). Onboarding polish for the spawn frame. Discord community setup. CSP submission.
+| **Week 1 — Backbone** | Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed (fires when all fires dead + roster empty for 60 s). Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle live (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring); cold trends up through winter arc, back down through recovery. Both season-reset code paths built behind a flag (flipped in Week 2). |
+| **Week 2 — Decisions** | Two prototypes live in the Week 1 phase-clock testbed. **Retention prototype:** flip season-reset flag between roguelike (resets on `resetRun`) and calendar (persists as world history); play both solo across a full day/night cycle; decide by mid-week. **Territory-defense prototype:** resurrect hidden campfires; retune existing frost + locomotion so off-territory is hostile and on-territory is safe; play with 1–2 people across a full night; decide by end of week. Two decisions locked and documented before Week 3. |
+| **Week 3 — Build + first playtest** | Conditional on Week 2 decisions. If single-hearth won: wood quota bar + dusk-snapshot penalty + snow/melt tuning. If territory won: fire archetypes (warmth + grove), snow regrowth curve driving territory shrink at night, reclamation cost for cold fires. **Both branches:** solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → recovery arc). Multiplayer playtest with 3+ from Discord. |
+| **Week 4 — Polish + ship** | Ember visual/audio (deferred from Week 1). First-30-seconds onboarding (reactive to playtest). Solstice arrival VFX/audio. Optional meta-progression carry mechanism (§3.4) if scope allows. Block redesign + environment-layout tuning (lift the world from greybox to cohesive winter-survival look). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Deploy dry-run. Submit. |
 
 ### Live-ops — what keeps the experience changing after launch
 
-- **Changes without a build:** the world's day count climbs → new unlocks come online → the game literally grows without a code change.
-- **Variation on missed updates:** equinox timestamps rotate a weekly seasonal offset (+/- 30 min); weather system randomises profile per cycle inside phase bounds.
-- **Persists across resets:** nothing — world resets to Day 1. This IS the loop, not a bug. Onboarding is the same for a new joiner and a returning survivor.
-- **Player behaviour that would change what's built next:** if H1-05 (lore-as-pull) holds → invest in deeper fragment writing. If H1-04 (equinox log-in spike) holds → add mid-week off-schedule mini-events.
+- **Changes without a build:** seasons progress → the world visibly changes state day to day → the game *feels* different across visits without a code change.
+- **Variation on missed updates:** weather system randomises profile per cycle inside phase bounds; solstice timing derives from retention model (fixed day count in roguelike, world-calendar date in persistent model).
+- **Persists across resets:** direction locked (see §3.4), form deferred. In v1.1 or Week 4 if scope allows, a communal Legacy counter or a well-tended-hearth buff carries forward from successful winters.
+- **Player behaviour that would change what's built next:** if solo solstice survival is impossible → tune quota/cold curve; if territory decision reveals a clear winner → double down; if playtest reveals onboarding gaps → Week 4 protects the first-30-seconds pass.
 
-### Exactly 3 cuts (§1 twist is un-cuttable)
+### Explicit non-goals for v1
 
-1. **Lore fragment system + all fragment content.** No lore in v1. §7's premise stands as backstory; the unlock table in §4 keeps the lore rows marked *(v1.5)*. Cost ≈8–12 h. Hurts most — loses the third unlock axis and the "why keep playing" pull that H1-05 was meant to test. **First cut back in v1.5** and the natural v1.5 headline feature.
-2. **Named survivor plaques.** No engraved names on the hearth in v1. Async shift-recognition emerges through Discord instead of in-scene visuals. Cost ≈6–8 h. Hurts the emotional payoff of the shift-handoff moment named as §5's memorable moment.
-3. **All territory + tool unlocks past Day 30.** Day 10 (NE satellite pit) and Day 30 (torch fuel) only. No SW pit, no melt-radius upgrade, no Day 100 aurora. Cost ≈8–12 h. Hurts the mid-game "the world literally grows" promise from §4.
+- **No combat / mobs.** Man vs. storm, not man vs. agents. Combat is a v2 conversation.
+- **No leaderboards.** Shared-pool survival, not competitive.
+- **No permadeath.** Individual death respawns; only the run/world can reset.
+- **No tool tiers.** No axes, no upgraded torches, no crafting.
+- **No personal gear or per-player upgrades.** Meta-progression is communal-only.
+- **No NPCs, quests, or dialogue.**
+- **No fire archetypes beyond 2** (if territory model wins). Way-station, overlook, ancient — all v2.
+- **No wallet-gated content.**
+- **No trailer or pitch work until the loop is playable** (Week 4 only).
 
-**If v1 hits its numbers, first cut back in v1.5:** the lore fragment system and its first three fragments (Day 5, 15, 40). That single addition restores the third unlock axis + the "read more" retention pull + the v2 win-condition setup all at once.
+### Top risks
 
-### Non-goals (standing)
-
-- Never PvP, because the game is cooperative survival by design.
-- Never personal levelling, because progression is community-scoped by design.
-- Never wallet-gated content in v1, because CSP submission targets gameplay quality, not tokenomics.
-
-### Top risk + fallback
-
-**Risk:** the mobile paint-sync race (Option B from `docs/handoff-paint-sync-mobile.md`, currently unbuilt) breaks paint/melt visibility for mobile players even at 1–2-concurrent baseline during snowfall. This is a v1 blocker for the mobile audience.
-
-**Fallback:** the `paint-sync-safety` branch already carries an Option A periodic-resync safety net that partially mitigates the same bug. Ship Week 4 with Option A active if Option B isn't ready. Accept the mobile paint experience isn't ideal in that fallback and flag it in the CSP submission notes.
-
-### Arithmetic check
-
-Per-item estimates, honestly padded:
-
-| Item | Hours |
+| Risk | Mitigation |
 |---|---|
-| Paint-sync Option A merge + validate (no Option B build) | 2–3 |
-| Phase clock + phase-driven frost/weather | 6–8 |
-| Wood quota system + HUD (server + client + tuning) | 8–14 |
-| Empty-server run-reset + fuel floor removal | 4–6 |
-| Equinox event (scheduled trigger + escalation) | 8–12 |
-| World day-count persistence + high-score + reset-on-return | 4–6 |
-| Day 10 territory unlock (repurposes hidden-campfire infra) | 4–6 |
-| Day 30 torch upgrade | 3–5 |
-| Discord integration hooks | 3–5 |
-| Block redesign + level visual development (art pass, layout tuning) | 8–12 |
-| Polish, playtest, tune-for-fun, mobile perf pass | 15–20 |
-| **Total** | **65–97** |
-
-Runs slightly over the 60–80 build budget with the added level-visual line — the overflow is absorbed by the generous polish + playtest band, which folds art iteration and feel tuning into the same block. **Owner directive: make sure it is fun first, and make sure it looks like the world it's meant to be.**
+| Both prototypes succeed and we want both | Force honest scope call end of Week 2 — one may need to defer to v2. |
+| Retention decision drags past end of Week 1 prototype | Hard deadline: pick the one you'd rather build on Monday. |
+| Territory prototype "kinda works" but isn't clearly better | Default to single-hearth. Simpler ships. |
+| Solstice arrival not readable | 2-min warn window with siren + sky darken; playtest question covers it. |
+| Mobile perf regresses under HEAVY weather | Perf test end of Week 2 + Week 3; fall back to lighter particle counts before cutting mechanics. |
+| Trailer eats Week 4 | Protected day; do not skip for "one more feature." |
 
 ---
 
@@ -367,27 +368,56 @@ Runs slightly over the 60–80 build budget with the added level-visual line —
 
 **The verb:** warm the ground to see what's there.
 
-**One cycle = one in-game day.** Structural beats:
+**Two nested loops:**
+- **Micro (one in-game day, ~9 minutes):** dawn → gather → dusk → defend → dawn resolves.
+- **Macro (one full year, one evening to a weekend depending on retention model):** autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring → autumn.
+
+### Per-day beats
 
 | # | Step | Player does | Sees / hears | What changes | Why do it again |
 |---|---|---|---|---|---|
-| 1 | **Dawn** | Wakes near the central hearth | Warm hearth, day count ticks up, night quota appears on HUD | Frost resets, banked wood counter resets | New goal to hit before dark |
-| 2 | **Day (gather)** | Ventures out with lit torch; melts snow with torch heat; picks up revealed wood; returns to hearth | Snow melts under torch; wood chunks glow under cleared patches; other players' torches visible across the field | Wood picked up, torch fuel drains, frost accumulates outside warmth | Every log gets closer to quota; nights ahead are colder |
-| 3 | **Dusk** | Banks last logs at the hearth; regroups near the fire | Sky darkens, weather thickens, "Night in 1:00" warning, quota snapshot | Banked count is locked for the night | Getting caught out at nightfall is fatal |
-| 4 | **Night (survive)** | Stays near warmth, feeds hearth from banked stockpile | Cold multiplier rises, snowfall heavy, hearth fuel draining | Hearth fuel drains; if quota was hit, it lasts; if not, players freeze | Moments from surviving another day |
-| 5 | **Dawn resolves** | Sees whether hearth held | Sunrise if hearth lived; darkening/reset splash if it died | `day++`, cold multiplier steps up toward next equinox; visible "Grace period — 2 days" state after a survived equinox | Tomorrow will be harder — the equinox is coming |
+| 1 | **Dawn** | Wakes near a lit fire | Fire warms, day count ticks up, season indicator visible on HUD | Frost resets | New day to expand or reclaim |
+| 2 | **Day (gather / expand)** | Ventures out with lit torch; melts snow; picks up revealed wood; returns and feeds a fire. In territory model: may reclaim a lost fire | Snow melts under torch; wood chunks glow; other players' torches visible across the field | Wood picked up, torch fuel drains, frost accumulates outside warmth; fire fuel refills | Days will shorten; nights will get colder |
+| 3 | **Dusk** | Regroups near a fire; commits to which one(s) to hold overnight | Sky darkens, weather thickens, "Night in 1:00" warning | Fires low on fuel may not survive without immediate feeding | Getting caught out at nightfall is fatal |
+| 4 | **Night (defend)** | Stays near warmth, feeds fires from stockpile | Cold rises, snowfall heavy, fire fuel draining, snow regrows aggressively | Fire fuel drains; if under-tended, a fire enters sleeping-ember state (60 s to relight); if unsaved, the fire dies and its territory refreezes | Moments from surviving another day |
+| 5 | **Dawn resolves** | Sees which fires lived | Sunrise; surviving fires still warm; dead-fire embers gone | `day++`; season may advance; cold trends up toward solstice | Tomorrow will be harder — the solstice approaches |
 
-**Loop completion:** each dawn — the hearth either lived or died. If it lived, `day++` and the cold ramps toward the next equinox. If it died, the world resets to day 1.
+### Per-year beats (the seasonal arc)
 
-**Individual death** = respawn at hearth with frost reset. Contribution time lost, not the run.
+| Season | Vibe | Difficulty axes moving |
+|---|---|---|
+| **Autumn** | Baseline. Days long, nights short, snow light. | Baseline |
+| **Early winter** | Days shortening, snow thickening. | Night length ↑, snowfall ↑ |
+| **Deep winter** | Cold begins to bite. Fires drain faster. | Frost damage ↑, snow stack ↑ |
+| **Solstice approach** | The world is telling you something's coming. | All axes ↑↑ |
+| **Winter solstice** | Whiteout night, cold at peak, night doubled in length. Warning phase precedes it (siren + darkening sky + 2 min countdown). | Peak on every axis |
+| **Thaw** | The storm has passed. Cold recedes. | All axes stepping back down |
+| **Spring** | Recovery. Nights short, snow light. Preparation for next winter. | Approaching baseline |
 
-**Cycle length:** `[OPEN: waiting on the verb being proven fun]` — first playtest target 5 min day / 1 min dusk / 3 min night, iterate.
+### Solstice survival
 
-**Session length:** `[OPEN: waiting on the verb being proven fun]` — one full day = ~9 min minimum satisfying visit; typical session TBD from playtest.
+**Success condition (loose):** any player alive AND any fire still lit at solstice end. Not a strict fail-check — a lone survivor with one dying fire counts. This is a story-generator, not a scoring system.
 
-**Repetition 10 — why it stays fresh:** `[HYPOTHESIS]` H1-01 — variability comes from (a) other players and shifting roster, (b) the scheduled equinox raising the stakes twice per real day, (c) rising cold multiplier changing which zones are reachable. Not "more content"; the *pressure* changes what the same verbs mean.
+**Failure:** every fire dead + every player frozen (or logged off) → world sits dead until the next player arrives to a "winter reclaimed the village" splash and a fresh start.
+
+**Two-tier meaning (direction locked, form deferred):** survival alone counts as *making it*; survival with territory intact may carry meta-progression forward. See [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) §3.4.
+
+### Loop completion
+
+**Per-day:** each dawn resolves the previous night. Fires either lived, entered ember state and were saved, or died. `day++`.
+
+**Per-year:** the winter solstice is the annual climax. Post-solstice recovery seasons are the reward; the arc rolls back into a new autumn.
+
+**Individual death:** respawn at nearest fire with frost reset. Contribution time lost, not the run.
+
+**Cycle length:** `[OPEN: playtest tuning]` — first playtest target 5 min day / 1 min dusk / 3 min night, ~5 days per season.
+
+**Session length:** `[OPEN: playtest tuning]` — one full in-game day = ~9 min minimum satisfying visit; one full year TBD from playtest and retention decision.
+
+**Repetition 10 — why it stays fresh:** `[HYPOTHESIS]` H1-01 — variability comes from (a) other players and shifting roster, (b) the seasonal ramp changing what the same verbs *mean* (a day-1 walk vs. a solstice-approach walk are the same input, different game), (c) territory decisions (if territory model wins) about which fires to hold, (d) the community's persistent state carrying forward from prior winters.
 
 **Pillars:**
-1. **The central hearth is the world's heartbeat.** One central fire whose fate is the run's fate. Satellite fires exist as optional harder-maintenance expansion, never as replacements.
-2. **The storm is on the clock.** Equinox hits on real-world schedule, twice per real day. Not a random event.
-3. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches show wood. Gather and discovery are one action.
+1. **Man vs. storm, not man vs. mob.** The enemy is the cold, the snow, and the passage of seasons. No combat in v1.
+2. **Fire = safety, distance = stakes.** Every fire is an island of warmth; every step away from one is a risk.
+3. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches show wood.
+4. **Players help fires, not hurt them.** No extinguish action, no fuel drain — no grief vectors by construction.
