@@ -63,14 +63,20 @@ import {
 	setupPerimeter,
 } from 'src/client/perimeter'
 import { setupProps } from 'src/client/props/spawn'
-// Skybox forced cycle + diagnostic sampler are intentionally NOT called
-// in setupClient — see docs/bug-reports/worlds-skybox-time-ignored.md for
-// the Foundation-level bug that makes this whole path a no-op on Worlds.
-// Imports commented so the modules can be re-enabled by uncommenting one
-// line here + the call sites below. Source stays in-tree for the dev
-// investigation and any future retest against a fixed runtime.
-// import { setupSkybox }      from 'src/client/skybox'
-// import { setupSkyboxDebug } from 'src/client/skyboxDebug'
+// Skybox forced cycle + diagnostic sampler.
+//
+// ENABLED on this branch so devs reviewing the day/night investigation
+// can `git checkout daynight-cycle && npm start` and immediately see the
+// HUD overlay + drive the cycle. In local Creator Hub preview the sky
+// sweeps a full 24 h in 8 min and the debug HUD confirms it. Deploy the
+// same code to a World and the HUD shows LOCKED=yes but the sky ignores
+// the writes — that’s the Foundation-level bug documented in
+// docs/bug-reports/worlds-skybox-time-ignored.md.
+//
+// Before merging to main or deploying to Worlds, comment these back out
+// and set SHOW_SKYBOX_DEBUG = false in devFlags.ts.
+import { setupSkybox }      from 'src/client/skybox'
+import { setupSkyboxDebug } from 'src/client/skyboxDebug'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
@@ -255,11 +261,11 @@ export async function setupClient(): Promise<void> {
 	// preserved in `src/client/skybox.ts` behind this call site; re-enable
 	// by uncommenting once we have a much slower cadence or a parked-at-
 	// dusk fixed value.
-	// setupSkybox() — disabled on Worlds (see bug report above). Writes
-	// register on RootEntity (LOCKED=yes) but Worlds ignores fixedTime,
-	// so leaving this on locks the player UI slider for no benefit.
-	// setupSkyboxDebug() — companion diagnostic overlay. Re-enable in
-	// tandem with setupSkybox() when investigating.
+	// Enable both together — the debug HUD is the primary evidence for
+	// whether the forced cycle is working. See top-of-file note for the
+	// Worlds-vs-preview divergence.
+	setupSkybox()
+	setupSkyboxDebug()
 
 	// Campfire + its VFX/audio come FIRST so they claim the initial
 	// asset-load bandwidth. The player spawns next to the fire and needs

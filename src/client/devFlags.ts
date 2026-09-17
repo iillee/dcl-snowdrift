@@ -44,4 +44,4 @@ export const SHOW_TORCH_WARMTH_DEBUG   = false
  * console-logs each 1 Hz sample with a `skyboxDebug:` prefix so two
  * browsers can be diffed. See src/client/skyboxDebug.ts.
  */
-export const SHOW_SKYBOX_DEBUG         = false
+export const SHOW_SKYBOX_DEBUG         = true
