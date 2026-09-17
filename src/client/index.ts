@@ -63,9 +63,14 @@ import {
 	setupPerimeter,
 } from 'src/client/perimeter'
 import { setupProps } from 'src/client/props/spawn'
-// Skybox forced cycle is intentionally not imported — see the disabled
-// setupSkybox() call in setupClient() for the rationale.
-// import { setupSkybox } from 'src/client/skybox'
+// Skybox forced cycle + diagnostic sampler are intentionally NOT called
+// in setupClient — see docs/bug-reports/worlds-skybox-time-ignored.md for
+// the Foundation-level bug that makes this whole path a no-op on Worlds.
+// Imports commented so the modules can be re-enabled by uncommenting one
+// line here + the call sites below. Source stays in-tree for the dev
+// investigation and any future retest against a fixed runtime.
+// import { setupSkybox }      from 'src/client/skybox'
+// import { setupSkyboxDebug } from 'src/client/skyboxDebug'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
@@ -250,7 +255,11 @@ export async function setupClient(): Promise<void> {
 	// preserved in `src/client/skybox.ts` behind this call site; re-enable
 	// by uncommenting once we have a much slower cadence or a parked-at-
 	// dusk fixed value.
-	// setupSkybox()
+	// setupSkybox() — disabled on Worlds (see bug report above). Writes
+	// register on RootEntity (LOCKED=yes) but Worlds ignores fixedTime,
+	// so leaving this on locks the player UI slider for no benefit.
+	// setupSkyboxDebug() — companion diagnostic overlay. Re-enable in
+	// tandem with setupSkybox() when investigating.
 
 	// Campfire + its VFX/audio come FIRST so they claim the initial
 	// asset-load bandwidth. The player spawns next to the fire and needs

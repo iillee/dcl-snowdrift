@@ -21,7 +21,7 @@
 import { EnvVar } from '@dcl/sdk/server'
 import { getRealm } from '~system/Runtime'
 
-import { rosterSize } from 'src/server/roster'
+import { activePlayerCount } from 'src/server/roster'
 
 
 let DISCORD_WEBHOOK_URL = ''
@@ -76,7 +76,7 @@ export function notifyPlayerJoin(address: string): void {
 	}
 
 	const short   = `${address.slice(0, 6)}…${address.slice(-4)}`
-	const online  = rosterSize()
+	const online  = activePlayerCount()
 	const content = `👋 **${short}** joined Snow Drift — **${online}** online`
 
 	console.log(`[Analytics] notifyPlayerJoin: POSTing to Discord for ${short} (${online} online)`)

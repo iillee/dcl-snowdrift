@@ -498,19 +498,24 @@ const LOD_SWAP_OVERLAP_MS = 120
 // take over.
 const farPlaneByTile = new Map<Entity, Entity>()
 
-// Far-plane geometry: a very thin box (not setPlane) so the top face
-// shades identically to a full-snow cube's top face — planes are
-// single-sided and pick up different lighting from the box's +Y face
-// even with the same material. Vertical extent is 0.02 m; the position
-// is offset by half-thickness so the top face lands at exactly the
-// same y as an intact cube's top: ty + FLAT_OFFSET + CUBE_HEIGHT.
+// Far-plane geometry: a FULL-HEIGHT box (not a thin lid) matching the
+// full snow column an intact tile would present. Height == CUBE_HEIGHT,
+// centered at ground + CUBE_HEIGHT/2 so the top face lands at
+// ty + FLAT_OFFSET + CUBE_HEIGHT (same y as an intact cube’s top).
 //
-// A previous version sank the plane 3 cm below cube tops to hide any
-// one-tick z-fight during the atomic plane->cubes swap. It worked for
-// the flicker but the drop was visible from a distance as a slightly
-// low ground plane. Removed. If the mobile flicker resurfaces, prefer
-// deferring plane removal by one tick instead of sinking the plane.
-const FAR_PLANE_THICKNESS = 0.02
+// A previous version used a very thin box (0.02 m) at snow-top height.
+// That saved nothing measurable but caused a real bug: a tile that had
+// been partially melted while near, then re-swapped to LOD after the
+// player walked away, would sit under a lid with an open space beneath.
+// From a distance the camera could see UNDER the lid and spot wood /
+// campfires / painted paths that were supposed to be hidden until the
+// player got close enough to re-spawn the cubes. Making the proxy a
+// full-height box occludes the sides too and still costs 1 entity/tile.
+//
+// If a mobile flicker resurfaces during the atomic proxy<->cubes swap,
+// prefer deferring proxy removal by one tick over shrinking the proxy
+// again (the thin-lid version had its own worse artefacts).
+const FAR_PROXY_HEIGHT = CUBE_HEIGHT
 
 /**
  * Extent of a tile's far-plane in world coords — a rectangle covering
@@ -530,11 +535,12 @@ function ensureFarPlaneForTile(
 	ty:         number,
 ): void {
 	if (farPlaneByTile.has(tileEntity)) return
-	const topY = ty + FLAT_OFFSET + CUBE_HEIGHT
+	const baseY   = ty + FLAT_OFFSET
+	const centerY = baseY + FAR_PROXY_HEIGHT / 2
 	const e = engine.addEntity()
 	Transform.create(e, {
-		position: Vector3.create(ext.centerX, topY - FAR_PLANE_THICKNESS / 2, ext.centerZ),
-		scale:    Vector3.create(ext.sizeX, FAR_PLANE_THICKNESS, ext.sizeZ),
+		position: Vector3.create(ext.centerX, centerY, ext.centerZ),
+		scale:    Vector3.create(ext.sizeX, FAR_PROXY_HEIGHT, ext.sizeZ),
 	})
 	MeshRenderer.setBox(e)
 	Material.setPbrMaterial(e, CUBE_GREY_MAT)

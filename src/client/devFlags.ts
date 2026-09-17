@@ -36,3 +36,12 @@ export const SHOW_DEV_ROLL_BUTTON      = false
  * once. See src/client/ui/layers/layer.torchWarmthDebug.tsx.
  */
 export const SHOW_TORCH_WARMTH_DEBUG   = false
+
+/**
+ * Top-right readout of the day/night cycle diagnostic sampler:
+ * runtime (getWorldTime) vs. last written fixedTime, delta, whether
+ * SkyboxTime is present on RootEntity, and a monotonic tick. Also
+ * console-logs each 1 Hz sample with a `skyboxDebug:` prefix so two
+ * browsers can be diffed. See src/client/skyboxDebug.ts.
+ */
+export const SHOW_SKYBOX_DEBUG         = false

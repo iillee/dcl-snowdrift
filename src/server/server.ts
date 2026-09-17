@@ -34,7 +34,8 @@ import {
 	publishCoverage,
 	tickRegrowth,
 } from 'src/server/paintState'
-import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
+import { assignTeam, getTeam, markActive, markInactive, rosterSize } from 'src/server/roster'
+import { onEnterScene, onLeaveScene } from '@dcl/sdk/players'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
@@ -177,6 +178,20 @@ export async function setupServer(): Promise<void> {
 	// so decayRate has a real player count immediately) but before the
 	// joinRoster handler is invoked - hydration below needs it live.
 	setupHearthFuelServer()
+
+	// Presence tracking for gameplay signals that scale with the LIVE
+	// crowd (hearth drain multiplier, online analytics). Independent of
+	// joinRoster/team assignment which uses the never-compact roster for
+	// stable slot IDs. See src/server/roster.ts for the presence-vs-roster
+	// rationale.
+	onEnterScene(player => {
+		markActive(player.userId)
+		console.log(`[Server] onEnterScene ${player.userId} (active=${rosterSize()} total-ever, live count now tracked separately)`)
+	})
+	onLeaveScene(userId => {
+		markInactive(userId)
+		console.log(`[Server] onLeaveScene ${userId}`)
+	})
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the

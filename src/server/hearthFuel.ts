@@ -31,7 +31,7 @@ import {
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
 } from 'src/shared/hearthFuel'
-import { rosterSize } from 'src/server/roster'
+import { activePlayerCount } from 'src/server/roster'
 import { seedStartingArea } from 'src/server/server'
 import { shrinkMeltRingTo } from 'src/server/paintState'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -133,7 +133,7 @@ export function getMainFireFuel(): number {
 export function sendHearthFuelStateTo(userId: string): void {
 	room.send('hearthFuelUpdate', {
 		fuel   : mainFuel,
-		players: rosterSize(),
+		players: activePlayerCount(),
 	}, { to: [userId] })
 	console.log(`[Server] hearthFuel: hydrated ${mainFuel.toFixed(1)}s to ${userId}`)
 }
@@ -143,11 +143,11 @@ export function sendHearthFuelStateTo(userId: string): void {
 function broadcastFuel(): void {
 	room.send('hearthFuelUpdate', {
 		fuel   : mainFuel,
-		players: rosterSize(),
+		players: activePlayerCount(),
 	})
 	lastBroadcastFuel    = mainFuel
 	lastBroadcastTier    = hearthTierFromFuel(mainFuel)
-	lastBroadcastPlayers = rosterSize()
+	lastBroadcastPlayers = activePlayerCount()
 	heartbeatClock       = 0
 }
 
@@ -189,7 +189,7 @@ export function setupHearthFuelServer(): void {
 
 	// Decay + broadcast tick.
 	engine.addSystem((dt: number) => {
-		const players   = rosterSize()
+		const players   = activePlayerCount()
 		const drainRate = hearthDecayRate(players)
 		const prev      = mainFuel
 		const prevTier  = hearthTierFromFuel(prev)

@@ -45,7 +45,7 @@ import {
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
 } from 'src/shared/hearthFuel'
-import { rosterSize } from 'src/server/roster'
+import { activePlayerCount } from 'src/server/roster'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
@@ -201,7 +201,7 @@ function broadcastFuel(index: number, userId?: string): void {
 	room.send('hiddenHearthFuelUpdate', {
 		index,
 		fuel   : fuel[index],
-		players: rosterSize(),
+		players: activePlayerCount(),
 	}, opts)
 	lastBroadcastFuel[index] = fuel[index]
 	lastBroadcastTier[index] = hearthTierFromFuel(fuel[index])
@@ -310,7 +310,7 @@ export function setupHiddenCampfireServer(): void {
 	const RING_INTERVAL   = 1 / RING_REFRESH_HZ
 	let   ringClock       = 0
 	engine.addSystem((dt: number) => {
-		const players   = rosterSize()
+		const players   = activePlayerCount()
 		const drainRate = hearthDecayRate(players)
 		let anyLit      = false
 

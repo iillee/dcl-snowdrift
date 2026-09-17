@@ -15,9 +15,23 @@
  *
  * The roster lives in RAM. Rounds don't persist it, and a server restart
  * resets it. That's fine for Phase 4; leaderboard persistence lands later.
+ *
+ * Presence vs. roster:
+ *   - `roster`       = ordered list of userIds EVER seen (never shrinks).
+ *                      Correct for stable team-slot assignment.
+ *   - `activeUsers`  = set of userIds CURRENTLY in the scene. Shrinks
+ *                      when a player leaves. Correct for anything that
+ *                      scales with the live crowd (fuel drain multiplier,
+ *                      "online" analytics, spawner intensity).
+ * Historically only `roster` existed, and `rosterSize()` was used as the
+ * "current player count" for the hearth drain multiplier. That caused a
+ * lingering "x2.0 drain solo" bug on servers that had seen more than one
+ * player during their uptime — the roster never compacts. `activeUsers`
+ * fixes it.
  */
 
 const roster: string[] = []
+const activeUsers = new Set<string>()
 
 /**
  * Assign or look up the team for a userId. Every player is Blue for now
@@ -30,9 +44,32 @@ export function assignTeam(userId: string): number {
   return 2 // Team.Blue
 }
 
-/** For diagnostics / future admin tools. */
+/** Total number of DISTINCT userIds seen since server start.
+ *  Never decreases while the server is up. Use for diagnostics and
+ *  logging — NOT for gameplay that scales with live player count. */
 export function rosterSize(): number {
   return roster.length
+}
+
+/** Number of players CURRENTLY in the scene (as observed via
+ *  onEnterScene / onLeaveScene from @dcl/sdk/players). This is the
+ *  correct signal for hearth drain multiplier, spawner intensity,
+ *  "online" analytics, and anything else that should react to the
+ *  live crowd size. */
+export function activePlayerCount(): number {
+  return activeUsers.size
+}
+
+/** Called from server.ts on onEnterScene. Idempotent — duplicate
+ *  enters (join, then reconnect without a leave) don’t inflate. */
+export function markActive(userId: string): void {
+  activeUsers.add(userId)
+}
+
+/** Called from server.ts on onLeaveScene. Idempotent — leaves for
+ *  users we never saw (or double-fires) are no-ops. */
+export function markInactive(userId: string): void {
+  activeUsers.delete(userId)
 }
 
 /**
