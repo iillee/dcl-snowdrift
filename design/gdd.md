@@ -44,11 +44,14 @@ Two load-bearing design decisions are deliberately open at start of v1 and get l
 
 **Decision A — Retention model (locked mid-Week 2):**
 - *Roguelike run:* the run is the unit of play; `dayNumber` and `season` reset on failure; the world is dormant when empty and Day 1 begins when the next player arrives; solstice arrives on a fixed **day number** (target Day 20); strong pitch hook ("how deep can your village go?"). **Current lean.**
-- *Persistent-world calendar:* the world has its own calendar that ticks even when empty; solstice arrives at fixed **real-world timestamps** (target 08:00 / 20:00 UTC); visitors drop in and check the season; DCL-native worldbuilding, softer retention hook.
+- *Persistent-world calendar:* the world has its own calendar that ticks even when empty; solstice arrives at fixed **real-world timestamps** (target 08:00 / 20:00 UTC); visitors drop in and check the season; DCL-native worldbuilding.
 
-**Decision B — Defense mechanic (locked end of Week 2):**
-- *Single-hearth quota:* one central fire, banked-wood quota per night, dusk-snapshot penalty; simpler, shorter design surface.
-- *Multi-fire territory:* a network of fires with individual tending, off-territory hostility, fire archetypes (warmth + grove) that gate map access; deeper, stronger fit for the "man vs. storm" pitch.
+> **Second-order note (added post-review):** the persistent-calendar branch also enables a second retention hook the roguelike branch cannot support — a *"while you were gone"* return screen summarising world change since the player's last visit (fires lost/reclaimed, days survived, discoveries made). Under a small-audience CCU, this may be a stronger D1 pull than the scheduled solstice. Week 2 prototype tests both branches against the question: *"After 20 minutes of play, did anything happen you would tell another person about?"*
+
+**Decision B — Defense mechanic. LOCKED: multi-fire territory.**
+- Post-review lock (2026-09-11). Rationale: territory makes §3 Pillar 2 ("fire = safety, distance = stakes") mechanically real; quota is a bar, territory is a map. Fuels exploration and gives the game purpose in a way quota does not.
+- **Design requirement inherited from the lock — fire dormancy.** A solo player at Day 30 cannot realistically defend 4 fires during a whiteout. Fires that cannot be tended must be able to go *cold-but-not-dead* (sleep) and be reclaimed later at a fuel cost, without triggering a full world reset. Only the *central hearth* dying triggers reset. Dormancy is what makes territory solo-playable.
+- *(Single-hearth quota alternative retired as of this lock. Prototype time reallocated to territory + dormancy tuning.)*
 
 **Direction lock (form deferred) — Meta-progression:**
 Surviving winter with territory intact carries *something* forward into the next cycle. Communal only (no personal gear, no per-player upgrades). Concrete form (Legacy counter, well-tended hearth buff, starter woodpile, warmth memory) decided during v1 build once the loop feels real. Full detail in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) §3.
@@ -169,21 +172,35 @@ Tied to the world's current day count, lost on world reset. Concrete list — it
 
 | Day | Unlock | Category | Ship |
 |---|---|---|---|
+> **Player-facing framing (post-review reframe):** unlocks are *internal design targets*, not player-facing UI. No battle-pass roadmap, no "Day 30 unlocked!" toasts. The player should notice things are different at higher day counts ("wait, was that here before?"), not see them announced. Discord community discovers the progression collectively. The table below is planning scaffolding; player-facing surface is diegetic only.
+
+| Day | Unlock | Category | Ship |
+|---|---|---|---|
 | **Day 5** | First **lore fragment** — a journal page thaws near the hearth: *"There is something under the ice. The ancients knew."* | Lore | *(v1.5)* |
 | **Day 10** | First **satellite pit site** thaws — territory NE of the central hearth. | Territory | **v1** |
 | **Day 15** | Second **lore fragment** — *"They saw the freeze coming. They left a way out. Fire, at a scale we have forgotten."* | Lore | *(v1.5)* |
 | **Day 20** | Second **satellite pit site** thaws — territory SW. | Territory | *(v1.5)* |
-| **Day 30** | **Torch upgrade tier 1** — fuel duration +30%. | Tool | **v1** |
+| **Day 30** | **Torch upgrade tier 1** — fuel duration +30%. Surfaced diegetically (torch visibly burns longer) not as a notification. | Tool | **v1** |
 | **Day 40** | Third **lore fragment** — *"The old maps mark the ignition stations. Volcanoes, prepared and sleeping. The instructions survive."* | Lore | *(v1.5)* |
 | **Day 50** | Third **satellite pit** — far zone, denser wood. | Territory | *(v1.5)* |
 | **Day 75** | **Torch upgrade tier 2** — melt radius +25%. | Tool | *(v1.5)* |
 | **Day 100** | Final lore fragment + aurora world-visual signature. *"The first station lies here. This is where the thaw begins."* Names the v2 goal explicitly. | Lore + cosmetic | *(v1.5)* |
 
-**Three unlock categories woven together:** *territory* (what map you can reach), *tools* (how well you can work it), *lore* (why you're here at all). Every ~10 days the player has a reason to push forward, and the reasons rotate so it never feels like grinding one axis.
+**Three unlock categories woven together:** *territory* (what map you can reach), *tools* (how well you can work it), *lore* (why you're here at all). Every ~10 days the player has a reason to push forward, and the reasons rotate so it never feels like grinding one axis. **All of it surfaces diegetically** — no unlock notifications, no progression UI.
 
 **Lore content:** Fragments are short (a paragraph each), diegetic (found objects the player can read in-world), and read as **fragments of the ancients' ignition manual** — the instructions for waking the volcano network that will one day thaw the world. The stubs above are seed lines; final prose owner-drafted before v1.5. The whole set answers *"why is it winter, who saw this coming, and what did they leave for us?"* by Day 100 — which names the location of the first ignition station and sets up v2.
 
 **Currency / tradable rewards:** none. All progression is community-level and resets with the world. No wallet interactions, no NFTs required to play.
+
+### Identity progression (not power progression)
+
+The world accumulates *power*; the player accumulates *biography*. Personal history is remembered, personal stats are not upgraded. v1 keeps this minimal:
+
+- **Survivor plaques** on the hearth (already in §5) — names of the ~10 players present when the current record was set.
+- **Optional hover / whisper stat on other players' avatars** at the hearth: *"Survived 2 solstices · Delivered 47 wood · Witnessed Day 34."* Read-only, cosmetic, no gameplay effect.
+- **Named graves** (see §5) mark where a player froze. Their name and the day number persist as environmental storytelling.
+
+No per-player power buffs. No gear tiers. No personal levels. A returning veteran and a new player have the same capabilities — only their history differs. This is the design line that keeps Cryogenia from drifting into MMO progression.
 
 ---
 
@@ -211,7 +228,11 @@ Spawn puts everyone at the same central hearth. A new arrival sees other players
 Baseline: DCL floating name labels. Deliberate moment: when a player deposits a log, a subtle *"iridis · +1 wood"* pill appears briefly near the hearth. Same when your torch is chain-lit by someone — their name flashes for a second. Names surface tied to positive actions, never as a scoreboard.
 
 **What persists between returning players.**
-No personal progression persists (per §4). But the hearth carries **survivor plaques**: the names of the ~10 players present when the current record day was reached. Returning players check the plaques to see if their name is up; new players see who kept the world alive. Plaques update when the record is beaten; lost with the world on reset.
+No personal progression persists (per §4). But the world carries **traces of prior play**:
+
+- **Survivor plaques** on the hearth: names of the ~10 players present when the current record day was reached. Returning players check the plaques to see if their name is up; new players see who kept the world alive. Plaques update when the record is beaten; lost with the world on reset.
+- **Melted paths and dormant fires** (from §3) leave a visible history of where recent players walked and what they tended — the world reads as *inhabited* even at CCU 1.
+- **Named graves** mark where a player froze. Small stone marker with their name and the day number they died on. Purely aesthetic and diegetic — no gameplay effect — but they turn a bad moment into a gift to the next player: *"someone died past this point at night. That's information."* Graves persist for the run; lost on world reset.
 
 *Note: the surfacing mechanics above will evolve as build reveals what feels right. Locked as v1 baseline, expected to deepen.*
 
@@ -291,9 +312,9 @@ Top strip: day count + solstice countdown + high-score record. Bottom strip: sha
 
 ### Biggest performance risk + plan
 
-**Risk:** snowfall + hearth particles + melt-tile CRDT updates during a nighttime scene with 8 concurrent players. The paint-sync tile refactor (repo README v2.7) already handled the tile-CRDT case at scale; the outstanding concern is particle count during HEAVY weather + solstice effects. `[HYPOTHESIS]` H1-06 covers the 8-player 30 fps mobile target.
+**Risk:** snowfall + hearth particles + melt-tile CRDT updates during a nighttime scene with 8 concurrent players, **now compounded by the ~5× scale increase** (§3 Scale and traversal). Density × area × particles is the risk stack. The paint-sync tile refactor (repo README v2.7) already handled the tile-CRDT case at scale; the outstanding concerns are (a) particle count during HEAVY weather + solstice effects, (b) draw distance and asset density in the expanded world. `[HYPOTHESIS]` H1-06 covers the 8-player 30 fps mobile target.
 
-**Plan:** cap engine particles at 1000/sec globally; snowfall rate on mobile drops one tier below the desktop equivalent (mobile HEAVY = desktop MEDIUM density, at the same visible weather level). Contingency: if the mobile lean-variant still fails H1-06 at Week 2 playtest, drop mobile v1 tested max from 8 to 6 concurrent players and update §5 accordingly.
+**Plan:** cap engine particles at 1000/sec globally; snowfall rate on mobile drops one tier below the desktop equivalent (mobile HEAVY = desktop MEDIUM density, at the same visible weather level); leverage Cryogenian ice-haze fog (§7) as free occlusion for far-distance LOD culling; sparse reveal density in outer zones. Contingency: if the mobile lean-variant still fails H1-06 at Week 2 playtest, first fall back scene scale from 5× to 3× (§3); if still failing, drop mobile v1 tested max from 8 to 6 concurrent players and update §5 accordingly.
 
 ### Desktop-only dependencies
 
@@ -340,8 +361,8 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 | Week | Playable state |
 |---|---|
 | **Week 1 — Backbone** | Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed (fires when all fires dead + roster empty for 60 s). Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle live (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring); cold trends up through winter arc, back down through recovery. Both season-reset code paths built behind a flag (flipped in Week 2). |
-| **Week 2 — Decisions** | Two prototypes live in the Week 1 phase-clock testbed. **Retention prototype:** flip season-reset flag between roguelike (resets on `resetRun`) and calendar (persists as world history); play both solo across a full day/night cycle; decide by mid-week. **Territory-defense prototype:** resurrect hidden campfires; retune existing frost + locomotion so off-territory is hostile and on-territory is safe; play with 1–2 people across a full night; decide by end of week. Two decisions locked and documented before Week 3. |
-| **Week 3 — Build + first playtest** | Conditional on Week 2 decisions. If single-hearth won: wood quota bar + dusk-snapshot penalty + snow/melt tuning. If territory won: fire archetypes (warmth + grove), snow regrowth curve driving territory shrink at night, reclamation cost for cold fires. **Both branches:** solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → recovery arc). Multiplayer playtest with 3+ from Discord. |
+| **Week 2 — Retention prototype + territory build-out** | Decision B (territory) is locked pre-Week 2 (see §0.1). **Retention prototype (Decision A):** flip season-reset flag between roguelike (resets on `resetRun`) and calendar (persists as world history, enables "while you were gone" summary screen); play both solo across a full day/night cycle; test against the question *"did anything happen you would tell another person about?"*; decide by mid-week. **Territory build:** resurrect hidden campfires; wire fire dormancy (cold-but-not-dead sleeping state, reclamation cost); retune frost + locomotion so off-territory is hostile and on-territory is safe; play with 1–2 people across a full night. Decision A locked and documented before Week 3. |
+| **Week 3 — Build + first playtest** | Territory model build continues: fire archetypes (warmth + grove), snow regrowth curve driving territory shrink at night, reclamation cost for dormant fires. Snow-as-mystery reveal table wired (§3): wood common, hot cocoa + fur wrap uncommon, unlit campfires + lore fragments rare, ancient markers very rare, graves on death. Two-hand carry rule enforced. Ice-hazard and deep-snow tiles placed. Solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → recovery arc). Multiplayer playtest with 3+ from Discord. |
 | **Week 4 — Polish + ship** | Ember visual/audio (deferred from Week 1). First-30-seconds onboarding (reactive to playtest). Solstice arrival VFX/audio. Optional meta-progression carry mechanism (§3.4) if scope allows. Block redesign + environment-layout tuning (lift the world from greybox to cohesive winter-survival look). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Deploy dry-run. Submit. |
 
 ### Live-ops — what keeps the experience changing after launch
@@ -359,7 +380,10 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 - **No tool tiers.** No axes, no upgraded torches, no crafting.
 - **No personal gear or per-player upgrades.** Meta-progression is communal-only.
 - **No NPCs, quests, or dialogue.**
-- **No fire archetypes beyond 2** (if territory model wins). Way-station, overlook, ancient — all v2.
+- **No fire archetypes beyond 2.** Way-station, overlook, ancient — all v2. (Territory model locked — see §0.1.)
+- **No inventory system beyond the two-hand rule.** Torch in one hand, one carry slot in the other. No bags, no menus, no crafting UI. (See §3 two-hand rule.)
+- **No hunger, thirst, or cooking.** Cold is the sole survival axis in v1. Adding a second dilutes it.
+- **No player equipment with persistent stats.** Warmth items are one-shot consumables, not gear. Identity progression accumulates *history*, not power (see §4).
 - **No wallet-gated content.**
 - **No trailer or pitch work until the loop is playable** (Week 4 only).
 
@@ -379,6 +403,8 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 ## 3. Core Loop
 
 **The verb:** warm the ground to see what's there.
+
+**The two-hand rule.** Your torch is always in one hand. The other hand carries *one thing at a time* — a log, a warmth item, an ancient find. Picking up something new drops what you had. No inventory screen, no menu. Every reveal under the snow is a decision: *is this worth the log I was carrying?*
 
 **Three nested loops:**
 
@@ -443,5 +469,53 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 **Pillars:**
 1. **Man vs. storm, not man vs. mob.** The enemy is the cold, the snow, and the passage of seasons. No combat in v1.
 2. **Fire = safety, distance = stakes.** Every fire is an island of warmth; every step away from one is a risk.
-3. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches show wood.
+3. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches reveal *something* — wood, warmth items, unlit fires, ancient objects, lore fragments. The variety comes from what you find, not from new verbs.
 4. **Players help fires, not hurt them.** No extinguish action, no fuel drain — no grief vectors by construction.
+
+### What's under the snow (reveal table)
+
+Snow-as-mystery-layer: the melt verb payoff is not just wood. Rare finds under the snow drive discovery and turn the same verb into a different game each session.
+
+| Reveal | Frequency | Carry slot | Role |
+|---|---|---|---|
+| **Wood log** | Common | Yes | Staple fuel for the hearth |
+| **Hot cocoa** | Uncommon | Yes | One-shot warmth (resets frost meter). Social gift. |
+| **Fur wrap** | Uncommon | Yes | One-shot cold-absorb (nullifies next major frost tick). Consumable, not equipment. |
+| **Unlit campfire** | Rare | No (fixed) | Territory expansion node. Light with a torch to claim. |
+| **Lore fragment** | Rare | Yes | Read at the hearth. Adds to community journal. Ignition-manual pages (see §4.2). |
+| **Ancient marker stone** | Very rare | No (fixed, remains visible) | Ticks a world-counter on the hearth ("Markers found: 3 / ?"). At thresholds, subtle world change (aurora, ambient sound, hearth flame colour). Mythic progression without menus. |
+| **Grave** | (spawned on death, not a reveal) | No (fixed) | Marks where a player froze. Name + day number persist as environmental trace. |
+| ~~Kindling (dry wood ~3 logs)~~ | *Candidate* | Yes | Under consideration. Adds "walk home now?" tension. Playtest-gated. |
+| ~~Ember stone (instant satellite ignition)~~ | *Candidate* | Yes | Under consideration. Accelerates territory expansion. Playtest-gated. |
+
+**Hazards (environmental, not reveals):**
+- **Thin ice** — partially visible blue tint under snow. Fall through: frost damage + carried item drops. Punishes rushing, especially at night.
+- **Deep-snow zones** — painted differently, ~40% walk-speed reduction. Makes route planning matter.
+
+### Seasonal cadence (each season plays as a different phase)
+
+Seasons are not just difficulty modifiers — each is a distinct strategic phase. The verbs stay the same; the question *what am I doing today?* changes.
+
+| Season | Strategic phase | What the player is doing |
+|---|---|---|
+| Autumn | **Expand** | Push out. Light satellite fires. Discover new ground. |
+| Early winter | **Prepare** | Stockpile wood at strong positions. Identify what to hold. |
+| Deep winter | **Consolidate** | Let peripheral fires sleep (dormancy). Concentrate warmth. |
+| Solstice approach | **Hold** | Everyone home, everyone tending. Preparation window closes. |
+| Winter solstice | **Survive** | The boss beat. Storm attacks the network you built. |
+| Thaw | **Reclaim** | Wake sleeping fires. Reoccupy lost ground. |
+| Spring | **Expand again** | Push further than last year. Reveal what winter hid. |
+
+This is what keeps repetition-10 feeling different from repetition-1: not that cold is 40% worse, but that the *question you are answering* changes.
+
+### Scale and traversal
+
+**Target scale: ~5× the current playable radius** (approximate ~250m diameter, using ~1024 parcels already allocated). **Floor: 3×** if content density cannot keep up during the Week 3–4 environment pass.
+
+- **Traversal time end-to-end:** ~2 minutes at DCL walk speed. A solo push to the far edge and back is a ~4-minute expedition, not a stroll.
+- **Torch fuel becomes a hard constraint.** Chain-lighting is necessity, not cosmetic.
+- **Legibility from centre degrades.** Far edges are unreadable from the hearth by design — wayfinding cue is firelight columns visible through ice-haze (§7).
+- **Density scales with area.** Reveal density (assets / m²) stays roughly constant; empty scale is worse than tight scale.
+- **Mobile perf risk:** density × area × particles. Ice-haze doubles as free occlusion for LOD. Tracked under H1-06.
+
+**Decision point:** actual scale confirmed during Week 3–4 environment pass, not committed Week 1. Ship at 3× if 5× cannot be populated.
