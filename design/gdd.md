@@ -373,7 +373,7 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 |---|---|---|---|
 | **P1 — Scale + temporal foundation** | 9/23 → 9/29 | Scale the scene up to target 5× (floor 3×). World generation tweaks — layout, density, hearth placement, wayfinding beacons through ice-haze. Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle scaffolded (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring). Weather profile-per-season system wired. Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed. | **Playtest 9/29:** does the bigger world *feel* right? Does day/night read? Does the seasonal arc register across a session? |
 | **P2 — Weather + temp difficulty + territory + retention** | 9/30 → 10/6 | Weather intensity curves per season (visibility, snow accumulation, HEAVY vs light). Frost/temperature curve tuning — warm-at-fire vs cold-away, day/night differential, solstice ramp. Territory wiring: resurrect satellite campfires, fire dormancy (cold-but-not-dead sleeping state, reclamation cost), off-territory hostility. **Retention prototype (Decision A):** flip season-reset flag between roguelike and persistent-calendar; test both against *"did anything happen you would tell another person about?"*; lock by mid-phase. Two-hand carry rule enforced. | *(internal, no playtest)* |
-| **P3 — Loop 1 fun (reveals + hazards)** | 10/7 → 10/13 | v1 reveal table wired: **hot cocoa** and **fur wrap** (new consumables), unlit campfire (territory node), lore fragment (with placeholder text). Ice-hazard tiles and deep-snow zones placed. Melt-to-reveal tuning — payoff variety at the new scale, walk time feels dramatic not tedious. | **Playtest 10/13:** does gathering feel fun? Are reveals varied enough? Is territory pressure real? |
+| **P3 — Loop 1 fun (reveals + hazards)** | 10/7 → 10/13 | v1 reveal table wired: **pine log** (long-burn fuel, pine grove biome only — first geography-as-tech-tree payoff), **hot cocoa** and **fur wrap** (new consumables), unlit campfire (territory node), lore fragment (with placeholder text). Ice-hazard tiles and deep-snow zones placed. Melt-to-reveal tuning — payoff variety at the new scale, walk time feels dramatic not tedious. | **Playtest 10/13:** does gathering feel fun? Are reveals varied enough? Is territory pressure real? Does reaching the pine grove feel like an accomplishment? |
 | **P4 — Loop 2 fun (solstice climax)** | 10/14 → 10/20 | Solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readability — each season *plays* as a different phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Dormancy tuning based on P3 playtest feedback. Sleeping-ember visual/audio. | *(internal, no playtest)* |
 | **P5 — Onboarding + polish + ship** | 10/21 → 10/27 | First-30-seconds onboarding (playtest-reactive). Solstice arrival VFX/audio polish. Level visual redesign (block/prop art pass). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Optional meta-progression carry mechanism if scope allows. Deploy dry-run. | **Playtest 10/27:** full loop feels complete → v1 sign-off. Submit. |
 
@@ -419,7 +419,12 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 
 **The two-hand rule.** Your torch is always in one hand. The other hand carries *one thing at a time* — a log, a warmth item, an ancient find. Picking up something new drops what you had. No inventory screen, no menu. Every reveal under the snow is a decision: *is this worth the log I was carrying?*
 
-**Three nested loops:**
+**The three-horizon pitch:**
+> *Stay home and you can survive today.*
+> *Expand and you may survive the winter.*
+> *Keep pushing the frontier across many winters and you may discover how to end the ice age.*
+
+Each horizon corresponds to one of the three nested loops:
 
 | Loop | Scope | Ships in v1? | Success = |
 |---|---|---|---|
@@ -484,6 +489,8 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 2. **Fire = safety, distance = stakes.** Every fire is an island of warmth; every step away from one is a risk.
 3. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches reveal *something* — wood, warmth items, unlit fires, ancient objects, lore fragments. The variety comes from what you find, not from new verbs.
 4. **Players help fires, not hurt them.** No extinguish action, no fuel drain — no grief vectors by construction.
+5. **Geography is the tech tree.** The map itself is the progression system. Different zones (scrubland, pine grove, frontier) hold different resources, discoveries, and routes. Territory grants *access to capabilities*, not stat buffs. Fire is the infrastructure that extends civilization into hostile ground.
+6. **Complexity from the world, not the verbs.** New depth is added by making the world more varied (biomes, reveals, hazards, discoveries), not by adding new player verbs or systems. One legible input; many geographic contexts.
 
 ### What's under the snow (reveal table)
 
@@ -493,13 +500,16 @@ Snow-as-mystery-layer: the melt verb payoff is not just wood. Rare finds under t
 
 | Reveal | Frequency | Carry slot | Role |
 |---|---|---|---|
-| **Wood log** | Common | Yes | Staple fuel for the hearth |
+| **Deadwood log** | Common (denser under trees) | Yes | Staple fuel for the hearth. Found anywhere in the snow but reliably denser beneath tree cover. |
+| **Pine log** | Uncommon (pine grove biome only) | Yes | Longer-burning fuel. Geographic reward for reaching and holding the pine grove. First working prototype of *geography-as-tech-tree* (Pillar 5). |
 | **Hot cocoa** | Uncommon | Yes | One-shot warmth (resets frost meter). Social gift. |
 | **Fur wrap** | Uncommon | Yes | One-shot cold-absorb (nullifies next major frost tick). Consumable, not equipment. |
 | **Unlit campfire** | Rare | No (fixed) | Territory expansion node. Light with a torch to claim. |
 | **Lore fragment** | Rare | Yes | Read at the hearth. Adds to community journal. Ignition-manual pages (see §4.2). Placeholder text in v1; final prose v1.5. |
 
-**Deferred to v1.5** (Loop 3 surface + polish): ancient marker stones (mythic world-counter with thresholds), named graves (aesthetic trace of frozen players), kindling (dry-wood variant worth ~3 logs), ember stones (instant satellite ignition). These enrich the reveal-under-snow verb but v1 prioritises simulation and Loop 1/2 fun first.
+**Trees as biome signal (already prototyped).** Trees are the visible marker of *where the good wood is*. Wood can be found under any snow, but density and quality follow the tree cover. This is the geography-as-tech-tree principle in its minimum viable form — no new verb, no new UI, just a spatial cue the player learns to read. Pine grove extends this in v1: same verb, better payoff, specific place.
+
+**Deferred to v1.5+** (Loop 3 surface + progression): ancient marker stones (mythic world-counter with thresholds), named graves (aesthetic trace of frozen players), kindling and ember stones (candidate reveals), **resin wood** (specialist re-ignition fuel), **hot springs / geothermal warmth zones**, **frozen lake fast-traversal route**, **ancient ruins as physical destinations**, **resource depletion + seasonal regen**, **chopping and axes for standing timber** (v2 progression tier). These extend geography-as-tech-tree beyond the v1 prototype; ship after biomes and territory prove out.
 
 **Hazards (environmental, not reveals):**
 - **Thin ice** — partially visible blue tint under snow. Fall through: frost damage + carried item drops. Punishes rushing, especially at night.
@@ -520,6 +530,10 @@ Seasons are not just difficulty modifiers — each is a distinct strategic phase
 | Spring | **Expand again** | Push further than last year. Reveal what winter hid. |
 
 This is what keeps repetition-10 feeling different from repetition-1: not that cold is 40% worse, but that the *question you are answering* changes.
+
+**Winter reverses the tech tree.** Under Pillar 5 (geography-as-tech-tree), losing territory during winter is not just losing a circle on the map — it is *losing access to a capability*. Abandon North Camp during Deep Winter and the pine grove goes dark; the community loses its long-burn fuel supply until Thaw. Most survival games only give the player capabilities. Cryogenia temporarily takes them away. Spring becomes *"first thing we're doing is taking the grove back."* This is what makes the seasonal cadence mechanically consequential, not just narrative.
+
+**The map is the score after Solstice.** Success is not binary. A great winter might leave nearly the whole network intact; a brutal winter might leave only the central hearth and one satellite; a catastrophe extinguishes the hearth and ends the run. The *state of the map* at dawn after the Solstice tells the story of the winter without needing a scoreboard.
 
 ### Scale and traversal
 
