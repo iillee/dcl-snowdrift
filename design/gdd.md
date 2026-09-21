@@ -232,7 +232,7 @@ No personal progression persists (per §4). But the world carries **traces of pr
 
 - **Survivor plaques** on the hearth: names of the ~10 players present when the current record day was reached. Returning players check the plaques to see if their name is up; new players see who kept the world alive. Plaques update when the record is beaten; lost with the world on reset.
 - **Melted paths and dormant fires** (from §3) leave a visible history of where recent players walked and what they tended — the world reads as *inhabited* even at CCU 1.
-- **Named graves** mark where a player froze. Small stone marker with their name and the day number they died on. Purely aesthetic and diegetic — no gameplay effect — but they turn a bad moment into a gift to the next player: *"someone died past this point at night. That's information."* Graves persist for the run; lost on world reset.
+- **Named graves** *(v1.5)* mark where a player froze. Small stone marker with their name and the day number they died on. Purely aesthetic and diegetic — no gameplay effect — but they turn a bad moment into a gift to the next player: *"someone died past this point at night. That's information."* Deferred from v1 to keep P1–P4 focused on simulation and loop fun.
 
 *Note: the surfacing mechanics above will evolve as build reveals what feels right. Locked as v1 baseline, expected to deepen.*
 
@@ -346,24 +346,36 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 
 ---
 
-## 9. 4 Week Plan (v1 scope)
+## 9. v1 Build Plan (5 phases, ~5 weeks)
 
-**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Cryogenia · 60–80 total build hours over weeks 1–4. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
+**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Cryogenia. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
 
-**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). The 4 weeks are a **pivot from cozy hangout to man-vs-storm territory defense**, not a build from scratch. Source-of-truth plan lives in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md).
+**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). v1 is a **pivot from cozy hangout to man-vs-storm territory survival at scale**, not a build from scratch. Source-of-truth plan lives in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) *(pending update to match this schedule)*.
 
-**Structure:** Week 1 = backbone (temporal infrastructure). Week 2 = design decisions (two prototypes, two decision gates). Week 3 = build the winning game + first playtest. Week 4 = polish + ship.
+### Schedule
 
-### Weekly milestones
-
-**v1 delivery principle: fun first. Ship the tight core loop, defer feature spread to v1.5.**
-
-| Week | Playable state |
+| Date | Milestone |
 |---|---|
-| **Week 1 — Backbone** | Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed (fires when all fires dead + roster empty for 60 s). Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle live (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring); cold trends up through winter arc, back down through recovery. Both season-reset code paths built behind a flag (flipped in Week 2). |
-| **Week 2 — Retention prototype + territory build-out** | Decision B (territory) is locked pre-Week 2 (see §0.1). **Retention prototype (Decision A):** flip season-reset flag between roguelike (resets on `resetRun`) and calendar (persists as world history, enables "while you were gone" summary screen); play both solo across a full day/night cycle; test against the question *"did anything happen you would tell another person about?"*; decide by mid-week. **Territory build:** resurrect hidden campfires; wire fire dormancy (cold-but-not-dead sleeping state, reclamation cost); retune frost + locomotion so off-territory is hostile and on-territory is safe; play with 1–2 people across a full night. Decision A locked and documented before Week 3. |
-| **Week 3 — Build + first playtest** | Territory model build continues: fire archetypes (warmth + grove), snow regrowth curve driving territory shrink at night, reclamation cost for dormant fires. Snow-as-mystery reveal table wired (§3): wood common, hot cocoa + fur wrap uncommon, unlit campfires + lore fragments rare, ancient markers very rare, graves on death. Two-hand carry rule enforced. Ice-hazard and deep-snow tiles placed. Solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → recovery arc). Multiplayer playtest with 3+ from Discord. |
-| **Week 4 — Polish + ship** | Ember visual/audio (deferred from Week 1). First-30-seconds onboarding (reactive to playtest). Solstice arrival VFX/audio. Optional meta-progression carry mechanism (§3.4) if scope allows. Block redesign + environment-layout tuning (lift the world from greybox to cohesive winter-survival look). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Deploy dry-run. Submit. |
+| **9/23 Mon** | v0 sign-off + v1 project launch |
+| **9/29 Mon** | Playtest #1 (end of P1) |
+| **10/13 Mon** | Playtest #2 (end of P3) |
+| **10/27 Mon** | Playtest #3 + v1 sign-off (end of P5) |
+
+**Structure:** simulation first, mechanics second. P1 = scale + temporal foundation. P2 = weather + temperature + territory + retention decision. P3 = Loop 1 fun (reveals + hazards). P4 = Loop 2 fun (solstice climax). P5 = onboarding + polish + ship.
+
+### Phases
+
+**v1 delivery principle: simulation feels good first, then mechanics on top. If the world doesn't feel right at scale under weather and cold, no reveal table saves it.**
+
+> **This plan is a rough map, not a contract.** The build order will shift based on what feels fun and what's working in practice. Phase *goals* are firm; phase *ordering* is flexible — expect to jump between phases as the game reveals what it wants to be.
+
+| Phase | Dates | Focus | Deliverable |
+|---|---|---|---|
+| **P1 — Scale + temporal foundation** | 9/23 → 9/29 | Scale the scene up to target 5× (floor 3×). World generation tweaks — layout, density, hearth placement, wayfinding beacons through ice-haze. Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle scaffolded (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring). Weather profile-per-season system wired. Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed. | **Playtest 9/29:** does the bigger world *feel* right? Does day/night read? Does the seasonal arc register across a session? |
+| **P2 — Weather + temp difficulty + territory + retention** | 9/30 → 10/6 | Weather intensity curves per season (visibility, snow accumulation, HEAVY vs light). Frost/temperature curve tuning — warm-at-fire vs cold-away, day/night differential, solstice ramp. Territory wiring: resurrect satellite campfires, fire dormancy (cold-but-not-dead sleeping state, reclamation cost), off-territory hostility. **Retention prototype (Decision A):** flip season-reset flag between roguelike and persistent-calendar; test both against *"did anything happen you would tell another person about?"*; lock by mid-phase. Two-hand carry rule enforced. | *(internal, no playtest)* |
+| **P3 — Loop 1 fun (reveals + hazards)** | 10/7 → 10/13 | v1 reveal table wired: **hot cocoa** and **fur wrap** (new consumables), unlit campfire (territory node), lore fragment (with placeholder text). Ice-hazard tiles and deep-snow zones placed. Melt-to-reveal tuning — payoff variety at the new scale, walk time feels dramatic not tedious. | **Playtest 10/13:** does gathering feel fun? Are reveals varied enough? Is territory pressure real? |
+| **P4 — Loop 2 fun (solstice climax)** | 10/14 → 10/20 | Solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readability — each season *plays* as a different phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Dormancy tuning based on P3 playtest feedback. Sleeping-ember visual/audio. | *(internal, no playtest)* |
+| **P5 — Onboarding + polish + ship** | 10/21 → 10/27 | First-30-seconds onboarding (playtest-reactive). Solstice arrival VFX/audio polish. Level visual redesign (block/prop art pass). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Optional meta-progression carry mechanism if scope allows. Deploy dry-run. | **Playtest 10/27:** full loop feels complete → v1 sign-off. Submit. |
 
 ### Live-ops — what keeps the experience changing after launch
 
@@ -384,6 +396,7 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 - **No inventory system beyond the two-hand rule.** Torch in one hand, one carry slot in the other. No bags, no menus, no crafting UI. (See §3 two-hand rule.)
 - **No hunger, thirst, or cooking.** Cold is the sole survival axis in v1. Adding a second dilutes it.
 - **No player equipment with persistent stats.** Warmth items are one-shot consumables, not gear. Identity progression accumulates *history*, not power (see §4).
+- **Deferred to v1.5:** ancient marker stones (mythic world-counter), named graves, kindling and ember stones (candidate reveals), identity hover-stats on other players. Simulation and Loop 1/2 fun take priority in v1; Loop 3 surface expands in v1.5.
 - **No wallet-gated content.**
 - **No trailer or pitch work until the loop is playable** (Week 4 only).
 
@@ -476,17 +489,17 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 
 Snow-as-mystery-layer: the melt verb payoff is not just wood. Rare finds under the snow drive discovery and turn the same verb into a different game each session.
 
+**v1 reveal table (tight scope):**
+
 | Reveal | Frequency | Carry slot | Role |
 |---|---|---|---|
 | **Wood log** | Common | Yes | Staple fuel for the hearth |
 | **Hot cocoa** | Uncommon | Yes | One-shot warmth (resets frost meter). Social gift. |
 | **Fur wrap** | Uncommon | Yes | One-shot cold-absorb (nullifies next major frost tick). Consumable, not equipment. |
 | **Unlit campfire** | Rare | No (fixed) | Territory expansion node. Light with a torch to claim. |
-| **Lore fragment** | Rare | Yes | Read at the hearth. Adds to community journal. Ignition-manual pages (see §4.2). |
-| **Ancient marker stone** | Very rare | No (fixed, remains visible) | Ticks a world-counter on the hearth ("Markers found: 3 / ?"). At thresholds, subtle world change (aurora, ambient sound, hearth flame colour). Mythic progression without menus. |
-| **Grave** | (spawned on death, not a reveal) | No (fixed) | Marks where a player froze. Name + day number persist as environmental trace. |
-| ~~Kindling (dry wood ~3 logs)~~ | *Candidate* | Yes | Under consideration. Adds "walk home now?" tension. Playtest-gated. |
-| ~~Ember stone (instant satellite ignition)~~ | *Candidate* | Yes | Under consideration. Accelerates territory expansion. Playtest-gated. |
+| **Lore fragment** | Rare | Yes | Read at the hearth. Adds to community journal. Ignition-manual pages (see §4.2). Placeholder text in v1; final prose v1.5. |
+
+**Deferred to v1.5** (Loop 3 surface + polish): ancient marker stones (mythic world-counter with thresholds), named graves (aesthetic trace of frozen players), kindling (dry-wood variant worth ~3 logs), ember stones (instant satellite ignition). These enrich the reveal-under-snow verb but v1 prioritises simulation and Loop 1/2 fun first.
 
 **Hazards (environmental, not reveals):**
 - **Thin ice** — partially visible blue tint under snow. Fall through: frost damage + carried item drops. Punishes rushing, especially at night.
