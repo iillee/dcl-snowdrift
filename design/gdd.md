@@ -346,43 +346,39 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 
 ---
 
-## 9. v1 Build Plan (5 phases, ~5 weeks)
+## 9. v1 Build Plan (5 themed weeks)
 
 **Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Cryogenia. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
 
-**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). v1 is a **pivot from cozy hangout to man-vs-storm territory survival at scale**, not a build from scratch. Source-of-truth plan lives in [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) *(pending update to match this schedule)*.
+**Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). v1 is a **pivot from cozy hangout to man-vs-storm territory survival at scale**, not a build from scratch.
+
+**Delivery principle:** simulation feels good first, mechanics on top, then depth, then the peak moment, then polish. If the world doesn't feel right at Week 1, no reveal table at Week 3 saves it.
+
+**Each phase has a theme so it can be pitched in a sentence.** The *goals* per phase are firm; the *ordering and pace* is not — in practice some phases finish in a couple of days and others take a couple of weeks. "Week" is a label for the theme, not a calendar promise.
 
 ### Schedule
 
-| Date | Milestone |
-|---|---|
-| **9/23 Mon** | v0 sign-off + v1 project launch |
-| **9/29 Mon** | Playtest #1 (end of P1) |
-| **10/13 Mon** | Playtest #2 (end of P3) |
-| **10/27 Mon** | Playtest #3 + v1 sign-off (end of P5) |
+**Start:** 9/23 Mon (v0 sign-off + v1 project launch)
+**Submit:** 10/27 Mon (v1 sign-off)
 
-**Structure:** simulation first, mechanics second. P1 = scale + temporal foundation. P2 = weather + temperature + territory + retention decision. P3 = Loop 1 fun (reveals + hazards). P4 = Loop 2 fun (solstice climax). P5 = onboarding + polish + ship.
+~5 weeks of calendar between the bookends, split across the five themed phases below in whatever proportion the build demands. Playtests happen at natural seams — end of Systems, end of Depth + Holes, and inside Solstice + Game Loops — not on fixed dates.
 
-### Phases
+### The five phases
 
-**v1 delivery principle: simulation feels good first, then mechanics on top. If the world doesn't feel right at scale under weather and cold, no reveal table saves it.**
-
-> **This plan is a rough map, not a contract.** The build order will shift based on what feels fun and what's working in practice. Phase *goals* are firm; phase *ordering* is flexible — expect to jump between phases as the game reveals what it wants to be.
-
-| Phase | Dates | Focus | Deliverable |
+| Week | Theme | One-line pitch | Playable outcome |
 |---|---|---|---|
-| **P1 — Scale + temporal foundation** | 9/23 → 9/29 | Scale the scene up to target 5× (floor 3×). World generation tweaks — layout, density, hearth placement, wayfinding beacons through ice-haze. Day/night phase clock (`server/phase.ts`) with all 6 phases scaffolded (DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE); server-time authority for the countdown. Seasonal cycle scaffolded (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring). Weather profile-per-season system wired. Fuel floor cut; sleeping-ember failure model live (60 s relight grace); empty-server run-reset installed. | **Playtest 9/29:** does the bigger world *feel* right? Does day/night read? Does the seasonal arc register across a session? |
-| **P2 — Weather + temp difficulty + territory + retention** | 9/30 → 10/6 | Weather intensity curves per season (visibility, snow accumulation, HEAVY vs light). Frost/temperature curve tuning — warm-at-fire vs cold-away, day/night differential, solstice ramp. Territory wiring: resurrect satellite campfires, fire dormancy (cold-but-not-dead sleeping state, reclamation cost), off-territory hostility. **Retention prototype (Decision A):** flip season-reset flag between roguelike and persistent-calendar; test both against *"did anything happen you would tell another person about?"*; lock by mid-phase. Two-hand carry rule enforced. | *(internal, no playtest)* |
-| **P3 — Loop 1 fun (reveals + hazards)** | 10/7 → 10/13 | v1 reveal table wired: **pine log** (long-burn fuel, pine grove biome only — first geography-as-tech-tree payoff), **hot cocoa** and **fur wrap** (new consumables), unlit campfire (territory node), lore fragment (with placeholder text). Ice-hazard tiles and deep-snow zones placed. Melt-to-reveal tuning — payoff variety at the new scale, walk time feels dramatic not tedious. | **Playtest 10/13:** does gathering feel fun? Are reveals varied enough? Is territory pressure real? Does reaching the pine grove feel like an accomplishment? |
-| **P4 — Loop 2 fun (solstice climax)** | 10/14 → 10/20 | Solstice event wiring (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readability — each season *plays* as a different phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Dormancy tuning based on P3 playtest feedback. Sleeping-ember visual/audio. | *(internal, no playtest)* |
-| **P5 — Onboarding + polish + ship** | 10/21 → 10/27 | First-30-seconds onboarding (playtest-reactive). Solstice arrival VFX/audio polish. Level visual redesign (block/prop art pass). 60–90 s trailer. `docs/VISION.md` refresh, player-facing README pass. Final mobile perf smoke. Optional meta-progression carry mechanism if scope allows. Deploy dry-run. | **Playtest 10/27:** full loop feels complete → v1 sign-off. Submit. |
+| **1 — Systems** | Foundation | *Time, weather, and cold behave like a world.* | Day/night phase clock (server-time authority, all 6 phases scaffolded: DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE), full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), weather profile-per-season, optional fog system decided in/out this week. Sleeping-ember failure model live. World ticks correctly with no new mechanic on top. |
+| **2 — Spatialize + Fun** | Geography as tech tree, and *what is a run?* | *Wood clusters near trees, fires anchor territory, exploration pays off — and we decide what a "run" means.* | Wood-density-follows-trees is real (first geography-as-tech-tree payoff). Territory wiring: satellite fires, fire dormancy (cold-but-not-dead), off-territory hostility. Frost/temperature curve tuned so warm-at-fire and cold-away both read. **Retention model locked (§0.1 Decision A):** roguelike vs persistent-calendar prototyped mid-week (flag on `dayNumber`/`season` reset semantics — code delta is small); tested against *"after 20 minutes, did anything happen you would tell another person about?"*. Loop is fun for 20 minutes under the chosen framing. |
+| **3 — Depth + Holes** | Repeat what worked, file the sharp edges | *One good pattern, extended to a second biome. Sharp edges filed off.* | Pine grove biome ships (same tree-cluster pattern as Week 2, better payoff — pine log = long-burn fuel). v1 reveal table extended: hot cocoa, fur wrap, unlit campfire, lore fragment (placeholder text). Ice-hazard tiles + deep-snow zones placed. **Holes list from end of Week 2 playtest gets worked through** — death/respawn/reload/handoff mechanics, torch-relight edge cases, dormancy reclamation cost, whatever the playtest exposed. |
+| **4 — Solstice + Game Loops** | The peak moment and the loops that lead into and out of it | *The solstice is the moment. The day, year, and reset loops all resolve cleanly around it.* | Solstice event end-to-end (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readable — each season *plays* as a distinct strategic phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Empty-server run/world reset behavior verified end-to-end. Multiplayer playtest with 3+ players confirms the peak lands. |
+| **5 — Polish + Ship** | Look, sound, and pitch | *Audio, UI, trailer, deploy.* | Audio pass (torch, campfire, snowfall, solstice siren). UI unification (HUD strip, quota/frost bars, countdown). Level visual redesign (block/prop art pass toward the Cryogenian look). First-30-seconds onboarding (playtest-reactive). 60–90 s trailer. `docs/VISION.md` + README pass. Final mobile perf smoke. Optional meta-progression carry mechanism if scope allows. Deploy dry-run → submit. |
 
 ### Live-ops — what keeps the experience changing after launch
 
 - **Changes without a build:** seasons progress → the world visibly changes state day to day → the game *feels* different across visits without a code change.
 - **Variation on missed updates:** weather system randomises profile per cycle inside phase bounds; solstice timing derives from retention model (fixed day count in roguelike, world-calendar date in persistent model).
-- **Persists across resets:** direction locked (see §3.4), form deferred. In v1.1 or Week 4 if scope allows, a communal Legacy counter or a well-tended-hearth buff carries forward from successful winters.
-- **Player behaviour that would change what's built next:** if solo solstice survival is impossible → tune quota/cold curve; if territory decision reveals a clear winner → double down; if playtest reveals onboarding gaps → Week 4 protects the first-30-seconds pass.
+- **Persists across resets:** direction locked (see §3.4), form deferred. In v1.1 or Week 5 if scope allows, a communal Legacy counter or a well-tended-hearth buff carries forward from successful winters.
+- **Player behaviour that would change what's built next:** if solo solstice survival is impossible → tune quota/cold curve at Week 4; if the retention prototype reveals a clear winner → double down; if the Week 3 playtest reveals onboarding gaps → Week 5 protects the first-30-seconds pass.
 
 ### Explicit non-goals for v1
 
@@ -398,18 +394,18 @@ The sky is heavy and low. A pale sun struggles through thick ice-haze; the horiz
 - **No player equipment with persistent stats.** Warmth items are one-shot consumables, not gear. Identity progression accumulates *history*, not power (see §4).
 - **Deferred to v1.5:** ancient marker stones (mythic world-counter), named graves, kindling and ember stones (candidate reveals), identity hover-stats on other players. Simulation and Loop 1/2 fun take priority in v1; Loop 3 surface expands in v1.5.
 - **No wallet-gated content.**
-- **No trailer or pitch work until the loop is playable** (Week 4 only).
+- **No trailer or pitch work until the loop is playable** (Week 5 only).
 
 ### Top risks
 
 | Risk | Mitigation |
 |---|---|
-| Both prototypes succeed and we want both | Force honest scope call end of Week 2 — one may need to defer to v2. |
-| Retention decision drags past end of Week 1 prototype | Hard deadline: pick the one you'd rather build on Monday. |
-| Territory prototype "kinda works" but isn't clearly better | Default to single-hearth. Simpler ships. |
-| Solstice arrival not readable | 2-min warn window with siren + sky darken; playtest question covers it. |
-| Mobile perf regresses under HEAVY weather | Perf test end of Week 2 + Week 3; fall back to lighter particle counts before cutting mechanics. |
-| Trailer eats Week 4 | Protected day; do not skip for "one more feature." |
+| Retention prototype (Week 2) doesn't produce a clean winner | Hard mid-week deadline: pick the one you'd rather build on Wednesday. Code delta is a flag; the *feel* is the tiebreaker. |
+| Week 2 spatialization isn't fun even with the right retention framing | Week 3's "Holes" bucket absorbs re-tuning; if still not fun by end of Week 3, cut a biome from Week 3 to buy tuning time. |
+| Week 3 holes list is bigger than a week | Draft the list end of Week 2 from the playtest, prioritize Monday. Anything unfixed becomes a Week 4 sidebar or a v1.1 note — do not let it eat Week 4. |
+| Solstice arrival not readable | 2-min warn window with siren + sky darken; Week 4 playtest question covers it directly. |
+| Mobile perf regresses under HEAVY weather | Perf test end of Week 2 + Week 4; fall back to lighter particle counts before cutting mechanics. |
+| Polish week (5) gets eaten by feature debt | Week 4 is feature freeze. Anything not shipped by end of Week 4 is a v1.1 note. |
 
 ---
 

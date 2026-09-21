@@ -2,6 +2,8 @@
 
 *A short read of the current design. If anything reads wrong, tell me — that's what we'll fix.*
 
+> **Working title:** the GDD renames this to *Cryogenia* (IP self-check). Repo, package, and URL still say Snow Drift while the rename is pending final confirmation.
+
 ---
 
 ## What it is
@@ -22,7 +24,7 @@ You grab a torch and step out. Its warmth **melts the snow beneath you as you wa
 
 That's the whole verb: **warm the ground to see what's there, bring it back, feed a fire.**
 
-There may be multiple fires across the map. Each has to be individually tended. If a fire's fuel hits zero, it enters a **sleeping ember** state for 60 seconds — anyone with a lit torch can relight it in that window. If nobody does, the fire dies, and its territory refreezes.
+There are multiple fires across the map (multi-fire territory model — locked). Each has to be individually tended. If a fire's fuel hits zero, it enters a **sleeping ember** state for 60 seconds — anyone with a lit torch can relight it in that window. If nobody does, the fire dies, and its territory refreezes. Fires that go unattended for longer can enter a *dormant* state — cold-but-not-dead — and be reclaimed later at a wood cost. Only the central hearth dying triggers a world reset.
 
 When night falls, cold accelerates and snow regrows faster. Fires drain fuel faster. Players huddle at fires or split up to defend outer ones. If a fire is well-tended, it holds. If not, it dies and its warmth zone is lost.
 
@@ -34,32 +36,32 @@ The **winter solstice** is the peak challenge — a whiteout night, cold at its 
 
 ## Why you'd come back
 
-**Two design decisions still open**, resolved by prototype in Weeks 1–2:
+**Defense mechanic — LOCKED:** multi-fire territory. A network of fires with individual tending; territory means access and mobility. Losing an outer fire at night is a real loss, reclaiming it later is a real investment.
 
-1. **Roguelike or persistent-world calendar?** In the roguelike model, the run is the unit of play — "how deep did we get this run?" — and everything resets on failure. In the persistent-world model, the world has its own calendar that keeps ticking even when the server is empty; visitors drop in and check the season. Both retention hooks work; each has different feel.
+**Retention model — still open**, resolved by prototype mid-Week 2 of the Spatialize + Fun phase:
 
-2. **Single hearth or multi-fire territory?** Single hearth = defend one central fire, quota is the pressure. Multi-fire = a network of fires with individual tending, territory means access and mobility. The territory model is a stronger fit for the "man vs. storm" pitch but is a larger design surface.
+- **Roguelike run** — the run is the unit of play ("how deep did we get this run?"), everything resets on failure.
+- **Persistent-world calendar** — the world has its own calendar that keeps ticking even when the server is empty; visitors drop in and check the season.
 
-Both decisions get prototyped and locked before Week 3.
+Both retention hooks work; each has different feel. Code delta between them is a flag on `dayNumber`/`season` reset semantics — the *feel* is the tiebreaker at playtest.
 
-Independent of those decisions, there's also a **direction lock** on meta-progression: surviving winter with territory intact should carry *something* forward into the next cycle. The form is TBD (a "Legacy" counter, a well-tended hearth buff, a starter woodpile — pick one small thing), but the intent is that a successful winter matters beyond the current session. Communal only — no personal gear, no returning-veteran advantage.
+Independent of that decision, there's a **direction lock** on meta-progression: surviving winter with territory intact should carry *something* forward into the next cycle. The form is TBD (a "Legacy" counter, a well-tended hearth buff, a starter woodpile — pick one small thing), but the intent is that a successful winter matters beyond the current session. Communal only — no personal gear, no returning-veteran advantage.
 
 ---
 
-## What's actually shipping in v1 (4 weeks)
+## What's actually shipping in v1
 
-- Day/night phase clock with server-time authority
-- Seasonal cycle across a full year (winter arc + short recovery arc)
-- Sleeping-ember failure model
-- Empty-server run/world reset when all fires dead + roster empty for 60 s
-- Whichever defense mechanic wins the Week 2 prototype (quota bar OR multi-fire territory + 2 fire archetypes)
-- Winter solstice event with warning phase, whiteout weather, and post-solstice recovery arc
-- Block redesign + environment-layout tuning
-- Multiplayer playtest during Week 3
+Bookended by 9/23 → 10/27. Five themed phases, pace flexible (some phases finish in a couple of days, others take a couple of weeks). Details in [`gdd.md`](gdd.md) §9.
 
-**Meta-progression carry mechanism:** direction locked, form deferred to Week 4 or v1.1.
+1. **Systems** — day/night phase clock, seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), weather profile-per-season, optional fog, sleeping-ember failure model, empty-server run/world reset.
+2. **Spatialize + Fun** — wood clusters near trees, multi-fire territory wired with fire dormancy, off-territory hostility, frost/temperature tuning. Retention model locked mid-phase.
+3. **Depth + Holes** — pine grove biome, reveal table (hot cocoa, fur wrap, unlit campfire, lore fragment), ice hazards, deep-snow zones, respawn/reload polish.
+4. **Solstice + Game Loops** — winter solstice event (warning → whiteout → recovery), seasonal cadence readability, multiplayer playtest with 3+ players.
+5. **Polish + Ship** — audio pass, UI unification, level visual redesign, trailer, deploy dry-run.
 
-Live at `snowdrift.dcl.eth` by Week 4.
+**Meta-progression carry mechanism:** direction locked, form deferred to Polish + Ship if scope allows, otherwise v1.1.
+
+Live at `snowdrift.dcl.eth` by submission.
 
 ---
 
@@ -89,7 +91,7 @@ No combat / mobs, no leaderboards, no permadeath, no tool tiers, no personal gea
 
 ## Where the plan lives
 
-- **Source of truth for the schedule:** [`../docs/v1-4week-plan.md`](../docs/v1-4week-plan.md)
-- **Full submission-ready GDD:** [`gdd.md`](gdd.md)
+- **Source of truth (design + schedule):** [`gdd.md`](gdd.md)
 - **Design decisions log:** [`decisions.md`](decisions.md)
+- **Superseded pointer:** [`../docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) — old 4-week plan, now redirects to GDD §9
 - **Earlier pivot design (partially superseded):** [`../docs/survival-pivot-plan.md`](../docs/survival-pivot-plan.md)

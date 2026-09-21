@@ -12,20 +12,22 @@ Snow Drift is a co-op survival scene where fires create islands of warmth in a h
 
 ---
 
+> **Working title:** the GDD renames this to *Cryogenia* (IP self-check on "Snow Drift"). The repo, package, and deployment URL still say Snow Drift while the rename is pending final confirmation — see `design/gdd.md`.
+
 ## Design status
 
-Snow Drift began as a cozy hangout, pivoted to a survival-quota loop, and is now consolidating around **man-vs-storm territory defense**. Two big design decisions are open and get resolved via prototype during the 4-week v1 build:
+Snow Drift began as a cozy hangout, pivoted to a survival-quota loop, and is consolidating around **man-vs-storm territory survival**. One big design decision remains open and gets resolved via prototype during the v1 build:
 
-- **Retention model** — roguelike run vs. persistent-world calendar (decided end of Week 1 prototype in Week 2)
-- **Defense mechanic** — single-hearth quota vs. multi-fire territory (decided end of Week 2 prototype)
+- **Defense mechanic** — **LOCKED to multi-fire territory** (see GDD §0.1).
+- **Retention model** — roguelike run vs. persistent-world calendar, prototyped and locked mid-Week 2 of the Spatialize + Fun phase.
 
-Design work lives in [`design/`](design/) and [`docs/`](docs/):
+**Source of truth is [`design/gdd.md`](design/gdd.md).** Everything else supports it:
 
-- [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md) — the current 4-week execution plan (source of truth)
-- [`design/gdd.md`](design/gdd.md) — full GDD (submission-ready)
+- [`design/gdd.md`](design/gdd.md) — full GDD (submission-ready). §9 has the v1 build plan.
 - [`design/summary.md`](design/summary.md) — plain-English overview
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions
-- [`docs/survival-pivot-plan.md`](docs/survival-pivot-plan.md) — earlier pivot design (partially superseded by v1-4week-plan)
+- [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md) — superseded by GDD §9; kept as a pointer
+- [`docs/survival-pivot-plan.md`](docs/survival-pivot-plan.md) — earlier pivot design (partially superseded)
 
 The existing implementation (torch, snow melt, wood pickup, hearth feed, chain-lighting, authoritative server, mobile perf, weather, day/night cycle infrastructure, paint-CRDT) is the foundation the survival loop is being built on top of.
 
@@ -47,20 +49,21 @@ The existing implementation (torch, snow melt, wood pickup, hearth feed, chain-l
 - **Failure is a story, not a game-over screen.** Resets are events in the world's history.
 - **Players help fires, not hurt them.** No extinguish action, no fuel drain — no grief vectors by construction.
 
-## What's shipping in v1 (4 weeks)
+## What's shipping in v1
 
-- Full day/night phase clock with server-time authority
-- Seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring)
-- Sleeping-ember failure model (60 s relight grace at fuel-out)
-- Empty-server run/world reset when all fires dead + roster empty
-- Whichever defense mechanic wins the Week 2 prototype:
-  - *Single-hearth branch:* wood quota bar + dusk-snapshot penalty
-  - *Territory branch:* multi-fire territory with off-territory hostility + fire archetypes (warmth + grove)
-- Winter solstice event with warning phase, whiteout weather, and post-solstice recovery arc
-- Block redesign + environment-layout tuning (art pass toward a cohesive winter-survival look)
-- Multiplayer playtest with 3+ players during Week 3
+Bookended by 9/23 (v0 sign-off + v1 launch) and 10/27 (submission). Five themed phases, pace flexible — see GDD §9 for details:
 
-Meta-progression across cycles (some carry-forward on a "territory held" success tier) is **direction-locked but form-deferred** — will be scoped in Week 4 or land in v1.1.
+| Phase | Theme | One-line pitch |
+|---|---|---|
+| **1** | **Systems** | *Time, weather, and cold behave like a world.* |
+| **2** | **Spatialize + Fun** | *Geography becomes the tech tree. Decide what a "run" is.* |
+| **3** | **Depth + Holes** | *One good pattern, repeated. Sharp edges filed off.* |
+| **4** | **Solstice + Game Loops** | *The peak moment and the loops that lead into and out of it.* |
+| **5** | **Polish + Ship** | *Look, sound, and pitch.* |
+
+Concrete deliverables include: day/night phase clock with server-time authority; full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring); sleeping-ember failure model (60 s relight grace); empty-server run/world reset; multi-fire territory with fire dormancy and off-territory hostility; pine grove biome as first geography-as-tech-tree payoff; winter solstice event (warning → whiteout → recovery); level visual redesign; and a multiplayer playtest in the Solstice + Game Loops phase.
+
+Meta-progression across cycles (some carry-forward on a "territory held" success tier) is **direction-locked but form-deferred** — scoped in Polish + Ship if scope allows, otherwise v1.1.
 
 ## Non-goals (v1)
 
