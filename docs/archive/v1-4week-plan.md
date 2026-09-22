@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-09-22** — superseded by current design in \`design/gdd.md\` and \`design/decisions.md\`. Preserved for historical context only.
+
+---
+
 # Snow Drift v1 — Execution Plan
 
 > **Superseded.** The v1 build plan is now in [`design/gdd.md`](../design/gdd.md) §9 as five themed phases (Systems / Spatialize + Fun / Depth + Holes / Solstice + Game Loops / Polish + Ship), with 9/23 → 10/27 bookends and no per-week calendar contract.

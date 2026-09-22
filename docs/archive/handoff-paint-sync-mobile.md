@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-09-22** — superseded by current design in \`design/gdd.md\` and \`design/decisions.md\`. Preserved for historical context only.
+
+---
+
 # Handoff — Paint Sync on Mobile
 
 **Author:** claude (opendcl) session with ile, 2026-08-25 late evening

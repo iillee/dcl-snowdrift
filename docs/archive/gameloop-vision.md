@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED (2026-09-22).** This is the pre-pivot cozy-hangout design (Aug 2026). Superseded by the man-vs-storm survival design in [`design/gdd.md`](../../design/gdd.md). Kept for lineage.
+
 # Snow Drift — Gameloop Vision
 
 **Status:** design snapshot, pre-first-playtest. 24 h reset implemented + smoke-tested (2026-08-20). Cooperative + replayability design pass appended 2026-08-21 (see §12).

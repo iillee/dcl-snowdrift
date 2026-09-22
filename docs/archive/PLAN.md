@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED (2026-09-22).** This is the Friendzone Buildathon plan from Aug 2026 (deadline 2026-09-04). The game has since pivoted twice — first to survival-quota, then to man-vs-storm territory. Kept for lineage. Source of truth is [`design/gdd.md`](../../design/gdd.md).
+
 # Snow Drift — Build Plan (v2)
 
 **Deadline:** 2026-09-04 (Friendzone Buildathon submission)

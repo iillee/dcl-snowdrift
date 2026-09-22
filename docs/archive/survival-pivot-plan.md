@@ -1,8 +1,12 @@
+> **ARCHIVED 2026-09-22** — superseded by current design in \`design/gdd.md\` and \`design/decisions.md\`. Preserved for historical context only.
+
+---
+
 # Snow Drift — Survival Pivot Plan
 
 **Author:** opendcl session with ile, 2026-09-09
 **Status:** ⚠️ **PARTIALLY SUPERSEDED** by [`docs/v1-4week-plan.md`](v1-4week-plan.md) (2026-09-11). This doc's *design goals, pillars, and system-repurposing table (§1–4)* remain valid as background. The *4-week schedule, retention model (scheduled solstice every 12 h), and single-hearth assumption* have been replaced — v1 now treats retention and defense mechanic as open decisions resolved by prototype in Weeks 1–2. See `v1-4week-plan.md` §3 for the new decision gates.
-**Context:** Snow Drift is being repurposed from the cozy multiplayer hangout described in `docs/gameloop-vision.md` into a harsher, quota-driven survival experience for a **Creator Success Program** submission (not the game jam). The cozy vision doc is now superseded by this one.
+**Context:** Snow Drift is being repurposed from the cozy multiplayer hangout described in `docs/archive/gameloop-vision.md` into a harsher, quota-driven survival experience for a **Creator Success Program** submission (not the game jam). The cozy vision doc is now superseded by this one.
 
 ---
 
