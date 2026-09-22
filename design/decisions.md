@@ -6,6 +6,28 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## Open decision — Final title
+
+**Status:** open. Cryogenia is the current working title in the GDD; feedback (2026-09-11) flagged that it sounds clinical ("-genia" reads medical) and doesn't carry the warmth/frontier feel the design has evolved into.
+
+**Finalists:**
+
+| Name | Status | Notes |
+|---|---|---|
+| **WINTEREON** | 🟢 Leading | Compound of *winter* + *-eon* (a vast span of time). Says long-ice-age scale directly. Warm-sounding for a cold-setting game. Novel enough to be Steam-clear (needs check). |
+| **CRYOCENE** | 🟡 Contender | *-cene* is the geologic-epoch suffix (Pleistocene, Holocene, Anthropocene) — reads instantly as "an era of Earth's history." Still leans clinical via *cryo-*. Better than Cryogenia by a real margin. |
+| **SNOWMELT** | 🟡 Contender | Names the core verb (torch melts snow). Simple, concrete, evocative. Risk: may skew too cozy, doesn't carry the ice-age scale. Common enough word that Steam collision likely — needs check. |
+| **CRYOGENIA** | 🟡 Current working title | Retained as fallback. Wart-cream vibe flagged by playtest audience; "-genia" suffix reads medical. If nothing better clears Steam, defaults here. |
+
+**Constraints:**
+- Must be Steam-clear (no existing game on Steam or major platforms)
+- Prefer names that carry the *Snowball Earth / long ice age* framing
+- Prefer names that align with the warmth/frontier/shared-fire emotional center, not just the cold setting
+
+**Next step:** spot-check top two on Steam / itch / Epic before locking. Rename PR touches GDD title block, README, `design/summary.md`, `scene.json` display fields, and any tagline copy.
+
+---
+
 ## 2026-09-11 session (further pivot: man vs. storm)
 
 - **2026-09-11 · Player Promise shortened to "Hold the light against the storm." · owner-confirmed** — Replaces the 24-word verb-first promise from 2026-09-09. Longer form retained as a paragraph in §1.
