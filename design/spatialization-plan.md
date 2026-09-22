@@ -19,7 +19,7 @@
 - **Three-tier fuel system** (kindling / deadwood / pinewood) fed into the existing burn-time model; **charcoal** produced at the Kiln adds a 4th type optimized for portability, not tier.
 - **Three fire archetypes** (spawn hearth / biome anchor / rest stop) with uniform decay. Every anchor fire attaches to either a biome (Deadwood/Pine) or a discovery (Kiln).
 - **Fire-survives extinction rule** (GDD Pillar 6): civilization ends only when the last fire dies; oldest continuously-burning surviving fire becomes new home if hearth falls.
-- **Persistent civilization model** (GDD Pillar 7): Multiplayer Server, world state persists between logins, offline continues at full rate, per-player return-screens on session start.
+- **Persistent civilization model** (GDD Pillar 7): lightweight external persistence backend (Cloudflare Workers / Firebase / equivalent) + DCL CRDT for in-scene real-time sync; world state persists between logins, offline advancement computed deterministically on next arrival, per-player return-screens on session start.
 - **Procedural generation per new seed**; only the central spawn hearth is spatially constant.
 - **Data-driven content pool architecture** (GDD Pillar 10): biomes, discoveries, fuel types, hazards all declared as data; generator reads pools. Adding v1.5+ content = authoring data, not rewriting systems.
 - **Torches remain unchanged from v0** (no tiers, no crafting, no stubs — deferred to v2 exploration).
