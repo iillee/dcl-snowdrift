@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-09-22** — superseded by current design in \`design/gdd.md\` and \`design/decisions.md\`. Preserved for historical context only.
+
+---
+
 # Handoff \u2014 Reintroduce Cold-Open Load Optimization Safely
 
 **Author:** claude (opendcl) session with ile, 2026-08-26 late evening
