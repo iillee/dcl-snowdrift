@@ -96,7 +96,7 @@ Surviving winter with territory intact carries *something* forward into the next
 
 | Game | Where it lands | What worked (to keep) | What didn't fit this audience | What we do differently |
 |---|---|---|---|---|
-| **GONE Fishing** (Steam, app 3645890) | Outside DCL — the **daily quota loop** reference | Collaborative progression gated by a nightly quota; missing the quota resets progress; the shared-fate stakes drive coordination. | `[agent-decided]` Hard restart on a missed quota assumes a committed friend group in one session. DCL's shared world has drop-ins, latecomers and strangers — punishing everyone because one player logged off would be brutal. | Only the *world* can lose. Individual players respawn; the run only resets if the central hearth dies during a storm with no one tending it. We replaced the quota mechanic entirely with a **fire network** — pressure comes from how much territory you can hold, not from a bar you have to fill. |
+| **GONE Fishing** (Steam, app 3645890) | Outside DCL — the **daily quota loop** reference | Collaborative progression gated by a nightly quota; missing the quota resets progress; the shared-fate stakes drive coordination. | `[agent-decided]` Hard restart on a missed quota assumes a committed friend group in one session. DCL's shared world has drop-ins, latecomers and strangers — punishing everyone because one player logged off would be brutal. | Only the *world* can lose. Individual players respawn; the run only resets when the *last* remaining fire dies (see Pillar 6). Loss of the central hearth alone is a dramatic state transition, not extinction. We replaced the quota mechanic entirely with a **fire network** — pressure comes from how much territory you can hold, not from a bar you have to fill. |
 | **Frostpunks** (DCL scene) | Inside DCL — the **big-storm boss-event** reference | Upgrading a base toward a scheduled storm event; the storm has real teeth and rewards preparation. | `[agent-decided]` The political/faction layer reads great with committed players and terrible with drop-in strangers on a public shared world. | No politics, no PvP, no factions. One shared hearth; everyone's on the same side against the storm. Twist: the storm is on a **real-world clock** (two solstices per real day), turning it into a scheduled retention beat instead of a per-session climax. |
 
 *Two `[agent-decided]` cells above — my inferences from your one-line descriptions of what each game does. Overrule any wording that misreads the source.*
@@ -171,7 +171,7 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 - **No-reminder fallback:** both numbers are baked into the hearth HUD.
 - **D1 coverage:** strong. Layered with Hook 1.
 
-**How the world resets:** when the central hearth dies and the server is empty, the world sits in a "dead" state — day count frozen. The next returning player is the witness: they see the *"the world was lost on Day X"* splash, then spawn into a fresh Day 1. Reset is a moment, not silent bookkeeping.
+**How the world resets:** when the *last* fire dies (extinction) and the server is empty, the world sits in a "dead" state — day count frozen. The next returning player is the witness: they see the *"the world was lost on Day X"* splash, then spawn into a fresh Day 1. Reset is a moment, not silent bookkeeping.
 
 ### 4.1 The D1 (next-day) sentence
 
@@ -186,25 +186,19 @@ A player who enjoyed their first session returns the next day because **Hook 1**
 | **Week 3+** | You're a regular — present at solstices on schedule. You've seen the world at higher day counts than most, and know what territory unlocks past Day 40+. You've participated in at least one record-push. | You show up in Discord threads about solstice timing; you're one of the players others follow toward known-good routes when night falls. |
 
 **End of first week (scene, 3–4 sentences):**
-> It's Sunday evening. You log in — the hearth reads *Day 41 · Best: 62*. You've been here for four solstices; you missed one. Someone in the group chat: *"we're 21 days from the record, can we do it?"* You head out with a torch that burns 30% longer — the Day 30 unlock. The northeast satellite pit, thawed at Day 20, is your first stop. Tonight's solstice is at 20:00 UTC. You're not going to miss another.
+> It's Sunday evening. You log in — the hearth reads *Day 41 · Best: 62*. You've been here for four solstices; you missed one. Someone in the group chat: *"we're 21 days from the record, can we do it?"* You head out toward the Pine Grove your community reclaimed after the last thaw. Tonight's solstice is at 20:00 UTC. You're not going to miss another.
 
-### Unlocks (progressive, community-scale)
+### Unlocks — retired as day-count gates
 
-Tied to the world's current day count, lost on world reset. Concrete list — iterate on numbers via playtest:
+The day-count unlock model (Day 5/10/15/20/30/40/50/75/100 territory + tool progression) was **retired 2026-09-22** in favor of **geography-as-tech-tree** (Pillar 4): capabilities come from *reaching biomes*, not from surviving X days. Pine Grove's long-burn tempo is available on session 1 the moment a player reaches and holds it. Torch tiers are cut from v1 as an explicit non-goal.
 
-| Day | Unlock | Category | Ship |
-|---|---|---|---|
-> **Player-facing framing (post-review reframe):** unlocks are *internal design targets*, not player-facing UI. No battle-pass roadmap, no "Day 30 unlocked!" toasts. The player should notice things are different at higher day counts ("wait, was that here before?"), not see them announced. Discord community discovers the progression collectively. The table below is planning scaffolding; player-facing surface is diegetic only.
+One v2 cliffhanger is retained diegetically only — no HUD, no notification:
 
-> **✅ Progression model resolved (2026-09-22):** the day-count unlock table below is superseded by **geography-as-tech-tree via the three-tier fuel system + procgen biome discovery** (see §3 Pillar 5 and [`spatialization-plan.md`](spatialization-plan.md)). Capabilities come from *reaching biomes*, not from surviving X days. Under the new frame, Pine Grove's long-burn tempo is available on session 1 the moment a player reaches and holds Pine Grove — no day-count gate. The Day 30 torch upgrade concept is retired; torch tiers themselves are cut from v1 as explicitly non-goal. Only the Day 100 lore fragment is retained below as a v2 cliffhanger seed. Day count persists as history/difficulty/record only — not as an unlock gate.
+> *Day 100 — final lore fragment + aurora world-visual signature.* *"The first station lies here. This is where the thaw begins."* Names the v2 goal — the volcano ignition network. *(v1.5)*
 
-| Day | Unlock | Category | Ship |
-|---|---|---|---|
-| **Day 100** | Final lore fragment + aurora world-visual signature. *"The first station lies here. This is where the thaw begins."* Names the v2 goal explicitly — volcano ignition network. | Lore + cosmetic | *(v1.5)* |
+Full retired table + rationale in [`decisions.md`](decisions.md).
 
-*(Retired 2026-09-22: Day 5 / 10 / 15 / 20 / 30 / 40 / 50 / 75 entries. Territory unlocks are now session-1 available via biome discovery; torch upgrades are cut from v1; lore fragments are scoped to v1.5 with the Day 100 cliffhanger as the seed for v2.)*
-
-**Three unlock categories woven together:** *territory* (what map you can reach), *tools* (how well you can work it), *lore* (why you're here at all). Every ~10 days the player has a reason to push forward, and the reasons rotate so it never feels like grinding one axis. **All of it surfaces diegetically** — no unlock notifications, no progression UI.
+Day count still matters — as history, civilization age, difficulty, and community record — but it is not a capability gate.
 
 **Lore content:** Fragments are short (a paragraph each), diegetic (found objects the player can read in-world), and read as **fragments of the ancients' ignition manual** — the instructions for waking the volcano network that will one day thaw the world. The stubs above are seed lines; final prose owner-drafted before v1.5. The whole set answers *"why is it winter, who saw this coming, and what did they leave for us?"* by Day 100 — which names the location of the first ignition station and sets up v2.
 
@@ -522,6 +516,8 @@ Each horizon corresponds to one of the three nested loops:
 2. **Warm the ground to see what's there.** One legible verb: torch heat melts snow, revealed patches reveal *something* — wood, warmth items, unlit fires, ancient objects, lore fragments. The variety comes from what you find, not from new verbs.
 3. **Fire = safety, distance = stakes.** Every fire is an island of warmth; every step away from one is a risk. The whole spatial-tension core of the game rides on this.
 4. **Geography is the tech tree.** The map itself is the progression system. Different biomes and discoveries grant different capabilities; the *tempo* of survival is set by which places the community can reach and hold. In v1 this shows up as a three-tier fuel system (kindling / deadwood / pinewood) plus the Charcoal Kiln discovery (portability tech). A community holding Pine Grove *breathes*; a community reduced to kindling scavenging is *grinding*; a community with a Kiln can *push farther*. That gap IS the pillar.
+
+   **Reliability, not permission.** Named biomes are dense, *reliable* concentrations of a resource — not exclusive sources. Scattered pine and deadwood exist throughout the wilderness; a player may remember *"there's one pine near the frozen ridge."* Holding Pine Grove secures reliable access at scale; losing it makes pine dangerous and inefficient to reach, not unusable. Capability comes from physical access and logistics, never from permission-gating. Players experience *"we lost Pine"*, never *"pine technology unavailable."*
 5. **The world's fuel is finite. Every burn subtracts. Reset is the only renewal.** Cryogenia is Snowball Earth: nothing grows. Trees are pre-freeze remnants with fixed per-tree wood budgets (~3–5 logs); no in-run respawn. The map has a total wood budget the community spends down from ignition. Depleted trees leave permanent stumps. World reset (extinction → new seed) restores the budget — the reset *is* the regrowth. Turns tending the fire from a task into a *cost*, and makes the v1 → v1.5 → v2 scarcity ladder (wood → coal / ancient stores → volcanoes) the game's spine.
 6. **Civilization survives while any fire remains.** Loss of the central hearth does not end the run if any other established fire is still lit. When the hearth dies with a satellite alive, the oldest continuously-burning surviving fire becomes the community's new home (respawn point + HUD-designated "current hearth"). Only the death of the *last* remaining fire triggers extinction. This is what makes territorial expansion *redundancy*, not just capability, and produces the exile / migration / reclamation narrative arc.
 7. **Worlds are shared, persistent, and mortal. When a civilization dies, a new seed begins.** *Shared* — one civilization per world, common to every player. *Persistent* — world state survives between logins and continues advancing at full rate while the server is empty. *Mortal* — civilizations can and do end; extinction is real. When the last fire dies, the next arriving player witnesses the extinction and a new world seed is rolled. This is Cryogenia's retention model: persistent shared-world survival roguelike.
@@ -550,7 +546,7 @@ Snow-as-mystery-layer: the melt verb payoff is not just wood. Rare finds under t
 **Tree-mining mechanic (v1, locked 2026-09-22).** Trees do not drop logs on approach — they must be felled first. Player sustains torch heat at the trunk base until the tree falls (extension of the melt verb; ~3 s target, playtest-tunable). Downed trunks yield the tree's fixed wood budget (~3–5 logs per tree). Downed-trunk gather visual is one of two options (decision deferred to build): (a) shatter-on-fall into pickup-able log entities, or (b) progressive chunking of the trunk model as logs are pulled. Depleted trees leave permanent stumps for the rest of the run — a Day 80 world looks lived-in. **No in-run regrowth**: the world's total wood budget only refreshes on world reset (see Pillar 8).
 
 **Fire archetypes (locked 2026-09-22):**
-- **Spawn hearth** — 1, fixed at scene center. Never fully dies (livable floor). Only its true death triggers world reset.
+- **Spawn hearth** — 1, fixed at scene center. Extinction is triggered by the *last* remaining fire dying, not by the hearth specifically (see Pillar 6). Whether the hearth carries a decay floor that prevents death-by-neglect (versus being fully mortal like every other fire) is experimental during Phase 2–3 — see §0.1 Decision B.
 - **Biome anchor** — 1 per biome (2 in v1: Deadwood Grove, Pine Grove) + 1 Discovery anchor (Cabin/Kiln). Anchor fires unlock the biome or discovery's tech through sustained presence. Uniform decay; 60 s ember grace; dormancy on failure.
 - **Rest stop** — 2–3 per seed, procgen on paths between hearth and anchors. Supports corridor travel and torch relighting mid-expedition. Same decay + ember + dormancy rules as anchors. A dormant rest stop breaks a supply corridor without losing a biome outright.
 
@@ -582,7 +578,7 @@ This is what keeps repetition-10 feeling different from repetition-1: not that c
 
 - **Autumn (Expand):** all anchors lit. Full biome capability. Fresh wood budget across every tree. Community *acquires* the tech.
 - **Early Winter (Prepare):** fuel drain rate ↑. Community stockpiles at anchors, keeps rest stops fed to preserve corridors.
-- **Deep Winter (Consolidate):** roster too small to tend everything. **Choice: which anchor do we let sleep?** Letting the Cabin/Kiln sleep loses charcoal-portability tech (moderate cost — long-range expeditions get much harder). Letting Deadwood Grove sleep drops the hearth to kindling tempo (moderate cost — tending becomes constant). Letting Pine Grove sleep drops the hearth to deadwood tempo (large cost — hearth burns ~2.5× faster than before). Each sleep decision loses a different *capability class* (quantity / quality / portability) rather than a different tier. **The choice of which fire to let sleep IS the tech-tree decision, made under pressure.**
+- **Deep Winter (Consolidate):** roster too small to tend everything. **Choice: which anchor do we let sleep?** Letting an anchor sleep does not remove the resource from the world — scattered pine and deadwood are still reachable in the wilderness — but it removes the *reliable, warm, defended* concentration. Long hauls from a cold biome become dangerous and inefficient. Letting the Cabin/Kiln sleep loses charcoal-portability logistics. Letting Deadwood Grove sleep makes deadwood hauls expensive; the community shifts toward kindling tempo. Letting Pine Grove sleep makes pine hauls expensive; the community shifts toward deadwood tempo. Each sleep decision surrenders a different *capability class* (quantity / quality / portability) as reliable at-scale supply — not as ability. **The choice of which fire to let sleep IS the tech-tree decision, made under pressure.**
 - **Solstice Approach (Hold):** decision committed; corridors stocked with whatever tier the surviving anchors supply.
 - **Winter Solstice (Survive):** realistically hearth + one anchor is the honest ceiling for small rosters. Pre-solstice anchor choice determines fuel tier during the whiteout.
 - **Thaw (Reclaim):** sleeping fires reclaimable at wood cost — spent from what's left of the world's finite budget. *"First thing we're doing this spring is taking the pine back — no pine since Deep Winter."* Late runs increasingly play out against a visibly depleted map (stumps everywhere), which is exactly the pressure that drives outward exploration by the 2nd–3rd solstice — and, in v1.5, the reason to hunt for coal / ancient stores.
@@ -590,7 +586,7 @@ This is what keeps repetition-10 feeling different from repetition-1: not that c
 
 Most survival games only give the player capabilities. Cryogenia temporarily takes them away. This is what makes the seasonal cadence mechanically consequential, not just a difficulty modifier.
 
-**The map is the score after Solstice.** Success is not binary. A great winter might leave nearly the whole network intact; a brutal winter might leave only the central hearth and one satellite; a catastrophe extinguishes the hearth and ends the run. The *state of the map* at dawn after the Solstice tells the story of the winter without needing a scoreboard.
+**The map is the score after Solstice.** Success is not binary. A great winter might leave nearly the whole network intact; a brutal winter might leave only one satellite standing (the hearth may have fallen — the community migrates there); a catastrophe extinguishes every fire and ends the run. The *state of the map* at dawn after the Solstice tells the story of the winter without needing a scoreboard.
 
 ### Scale and traversal
 

@@ -115,3 +115,56 @@ Entries below are the 2026-09-09 cozy-hangout → survival-quota pivot decisions
 - **2026-09-09 · §5 realistic scale: 1–2 baseline, 3+ at events, 8 v1 max · owner-directed** — Solo-and-duo is the primary mode; groups are the social peak at scheduled solsticees. Design tunes around this: solo survives normal days, solsticees get very hard solo, quota + wood-scatter density calibrated for 1-player achievability on normal days. Reviewers respect honesty about actual scale.
 - **2026-09-09 · §5 main social vector: emergent role coordination toward quota + storm · owner-directed** — Not a single scripted interaction. Roles (gatherer / tender / chain-lighter / scout) emerge from where players naturally spend time. Torch chain-lighting is one built instance; other role-specific mechanics emerge from Week 2 playtest observation. Owner: *"we will figure out what works as we build it."*
 - **2026-09-09 · Satellite campfires stay in v1 as optional harder-maintenance expansion layer · owner-added** — The central hearth is singular and its fate is the run's fate; satellites are commentary, never save the run. Existing hidden-campfire code repurposed rather than cut.
+
+---
+
+## 2026-09-22 · Day-count unlock table — RETIRED (moved out of GDD §4.2)
+
+The GDD previously carried a Day-N progression table (Day 5 / 10 / 15 / 20 / 30 / 40 / 50 / 75 / 100) covering territory, tool, and lore unlocks. Retired 2026-09-22 in favor of **geography-as-tech-tree** (GDD Pillar 4): capabilities come from *reaching biomes*, not from surviving X days.
+
+**Retired entries (for historical reference):**
+
+| Day | Unlock | Category | Rationale for retirement |
+|---|---|---|---|
+| Day 5   | First lore fragment near hearth                             | Lore     | Scoped to v1.5; v1 has no fragment system |
+| Day 10  | First satellite pit thaws NE of hearth                      | Territory| Satellite fires now procgen per seed, session-1 accessible |
+| Day 15  | Second lore fragment (procedural placement)                 | Lore     | Scoped to v1.5 |
+| Day 20  | Second satellite pit thaws                                  | Territory| Session-1 accessible via biome discovery |
+| Day 30  | Torch upgrade — 30 % longer fuel                            | Tools    | Torch tiers cut from v1 as explicit non-goal |
+| Day 40  | Third satellite territory reachable                         | Territory| Session-1 accessible |
+| Day 50  | Third lore fragment                                         | Lore     | v1.5 |
+| Day 75  | Rare wood variant unlocks (higher fuel value)               | Tools    | Superseded by three-tier fuel system (kindling / deadwood / pinewood) available on session 1 |
+| Day 100 | Final lore fragment + aurora signature                      | Lore     | Retained diegetically only as v2 cliffhanger (kept in GDD §4.2 as a single quoted line) |
+
+**What day count still means in the current design:**
+- History (how long has this civilization stood?)
+- Difficulty / seasonal position (deeper day = deeper winter cadence)
+- Community record (the number to beat)
+- Story surface for return-screens ("Day 47 · Best 62")
+
+Day count is *not* a capability gate. See GDD Pillar 4 ("Geography is the tech tree") + Pillar 10 ("Complexity from the world, not the verbs").
+
+
+## 2026-09-22 · Hearth-death vs. last-fire extinction — reconciliation
+
+Older GDD drafts (pre-2026-09-22) treated central-hearth death as the reset trigger. Current model (GDD §0.1 Decision B, Pillar 6):
+
+- **Extinction = death of the *last* remaining fire.** Not the hearth specifically.
+- **If the hearth falls with any satellite still lit,** the community migrates to the oldest continuously-burning surviving fire — that fire becomes the new home (respawn point + HUD-designated "current hearth"). Produces the exile / migration / reclamation narrative arc.
+- **Whether the hearth carries a livable decay floor** (preventing death-by-neglect) versus being fully mortal like every other fire is *experimental* during Phase 2–3. The extinction rule does not depend on which side that resolves — the last-fire test is what matters.
+
+Reconciliation pass 2026-09-22 fixed remnants in gdd.md (§8 comparables, §4 world-reset paragraph, §3 spawn-hearth archetype row, §3 map-is-the-score paragraph, §3 seasonal-consolidate chain) and spatialization-plan.md (§3 archetype table, §3 dormancy paragraph, §5 procgen intro, §5 reset behavior, §7 checklist item).
+
+
+## 2026-09-22 · Biomes are concentrations, not exclusive sources — clarification
+
+Added to GDD Pillar 4 as "Reliability, not permission." External review (ChatGPT, 2026-09-22) flagged that the previous Pillar 5 seasonal-contraction language implied pine and deadwood existed *only* inside their named biomes, which would turn losing a biome into permission-gating ("pine technology unavailable"). Current model:
+
+- Named biomes (Deadwood Grove, Pine Grove) are **dense, reliable concentrations** of a resource.
+- Scattered pine and deadwood exist throughout the wilderness.
+- Holding a biome secures *reliable at-scale access*, not the resource itself.
+- Losing a biome makes the resource *dangerous and inefficient to reach* (long haul from cold territory) — never *unusable*.
+- Capability = physical access + logistics, never permission.
+- Players experience *"we lost Pine"*, never *"pine technology unavailable."*
+
+Updated: gdd.md Pillar 4 (added Reliability sentence), gdd.md §3 Deep Winter chain (rewrote to logistical framing).

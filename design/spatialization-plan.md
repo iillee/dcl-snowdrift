@@ -91,7 +91,7 @@ Three types. Every fire is one of these; there are no "unpurposed" fires.
 
 | Archetype | Count per seed | Decay | Ember grace | Sustains itself? | Its job |
 |---|---|---|---|---|---|
-| **Spawn hearth** | 1 (fixed at scene center) | Yes, but floors at "livable" (existing behavior) | N/A — never dies | Never fully dies; only its true death triggers world reset | The world's constant. The place you return to. |
+| **Spawn hearth** | 1 (fixed at scene center) | Yes; whether it floors at "livable" or is fully mortal is experimental — see GDD §0.1 Decision B | 60 s if mortal | If mortal, community migrates to oldest surviving fire (Pillar 6) | The world's constant. The place you return to. |
 | **Biome anchor** | 1 per biome (2 in v1) | Yes, uniform rate | 60 s (existing ember state) | No | Unlocks the biome's capability by enabling sustained presence in it. |
 | **Rest stop** | 2–3 per seed, procgen | Yes, uniform rate | 60 s | No | Supports a torch/warmth corridor between hearth and biomes. |
 
@@ -101,7 +101,7 @@ Three types. Every fire is one of these; there are no "unpurposed" fires.
 
 ### Dormancy + reclaim
 
-From GDD §0.1 (locked): a fire that fully dies without a relight becomes *dormant* (cold-but-not-dead). Dormant fires can be reclaimed with a wood cost (3–5 logs' worth). Only the spawn hearth's death triggers the world reset.
+From GDD §0.1 (locked): a fire that fully dies without a relight becomes *dormant* (cold-but-not-dead). Dormant fires can be reclaimed with a wood cost (3–5 logs' worth). Extinction (world reset) triggers only when the *last* remaining fire dies (GDD Pillar 6). If the spawn hearth falls with any satellite still lit, the community migrates to the oldest continuously-burning surviving fire.
 
 Dormancy applies uniformly to biome anchors and rest stops. Simmering embers (60 s window after fuel hits 0) is the last-chance relight; miss the window, it's dormant.
 
@@ -191,7 +191,7 @@ Retained here as scope-fence. Split by the biome/discovery vocabulary so future 
 
 ## 5. Procgen constraints — what the generator guarantees per seed
 
-The world regenerates on hearth death (existing world-reset behavior). Each seed produces a fresh map with the following invariants:
+The world regenerates on extinction — the death of the *last* remaining fire (GDD Pillar 6). Each seed produces a fresh map with the following invariants:
 
 **Fixed:**
 - Central spawn hearth at scene center (0, 0)
@@ -228,9 +228,10 @@ All placements below live inside the **v1 anchored network zone**: an inner ring
 - All anchors + rest stops placed inside the 500 m inner ring; outer envelope reserved for wilderness texture.
 
 **Reset behavior:**
-- Hearth dies + server empty → world sits dormant (frozen state) until next player returns.
+- Last fire dies + server empty → world sits dormant (frozen state) until next player returns.
 - Returning player triggers reset splash ("the world was lost on Day X") + new seed rolls.
 - All biome positions, anchor positions, rest stop positions rerolled. Only the spawn hearth stays put.
+- If the spawn hearth falls but a satellite fire is still lit, the community migrates — no reset. Only *last-fire* death triggers a new seed.
 
 ---
 
@@ -299,7 +300,7 @@ The GDD §3 seasonal cadence claims "winter reverses the tech tree." Here's the 
 **Procgen:**
 - [ ] Per-seed placement of biome regions, anchors, rest stops, hazard belts
 - [ ] Reachability check: hearth → rest stop → anchor on fresh deadwood torch
-- [ ] Reset behavior: world regens on hearth death + first-return trigger
+- [ ] Reset behavior: world regens on extinction (last fire dies) + first-return trigger; migration to oldest surviving fire if hearth falls with satellites lit
 
 **Game balancing (Phase 2 pass, playtest-refined through Phase 4):**
 
