@@ -1,5 +1,5 @@
 /**
- * server.ts — Snow Drift authoritative server entry point.
+ * server.ts — Cryocene authoritative server entry point.
  *
  * Thin orchestrator. Runs in the headless SDK server process
  * (hammurabi-server). No 3D, no ~system/RestrictedActions — pure state
@@ -145,7 +145,7 @@ export function seedStartingArea(radiusM: number = CAMPFIRE_MELT_RADIUS_M): void
 
 /** Boot roster, paint CRDT, stats, and room handlers for the auth server. */
 export async function setupServer(): Promise<void> {
-	console.log('[Server] Starting Snow Drift server...')
+	console.log('[Server] Starting Cryocene server...')
 
 	// Load Discord webhook URL from env (DISCORD_PLAYER_JOIN_WEBHOOK).
 	// Fire-and-forget — the rest of boot doesn't depend on it, and a missing

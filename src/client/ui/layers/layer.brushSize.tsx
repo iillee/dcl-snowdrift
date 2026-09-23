@@ -913,7 +913,7 @@ export const actionBarLayer = new ActionBarLayer()
 
 
 // MARK: PaintSwatchButton (unused)
-// Kept for reference — revive if Snow Drift ever needs a visible "current
+// Kept for reference — revive if Cryocene ever needs a visible "current
 // hand slot" indicator in the top bar.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _PaintSwatchButton(props: {

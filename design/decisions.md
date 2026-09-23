@@ -1,4 +1,4 @@
-# Design decisions — Snow Drift
+# Design decisions — Cryocene
 
 Running log. Each line: `date · decision · why`.
 
@@ -6,25 +6,20 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
-## Open decision — Final title
+## Resolved — Final title (2026-09-23)
 
-**Status:** open. Cryogenia is the current working title in the GDD; feedback (2026-09-11) flagged that it sounds clinical ("-genia" reads medical) and doesn't carry the warmth/frontier feel the design has evolved into.
+**Status:** LOCKED as **CRYOCENE**. Owner-directed 2026-09-23: fewer syllables than Cryogenia, and no sterile pharma connotations from the *-genia* suffix. *-cene* is the geologic-epoch family (Pleistocene, Holocene, Anthropocene) — reads instantly as "an era of Earth's history" and matches the Snowball Earth / long-ice-age framing.
 
-**Finalists:**
+**Shortlist history (for the record):**
 
-| Name | Status | Notes |
+| Name | Outcome | Notes |
 |---|---|---|
-| **WINTEREON** | 🟢 Leading | Compound of *winter* + *-eon* (a vast span of time). Says long-ice-age scale directly. Warm-sounding for a cold-setting game. Novel enough to be Steam-clear (needs check). |
-| **CRYOCENE** | 🟡 Contender | *-cene* is the geologic-epoch suffix (Pleistocene, Holocene, Anthropocene) — reads instantly as "an era of Earth's history." Still leans clinical via *cryo-*. Better than Cryogenia by a real margin. |
-| **SNOWMELT** | 🟡 Contender | Names the core verb (torch melts snow). Simple, concrete, evocative. Risk: may skew too cozy, doesn't carry the ice-age scale. Common enough word that Steam collision likely — needs check. |
-| **CRYOGENIA** | 🟡 Current working title | Retained as fallback. Wart-cream vibe flagged by playtest audience; "-genia" suffix reads medical. If nothing better clears Steam, defaults here. |
+| **CRYOCENE** | ✅ Locked 2026-09-23 | Chosen: short, geologic-epoch resonance, no medical/pharma vibe. |
+| **WINTEREON** | Not chosen | Compound of *winter* + *-eon*. Warm-sounding, novel, Steam-clear likely. Runner-up. |
+| **SNOWMELT** | Not chosen | Names the core verb. Risked skewing too cozy; likely Steam collision. |
+| **CRYOGENIA** | Retired | Prior working title. Playtest flagged "-genia" as medical / wart-cream vibe. |
 
-**Constraints:**
-- Must be Steam-clear (no existing game on Steam or major platforms)
-- Prefer names that carry the *Snowball Earth / long ice age* framing
-- Prefer names that align with the warmth/frontier/shared-fire emotional center, not just the cold setting
-
-**Next step:** spot-check top two on Steam / itch / Epic before locking. Rename PR touches GDD title block, README, `design/summary.md`, `scene.json` display fields, and any tagline copy.
+**Rename scope executed 2026-09-23:** GDD title + all body copy, README, `design/summary.md`, `design/decisions.md`, all other design docs, `scene.json` display title, `package.json` description, code comments across `src/client` and `src/server`, and Discord join notification copy in `src/server/analytics.ts`. **Not renamed** (deliberate — infrastructure identifiers): repo directory `dcl-snowdrift`, `package.json` `name` field, deploy URL `snowdrift.dcl.eth` (would require a new DCL NAME migration), CRDT component IDs `snowdrift::*` (renaming breaks live scene state on redeploy), image asset filenames (`snowdrift.png`). Historical mentions of "Snow Drift" in `docs/archive/` left intact as history.
 
 ---
 
@@ -59,7 +54,7 @@ Late-session locks after ChatGPT collaboration on the persistent-civ + geography
 All locks below fall out of the [`spatialization-plan.md`](spatialization-plan.md) design pass. That doc is the working reference; the GDD carries the final wording.
 
 - **2026-09-22 · Design principle: biomes are where resources concentrate, wilderness is thin · owner-directed** — Reason to hold territory is *fuel density* — biomes cluster fuel around visible landmarks, wilderness is a slow kindling drip. **Superseded framing:** originally worded as "biomes are where resources renew" earlier the same day; that renewal claim was rescinded when the finite-wood model landed (see entry below). Density point retained; renewal point removed. Final wording lives as GDD Pillar 7.
-- **2026-09-22 · Finite-wood model locked (Cryogenian-consistent scarcity) · owner-directed** — Cryogenia is Snowball Earth: nothing grows, no seasons of plant regrowth. Trees are *pre-freeze remnants* of the pre-ice civilization's forests. Every tree has a fixed per-tree wood budget (~3–5 logs); no in-run respawn. The map has a total wood budget the community spends down starting at ignition. Depleted trees leave permanent stumps for the rest of the run. World reset (hearth death → new seed) restores the budget — the reset *is* the regrowth. Replaces the earlier steady-respawn model. Rationale: fits the setting, kills late-run stagnation without event systems, makes community discipline mechanically real ("which biome do we deplete first?"), and provides the on-ramp to v1.5 coal / ancient stores. Promoted to GDD Pillar 8.
+- **2026-09-22 · Finite-wood model locked (Cryogenian-consistent scarcity) · owner-directed** — Cryocene is Snowball Earth: nothing grows, no seasons of plant regrowth. Trees are *pre-freeze remnants* of the pre-ice civilization's forests. Every tree has a fixed per-tree wood budget (~3–5 logs); no in-run respawn. The map has a total wood budget the community spends down starting at ignition. Depleted trees leave permanent stumps for the rest of the run. World reset (hearth death → new seed) restores the budget — the reset *is* the regrowth. Replaces the earlier steady-respawn model. Rationale: fits the setting, kills late-run stagnation without event systems, makes community discipline mechanically real ("which biome do we deplete first?"), and provides the on-ramp to v1.5 coal / ancient stores. Promoted to GDD Pillar 8.
 - **2026-09-22 · Tree-mining mechanic: intentional torch-melt-fell in v1 · owner-directed** — Trees do not drop logs on approach. Player must fell the tree first by sustaining torch heat at the trunk base (~3 s target, playtest-tunable). Extension of the melt verb, not a new verb. Adds agency over *when* to fell (strategic: fell now vs. leave standing as landmark/reserve). Downed-trunk gather visual is one of {shatter-on-fall into log entities, progressive chunking of the trunk model} — decision deferred to build. Auto-fell-on-last-pickup was considered as the simpler v1 option and rejected. Depleted trees leave permanent stumps.
 - **2026-09-22 · v1.5 biomes seeded: coal mine/field + ancient fuel cache · owner-directed** — Two new biome candidates named for v1.5, both mechanically anchored to the scarcity ladder (below). **Coal mine / coal field:** rarer than pine, longer-burning; above-snow signal is an exposed black seam or pit-head structure; anchor fire on-site; fixed procgen destination biome outside the 500 m ring. **Ancient fuel cache:** small rare ruin-flavoured sites; pre-processed premium fuel (no torch-melt-fell required); ties to the §7 ignition-manual lore — what the ancients left for the next civilization. Both are deferred to v1.5; recorded in [`spatialization-plan.md`](spatialization-plan.md) §4 deferred list and GDD §9 deferred list.
 - **2026-09-22 · Scarcity ladder locked as v1 → v1.5 → v2 pitch spine · owner-directed** — v1 = wood scarcity (master a finite supply within/across runs). v1.5 = coal / peat / ancient stores (rarer, longer-burning, at fixed procgen sites outside the 500 m ring — the game's own scarcity curve tells the community when it's time). v2 = wake the ancients' volcano ignition network and thaw the world. The v1 loop of burning through a finite forest is designed as the diegetic on-ramp to each next rung. Coal / ancient stores explicitly out of v1 scope; v1 ships wood only, two tree types (deadwood + pinewood), tree-mining mechanic. Scarcity tuning intent: **generous v1** (scarcity rarely bites in a normal-length run; solstice/mismanagement remain the primary loss vectors) tightening toward v1.5.

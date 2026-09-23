@@ -29,7 +29,7 @@
 > **Biomes are landscape. Discoveries are landmarks.** *(GDD Pillar 9)*
 > **The world's fuel is finite. Every burn subtracts. Reset is the only renewal.** *(GDD Pillar 5)*
 
-The first is the vocabulary split that structures every content decision. The second is the setting-consistent scarcity model: Cryogenia is Snowball Earth, nothing grows, trees are pre-freeze remnants with fixed budgets, no wood respawns in-run.
+The first is the vocabulary split that structures every content decision. The second is the setting-consistent scarcity model: Cryocene is Snowball Earth, nothing grows, trees are pre-freeze remnants with fixed budgets, no wood respawns in-run.
 
 ---
 

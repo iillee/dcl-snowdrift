@@ -1,5 +1,5 @@
 /**
- * messages.ts — shared WS message schema for the Snow Drift auth server.
+ * messages.ts — shared WS message schema for the Cryocene auth server.
  *
  * Registered from both client and server (identical schema).
  *

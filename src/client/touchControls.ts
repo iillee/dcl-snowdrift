@@ -8,7 +8,7 @@
  *   \u2022 IA_PRIMARY   (`E`) \u2014 hidden. The scene's own relight-hand button
  *                            (see layer.mobileActions) is the mobile
  *                            surface for the desktop E-press.
- *   \u2022 IA_SECONDARY (`F`) \u2014 hidden. Reserved / unused in Snow Drift.
+ *   \u2022 IA_SECONDARY (`F`) \u2014 hidden. Reserved / unused in Cryocene.
  *   \u2022 IA_ACTION_3  (`1`) \u2014 icon swapped to the eye glyph; dispatches
  *                            toggleTopDownCamera on rising edge.
  *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the mute/unmute glyph;

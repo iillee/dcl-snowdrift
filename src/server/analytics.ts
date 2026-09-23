@@ -12,7 +12,7 @@
  * channel.
  *
  * Design cribbed from the Flag Tag scene's `server/analytics.ts`, but
- * trimmed: Snow Drift has no name-resolver / roster-name pipeline, so
+ * trimmed: Cryocene has no name-resolver / roster-name pipeline, so
  * we just post the abbreviated wallet address. If we later wire in a
  * name source (avatar-name resolver, roster metadata, etc.) we can
  * add the same deferred-flush pattern flagtag uses.
@@ -77,7 +77,7 @@ export function notifyPlayerJoin(address: string): void {
 
 	const short   = `${address.slice(0, 6)}…${address.slice(-4)}`
 	const online  = rosterSize()
-	const content = `👋 **${short}** joined Snow Drift — **${online}** online`
+	const content = `👋 **${short}** joined Cryocene — **${online}** online`
 
 	console.log(`[Analytics] notifyPlayerJoin: POSTing to Discord for ${short} (${online} online)`)
 	fetch(DISCORD_WEBHOOK_URL, {

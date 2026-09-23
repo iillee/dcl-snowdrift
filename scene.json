@@ -2,7 +2,7 @@
   "ecs7": true,
   "runtimeVersion": "7",
   "display": {
-    "title": "Snow Drift",
+    "title": "Cryocene",
     "description": "A cozy multiplayer survival hangout. Melt snow, gather wood, feed the fire, stay warm together.",
     "favicon": "favicon_asset",
     "navmapThumbnail": "assets/images/snowdrift.png"

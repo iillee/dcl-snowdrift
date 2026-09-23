@@ -1,5 +1,5 @@
 /**
- * weather.ts — server-authoritative precipitation for Snow Drift.
+ * weather.ts — server-authoritative precipitation for Cryocene.
  *
  * Owns the single source of truth for the current weather level
  * (0=CLEAR..3=HEAVY). Runs a randomised cycle that biases toward

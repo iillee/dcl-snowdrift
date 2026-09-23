@@ -48,7 +48,7 @@ import { isTorchLit } from 'src/client/torchEquip'
  *   2 — cluster (two or more other lit torches within proximity, capped)
  *
  * Values are chosen to align with the world's 1 m paint-grid rather
- * than continuous meters — everything else in Snow Drift (melt paint,
+ * than continuous meters — everything else in Cryocene (melt paint,
  * brush size, snow depth sampling) speaks in whole-cell footprints, so
  * warmth should too:
  *

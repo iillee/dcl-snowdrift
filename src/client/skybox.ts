@@ -1,5 +1,5 @@
 /**
- * skybox.ts — forced day/night cycle for Snow Drift.
+ * skybox.ts — forced day/night cycle for Cryocene.
  *
  * The scene owns the time of day. Every client independently drives its
  * skybox from a shared wall-clock anchor so all viewers see the same

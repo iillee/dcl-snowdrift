@@ -1,4 +1,4 @@
-# Hypothesis Log — Cryogenia
+# Hypothesis Log — Cryocene
 
 Generated index. Owner is never asked to hand-maintain this.
 

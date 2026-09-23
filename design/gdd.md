@@ -3,24 +3,24 @@
 
 > **Reading order.** Sections are numbered by drafting priority, not reading order. Recommended read: §0 → §0.1 → §1 → §8 → §2 → §3 → §4 → §5 → §6 → §7 → §9. Hypotheses (`H1-xx`) referenced throughout resolve in [`design/hypothesis-log.md`](./hypothesis-log.md).
 
-# Cryogenia
+# Cryocene
 
-*Working title — pivoted from "Snow Drift" (IP conflict). "Cryogenia" references the Cryogenian period (~720–635 mya, "Snowball Earth"). Final title to be confirmed post-team-pitch after Wednesday's playtest.*
+*Title locked 2026-09-23 (pivoted from "Snow Drift" — IP conflict). "Cryocene" is a coined geologic-epoch name in the *-cene* family (Pleistocene, Holocene), referencing the Cryogenian period (~720–635 mya, "Snowball Earth") that the game is set in.*
 
 | Field | Value |
 |---|---|
-| **Title** | Cryogenia *(working)* — IP self-check: clear pending final confirmation |
+| **Title** | Cryocene — locked 2026-09-23 |
 | **Deployment target** | Decentraland World — `snowdrift.dcl.eth` *(URL retained from v0; DCL NAME may migrate with title lock)* |
-| **Studio** | ile (solo) — coming off Flagtag (competitive multiplayer); building Cryogenia to learn what *collaborative* multiplayer teaches on DCL, and to push the client's skybox, seasonal, and weather systems as core game features for the first time. |
+| **Studio** | ile (solo) — coming off Flagtag (competitive multiplayer); building Cryocene to learn what *collaborative* multiplayer teaches on DCL, and to push the client's skybox, seasonal, and weather systems as core game features for the first time. |
 | **Date** | 2026-09-09 |
 | **Contact** | Discord: `ile9466` · Email: `lukeeescobar@gmail.com` |
-| **Requested round** | **v1** — with a **retroactive v0 request** for what is already live at `snowdrift.dcl.eth` (the pre-pivot cozy build, playable now). |
+| **Requested round** | **v0** — playtest + sign-off of the current prototype live at `snowdrift.dcl.eth`. If v0 passes, we launch into v1 development against this GDD. |
 
 ---
 
 ## 0. TL;DR
 
-**Cryogenia** is a shared-world winter survival scene for Decentraland, set on Earth at the edge of the Cryogenian freeze.
+**Cryocene** is a shared-world winter survival scene for Decentraland, set on Earth at the edge of the Cryogenian freeze.
 
 > *Hold the light against the storm.*
 
@@ -34,7 +34,7 @@
 
 **Playable link.** `https://play.decentraland.org/?realm=snowdrift.dcl.eth`
 
-> **⚠️ Reviewer note on the playable link:** this URL currently serves the **v0 baseline** — the pre-pivot *cozy* multiplayer hangout described in `docs/archive/gameloop-vision.md`. The **v1 build described in this GDD** redeploys to the same URL at Week 4. What you see today proves the *verbs* (torch, hearth, wood, frost death, weather, torch-chain, day/night, mobile playability); the *seasonal cycle, solstice event, sleeping-ember failure model, and defense mechanic* are the v1 delivery.
+> **Reviewer note on the playable link:** this URL currently serves the **v0 prototype** — the pre-pivot cozy multiplayer hangout described in `docs/archive/gameloop-vision.md`. It proves the *verbs* (torch, hearth, wood, frost death, weather, torch-chain, day/night, mobile playability). The *seasonal cycle, solstice event, sleeping-ember failure model, persistent civilization model, and territory defense* described in this GDD are the v1 delivery, contingent on v0 sign-off.
 
 ---
 
@@ -70,10 +70,6 @@ Every major design decision that was open at start of v1 planning is now resolve
 **Direction lock (form deferred) — Meta-progression:**
 Surviving winter with territory intact carries *something* forward into the next cycle. Communal only (no personal gear, no per-player upgrades). Concrete form (Legacy counter, well-tended hearth buff, starter woodpile, warmth memory) decided during v1 build once the loop feels real. Aligned with GDD Pillar 8 (progress belongs to civilization; memory belongs to the player).
 
-**Retroactive v0 ask.** The scene as it exists today (the cozy multiplayer hangout in `docs/archive/gameloop-vision.md` — now superseded by this GDD) represents ~14 sessions of work over the pre-pivot window. Full engineering changelog in `README.md` v2.7–v2.14+.
-
-**Retroactive v0 ask.** The scene as it exists today (the cozy multiplayer hangout in `docs/archive/gameloop-vision.md` — now superseded by this GDD) represents ~14 sessions of work over the pre-pivot window. Full engineering changelog in `README.md` v2.7–v2.14+.
-
 ---
 
 ## 1. Player Promise
@@ -86,7 +82,7 @@ Surviving winter with territory intact carries *something* forward into the next
 
 **Familiar comparison:** *(dropped — the promise stands without it; comparables live in §8)*
 
-**Why this game:** Decentraland doesn't have a collaborative survival game yet, and its skybox, seasonal, and weather systems have never been the core of one. Cryogenia is both experiments at once: a survival challenge you can face alone or with strangers, where the world's history unlocks the longer the community keeps the fire alive.
+**Why this game:** Decentraland doesn't have a collaborative survival game yet, and its skybox, seasonal, and weather systems have never been the core of one. Cryocene is both experiments at once: a survival challenge you can face alone or with strangers, where the world's history unlocks the longer the community keeps the fire alive.
 
 ---
 
@@ -107,7 +103,7 @@ For players who already enjoy **cozy-toned co-op survival games (Don't Starve To
 
 ### How the first group arrives
 
-The first group comes through **the CSP program's DCL Events feed and Cryogenia's Discord** at the scheduled solstice timestamps — the solstice itself is the recurring arrival channel. Individual players arrive through Discover, friend invites, and streamer content once the loop is stable and the record is climbing.
+The first group comes through **the CSP program's DCL Events feed and Cryocene's Discord** at the scheduled solstice timestamps — the solstice itself is the recurring arrival channel. Individual players arrive through Discover, friend invites, and streamer content once the loop is stable and the record is climbing.
 
 ### Deliberately not for
 
@@ -156,14 +152,6 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 - **What the return-screen shows:** civilization-level facts only — never discovery-level facts (no place names, no discoverer credits, no individual fire events). Discovery events fire on the transient live-broadcast channel at the moment they happen; players who were online then saw them, others learn via Discord or by walking.
 - **D1 coverage:** always. Every session start is a return-screen beat.
 
-**Hook 2 — ⚡ The winter solstice.**
-- **Trigger:** solstice arrives on a fixed **in-game day number** within the current civilization (target Day 20, tuning-tunable). HUD countdown always visible; the closer the civilization gets, the more the community pulls returning players to be present.
-- **What players anticipate:** the peak defense moment. Community coordination naturally concentrates around it.
-- **Reminder channel:** in-world HUD countdown + Discord announcements when a civilization is near solstice ("World 7 is on Day 17 — solstice in 3").
-- **No-reminder fallback:** the HUD countdown is the last thing you see before you log off (§2 stopping point).
-- **D1 coverage:** strong when a civilization is near solstice; softer during early days of a fresh civ.
-
-
 **Hook 2 — 🏆 Beat the world's high-score day count. Unlock more of the game as it survives.**
 - **Trigger:** hearth displays *"Best Run: Day 62 · Current: Day 34"*. The gap is the retention pull. Progressive unlocks (see 4.2) mean the world *literally grows* the longer it survives.
 - **What players anticipate:** *"we're 28 days from the record and 6 from the next unlock — push tonight."*
@@ -171,11 +159,18 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 - **No-reminder fallback:** both numbers are baked into the hearth HUD.
 - **D1 coverage:** strong. Layered with Hook 1.
 
+**Hook 3 — ⚡ The winter solstice.**
+- **Trigger:** solstice arrives on a fixed **in-game day number** within the current civilization (tuning-tunable). HUD countdown always visible; the closer the civilization gets, the more the community pulls returning players to be present.
+- **What players anticipate:** the peak defense moment. Community coordination naturally concentrates around it.
+- **Reminder channel:** in-world HUD countdown + Discord announcements when a civilization is near solstice ("World 7 is on Day 17 — solstice in 3").
+- **No-reminder fallback:** the HUD countdown is the last thing you see before you log off (§2 stopping point).
+- **D1 coverage:** strong when a civilization is near solstice; softer during early days of a fresh civ. A retention peak layered on top of Hooks 1 and 2, not the main draw.
+
 **How the world resets:** when the *last* fire dies (extinction) and the server is empty, the world sits in a "dead" state — day count frozen. The next returning player is the witness: they see the *"the world was lost on Day X"* splash, then spawn into a fresh Day 1. Reset is a moment, not silent bookkeeping.
 
 ### 4.1 The D1 (next-day) sentence
 
-A player who enjoyed their first session returns the next day because **Hook 1** — an solstice is scheduled at 20:00 UTC and they want to be there to defend the fire.
+A player who enjoyed their first session returns the next day because **Hook 1** — the world kept going without them, and they want to see what happened: how many days the civilization survived, what territory still holds, what someone else discovered. Exploration, discovery, progression, and the community day-count record are the primary draws; the scheduled solstice is a secondary peak, not the main pull.
 
 ### 4.2 Progression chain
 
@@ -212,7 +207,7 @@ The world accumulates *power*; the player accumulates *biography*. Personal hist
 - **Optional hover / whisper stat on other players' avatars** at the hearth: *"Survived 2 solstices · Delivered 47 wood · Witnessed Day 34."* Read-only, cosmetic, no gameplay effect.
 - **Named graves** (see §5) mark where a player froze. Their name and the day number persist as environmental storytelling.
 
-No per-player power buffs. No gear tiers. No personal levels. A returning veteran and a new player have the same capabilities — only their history differs. This is the design line that keeps Cryogenia from drifting into MMO progression.
+No per-player power buffs. No gear tiers. No personal levels. A returning veteran and a new player have the same capabilities — only their history differs. This is the design line that keeps Cryocene from drifting into MMO progression.
 
 ---
 
@@ -294,7 +289,7 @@ A new friend spawns next to you at the hearth with nothing to learn — hand the
 
 ### Design posture
 
-**Cryogenia is designed for desktop's ambition and ships with full mobile playability.** The core loop is inherently touch-native — walking + tap is the whole verb set — so mobile compatibility is not the constraint on the design; the *fidelity ceiling* is. Desktop players experience the full visual and atmospheric build; mobile players play the same game at leaner particle and shader budgets.
+**Cryocene is designed for desktop's ambition and ships with full mobile playability.** The core loop is inherently touch-native — walking + tap is the whole verb set — so mobile compatibility is not the constraint on the design; the *fidelity ceiling* is. Desktop players experience the full visual and atmospheric build; mobile players play the same game at leaner particle and shader budgets.
 
 ### Verb-to-touch mapping
 
@@ -342,7 +337,7 @@ This is Earth, hundreds of millions of years ago, at the edge of the great freez
 
 **The tech.** The ancients understood what you are re-learning: heat clears the way. They scaled it — chains of volcanoes, prepared and dormant, waiting for the right sequence and the right hands to wake them. The lore fragments buried in the snow are what they left behind: locations, warnings, procedures. Reading them is remembering.
 
-**The trees.** Nothing grows in Cryogenia. The forests you find — the standing dead of the Deadwood Grove, the pines of the Pine Grove — are *pre-freeze remnants*, timber left standing when the world locked. Every tree is a finite reserve; no seedling replaces one you fell. The wood budget of the map is the wood budget of the whole civilization that walked here before the ice. This is why the ancients built the volcano network: they knew the fires would eventually run out. The v1 loop of burning down a finite forest is exactly the pressure that names the v2 answer.
+**The trees.** Nothing grows in Cryocene. The forests you find — the standing dead of the Deadwood Grove, the pines of the Pine Grove — are *pre-freeze remnants*, timber left standing when the world locked. Every tree is a finite reserve; no seedling replaces one you fell. The wood budget of the map is the wood budget of the whole civilization that walked here before the ice. This is why the ancients built the volcano network: they knew the fires would eventually run out. The v1 loop of burning down a finite forest is exactly the pressure that names the v2 answer.
 
 **Why the premise works with the verb.** Torch melts snow to reveal wood. Hearth holds warmth against the night. Volcano network, at scale, thaws the world. Same verb, three tiers. The macro loop is the micro loop, planet-sized.
 
@@ -369,7 +364,7 @@ All three are *bring warmth into a frozen world*. V1 teaches players to use fire
 
 ## 9. v1 Build Plan (5 themed weeks)
 
-**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Cryogenia. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
+**Team:** 1 solo dev, AI-assisted · **15–20 hours/week** on Cryocene. AI assistance shortens draft-code and design-doc time; testing, playtest coordination, deploy work, and community setup remain real calendar hours.
 
 **Foundation:** the existing repo already ships the verbs (torch, hearth fuel, wood scatter, frost death, torch chain, weather, cycle infrastructure, paint-CRDT). v1 is a **pivot from cozy hangout to man-vs-storm territory survival at scale**, not a build from scratch.
 
@@ -377,22 +372,55 @@ All three are *bring warmth into a frozen world*. V1 teaches players to use fire
 
 **Each phase has a theme so it can be pitched in a sentence.** The *goals* per phase are firm; the *ordering and pace* is not — in practice some phases finish in a couple of days and others take a couple of weeks. "Week" is a label for the theme, not a calendar promise.
 
+### Reach vs. Core — two scope tiers
+
+The 5-week solo-with-AI budget (75–100 hours) is realistically ~half of what the full Reach scope demands (175–255 estimated hours). This plan therefore has two tiers:
+
+- **Reach v1** — the *ambition target*. Full detailed table in §9.1 below. Everything ships as originally scoped: two biomes, procgen generator with invariants across seeds, Ancient Station foreshadow, full art pass, cinematic trailer, meta-progression implemented. This is what an 8–10-week calendar would deliver.
+- **Core v1** — the *committed deliverable*. Detailed in §9.2 below. What we present to Foundation for the v1 milestone. Cuts scope to fit the 5-week envelope while preserving every load-bearing gameplay proof: persistent-civ backend, return-screens, tree-mining, fuel tiering with charcoal portability, three fire archetypes with dormancy, solstice event, seasonal cycle, extinction reset, one biome + Kiln, minimum-viable art.
+
+**We build toward Reach; we ship Core.** Anything from Reach that lands within the calendar is upside. Anything that doesn't fit becomes a v1.1 note. This split is how we present a credible v1 without either (a) over-promising and slipping the milestone or (b) under-selling the vision by only pitching the cut scope.
+
 ### Schedule
 
 **Start:** 9/23 Mon (v0 sign-off + v1 project launch)
 **Submit:** 10/27 Mon (v1 sign-off)
 
-~5 weeks of calendar between the bookends, split across the five themed phases below in whatever proportion the build demands. Playtests happen at natural seams — end of Systems, end of Depth + Holes, and inside Solstice + Game Loops — not on fixed dates.
+~5 weeks of calendar between the bookends, split across the five themed phases below in whatever proportion the build demands. Playtests happen at natural seams — end of Systems, end of Depth + Holes, and inside Solstice + Game Loops — not on fixed dates. Schedule applies to both Reach and Core tiers.
 
-### The five phases
+### 9.1 Reach v1 — the five phases (ambition target)
+
+*Reviewer note: this is the implementer-facing detailed table for the Reach scope. A condensed reviewer summary + side-by-side Reach/Core comparison lives in [`design/summary.md`](./summary.md). The Core scope that we commit to Foundation is §9.2 immediately below.*
 
 | Week | Theme | One-line pitch | Playable outcome |
 |---|---|---|---|
 | **1 — Systems** | Foundation | *Time, weather, cold, and the persistent-civilization backbone behave like a world.* | **H1-06 mobile perf smoke test first** — result determines the parcel envelope (32×​32 / 64×​64 / 100×​100) before spatialization work commits. Day/night phase clock (server-time authority, all 6 phases scaffolded: DAY / DUSK / NIGHT / SOLSTICE_WARN / SOLSTICE / GRACE), full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), weather profile-per-season, optional fog system decided in/out this week (fog is a Phase 1 priority — it enables aggressive far-distance culling without visible pop-in). Sleeping-ember failure model live. **Lightweight persistence backend** stood up (Cloudflare Workers / Firebase / equivalent — not a full Multiplayer Server) with persistent world-state, per-player last-seen state, deterministic-on-read offline advancement, and extinction-witness reset logic. **DCL CRDT** confirmed for in-scene real-time sync. **Debug commands** implemented for internal testing (season jump, solstice trigger, day advance, force-extinction, seed roll). **Perf disciplines locked as Phase 1 constraints:** distance-based particle culling (fire ember particles, snow) with fog occlusion hiding the cull line; snow-tile LOD (near tiles fine-grained, far tiles coarse); lazy-spawn for wilderness kindling (entities created on melt-reveal, not upfront); inner-500 m ring at full fidelity, outer envelope decorative + heavy LOD. **Data-driven content pool scaffolding** in place: biomes, discoveries, fuel types, hazards declared as data structures the generator reads from — not hardcoded (this is the technical constraint that makes v1.5+ expansion a matter of authoring, not rewriting). World ticks correctly with no new mechanic on top. |
 | **2 — Spatialize + Fun** | Geography as tech tree — prove the architecture, not the content | *Two biomes + one functional discovery on a procgen map, three-tier fuel + charcoal portability, fires anchor territory, worlds are persistent + finite.* | **V1 = gameplay proof, not content proof** (scoping principle). Deadwood Grove + Pine Grove biomes live with clustered trees holding fixed per-tree wood budgets (~3–5 logs each) and torch-melt-fell tree-mining mechanic. Wilderness kindling scatter as baseline. **No in-run wood regrowth** (Pillar 5): budget is set at world-seed and only refreshes on new-seed generation. Three-tier fuel wired into existing `hearthFuel` model. Three fire archetypes (spawn hearth / biome anchor / rest stop) with uniform decay + 60 s ember + dormancy. **Data-driven content pool architecture** (Pillar 10): biomes, discoveries, hazards, fuel types all declared as data, spawned by generator per seed. Procgen generator places biomes, anchor, rest stops, hazard belts, and the Kiln discovery per seed. Cabin/Kiln discovery visible with functional charcoal interaction wired *this* phase (upgraded from earlier plan of Phase 3, since Decision C is now locked). **Persistence backend + persistent-civ state + return-screens live** end-to-end from Phase 1. **Game-balancing pass** across interacting dials — fuel burn-values per tier, fire decay rate, ember grace duration, per-tree + total-world wood budgets (**generous v1**: comfortable within a normal run; scarcity bites by 2nd–3rd solstice on long runs), wilderness kindling density, torch fuel budget vs. hearth→anchor distances, tree-fell melt duration, dormant-fire reclaim cost, **charcoal conversion ratio + burn value (portability target: ~2.5× fire-time per carry slot vs. raw deadwood)**, **expansion-as-investment** target (establishing a route must pay back within a normal-length run — not a chore, an investment), deep-snow speed reduction, frost accumulation vs. warmth radius, wood pickup + deposit prompt distances. Loop is fun for 20 minutes; procgen produces meaningfully different strategies across ~3 different seeds. |
-| **3 — Depth + Holes** | Repeat what worked, file the sharp edges | *Mystery discovery + hazards placed, sharp edges filed off.* | **Ancient Station foreshadow discovery placed** — authored buried structure, distinctive silhouette, torch cannot activate it, mostly-buried with hints of a larger network (the "what the hell is that?" beat that seeds v2). Appears in ~50% of seeds so the discovery pool exhibits per-seed presence/absence variability. Ice-hazard tiles + deep-snow belts placed on biome-access paths. **Holes list from end of Phase 2 playtest gets worked through** — death/respawn/reload/handoff mechanics (esp. respawn point when hearth dies but a satellite lives: nearest-lit-fire to death-point; oldest-continuously-burning fire becomes designated home), torch-relight edge cases, dormancy reclamation cost, procgen edge cases (unreachable anchor, biome/discovery overlap, silhouette collision), extinction-witness sequence and reset splash timing, whatever the playtest exposed. **Playtest questions:** *"Where would you go right now if you needed fuel?"* Answer names a **place** → Pillar 4 works. *"You can only tend two fires tonight. Which do you let sleep?"* Answer references a **capability class** → anchor↔biome coupling works. *"What was the strangest thing you saw?"* Answer references the Ancient Station or something similar → curiosity loop works. |
-| **4 — Solstice + Game Loops** | The peak moment and the loops that lead into and out of it | *The solstice is the moment. The day, year, and reset loops all resolve cleanly around it.* | Solstice event end-to-end (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readable — each season *plays* as a distinct strategic phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Empty-server run/world reset behavior verified end-to-end. Multiplayer playtest with 3+ players confirms the peak lands. |
-| **5 — Polish + Ship** | Look, sound, and pitch | *Audio, UI, trailer, deploy.* | Audio pass (torch, campfire, snowfall, solstice siren). UI unification (HUD strip, fire-network/frost bars, countdown). Level visual redesign (block/prop art pass toward the Cryogenian look). First-30-seconds onboarding (playtest-reactive). 60–90 s trailer. `docs/VISION.md` + README pass. Final mobile perf smoke. Optional meta-progression carry mechanism if scope allows. Deploy dry-run → submit. |
+| **3 — Depth + Holes** | Repeat what worked, file the sharp edges | *Mystery discovery + hazards placed, sharp edges filed off.* | **Ancient Station foreshadow discovery placed** — authored buried structure, distinctive silhouette, torch cannot activate it, mostly-buried with hints of a larger network (the "what the hell is that?" beat that seeds v2). Appears in ~50% of seeds so the discovery pool exhibits per-seed presence/absence variability. Ice-hazard tiles + deep-snow belts placed on biome-access paths. **Holes list from end of Phase 2 playtest gets worked through** — death/respawn/reload/handoff mechanics (esp. respawn point when hearth dies but a satellite lives: nearest-lit-fire to death-point; oldest-continuously-burning fire becomes designated home), torch-relight edge cases, dormancy reclamation cost, procgen edge cases (unreachable anchor, biome/discovery overlap, silhouette collision), extinction-witness sequence and reset splash timing, whatever the playtest exposed. **Discovery broadcast** wired — capability discoveries fire a live-transient on-screen broadcast on discover; mystery discoveries (Ancient Station) stay silent. **Day 100 diegetic lore cliffhanger** authored (single fragment + aurora world-visual signature naming the first station location). **Playtest questions:** *"Where would you go right now if you needed fuel?"* Answer names a **place** → Pillar 4 works. *"You can only tend two fires tonight. Which do you let sleep?"* Answer references a **capability class** → anchor↔biome coupling works. *"What was the strangest thing you saw?"* Answer references the Ancient Station or something similar → curiosity loop works. |
+| **4 — Solstice + Game Loops** | The peak moment and the loops that lead into and out of it | *The solstice is the moment. The day, year, and reset loops all resolve cleanly around it.* | Solstice event end-to-end (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery arc). Seasonal cadence readable — each season *plays* as a distinct strategic phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). Empty-server run/world reset behavior verified end-to-end. **Meta-progression form picked** (Legacy counter / well-tended-hearth buff / starter woodpile / warmth memory) — implementation may slip to Phase 5. Multiplayer playtest with 3+ players confirms the peak lands. |
+| **5 — Polish + Ship** | Look, sound, and pitch | *Audio, UI, trailer, deploy.* | Audio pass (torch, campfire, snowfall, solstice siren). UI unification (HUD strip, fire-network/frost bars, countdown). Level visual redesign (block/prop art pass toward the Cryogenian look). First-30-seconds onboarding (playtest-reactive). **Cryocene rebrand asset pass** (splash, thumbnail, navmap, any remaining scene-title copy). 60–90 s trailer. `docs/VISION.md` + README pass. Final mobile perf smoke. Meta-progression implementation if not shipped in Phase 4. Deploy dry-run → submit. |
+
+### 9.2 Core v1 — committed deliverables (Foundation-facing)
+
+This is the honest 5-week scope. Every gameplay pillar in §3 has at least one mechanical proof in Core v1 — nothing that would invalidate the v1 gameplay hypothesis is cut. What's cut is *content redundancy* (second biome, mystery discovery, full-generator procgen) and *polish surface* (cinematic trailer, full art pass, meta-progression implementation).
+
+| Phase | Cut from Reach | What ships in Core | Why it's still enough |
+|---|---|---|---|
+| **1 — Systems** | *(nothing cut)* | Full Phase 1 scope: world clock (day/night + seasonal cycle + weather-per-season + sleeping-ember + optional fog), persistence backbone (serverless + CRDT + deterministic-on-read + extinction-witness reset), debug commands, four perf disciplines, data-driven content pool scaffolding, H1-06 gate. | Phase 1 is the load-bearing systems layer. Nothing downstream works without it. No cuts possible. |
+| **2 — Spatialize + Fun** | **Pine Grove biome cut** → v1.1. **Full procgen generator cut** → v1.1. | **One biome (Deadwood Grove) + Charcoal Kiln discovery.** Fuel system ships as **kindling (wilderness) / deadwood (biome) / charcoal (Kiln)** — two source tiers + portability variant. Tree-mining, fixed per-tree budgets, no in-run regrowth, three fire archetypes (spawn hearth + 1 biome anchor + 1–2 rest stops), uniform 60 s ember + dormancy all land. **Single authored 500 m layout with seeded variation** (anchor + rest stops shuffle position within invariants; Kiln placement varies) — not a full generator. Data-driven pool architecture still lands so Pine Grove ships in v1.1 by data authoring, not code. Return-screens (basic). Balancing pass across all Core-scope dials. | Geography-as-tech-tree (Pillar 4) is proven by **any two capability classes** interacting. Deadwood = quantity, Charcoal = portability. Losing one still means losing a *capability class*, not just a resource. Pillar 5 (finite fuel) fully lands with one biome. Seeded variation on a single layout still delivers the *"every world is different"* return-screen beat. |
+| **3 — Depth + Holes** | **Ancient Station foreshadow cut** → v1.1. **Day 100 lore cliffhanger cut** → v1.1. | Hazards (ice tiles, deep-snow belts). Holes list from Phase 2 playtest worked through — death/respawn/handoff mechanics, respawn-when-hearth-dies-but-satellite-lives (nearest-lit-fire, oldest-continuously-burning becomes home), torch-relight edges, dormancy reclamation, extinction-witness sequence + reset splash timing. Discovery broadcast wired for the Kiln (live-transient on-screen text). | The v2-seeding mystery layer (Ancient Station + Day 100 lore) is a *nice-to-have* curiosity beat, not a load-bearing v1 proof. Cutting it removes one playtest question, which is real — accepted cost. Everything that makes the exile / migration / reclamation arc mechanically real (respawn logic, extinction witness, discovery broadcast) still ships. |
+| **4 — Solstice + Game Loops** | **Meta-progression implementation cut** → v1.1 (direction stays locked, form stays deferred). | Solstice event end-to-end (SOLSTICE_WARN siren + 2 min countdown → SOLSTICE whiteout + doubled night → GRACE recovery). Seasonal cadence readable across the seven strategic phases. Empty-server reset behavior verified end-to-end. Multiplayer playtest with 3+ players. | The solstice IS the peak beat and cannot be cut. Meta-progression across cycles was always "direction-locked, form-deferred" — punting the implementation to v1.1 is the honest read of that decision under time pressure. |
+| **5 — Polish + Ship** | **Cinematic trailer cut** → walkthrough capture instead. **Full block/prop art pass cut** → minimum-viable art. | Audio pass (essential SFX only: torch, campfire, snowfall, solstice siren). UI unification (HUD strip, fire-network + frost bars, countdown). **Minimum-viable art:** unified palette + distinctive silhouettes for spawn hearth / Deadwood anchor / Kiln (the three landmarks players navigate by); rest of world stays greybox-plus. First-30-seconds onboarding (playtest-reactive). Cryocene rebrand assets (splash, thumbnail, navmap). **60-second walkthrough capture** in place of cinematic trailer. README + VISION pass. Final mobile perf smoke. Deploy dry-run → v1 submit. | Full art pass is where Reach→Core saves the most hours. The three landmark silhouettes are load-bearing for navigation (players *have to* recognize the Kiln at a distance to reach it); everything else can survive as greybox for v1. A walkthrough capture proves the loop to reviewers without the cinematic-edit hours. |
+
+**What v1.1 picks up (in priority order if partial Reach lands during Core build):**
+1. Pine Grove biome (data authoring against the Phase 1 content pool — no new code needed).
+2. Full procgen generator with invariants (upgrade from single-layout + seeded variation).
+3. Ancient Station foreshadow + Day 100 lore cliffhanger (unlocks the curiosity-loop pillar for v2 seeding).
+4. Meta-progression form pick + implementation.
+5. Full block/prop art pass toward the Cryogenian look.
+6. Cinematic 60–90 s trailer.
+
+**Reach carry-over rule:** any Reach item that lands *during* the 5-week Core build is upside — fold it into the ship. Anything that doesn't fit becomes a v1.1 note without blocking the Core milestone.
 
 ### Live-ops — what keeps the experience changing after launch
 
@@ -454,8 +482,8 @@ Each horizon corresponds to one of the three nested loops:
 
 | Loop | Scope | Ships in v1? | Success = |
 |---|---|---|---|
-| **Day (micro)** | ~9 min realtime | Fully | Fires alive at dawn |
-| **Year (meso)** | ~20 in-game days (roguelike lean) | Fully | Survive the winter solstice |
+| **Day (micro)** | minutes of realtime (tuned in build) | Fully | Fires alive at dawn |
+| **Year (meso)** | a run's worth of in-game days (tuned in build) | Fully | Survive the winter solstice |
 | **Ignition (macro)** | Many years, community-scale | *Foreshadowed only* | Wake the volcano network and thaw the world (v2 payoff) |
 
 - **Day (micro, ~9 min):** dawn → gather → dusk → defend → dawn resolves.
@@ -500,13 +528,9 @@ Each horizon corresponds to one of the three nested loops:
 
 **Individual death:** respawn at nearest fire with frost reset. Contribution time lost, not the run.
 
-**Cycle length:** `[OPEN: pending §0.1 Decision A + playtest tuning]` — first playtest target 5 min day / 1 min dusk / 3 min night (~9 min per in-game day), ~3 days per season.
+**Cycle length:** `[OPEN: determined by build + playtest]` — day/night cycle length, dusk window, season length, and solstice day-number are all balance dials that only reveal their right values once the loop is playable. Any specific number stated pre-build is a guess. Solstice arrival will be a fixed **day number** within the run (roguelike model, per §0.1 Decision A).
 
-**Solstice arrival — depends on §0.1 Decision A:**
-- *Roguelike (current lean):* solstice = fixed **day number** (target Day 20). A full run = ~20 in-game days ≈ 3 real hours, played in one evening or spread across sessions. Year length scales with day count.
-- *Persistent calendar:* solstice = fixed **real-world time** (08:00 / 20:00 UTC). Season and day durations back-solve to hit ~12 h between solstices; expect a longer in-game day (~12 min) and longer seasons (~8 in-game days).
-
-**Session length:** `[OPEN: playtest tuning]` — one full in-game day = ~9 min minimum satisfying visit.
+**Session length:** `[OPEN: playtest tuning]` — one full in-game day is the intended minimum satisfying visit; the actual minute count follows from cycle-length tuning above.
 
 **Repetition 10 — why it stays fresh:** `[HYPOTHESIS]` H1-01 — variability comes from (a) other players and shifting roster, (b) the seasonal ramp changing what the same verbs *mean* (a day-1 walk vs. a solstice-approach walk are the same input, different game), (c) territory decisions about which fires to hold and which to let go dormant, (d) the community's persistent state carrying forward from prior winters.
 
@@ -518,9 +542,9 @@ Each horizon corresponds to one of the three nested loops:
 4. **Geography is the tech tree.** The map itself is the progression system. Different biomes and discoveries grant different capabilities; the *tempo* of survival is set by which places the community can reach and hold. In v1 this shows up as a three-tier fuel system (kindling / deadwood / pinewood) plus the Charcoal Kiln discovery (portability tech). A community holding Pine Grove *breathes*; a community reduced to kindling scavenging is *grinding*; a community with a Kiln can *push farther*. That gap IS the pillar.
 
    **Reliability, not permission.** Named biomes are dense, *reliable* concentrations of a resource — not exclusive sources. Scattered pine and deadwood exist throughout the wilderness; a player may remember *"there's one pine near the frozen ridge."* Holding Pine Grove secures reliable access at scale; losing it makes pine dangerous and inefficient to reach, not unusable. Capability comes from physical access and logistics, never from permission-gating. Players experience *"we lost Pine"*, never *"pine technology unavailable."*
-5. **The world's fuel is finite. Every burn subtracts. Reset is the only renewal.** Cryogenia is Snowball Earth: nothing grows. Trees are pre-freeze remnants with fixed per-tree wood budgets (~3–5 logs); no in-run respawn. The map has a total wood budget the community spends down from ignition. Depleted trees leave permanent stumps. World reset (extinction → new seed) restores the budget — the reset *is* the regrowth. Turns tending the fire from a task into a *cost*, and makes the v1 → v1.5 → v2 scarcity ladder (wood → coal / ancient stores → volcanoes) the game's spine.
+5. **The world's fuel is finite. Every burn subtracts. Reset is the only renewal.** Cryocene is Snowball Earth: nothing grows. Trees are pre-freeze remnants with fixed per-tree wood budgets (~3–5 logs); no in-run respawn. The map has a total wood budget the community spends down from ignition. Depleted trees leave permanent stumps. World reset (extinction → new seed) restores the budget — the reset *is* the regrowth. Turns tending the fire from a task into a *cost*, and makes the v1 → v1.5 → v2 scarcity ladder (wood → coal / ancient stores → volcanoes) the game's spine.
 6. **Civilization survives while any fire remains.** Loss of the central hearth does not end the run if any other established fire is still lit. When the hearth dies with a satellite alive, the oldest continuously-burning surviving fire becomes the community's new home (respawn point + HUD-designated "current hearth"). Only the death of the *last* remaining fire triggers extinction. This is what makes territorial expansion *redundancy*, not just capability, and produces the exile / migration / reclamation narrative arc.
-7. **Worlds are shared, persistent, and mortal. When a civilization dies, a new seed begins.** *Shared* — one civilization per world, common to every player. *Persistent* — world state survives between logins and continues advancing at full rate while the server is empty. *Mortal* — civilizations can and do end; extinction is real. When the last fire dies, the next arriving player witnesses the extinction and a new world seed is rolled. This is Cryogenia's retention model: persistent shared-world survival roguelike.
+7. **Worlds are shared, persistent, and mortal. When a civilization dies, a new seed begins.** *Shared* — one civilization per world, common to every player. *Persistent* — world state survives between logins and continues advancing at full rate while the server is empty. *Mortal* — civilizations can and do end; extinction is real. When the last fire dies, the next arriving player witnesses the extinction and a new world seed is rolled. This is Cryocene's retention model: persistent shared-world survival roguelike.
 8. **Progress belongs to the civilization. Memory belongs to the player.** The world accumulates capability (day count, discoveries made, territory held, records set). Players accumulate biography (worlds witnessed, solstices survived, discoveries credited to them, deaths where they froze). No personal power progression — no gear tiers, torch upgrades, character levels, or per-player unlocks. This is the design line that prevents drift into MMO progression across every future feature decision.
 9. **Biomes are landscape. Discoveries are landmarks.** *(Architecture pillar.)* Biomes are regions the community moves through — spatially extended, characteristic terrain, resources distributed across them (Deadwood Grove, Pine Grove, wilderness). Discoveries are specific places the community finds — singular, authored, memorable (Charcoal Kiln, Ancient Station, Ancient Cache). Both can provide capability, resources, or mystery; the difference is spatial shape and how the world generator treats them. Every future content proposal resolves cleanly against this split.
 10. **Complexity from the world, not the verbs.** *(Architecture pillar.)* New depth is added by making the world more varied — more biomes, discoveries, hazards, mysteries — not by adding new player verbs, inventory systems, or UI. One legible input; many geographic contexts. This is what makes the game growable through content-pool additions rather than mechanical redesign, and it is the technical constraint that keeps v1.5+ development a matter of authoring new data rather than rewriting core systems.
@@ -584,7 +608,7 @@ This is what keeps repetition-10 feeling different from repetition-1: not that c
 - **Thaw (Reclaim):** sleeping fires reclaimable at wood cost — spent from what's left of the world's finite budget. *"First thing we're doing this spring is taking the pine back — no pine since Deep Winter."* Late runs increasingly play out against a visibly depleted map (stumps everywhere), which is exactly the pressure that drives outward exploration by the 2nd–3rd solstice — and, in v1.5, the reason to hunt for coal / ancient stores.
 - **Spring (Expand again):** full network restored; next winter starts richer.
 
-Most survival games only give the player capabilities. Cryogenia temporarily takes them away. This is what makes the seasonal cadence mechanically consequential, not just a difficulty modifier.
+Most survival games only give the player capabilities. Cryocene temporarily takes them away. This is what makes the seasonal cadence mechanically consequential, not just a difficulty modifier.
 
 **The map is the score after Solstice.** Success is not binary. A great winter might leave nearly the whole network intact; a brutal winter might leave only one satellite standing (the hearth may have fallen — the community migrates there); a catastrophe extinguishes every fire and ends the run. The *state of the map* at dawn after the Solstice tells the story of the winter without needing a scoreboard.
 
