@@ -350,26 +350,6 @@
       }
     },
     {
-      "name": "inspector::Selection",
-      "jsonSchema": {
-        "type": "object",
-        "properties": {
-          "gizmo": {
-            "type": "integer",
-            "serializationType": "int32"
-          }
-        },
-        "serializationType": "map"
-      },
-      "data": {
-        "0": {
-          "json": {
-            "gizmo": 0
-          }
-        }
-      }
-    },
-    {
       "name": "inspector::Nodes",
       "jsonSchema": {
         "type": "object",
@@ -1289,7 +1269,7 @@
       "data": {
         "0": {
           "json": {
-            "name": "Snow Drift",
+            "name": "Cryocene",
             "description": "A cozy multiplayer survival hangout. Melt snow, gather wood, feed the fire, stay warm together.",
             "thumbnail": "assets/images/snowdrift.png",
             "categories": [],
