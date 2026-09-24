@@ -132,7 +132,7 @@ export function applyCycleSeedChange(newSeed: number): void {
 
 	// Push the derived maze seed. The seed watcher in
 	// src/client/index.ts fires on non-zero-and-different and calls
-	// rebuildMaze / setupPerimeter / setupProps.
+	// setupPerimeter / setupProps.
 	const mazeSeed = cycleMazeSeed(newSeed)
 	const current  = SeedHolder.getOrNull(seedHolder)
 	if (current === null || current.seed !== mazeSeed) {

@@ -96,9 +96,12 @@ function snowModelSystem(dt: number): void {
 		applyTileBytes(entity, tileKey, incoming)
 	}
 
-	if (synced && tileShadow.size > 0 && !hydrated) {
+	if (!hydrated && tileShadow.size > 0) {
 		hydrated = true
-		console.log(`snowModel: snowModelSystem: hydrated from ${tileShadow.size} PaintTile entities`)
+		console.log(
+			`snowModel: snowModelSystem: hydrated from ${tileShadow.size} PaintTile entities ` +
+			`synced=${synced}`
+		)
 	}
 
 	if (!hydrated && clockMs - lastDiagMs >= DIAG_INTERVAL_MS) {

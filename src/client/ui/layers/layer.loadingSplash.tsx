@@ -3,7 +3,8 @@
  *
  * Full-screen thumbnail overlay shown in two situations:
  *   1. Cold-open — from scene start until the snow layer settles (cliff
- *      mask known, CRDT state applied, every root built once).
+ *      mask known, CRDT state applied, every root built once) and the
+ *      perimeter cliff GLBs have finished loading.
  *   2. Cycle rollover — a temporary override triggered by
  *      showRebuildSplash(ms). Covers the ~few seconds while the world
  *      regenerates around the player (maze reshuffle, hidden fire
@@ -18,6 +19,7 @@ import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
 import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 
 
@@ -61,7 +63,7 @@ export function showRebuildSplash(durationMs: number): void {
 // MARK: isSplashActive
 /**
  * Splash stays visible while ANY of the following is true:
- *   1. Cold-open: initial load hasn't completed yet.
+ *   1. Cold-open: snow hasn't settled or cliff GLBs are still loading.
  *   2. Rebuild override timer is still running (dev-roll or real
  *      cycle rollover triggered showRebuildSplash).
  *   3. A snow full pass (after a cycle-roll mask change) is still in
@@ -69,6 +71,7 @@ export function showRebuildSplash(durationMs: number): void {
  */
 function isSplashActive(): boolean {
 	if (!isSnowSettled()) return true
+	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
 	// Cold-open minimum: even if the first cascade drained very quickly,
 	// keep the splash up until COLD_OPEN_MIN_MS has elapsed since module
 	// load. Guarantees every player sees the splash regardless of client

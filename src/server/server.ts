@@ -45,6 +45,7 @@ import {
 	initSnowSync,
 	nonZeroSnowCells,
 	relinkSnowSync,
+	republishAllSnowTiles,
 	snowTileEntityCount,
 } from 'src/server/snowSync'
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
@@ -89,6 +90,8 @@ export async function setupServer(): Promise<void> {
 	)
 	initSnowSync()
 	seedStartingArea()
+	const seededTiles = flushDirtySnowTiles()
+	console.log(`server: setupServer: flushed ${seededTiles} seed tiles onto PaintTile`)
 
 	initServerStats()
 	startServerStatsTick(() => meltedCellCount())
@@ -199,6 +202,11 @@ export async function setupServer(): Promise<void> {
 		// Current main-hearth fuel snapshot so the joiner's fire visuals
 		// (radius, upcoming billboard) match the room from the first frame.
 		sendHearthFuelStateTo(from)
+		// Force a fresh PaintTile write so this joiner cannot hydrate
+		// from the empty create() snapshot that syncEntity may have
+		// captured before the seed flush.
+		const snowTiles = republishAllSnowTiles()
+		console.log(`[Server] joinRoster: republished ${snowTiles} snow tiles for ${from}`)
 	})
 
 	// Snow ingest — client-authored cell keys. Un-rostered senders (typically

@@ -35,7 +35,7 @@ export const BRUSH_TORCH_LIT = TORCH_WARMTH_TIER_BRUSH_CELLS[0]
 /**
  * Fallback footprint when the torch is out. Kept above 0 so a
  * torchless player can still crawl home instead of being stranded.
- * Under the paintTick stomp policy (see src/server/paintState.ts) an
+ * Under the paintTick stomp policy (see src/server/snowState.ts) an
  * unlit brush demotes pristine cells to stage 1 rather than fully
  * melting, so this is more of a "trample" footprint than a melt.
  */

@@ -8,10 +8,10 @@
  * every cell under it shares a stage; otherwise it splits (16 -> 8 -> 4 ->
  * 2 -> 1). Stage 0 renders nothing, so the blue ground shows.
  *
- * A dirty root is rebuilt atomically: desired nodes are diffed against
- * live nodes and all creates / removes happen in the same frame. Roots
- * are processed urgent-first (local optimistic edits), then nearest to
- * the player, under a per-frame entity-creation budget.
+ * A dirty root is rebuilt create-first: new nodes spawn before old ones
+ * leave, and replaced parents stay for RETIRE_FRAMES (sunk so their
+ * top plane cannot z-fight the replacements). Roots are processed
+ * urgent-first, then nearest, under a per-frame entity-creation budget.
  *
  * Only 1 m leaves animate: melts drop, regrowth rises. Coarser nodes
  * appear at their final height.
@@ -21,13 +21,15 @@ import {
 	ColliderLayer,
 	engine,
 	Entity,
+	LightSource,
 	Material,
 	MeshCollider,
 	MeshRenderer,
 	Transform,
 } from '@dcl/sdk/ecs'
-import { Color4, Vector3 } from '@dcl/sdk/math'
+import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	SNOW_CELL_M,
 	SNOW_GROUND_TOP_Y,
@@ -61,12 +63,14 @@ const BOX_LIFT_M              = 0.01
 const MELTED_LEAF_HEIGHT_M    = 0.02
 const LEAF_DROP_MS            = 300
 const LEAF_RISE_MS            = 400
+const RETIRE_FRAMES           = 2
+const RETIRE_SINK_M           = 0.08
 const ROOT_COUNT              = SNOW_TILES_X * SNOW_TILES_Z
 const BOX_BASE_Y              = SNOW_GROUND_TOP_Y + BOX_LIFT_M
 // Node id = size * stride + local cell index; stride must exceed SNOW_TILE_CELL_COUNT.
 const NODE_SIZE_STRIDE        = 1024
 
-const SNOW_WHITE  = Color4.create(0.94, 0.96, 1.00, 1)
+const SNOW_WHITE  = Color4.create(0.82, 0.86, 0.92, 1)
 const GROUND_BLUE = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
 
 type NodeRec   = { entity: Entity; stage: number }
@@ -86,6 +90,7 @@ const pendingRoots      = new Set<number>()
 const urgentRoots       = new Set<number>()
 const fullPassRemaining = new Set<number>()
 const anims             = new Map<Entity, LeafAnim>()
+const retireQueue: Array<{ entity: Entity; framesLeft: number }> = []
 
 let groundEntities:   Entity[] = []
 let builtMaskVersion  = -1
@@ -98,12 +103,13 @@ let liveNodeCount     = 0
 
 // MARK: initSnowRenderer
 
-/** Register the render and animation systems. Call once at boot, after initSnowModel. */
+/** Register the render and animation systems. Call after initSnowModel and initSnowBrush. */
 export function initSnowRenderer(): void {
 	if (initialized) return
 	initialized = true
 	engine.addSystem(snowRenderSystem)
 	engine.addSystem(leafAnimSystem)
+	setupSnowSun()
 }
 
 
@@ -142,6 +148,8 @@ export function snowRenderStats(): { nodes: number; animating: number; ground: n
 // MARK: snowRenderSystem
 
 function snowRenderSystem(dt: number): void {
+	flushRetireQueue()
+
 	if (maskVersion() !== builtMaskVersion) {
 		builtMaskVersion = maskVersion()
 		rebuildGround()
@@ -197,10 +205,17 @@ function processPendingRoots(): void {
 	for (const r of rest) order.push(r.k)
 
 	let spent = 0
+	let urgentLeft = order.length - rest.length
 	for (const k of order) {
-		if (spent >= CREATE_BUDGET_PER_FRAME) break
-		// The first root of a frame always proceeds so an oversized rebuild cannot stall forever.
-		const created = rebuildRoot(k, spent === 0 ? Number.POSITIVE_INFINITY : CREATE_HARD_CAP - spent)
+		const isUrgent = urgentLeft > 0
+		if (isUrgent) urgentLeft--
+		if (!isUrgent && spent >= CREATE_BUDGET_PER_FRAME) break
+		// Urgent roots (local torch / stomp) always rebuild this frame so
+		// a 16 m pristine cube cannot stay standing under the player.
+		const cap = isUrgent || spent === 0
+			? Number.POSITIVE_INFINITY
+			: CREATE_HARD_CAP - spent
+		const created = rebuildRoot(k, cap)
 		if (created < 0) break
 		spent += created
 		pendingRoots.delete(k)
@@ -348,24 +363,35 @@ function rebuildRoot(
 		animatedIds.add(id)
 	}
 
-	for (const [id, rec] of rs.nodes) {
-		if (desired.get(id) === rec.stage) continue
-		removeNodeEntity(rec.entity)
-		rs.nodes.delete(id)
-		liveNodeCount--
-	}
-
+	// Spawn replacements while the old parent is still up. Mobile often
+	// shows a new box a frame late; removing first flashes empty ground.
 	for (const [id, stage] of desired) {
-		if (rs.nodes.has(id) || animatedIds.has(id)) continue
+		if (animatedIds.has(id)) continue
+		const live = rs.nodes.get(id)
 		const size = Math.floor(id / NODE_SIZE_STRIDE)
 		const rem  = id - size * NODE_SIZE_STRIDE
 		const lz   = Math.floor(rem / SNOW_TILE_CELLS)
 		const lx   = rem - lz * SNOW_TILE_CELLS
 		const x    = rootX + (lx + size / 2) * SNOW_CELL_M
 		const z    = rootZ + (lz + size / 2) * SNOW_CELL_M
-		const e    = createBox(x, z, size * SNOW_CELL_M, SNOW_STAGE_HEIGHT_M[stage])
+		const h    = SNOW_STAGE_HEIGHT_M[stage]
+		if (live !== undefined) {
+			if (live.stage !== stage) {
+				setBoxPose(live.entity, x, z, size * SNOW_CELL_M, h)
+				live.stage = stage
+			}
+			continue
+		}
+		const e = createBox(x, z, size * SNOW_CELL_M, h)
 		rs.nodes.set(id, { entity: e, stage })
 		liveNodeCount++
+	}
+
+	for (const [id, rec] of rs.nodes) {
+		if (desired.has(id)) continue
+		queueRetire(rec.entity)
+		rs.nodes.delete(id)
+		liveNodeCount--
 	}
 
 	for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) rs.snapshot[i] = stages[base + i]
@@ -397,11 +423,62 @@ function createBox(
 }
 
 
-// MARK: removeNodeEntity
+// MARK: setBoxPose
 
-function removeNodeEntity(e: Entity): void {
+function setBoxPose(
+	e:       Entity,
+	x:       number,
+	z:       number,
+	size:    number,
+	heightM: number,
+): void {
+	const tr = Transform.getMutableOrNull(e)
+	if (tr === null) {
+		console.log('snowRenderer: setBoxPose: missing transform, skipping pose write')
+		return
+	}
+	tr.position = Vector3.create(x, BOX_BASE_Y + heightM / 2, z)
+	tr.scale    = Vector3.create(size, heightM, size)
+}
+
+
+// MARK: queueRetire
+
+function queueRetire(e: Entity): void {
 	anims.delete(e)
-	engine.removeEntity(e)
+	sinkRetiringBox(e)
+	retireQueue.push({ entity: e, framesLeft: RETIRE_FRAMES })
+}
+
+
+// MARK: sinkRetiringBox
+
+function sinkRetiringBox(e: Entity): void {
+	const tr = Transform.getMutableOrNull(e)
+	if (tr === null) {
+		console.log('snowRenderer: sinkRetiringBox: missing transform, skipping sink')
+		return
+	}
+	tr.position = Vector3.create(tr.position.x, tr.position.y - RETIRE_SINK_M, tr.position.z)
+}
+
+
+// MARK: flushRetireQueue
+
+function flushRetireQueue(): void {
+	if (retireQueue.length === 0) return
+	let write = 0
+	for (let i = 0; i < retireQueue.length; i++) {
+		const item = retireQueue[i]
+		item.framesLeft--
+		if (item.framesLeft > 0) {
+			retireQueue[write] = item
+			write++
+			continue
+		}
+		engine.removeEntity(item.entity)
+	}
+	retireQueue.length = write
 }
 
 
@@ -415,6 +492,14 @@ function startLeafAnim(
 	durationMs:  number,
 	removeAtEnd: boolean,
 ): void {
+	if (durationMs <= 0) {
+		if (removeAtEnd) {
+			engine.removeEntity(e)
+			return
+		}
+		setBoxPose(e, x, z, SNOW_CELL_M, endH)
+		return
+	}
 	const tr     = Transform.getOrNull(e)
 	const startH = tr ? tr.scale.y : endH
 	anims.set(e, { x, z, startH, endH, elapsedMs: 0, durationMs, removeAtEnd })
@@ -473,4 +558,36 @@ function rebuildGround(): void {
 		groundEntities.push(e)
 	}
 	console.log(`snowRenderer: rebuildGround: ${groundEntities.length} slabs for mask version ${builtMaskVersion}`)
+}
+
+
+// MARK: setupSnowSun
+
+/**
+ * Invisible morning key light. Scene ambient at the Morning preset
+ * washes the snow to a flat white; a low-angle shadow-casting spot
+ * restores side form on the cubes.
+ */
+function setupSnowSun(): void {
+	try {
+		const sun = engine.addEntity()
+		Transform.create(sun, {
+			position: Vector3.create(
+				CAMPFIRE_WORLD_X + 140,
+				90,
+				CAMPFIRE_WORLD_Z - 140,
+			),
+			rotation: Quaternion.fromEulerDegrees(-48, -45, 0),
+		})
+		LightSource.create(sun, {
+			type:      LightSource.Type.Spot({ innerAngle: 70, outerAngle: 95 }),
+			color:     Color3.create(1.0, 0.93, 0.82),
+			intensity: 90000,
+			range:     380,
+			shadow:    true,
+		})
+		console.log('snowRenderer: setupSnowSun: morning key light placed over playfield')
+	} catch (err) {
+		console.error('snowRenderer: setupSnowSun: failed to place key light:', err)
+	}
 }

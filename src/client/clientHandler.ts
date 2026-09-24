@@ -30,6 +30,8 @@ let needsRejoin = false
 const SYNC_LOG_INTERVAL_MS = 1000
 /** After this, keep waiting but warn that the Multiplayer Server is likely down. */
 const SYNC_DOWN_WARN_MS    = 5000
+/** Re-send joinRoster until teamAssigned lands. Room is independent of CRDT. */
+const JOIN_RETRY_S         = 2
 
 
 // MARK: resolveJoinUserId
@@ -89,6 +91,7 @@ function wireOutbound(): void {
 	let lastSyncLog     = 0
 	let syncWaitMs      = 0
 	let downWarned      = false
+	let joinRetryClock  = 0
 
 	engine.addSystem((dt: number) => {
 		const synced = isStateSyncronized()
@@ -101,23 +104,28 @@ function wireOutbound(): void {
 			if (!downWarned && syncWaitMs >= SYNC_DOWN_WARN_MS) {
 				downWarned = true
 				console.log(
-					'[Client] server not connected — Multiplayer Server likely down; ' +
-					'not joining roster until isStateSyncronized()'
+					'[Client] CRDT not synced after 5s — still sending joinRoster; ' +
+					'snow tiles may arrive late'
 				)
+			}
+		}
+
+		// Room messages do not need CRDT sync. Waiting on it left roster=0
+		// and skipped the joinRoster republish of the campfire ring.
+		if (!rostered) {
+			joinRetryClock += dt
+			if (!joinSent || needsRejoin || joinRetryClock >= JOIN_RETRY_S) {
+				joinSent        = true
+				needsRejoin     = false
+				joinRetryClock  = 0
+				const userId    = resolveJoinUserId()
+				console.log(`[Client] → joinRoster ${userId} synced=${synced}`)
+				room.send('joinRoster', { userId })
 			}
 			return
 		}
 
-		if (!joinSent || needsRejoin) {
-			joinSent    = true
-			needsRejoin = false
-			const userId = resolveJoinUserId()
-			console.log(`[Client] isStateSyncronized — → joinRoster ${userId}`)
-			room.send('joinRoster', { userId })
-		}
-
-		// Wait for roster before sending paint commands (outbox keeps growing).
-		if (!rostered) return
+		if (!synced) return
 
 		paintFlushClock += dt
 		if (paintFlushClock < paintInterval) return

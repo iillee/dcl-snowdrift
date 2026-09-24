@@ -13,7 +13,7 @@
  *
  * Kept in this file (for now):
  *   - Composite lever-entity scrubber (removes a decorative composite entity)
- *   - Seed watcher (SeedHolder → rebuildMaze)
+ *   - Seed watcher (SeedHolder → perimeter + props)
  *   - First-joiner init (roll seed if none is synced after grace period)
  *
  * These will move to client/index.ts in a future commit alongside a
@@ -55,9 +55,7 @@ import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
 import { setupSnowfall } from 'src/client/snowfall'
 import {
-	clearPerimeter,
 	getReservedPlayfieldCells,
-	hasPerimeterSpawned,
 	setPerimeterSeed,
 	setupPerimeter,
 } from 'src/client/perimeter'
@@ -93,14 +91,11 @@ engine.addSystem(() => {
     currentSeed = s
     // Perimeter cliffs share the seed too, so every reroll produces a
     // fresh skyline. Set the seed FIRST — both the snow mask (via
-    // getReservedPlayfieldCells) and setupPerimeter() read it. On the
-    // very first seed we skip the respawn: setupPerimeter is fired by
-    // the deferred bootstrap below (asset-load priority hack).
+    // getReservedPlayfieldCells) and setupPerimeter() read it. Spawn
+    // immediately so the splash can wait on the cliff GLBs instead of
+    // dropping onto an empty horizon.
     setPerimeterSeed(s)
-    if (hasPerimeterSpawned()) {
-      clearPerimeter()
-      setupPerimeter()
-    }
+    setupPerimeter()
     const reservedTiles = getReservedPlayfieldCells()
     setMaskedTiles(reservedTiles)
     // Props scatter uses the same reserved-cell set as the snow mask so
@@ -160,12 +155,12 @@ export async function setupClient(): Promise<void> {
 		}
 	})
 
-	// Snow layer: CRDT model first, then renderer (ground + snow boxes),
-	// then the local brush. The renderer waits for the seed-derived
-	// cliff mask and the initial CRDT sync before spawning snow.
+	// Snow layer: model, then brush, then renderer so a local melt is
+	// drawn the same frame it is written (brush-after-renderer left a
+	// one-frame hole that reads as "walking ahead of the melt" on mobile).
 	initSnowModel()
-	initSnowRenderer()
 	initSnowBrush()
+	initSnowRenderer()
 
 	// Server-authoritative 24 h cycle clock. Register the listener BEFORE
 	// initClientHandler so we don't miss the hydration `cycleState` that
@@ -242,9 +237,9 @@ export async function setupClient(): Promise<void> {
 
 	// Campfire + its VFX/audio come FIRST so they claim the initial
 	// asset-load bandwidth. The player spawns next to the fire and needs
-	// it visible on the first frame; perimeter cliffs are large 4x-scale
-	// GLBs at scene edges that the player won't see for several seconds
-	// of walking.
+	// it visible on the first frame. Cliff GLBs start as soon as the
+	// seed watcher runs (no extra delay) so the splash can hold until
+	// they are actually on screen.
 	setupCampfire()
 	setupCampfireSmoke()
 	setupLogsInput()
@@ -276,19 +271,4 @@ export async function setupClient(): Promise<void> {
 	setupRelightPromptVisibility()
 	setupFeedPromptVisibility()
 
-	// Perimeter cliffs — scaled maze tile GLBs wrapping the interior
-	// playfield. Deferred by PERIMETER_SPAWN_DELAY_S so campfire, maze
-	// centre ring, and player-spawn assets get first crack at the asset
-	// loader. The player will not see the cliffs until they walk far
-	// enough that the maze centre is comfortably resolved anyway.
-	const PERIMETER_SPAWN_DELAY_S = 3
-	let perimAccum = 0
-	let perimDone  = false
-	engine.addSystem((dt: number) => {
-		if (perimDone) return
-		perimAccum += dt
-		if (perimAccum < PERIMETER_SPAWN_DELAY_S) return
-		perimDone = true
-		setupPerimeter()
-	})
 }

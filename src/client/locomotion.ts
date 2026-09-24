@@ -43,8 +43,8 @@ const POLL_INTERVAL_S    = 0.15
 const FLIP_HYSTERESIS    = 2
 
 // Default DCL locomotion speeds (m/s). Used to restore stage 0 without
-// pinning to explicit numbers that might diverge from client defaults in
-// the future \u2014 undefined tells the runtime "use the default."
+// pinning to explicit numbers that might diverge from client defaults —
+// undefined tells the runtime "use the default."
 const DEFAULT_WALK_SPEED = 2.0
 // Progressive snow drag. Stage 1 keeps the normal walk pace so the first
 // bite of snow only steals the run; stages 2 and 3 slow the walk itself.

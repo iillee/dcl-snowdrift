@@ -19,7 +19,15 @@
  * No network sync — perimeter geometry is client-local and static.
  */
 
-import { engine, ColliderLayer, Entity, GltfContainer, Transform } from '@dcl/sdk/ecs'
+import {
+	ColliderLayer,
+	engine,
+	Entity,
+	GltfContainer,
+	GltfContainerLoadingState,
+	LoadingState,
+	Transform,
+} from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { isInsideCliffBuffer } from 'src/shared/campfire'
@@ -161,6 +169,39 @@ export function clearPerimeter(): void {
 /** True once setupPerimeter has run at least once and cliffs exist. */
 export function hasPerimeterSpawned(): boolean {
 	return perimEntities.length > 0
+}
+
+
+const PERIM_LOAD_TIMEOUT_MS = 12000
+let perimSpawnedAtMs   = 0
+let perimTimeoutLogged = false
+
+
+// MARK: arePerimeterModelsReady
+
+/**
+ * True once every cliff GLB has finished loading (or failed), or the
+ * load timeout has elapsed so a hung asset cannot pin the splash.
+ */
+export function arePerimeterModelsReady(): boolean {
+	if (perimEntities.length === 0) return false
+	if (perimSpawnedAtMs > 0 && Date.now() - perimSpawnedAtMs >= PERIM_LOAD_TIMEOUT_MS) {
+		if (!perimTimeoutLogged) {
+			perimTimeoutLogged = true
+			console.log(
+				`perimeter: arePerimeterModelsReady: ${PERIM_LOAD_TIMEOUT_MS}ms timeout, ` +
+				`releasing splash with ${perimEntities.length} cliff entities`
+			)
+		}
+		return true
+	}
+	for (const e of perimEntities) {
+		const st = GltfContainerLoadingState.getOrNull(e)
+		if (st === null) return false
+		if (st.currentState === LoadingState.LOADING) return false
+		if (st.currentState === LoadingState.UNKNOWN) return false
+	}
+	return true
 }
 
 
@@ -772,6 +813,8 @@ export function setupPerimeter(): void {
 	for (const p of placements) {
 		spawnPerimTile(p.type, p.sx, p.sz, p.r)
 	}
+	perimSpawnedAtMs   = Date.now()
+	perimTimeoutLogged = false
 
 	console.log(
 		`perimeter: setupPerimeter: ring built ` +

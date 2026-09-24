@@ -26,6 +26,7 @@ const dirtyTiles   = new Set<number>()
 
 let coverageEntity: Entity | null = null
 let nonZeroCells   = 0
+let profileWasReady = false
 
 
 // MARK: trySync
@@ -143,6 +144,33 @@ export function publishSnowCoverage(meltedCells: number): void {
 }
 
 
+// MARK: republishAllSnowTiles
+
+/**
+ * Write every allocated tile buffer back onto its entity and retry
+ * syncEntity. Used when the profile first becomes ready and again on
+ * joinRoster so a preview client does not hydrate from the empty
+ * create() snapshot.
+ */
+export function republishAllSnowTiles(): number {
+	if (coverageEntity !== null) {
+		trySync(coverageEntity, [PaintCoverage.componentId], COVERAGE_NETWORK_ID)
+	}
+	let n = 0
+	for (const [tileKey, entity] of tileEntities) {
+		const buf = tileBuffers.get(tileKey)
+		if (buf === undefined) {
+			console.error(`snowSync: republishAllSnowTiles: tile ${tileKey} has an entity but no buffer`)
+			continue
+		}
+		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
+		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
+		n++
+	}
+	return n
+}
+
+
 // MARK: relinkSnowSync
 
 /** Retry syncEntity for every entity created before the profile was ready. */
@@ -162,6 +190,14 @@ export function relinkSnowSync(): void {
 			}
 			console.log(`snowSync: relinkSnowSync: linked tile ${tileKey} and republished`)
 		}
+	}
+	// Already-linked tiles can still be holding the empty create()
+	// snapshot if they synced before the seed flush. One full republish
+	// when the profile first appears closes that hole.
+	if (!profileWasReady && myProfile?.networkId) {
+		profileWasReady = true
+		const n = republishAllSnowTiles()
+		console.log(`snowSync: relinkSnowSync: profile ready, republished ${n} tiles`)
 	}
 }
 
