@@ -52,7 +52,7 @@ function ensureTile(tileKey: number): number[] {
 	if (buf !== undefined) return buf
 	buf = new Array<number>(SNOW_TILE_CELL_COUNT).fill(0)
 	const entity = engine.addEntity()
-	PaintTile.create(entity, { cells: buf.slice() })
+	PaintTile.create(entity, { cells: buf.slice(), tileKey })
 	tileBuffers.set(tileKey, buf)
 	tileEntities.set(tileKey, entity)
 	trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
@@ -107,7 +107,7 @@ export function flushDirtySnowTiles(): number {
 			console.error(`snowSync: flushDirtySnowTiles: tile ${tileKey} marked dirty but never allocated`)
 			continue
 		}
-		PaintTile.createOrReplace(entity, { cells: buf.slice() })
+		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
 		flushed++
 	}
@@ -151,7 +151,17 @@ export function relinkSnowSync(): void {
 		trySync(coverageEntity, [PaintCoverage.componentId], COVERAGE_NETWORK_ID)
 	}
 	for (const [tileKey, entity] of tileEntities) {
+		const wasUnlinked = NetworkEntity.getOrNull(entity) === null
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
+		// First successful link after a pre-profile write: republish so the
+		// snapshot is the current buffer, not the empty create().
+		if (wasUnlinked && NetworkEntity.getOrNull(entity) !== null) {
+			const buf = tileBuffers.get(tileKey)
+			if (buf !== undefined) {
+				PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
+			}
+			console.log(`snowSync: relinkSnowSync: linked tile ${tileKey} and republished`)
+		}
 	}
 }
 

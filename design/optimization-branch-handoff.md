@@ -1,5 +1,7 @@
 # Optimization Branch — Session Handoff
 
+> **Errata (2026-09-23):** superseded by [`paint-rewrite.md`](paint-rewrite.md). Corrections: there is no 5 s server paint batch (5 s is only the log interval; bug 2 is cube entities not existing yet when the optimistic melt fires); the ground walkable top is Y = 0.5, not Y = 0; fixed 16 m coarse blocks are replaced by a quadtree; the server is refactored, not rewritten.
+
 *Written 2026-09-23 for pickup by a new Claude session (likely a newer model). Everything decided in the prior session is captured here so no context is lost.*
 
 ---

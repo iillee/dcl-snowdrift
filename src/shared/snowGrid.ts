@@ -38,8 +38,11 @@ export const SNOW_CELLS_X         = SNOW_TILES_X * SNOW_TILE_CELLS
 export const SNOW_CELLS_Z         = SNOW_TILES_Z * SNOW_TILE_CELLS
 /** World coord of the playfield's SW corner (both axes). */
 export const SNOW_ORIGIN_M        = MAZE_ORIGIN_OFFSET_METERS
-/** World Y of the walkable ground surface (top of the ground slab). */
-export const SNOW_GROUND_TOP_Y    = 0.5
+/** World Y of the walkable ground surface (top of the ground slab).
+ *  Matches CAMPFIRE_WORLD_Y / LOGS_PILE_WORLD_Y so props sit on the slab,
+ *  not inside it. Player.y on the old tile collider read ~0.5 because the
+ *  avatar origin is above the visual floor. */
+export const SNOW_GROUND_TOP_Y    = 0.25
 
 
 // MARK: Stages

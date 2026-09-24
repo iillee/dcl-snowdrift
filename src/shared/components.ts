@@ -24,7 +24,8 @@ SeedHolder.create(seedHolder, { seed: 0 })
 // plus stage 0..2 (see snowGrid.snowByteFromStage). Zero-filled buffers
 // are valid pristine tiles.
 export const PaintTile = engine.defineComponent('paint::tile', {
-	cells: Schemas.Array(Schemas.Byte),
+	cells:   Schemas.Array(Schemas.Byte),
+	tileKey: Schemas.Int,
 })
 
 // MARK: PaintCoverage

@@ -37,8 +37,10 @@ const CELL_COUNT            = SNOW_TILES_X * SNOW_TILES_Z * SNOW_TILE_CELL_COUNT
 const serverStages    = new Uint8Array(CELL_COUNT).fill(STAGE_PRISTINE)
 const displayedStages = new Uint8Array(CELL_COUNT).fill(STAGE_PRISTINE)
 
-// Last PaintTile.cells reference seen per entity; unchanged reference = no diff needed.
-const lastCellsRef = new Map<Entity, readonly number[]>()
+// Per-entity byte shadow. The CRDT replica often mutates `tile.cells` in
+// place, so reference equality cannot detect a write — we must diff bytes.
+const tileShadow   = new Map<Entity, Uint8Array>()
+const tileKeyByEnt = new Map<Entity, number>()
 // Optimistic cell key -> expiry time (model clock ms).
 const pending      = new Map<number, number>()
 const dirtyRoots   = new Set<number>()
@@ -47,6 +49,10 @@ const urgentRoots  = new Set<number>()
 let initialized = false
 let hydrated    = false
 let clockMs     = 0
+let skipNetLogs = 0
+let lastDiagMs  = 0
+const SKIP_NET_LOG_CAP = 8
+const DIAG_INTERVAL_MS = 5000
 
 
 // MARK: initSnowModel
@@ -65,42 +71,93 @@ function snowModelSystem(dt: number): void {
 	clockMs += dt * 1000
 	const synced = isStateSyncronized()
 
+	let seen = 0
+	let empty = 0
+	let unresolved = 0
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
-		if (lastCellsRef.get(entity) === tile.cells) continue
-		const net = NetworkEntity.getOrNull(entity)
-		if (net === null) continue
-		const tileKey = tileKeyFromNetworkId(Number(net.entityId))
-		if (tileKey === null) {
-			console.log(`snowModel: snowModelSystem: PaintTile with unexpected network id ${net.entityId}`)
-			lastCellsRef.set(entity, tile.cells)
+		seen++
+		const incoming = tile.cells
+		if (!incoming || incoming.length === 0) {
+			empty++
 			continue
 		}
-		lastCellsRef.set(entity, tile.cells)
-		applyTileBytes(tileKey, tile.cells)
+
+		let tileKey = tileKeyByEnt.get(entity)
+		if (tileKey === undefined) {
+			const resolved = resolveTileKey(entity, tile.tileKey)
+			if (resolved === null) {
+				unresolved++
+				continue
+			}
+			tileKey = resolved
+			tileKeyByEnt.set(entity, tileKey)
+		}
+
+		applyTileBytes(entity, tileKey, incoming)
 	}
 
-	if (synced && !hydrated) {
+	if (synced && tileShadow.size > 0 && !hydrated) {
 		hydrated = true
-		console.log(`snowModel: snowModelSystem: hydrated from ${lastCellsRef.size} PaintTile entities`)
+		console.log(`snowModel: snowModelSystem: hydrated from ${tileShadow.size} PaintTile entities`)
+	}
+
+	if (!hydrated && clockMs - lastDiagMs >= DIAG_INTERVAL_MS) {
+		lastDiagMs = clockMs
+		console.log(
+			`snowModel: snowModelSystem: waiting ` +
+			`synced=${synced} paintTiles=${seen} empty=${empty} unresolved=${unresolved} applied=${tileShadow.size}`
+		)
 	}
 
 	if (pending.size > 0) expirePending()
 }
 
 
+// MARK: resolveTileKey
+
+function resolveTileKey(
+	entity:        Entity,
+	componentKey:  number,
+): number | null {
+	const max = SNOW_TILES_X * SNOW_TILES_Z
+	if (Number.isInteger(componentKey) && componentKey >= 0 && componentKey < max) {
+		return componentKey
+	}
+	const net = NetworkEntity.getOrNull(entity)
+	if (net === null) return null
+	const raw = Number(net.entityId)
+	const key = tileKeyFromNetworkId(raw)
+	if (key !== null && key < max) return key
+	if (skipNetLogs < SKIP_NET_LOG_CAP) {
+		skipNetLogs++
+		console.log(`snowModel: resolveTileKey: tileKey=${componentKey} entityId=${raw}`)
+	}
+	return null
+}
+
+
 // MARK: applyTileBytes
 
 function applyTileBytes(
+	entity:  Entity,
 	tileKey: number,
 	cells:   readonly number[],
 ): void {
-	const base  = tileKey * SNOW_TILE_CELL_COUNT
-	const len   = Math.min(cells.length, SNOW_TILE_CELL_COUNT)
+	const base = tileKey * SNOW_TILE_CELL_COUNT
+	const len  = Math.min(cells.length, SNOW_TILE_CELL_COUNT)
+	let shadow = tileShadow.get(entity)
+	if (shadow === undefined || shadow.length !== len) {
+		shadow = new Uint8Array(len)
+		tileShadow.set(entity, shadow)
+	}
+
 	let changed = false
 	for (let i = 0; i < len; i++) {
-		const stage = stageFromSnowByte(cells[i] & 0xff)
+		const byte = cells[i] & 0xff
+		if (byte === shadow[i]) continue
+		shadow[i] = byte
+		const stage = stageFromSnowByte(byte)
 		const key   = base + i
-		if (serverStages[key] === stage) continue
 		serverStages[key] = stage
 		pending.delete(key)
 		if (displayedStages[key] !== stage) {
