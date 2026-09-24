@@ -343,6 +343,7 @@ triggerSceneEmote({ src: 'animations/Carry_emote.glb', loop: true, mask: AvatarM
 - Only value: `AvatarMask.AM_UPPER_BODY` (= 0). Omitting `mask` plays the full-body animation (the default) — there is no `AM_FULL_BODY` value in the enum.
 - `mask` applies to `triggerEmote` and `triggerSceneEmote` only. `stopEmote({})` takes no arguments (`StopEmoteRequest` is empty).
 - **Loop + mask interaction:** `loop: false` with `mask: AM_UPPER_BODY` plays the upper-body animation exactly once, then returns the upper body to locomotion. `loop: true` with the mask repeats until `stopEmote({})` is called. The loop flag is respected regardless of the mask. Verified against sdk7-test-scenes `88,-13-avatar-masks` and `80,-1-scene-emotes` (commit `1c0f394`).
+- **Mobile support:** Avatar Masks (upper-body-only emotes) ship on mobile in **v1.13.0 (September 2026)**. Until then the mobile renderer plays masked emotes as full-body. Verified against docs commit `09c5818`.
 - Verified against protocol `restricted_actions.proto` / `common/avatar_mask.proto` (pinned in `@dcl/sdk` via protocol `0010e70`) and sdk7-test-scenes `88,-13-avatar-masks` (2026-07-16). Earlier speculative names `AvatarEmoteMask` / `AEM_UPPER_BODY` / `AEM_FULL_BODY` were never released — do not use them.
 
 ## NPC Avatars
@@ -389,6 +390,8 @@ AvatarModifierType.AMT_HIDE_NAMETAGS // Hide the name tag above avatars in the a
 
 **Nametag hiding is head/torso based:** the nametag is hidden only while the player's head or torso is inside the area. If the area is too short, a player who double-jumps above it will have their nametag briefly reappear. Make the area tall enough to cover the expected range of movement.
 
+**Creator Hub / Inspector support:** the Creator Hub now has a dedicated inspector panel for `AvatarModifierArea` with a multi-select dropdown for modifiers (`Hide Avatars`, `Disable Passports`) and a wallet-address list editor for `excludeIds`. A "Avatar Modifier Area" smart item (utils category, translucent placeholder cube) is available in the asset catalog. The editor keeps the `area` field invisibly in sync with the entity's `Transform.scale` (the runtime reads `area`, not `scale`, for the region size), so resizing the entity via the gizmo automatically updates the modifier region. Note: the inspector panel exposes only `AMT_HIDE_AVATARS` and `AMT_DISABLE_PASSPORTS` in its dropdown; `AMT_HIDE_NAMETAGS` is SDK-only for now. Verified against creator-hub commit `a843390a`.
+
 ## Avatar Locomotion Settings
 
 Adjust the player's movement speed and jump height:
@@ -406,6 +409,13 @@ AvatarLocomotionSettings.createOrReplace(engine.PlayerEntity, {
 Fields (all `float`, optional) with client defaults — verified against unity-explorer `origin/main` `CharacterControllerSettings.asset`: `walkSpeed` (1.5), `jogSpeed` (8, the default movement speed), `runSpeed` (10), `jumpHeight` (1), `runJumpHeight` (1.5), `doubleJumpHeight` (2), `glidingSpeed` (6), `glidingFallingSpeed` (1), `hardLandingCooldown` (0.75s). See `references/avatar-apis.md`.
 
 `glidingFallingSpeed` is a **max descent cap** — it limits how fast the player falls while gliding, but does not limit upward motion. While gliding, continuous scene forces are 1.5× stronger and can lift the player; see the `player-physics` skill ("Forces while gliding").
+
+- **No negative values.** Every field is clamped to `>= 0`; a negative value becomes `0`. Setting a field to `0` has the same effect as blocking the matching key with `InputModifier` (e.g. `runSpeed: 0` ≈ `disableRun: true`).
+- **Scene beats smart wearable.** If a scene and a smart wearable both set a field, the **scene's** value wins.
+- **Scene bounds only.** The component affects the player solely while they are inside the scene's bounds, and only the local player — to change another avatar's locomotion, the code must run on *their* client.
+- **Enforcing the defaults is a real use case:** a parkour or racing scene can write the default values explicitly so a smart wearable can't give its owner an advantage.
+
+**Creator Hub / Inspector support:** a **"Locomotion Settings"** smart item (`utils` category, id `f0fdd9ac-5451-4d84-9964-ea437b11b211`) ships in the Smart Items pack. It is a `asset-packs::Script` item (`locomotion-settings.ts`, class `LocomotionSettings`) whose nine params are `Slider` fields seeded with the SDK defaults above, so a no-code user gets the same component without writing TypeScript. `start()` calls `AvatarLocomotionSettings.createOrReplace(engine.PlayerEntity, {...})`; it exposes two `@action`s — **Apply** (re-write the configured values) and **Restore Defaults** (`AvatarLocomotionSettings.deleteFrom(engine.PlayerEntity)`), so other smart items can trigger a speed boost and undo it. Its placeholder is an editor-only cube (`asset-packs::Placeholder`), invisible in-world. Prefer it over hand-built entities when the scene is open in the Creator Hub (see **creator-hub-mcp** `place_smart_item`). Verified against creator-hub commit `cb097fff`.
 
 ## Restrict Locomotion (InputModifier)
 
@@ -425,7 +435,7 @@ InputModifier.deleteFrom(engine.PlayerEntity)
 
 **Behavior when frozen:** gravity and external forces still apply, camera rotation stays available, global input events are still detectable, restrictions lift automatically when the player leaves scene bounds.
 
-**Standard-mode flags** (all boolean, on `InputModifier.Mode.Standard({...})`): `disableAll`, `disableWalk`, `disableJog`, `disableRun`, `disableJump`, `disableEmote`. Protocol also defines `disableDoubleJump` and `disableGliding`. Note `disableJog` is separate from `disableWalk`/`disableRun` — jog is the default movement speed, so disabling only walk+run still lets the player jog.
+**Standard-mode flags** (all optional booleans, on `InputModifier.Mode.Standard({...})`): `disableAll`, `disableWalk`, `disableJog`, `disableRun`, `disableJump`, `disableEmote`, `disableDoubleJump`, `disableGliding` — all eight are in the SDK type (`input_modifier.gen.d.ts`) and documented, not protocol-only. Note `disableJog` is separate from `disableWalk`/`disableRun` — jog is the default movement speed, so disabling only walk+run still lets the player jog.
 
 The `mode` can be built two equivalent ways — the `InputModifier.Mode.Standard({...})` helper, or the raw discriminated union `{ $case: 'standard', standard: {...} }`.
 
@@ -557,7 +567,8 @@ Beyond the commonly used anchor points, the full list includes:
 Engine-team test scenes (exercised against the real engine):
 
 - [100,102-avatar-attach-test](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/100,102-avatar-attach-test) — `AvatarAttach` on multiple anchor points; enumerates every player via `PlayerIdentityData` and attaches to `player.address`; a follower entity reconstructs the attached world position from `PlayerEntity` + attached Transform.
-- [80,-1-scene-emotes](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/80,-1-scene-emotes) — `triggerEmote`, `triggerSceneEmote` (with a deliberately mis-named non-`_emote.glb` file shown NOT playing), `stopEmote`, `mask: AvatarMask.AM_UPPER_BODY`, plus `loop: false` + mask (plays once, returns to locomotion) and `loop: true` + mask (repeats until stopped).
+- [80,-1-scene-emotes](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/80,-1-scene-emotes)
+- [4,23-emote-finish](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/4,23-emote-finish) — emote **completion** detection: `AvatarEmoteCommand.onChange(engine.PlayerEntity, ...)` logging every appended entry as `STARTED` / `FINISHED` / `INTERRUPTED`, with absent `state` defaulting to `ES_STARTED` for older explorers. Play an emote out fully to see `FINISHED`; walk away mid-playback to see `INTERRUPTED`. Covers both `triggerEmote` (predefined) and a non-looping `triggerSceneEmote`. — `triggerEmote`, `triggerSceneEmote` (with a deliberately mis-named non-`_emote.glb` file shown NOT playing), `stopEmote`, `mask: AvatarMask.AM_UPPER_BODY`, plus `loop: false` + mask (plays once, returns to locomotion) and `loop: true` + mask (repeats until stopped).
 - [11,0-move-player-to-duration](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/11,0-move-player-to-duration) — `movePlayerTo` with `duration`, reading `result.success` via `.then()`, `InputModifier` locking input during the slide, and a `CL_PHYSICS` obstacle the avatar passes through mid-transition.
 - [9,99-modifier-areas](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/9,99-modifier-areas) — `AvatarModifierArea` (`AMT_HIDE_AVATARS`) with runtime-mutated `excludeIds`, alongside `CameraModeArea`.
 - [10,99-avatar-modifier-hide-nametags](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/10,99-avatar-modifier-hide-nametags) — `AvatarModifierArea` with `AMT_HIDE_NAMETAGS`: hides nametags while keeping avatars visible.

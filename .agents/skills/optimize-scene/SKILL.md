@@ -53,7 +53,9 @@ function getBullet(): Entity {
 ### Remove Unused Entities
 
 ```typescript
-engine.removeEntity(entity) // Frees the entity slot
+const removed = engine.removeEntity(entity) // returns boolean
+// true: components purged, id released for reuse
+// false: entity is renderer-reserved (avatar range) — components untouched
 ```
 
 ### Use Parenting
@@ -106,6 +108,8 @@ Three more consequences worth knowing:
 - **Spawning many copies at once?** Preload with `AssetLoad` first (see below) so copies come from a resident asset instead of each awaiting the same download. It does not make the copies free: building them is ~90% of a burst's cost even when the asset is already resident, so a large burst can still cost a frame.
 - **One huge model is worse than many small ones for load smoothness.** Asset creation is spread across frames under a frame-time budget, but a single enormous model cannot be split — it lands in one frame and is far more likely to cause a visible hiccup.
 
+See the [gltf-reuse-vs-merge benchmark scene](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/94,-10-gltf-reuse-vs-merge) for a concrete measurement: it spawns the same lamp post model via reuse (one `.glb`, many entities), via duplicate files, and via a merged `.glb`, comparing renderer/material counts, memory, and load behavior. It also demonstrates `AssetLoad` preloading and collision-mask tuning for burst spawning.
+
 ## Triangle Count Optimization
 
 ### Use Lower-Poly Models
@@ -146,6 +150,18 @@ MeshRenderer.setBox(entity) // Very cheap
 MeshRenderer.setSphere(entity) // Cheap
 MeshRenderer.setPlane(entity) // Very cheap
 ```
+
+## Fix Heavy Models in Blender
+
+When the stats point at specific models — a prop with tens of thousands of triangles, a GLB carrying 2048+ textures, meshes full of faces the player never sees — fix the asset itself by driving Blender rather than compensating in SDK code. The full guide (headless CLI vs Blender MCP, setup, export rules) is in `{baseDir}/../add-3d-models/references/blender-authoring.md`, with ready-made `bpy` scripts in `{baseDir}/../add-3d-models/references/blender-patterns.md`. Typical rescue edits:
+
+- **Decimate modifier** to cut triangle count on imported or over-detailed models (a rescue tool for existing assets — new models should be modeled low-poly from the start).
+- **Resize textures** to power-of-two, 1024×1024 or less, and repack them into the GLB.
+- **Delete never-visible faces** (undersides, occluded backs) and enable back-face culling instead of doubling geometry.
+- **Merge per-color materials** into a single palette-texture material, and per-part textures into one atlas.
+- **Strip lights, cameras, and materials on `_collider` meshes** — dead weight the engine ignores or pays for twice.
+
+Audit before and after with the triangle-count and material-audit scripts in the patterns file, export back to the same path (the preview hot-reloads the file), and re-check the stats panel. For a quick non-Blender pass, `gltf-transform` (below) can compress and strip a GLB without touching its geometry choices.
 
 ## Texture Optimization
 
@@ -267,6 +283,17 @@ Caveats:
 - Preloading a path does **not** create/render anything — you still `getOrCreateMutable` the real component (`GltfContainer`, `AudioSource`, `VideoPlayer`, `Material` texture) on an entity to use it; the preload just makes that later use instant.
 - If an asset is used immediately at scene startup, there is **no need** for `AssetLoad`. Only pre-load assets NOT required at startup — things that appear later or on player interaction.
 
+## Local Asset Bundle Preview
+
+Reproduce the server-side asset bundle conversion locally before publishing. This catches conversion issues (missing textures, broken models after compression) and makes the preview render with production-quality optimized models.
+
+- **Creator Hub:** check **Optimize Assets** in the dropdown next to the **Preview** button.
+- **CLI:** `npm run start -- --local-ab`
+
+The Desktop Explorer converts all `.gltf`/`.glb` models to asset bundles on your machine. The first run may take several minutes on large scenes; converted models are cached, so subsequent previews only reconvert new or modified assets. If an asset fails to convert, the preview falls back to the raw model. Only available with the Desktop Client (not Bevy Web).
+
+This is the local equivalent of the server-side conversion that runs after every publish (see the **deploy-scene** skill). Use it routinely before publishing, especially before live events.
+
 ## Loading Time Optimization
 
 - Use CDN URLs for large shared assets when possible
@@ -342,7 +369,7 @@ When running the scene locally with `npm run start`:
 
 | Tool                        | Purpose                                                   |
 | --------------------------- | --------------------------------------------------------- |
-| Blender Decimate modifier   | Reduce triangle count on imported models                  |
+| Blender Decimate modifier   | Reduce triangle count on imported models (drive it headless or via MCP — see *Fix Heavy Models in Blender*) |
 | Blender Limited Dissolve    | Remove unnecessary vertices from flat surfaces            |
 | Squoosh (squoosh.app)       | Convert images to WebP, resize to power-of-two            |
 | TexturePacker               | Create texture atlases from multiple images               |
@@ -363,9 +390,12 @@ Engine-team stress-test scenes (treat as ground truth for API shape):
 - https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/0,2-cube-wave-32x32 — ~961 primitive cubes in ONE parcel (far over the 200-entity soft limit), all `Transform.position.y` mutated every frame via a single `engine.getEntitiesWith(MeshRenderer)` query. Demonstrates that soft limits can be exceeded and that a per-frame query over hundreds of entities is the intended pattern (no pooling needed for a fixed static set — cubes are created once in `main()`, not per frame).
 - https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/73,-2-dbmonster — UI stress test: dozens of nested `<Label>` in a ReactEcs tree rebuilt every frame with `Math.random()` values. Demonstrates the UI render function re-runs each frame, so heavy per-frame allocation in `.tsx` is a real cost.
 - https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/88,-12-asset-load — `AssetLoad` preloading with the per-asset `assetLoadLoadingStateSystem` state callback (mp3 / texture / video / glb, plus a deliberately missing path that resolves to `NOT_FOUND`).
+- https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/94,-10-gltf-reuse-vs-merge — benchmark: GltfContainer reuse (one `.glb`, N entities) vs duplicate files vs merged mesh, measuring renderer/material counts, memory, and load smoothness. Uses `AssetLoad` preloading and collision-mask tuning for burst spawning.
 
 ## Cross-References
 
-- **add-3d-models** — model loading, colliders, and file organization
+- **deploy-scene** — post-publish asset bundle conversion timing, troubleshooting, `/detectabs` command
+- **add-3d-models** — model loading, colliders, file organization, and driving Blender to fix or author models (`references/blender-authoring.md`)
 - **game-design** — performance budgets, design patterns, and MVP planning
 - **advanced-rendering** — texture modes, material reuse, and LOD with VisibilityComponent
+- **scene-runtime** — `EngineInfo.sceneHidden` to pause expensive systems when the scene is hidden behind fullscreen Explorer UI

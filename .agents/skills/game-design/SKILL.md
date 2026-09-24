@@ -35,6 +35,10 @@ Use the `AssetLoad` component to pre-load assets that aren't needed at scene sta
 
 For the implementation pattern, see the **optimize-scene** skill.
 
+### First impression: time the intro to the loading screen
+
+Anything the scene does on startup — an intro cinematic, a welcome sound, a title UI, an opening tween — happens **behind the Explorer's loading screen** and the player never sees it. `EngineInfo.sceneHidden` is `true` while that screen is up and flips to `false` the frame it fades out; that flip is the only reliable cue for "the player is now looking at the scene". Gate the opening beat on it instead of on a timer or a frame count. See the **scene-runtime** skill for the pattern.
+
 ## 5. Performance Patterns
 
 ### Object Pooling
@@ -107,7 +111,7 @@ For single-scene Worlds, set `landscapeTerrain: false` in `scene.json` to remove
 ### Design Considerations
 - Mouse wheel is **not available** as an input
 - Always design for both **desktop and mobile**. Mobile has no keyboard — rely on pointer and on-screen buttons
-- Set `maxDistance` on pointer events (8-10 meters typical) to prevent interactions from across the scene
+- Set `maxDistance` on pointer events (8-10 meters typical) to prevent interactions from across the scene. It is **avatar** distance (default 10), not camera distance, so it reads the way a player experiences reach. Keep proximity interactions inside ~3m: the explorer's proximity broad phase is a hard-coded 3m sphere that clamps larger values. See `add-interactivity` > "Distance rules".
 - Use `hoverText` to communicate what an interaction does before the player commits
 
 ## 7. State Management Patterns
@@ -155,6 +159,8 @@ function gameStateSystem(dt: number) {
 - **Clear affordances**: Interactive objects should look interactive. Use glow effects, outlines, floating indicators, or subtle animations to signal "you can click this."
 - **Sound feedback**: Every significant player action should produce audio feedback. It confirms the action registered and adds polish.
 - **Progressive disclosure**: Do not dump all information at once. Reveal mechanics and story as the player engages. Start simple, layer complexity.
+- **Never open with a wall of text**: a rules pop-up with long paragraphs, or a rulebook painted on an in-world plane, is a known bad pattern — players skip it and then play confused. See section 13, "Rules: show, don't tell".
+- **Place screen UI where the client is not**: never anchor a HUD to the top-left corner (minimap, chat, mobile joystick live there). Anchor right or center, or use the interactable inset; keep mobile HUDs clear of the bottom-right action buttons, or hide those buttons while a full-screen UI is open. Rules and code in the **build-ui** skill.
 - **Immediate feedback**: When a player interacts, respond within the same frame. Use tweens, sounds, or UI popups so the player never wonders "did that work?"
 - **Accessibility**: Use high-contrast text, readable font sizes (fontSize >= 16 for screen UI), and audio cues alongside visual ones.
 
@@ -191,7 +197,7 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 - [ ] **Multiplayer compatible**: Works correctly with 1 player and with 5+ simultaneous players.
 - [ ] **Within scene limits**: Triangle count, entity count, texture count, and file size all within budget for the target parcel count.
 - [ ] **Performance acceptable**: Maintains 30+ FPS during gameplay with target entity/triangle counts.
-- [ ] **Mobile compatible**: Core interactions work without a keyboard (pointer-only inputs). Use `TouchScreenControls` (see **advanced-input**) to customize on-screen buttons and `UiInputBinding` (see **build-ui**) for custom touch-action buttons. Detect platform with `isMobile()` from `@dcl/sdk/platform` to branch UI/controls. Note: `borderRadius` is unsupported on mobile UI; ParticleSystem and dynamic lights are not yet available on mobile.
+- [ ] **Mobile compatible**: Core interactions work without a keyboard (pointer-only inputs). Use `TouchScreenControls` (see **advanced-input**) to customize on-screen buttons and `UiInputBinding` (see **build-ui**) for custom touch-action buttons. Detect platform with `isMobile()` from `@dcl/sdk/platform` to branch UI/controls. Note: `borderRadius` is unsupported on mobile UI; `LightSource` (dynamic lights) ships on mobile v1.13.0 (Sept 2026). Smart Items are not officially supported on mobile.
 
 > **Starting from scratch?** See the **create-scene** skill first to scaffold the project before designing the game.
 
@@ -281,6 +287,22 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 - After the player succeeds at the simple task, introduce the next layer.
 - Gate advanced mechanics behind early accomplishments.
 
+### Rules: show, don't tell
+
+Two anti-patterns show up constantly in generated games. Both lose players before the first interaction.
+
+- **The rules pop-up.** An intro modal with several dense paragraphs explaining every mechanic, scoring rule and control. Players dismiss it unread. Fix: the pop-up (if any) is one screen, 3–5 lines, ≤ 8 words each, ideally one goal line plus one control line plus one picture/diagram. Everything else is learned by playing.
+- **The in-world rulebook.** The same paragraphs on a stylized plane or board in the scene. It looks like design, but the text is too small and too long to read in-world, and players will not stand still and squint. Fix: a sign says one thing (≤ 10 words, large `fontSize`); one sign per idea; put the rest into the level design.
+
+Show instead of tell:
+- Make the first target unmistakable: a glowing, animated, or oversized object placed in the player's opening sightline. A pulsing outline teaches "click me" better than a sentence does.
+- Teach one mechanic by letting the player do it once safely (tutorial gate, practice target) before the real game starts.
+- Use `hoverText` on interactive entities as the just-in-time instruction — it appears exactly when it is relevant and costs no reading up-front.
+- Use an image/diagram (a `uiBackground` texture or an in-world plane) for spatial or sequence rules; a picture of "red gems = 1, blue = 5" replaces a paragraph.
+- Deliver anything longer through an NPC or a dialog one message at a time, skippable, or as `Timed Announcement`-style hints at the moment they matter.
+
+Text budget as a checklist: intro panel ≤ 5 lines; sign ≤ 10 words; hint ≤ 1 sentence; if a rule needs more than that, redesign the mechanic or show it with visuals.
+
 ### Zero-Explanation Test
 - If a new player cannot figure out the first action within 30 seconds without any text or instructions, the design needs work.
 - Watch real players attempt your scene cold. Their confusion is your design feedback.
@@ -289,16 +311,21 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 
 | Topic | Skill | When to Use |
 |---|---|---|
-| Follow/chase a moving target (entities tracking the player) | **animations-tweens** | `Tween.setMoveContinuous` for smooth following; do NOT re-create `setMove` tweens per-frame (causes jitter). See the `79,-4-tween-following-cube` test scene. |
+| Follow/chase a moving target (entities tracking the player) | **animations-tweens** | `Tween.setMoveContinuous` for smooth following; do NOT re-create `setMove` tweens per-frame (causes jitter). See the [`79,-4-tween-following-cube`](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/79,-4-tween-following-cube) test scene. |
 | Interactivity, input handling, raycasting | **add-interactivity** | Implementing click handlers, triggers, input |
 | Multiplayer sync, server communication | **multiplayer-sync** | Networked game state, real-time sync |
 | Server-authoritative games, leaderboards, anti-cheat | **authoritative-server** | Competitive scoring, persistent progress, admin-gated host controls. The Gem Rush reference scene (`92,-9`) is a complete competitive game architecture with server-side proximity anti-cheat and checkpoint-only storage. |
 | FPS-style / mouselook camera controls | **camera-control** | Mouselook pattern: `PrimaryPointerInfo.screenDelta` + VirtualCamera + PointerLock + InputModifier. Desktop only. |
+| Spectate / observer / director camera | **camera-control** | Spectate Mode pattern: free or player-following camera, WASD/E/F/1/2 controls, parcel-bounds clamping, player roster. Combine with an admin check (authoritative-server) to restrict who can enter spectate mode. |
 | Audio-reactive visuals (music visualizers, beat detection) | **audio-analysis** | `AudioAnalysis` component on `AudioSource` or `VideoPlayer` (progressive only, not HLS). Drive geometry/lights/colors from `amplitude` and 8 frequency `bands`. |
 | Screen UI, React-ECS, HUD elements | **build-ui** | Building menus, scoreboards, dialogs. `UiInputBinding` prop for binding InputActions to UI elements (on-screen buttons for mobile). |
 | Mobile touch controls | **advanced-input** | `TouchScreenControls` component for hiding/showing on-screen buttons, setting main action, hiding joystick/crosshair. Platform detection via `getPlatform()` / `isMobile()` from `@dcl/sdk/platform`. |
 | Open Explorer UI panels from scenes | **scene-runtime** | `openExplorerUi()` restricted action to open map, backpack, settings, etc. from a user gesture. Useful for onboarding flows and UX shortcuts. |
+| Deployment timing & post-publish troubleshooting | **deploy-scene** | Asset bundle conversion takes ~15 min (plan 30-60 min). Publish 2+ hours before live events. `/detectabs` checks conversion status in-world. Conversion status URLs for monitoring. |
+| Local asset bundle preview | **optimize-scene** | "Optimize Assets" in Creator Hub or `--local-ab` CLI flag reproduces production asset bundle conversion locally. Catches texture/model issues before publishing. |
+| Pause gameplay when scene is hidden | **scene-runtime** | `EngineInfo.getOrNull(engine.RootEntity)?.sceneHidden` is `true` when a fullscreen Explorer UI (map, backpack, loading screen) covers the scene. Use to pause game loops, audio, and expensive systems so they don't run while the player can't see or interact with the scene. |
+| Entity removal returns boolean | **scene-runtime** | `engine.removeEntity(entity)` now returns `boolean` — `false` for renderer-reserved (avatar) entities, where components are left untouched. Check the return when despawning entities in game loops to avoid silently failing to remove an entity. |
 | World deployment, storage budget | **deploy-worlds** | World storage budget (100 MB per NAME, 100 MB per LAND, 100 MB per 2k MANA; ENS = 36 MB fixed). Plan scene file sizes accordingly. |
-| Performance optimization, entity/triangle budgets | **optimize-scene** | Detailed optimization techniques. Creator Hub "Optimize Assets" preview option for testing with production-like asset bundles. |
+| Performance optimization, entity/triangle budgets | **optimize-scene** | Detailed optimization techniques, local asset bundle preview, gltf reuse-vs-merge benchmark. |
 
 This skill focuses on the **design decisions and optimization constraints** that shape implementations. For detailed code patterns, see the referenced skills.
