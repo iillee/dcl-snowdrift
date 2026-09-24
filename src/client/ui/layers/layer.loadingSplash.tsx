@@ -2,8 +2,8 @@
  * layer.loadingSplash.tsx — cold-open + world-rebuild splash.
  *
  * Full-screen thumbnail overlay shown in two situations:
- *   1. Cold-open — from scene start until the first maze rebuild's
- *      spawn queue drains. Hides the initial tile-pop-in seconds.
+ *   1. Cold-open — from scene start until the snow layer settles (cliff
+ *      mask known, CRDT state applied, every root built once).
  *   2. Cycle rollover — a temporary override triggered by
  *      showRebuildSplash(ms). Covers the ~few seconds while the world
  *      regenerates around the player (maze reshuffle, hidden fire
@@ -18,7 +18,7 @@ import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { isInitialLoadComplete, isRebuilding } from 'src/client/maze/rebuild'
+import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 
 
 const SPLASH_IMAGE = 'assets/images/snowdrift.png'
@@ -64,12 +64,11 @@ export function showRebuildSplash(durationMs: number): void {
  *   1. Cold-open: initial load hasn't completed yet.
  *   2. Rebuild override timer is still running (dev-roll or real
  *      cycle rollover triggered showRebuildSplash).
- *   3. Maze cascade is still spawning tiles — covers the case where
- *      the rebuild-override timer elapsed but the tile stream is
- *      still in flight (large mazes take >3 s to fill in).
+ *   3. A snow full pass (after a cycle-roll mask change) is still in
+ *      flight. Live melting never triggers this; only mask changes do.
  */
 function isSplashActive(): boolean {
-	if (!isInitialLoadComplete()) return true
+	if (!isSnowSettled()) return true
 	// Cold-open minimum: even if the first cascade drained very quickly,
 	// keep the splash up until COLD_OPEN_MIN_MS has elapsed since module
 	// load. Guarantees every player sees the splash regardless of client
@@ -79,9 +78,9 @@ function isSplashActive(): boolean {
 	if (Date.now() < rebuildOverrideUntilMs) return true
 	// Once the override window has opened at least once (i.e. we're
 	// past cold-open and a rebuild has been requested), keep the
-	// splash up until the tile cascade finishes. Without this the
-	// splash uncovers a half-built maze on slower machines.
-	if (rebuildOverrideUntilMs > 0 && isRebuilding()) return true
+	// splash up until the snow full pass finishes. Without this the
+	// splash uncovers a half-built field on slower machines.
+	if (rebuildOverrideUntilMs > 0 && isSnowRebuilding()) return true
 	return false
 }
 

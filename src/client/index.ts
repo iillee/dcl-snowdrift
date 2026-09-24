@@ -6,8 +6,7 @@
  * that don't belong to any single feature module.
  *
  * All heavy lifting lives in its natural home:
- *   - client/maze/*                  — maze data, generation, visuals
- *   - client/paint                   — grid painting + coverage
+ *   - client/snow/*                  — snow model, renderer, brush, queries
  *   - client/clientHandler           — network boundary (room.on/send)
  *   - client/audio                   — music + UI SFX
  *   - client/ui/*                    — HUD layers + theme (React-ECS)
@@ -28,20 +27,20 @@ import {
 	SeedHolder,
 	seedHolder,
 } from 'src/shared/components'
-import { SEED_NETWORK_ID } from 'src/shared/paintGrid'
+import { SEED_NETWORK_ID } from 'src/shared/networkIds'
 
 import { initAudio } from 'src/client/audio'
 import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
 import { initClientHandler } from 'src/client/clientHandler'
-import { CELL, STEP, lookupTile } from 'src/shared/maze/generator'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupFrostDeath }       from 'src/client/frost/death'
 import { initLocomotionGate } from 'src/client/locomotion'
-import { initMazeNet, rebuildMaze } from 'src/client/maze/rebuild'
-import { initPaintNet, initPaintingSystem } from 'src/client/paint'
-import { setupPaintResync } from 'src/client/paintResync'
 import { initPlayerNet } from 'src/client/player'
+import { setMaskedTiles } from 'src/client/snow/playfieldMask'
+import { initSnowBrush } from 'src/client/snow/snowBrush'
+import { initSnowModel } from 'src/client/snow/snowModel'
+import { initSnowRenderer } from 'src/client/snow/snowRenderer'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
@@ -93,7 +92,7 @@ engine.addSystem(() => {
   if (s !== 0 && s !== currentSeed) {
     currentSeed = s
     // Perimeter cliffs share the seed too, so every reroll produces a
-    // fresh skyline. Set the seed FIRST — both rebuildMaze() (via
+    // fresh skyline. Set the seed FIRST — both the snow mask (via
     // getReservedPlayfieldCells) and setupPerimeter() read it. On the
     // very first seed we skip the respawn: setupPerimeter is fired by
     // the deferred bootstrap below (asset-load priority hack).
@@ -102,15 +101,16 @@ engine.addSystem(() => {
       clearPerimeter()
       setupPerimeter()
     }
-    rebuildMaze(s)
-    // Props scatter uses the same reserved-cell set as the maze so
+    const reservedTiles = getReservedPlayfieldCells()
+    setMaskedTiles(reservedTiles)
+    // Props scatter uses the same reserved-cell set as the snow mask so
     // trees / huts / etc never land on perimeter cliffs. clearProps
     // is a no-op on the first seed; on rerolls the reroll button has
     // already cleared them, but calling here too keeps the flow
     // idempotent for any future non-UI seed change (server-driven,
     // scheduled rotation, etc.).
     const reserved = new Set<string>(
-      getReservedPlayfieldCells().map(c => `${c.tx},${c.tz},0`)
+      reservedTiles.map(c => `${c.tx},${c.tz},0`)
     )
     setupProps(s, reserved)
   }
@@ -160,30 +160,18 @@ export async function setupClient(): Promise<void> {
 		}
 	})
 
-	// Painting system needs a callback to resolve player world position →
-	// the tile they're standing on. lookupTile lives in the generator
-	// module (private grid access).
-	initPaintingSystem(CELL, STEP, lookupTile)
+	// Snow layer: CRDT model first, then renderer (ground + snow boxes),
+	// then the local brush. The renderer waits for the seed-derived
+	// cliff mask and the initial CRDT sync before spawning snow.
+	initSnowModel()
+	initSnowRenderer()
+	initSnowBrush()
 
-	// Wire event subscribers + CRDT paint observers. PaintCoverage /
-	// PaletteEntry / PaintCell / LeaderboardState are server-owned
-	// (syncEntity only on the server); clients observe replicas.
 	// Server-authoritative 24 h cycle clock. Register the listener BEFORE
 	// initClientHandler so we don't miss the hydration `cycleState` that
 	// arrives immediately after joinRoster.
 	setupCycleClient()
 
-	initPaintNet()
-	// Periodic safety net that recovers cells whose visual dispatch was
-	// silently dropped by syncCellsFromCrdt (typically: cell entity had
-	// not yet spawned when the observer ran). Fires every 20 s after a
-	// 5 s cold-open grace, skips the player's current tile. Non-invasive:
-	// correctly-rendered cells no-op via renderedIndex short-circuit; only
-	// actually-stuck cells animate, and they use the normal drop tween so
-	// the recovery reads as "delayed melt" rather than "glitch". See the
-	// module header in paintResync.ts for the full design note.
-	setupPaintResync()
-	initMazeNet()
 	initPlayerNet()
 	initLocomotionGate()
 	initFrostAccumulation()

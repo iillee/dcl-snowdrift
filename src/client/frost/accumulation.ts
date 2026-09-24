@@ -2,7 +2,7 @@
  * accumulation.ts — per-player frost accumulation + warmth recovery.
  *
  * Samples the local player's position at FROST_SAMPLE_INTERVAL_S,
- * reads the snow depth beneath them via src/client/paint's
+ * reads the snow depth beneath them via src/client/snow/snowQuery's
  * getSnowStageAtWorld(), and pushes FrostLevel up or down accordingly.
  * Campfire proximity thaws; snow depth freezes; a lit torch (see
  * src/client/torch.ts::isTorchProtecting) halts accumulation without
@@ -29,7 +29,7 @@ import {
 	FROST_TIME_TO_THAW_S,
 } from 'src/shared/frost/tuning'
 import { playFrostChunkSfx } from 'src/client/audio'
-import { getSnowStageAtWorld } from 'src/client/paint'
+import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
 import { getLitTorchWarmthPositions } from 'src/client/torchWarmth'
 

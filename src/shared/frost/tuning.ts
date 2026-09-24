@@ -30,7 +30,7 @@ export const FROST_TIME_BASELINE_S = 30 // 30s from baseline alone — punishing
 
 // MARK: Snow-depth contribution
 /**
- * Snow depth is exposed by src/client/paint.ts via getSnowStageAtWorld()
+ * Snow depth is exposed by src/client/snow/snowQuery.ts via getSnowStageAtWorld()
  * as a 0..3 integer:
  *   0 — no snow / melted path            (safe, no snow contribution)
  *   1 — dusting                          (mild)

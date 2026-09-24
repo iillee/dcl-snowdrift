@@ -16,26 +16,19 @@ export const Messages = {
 	// Server appends to roster if new, replies with teamAssigned to the sender.
 	joinRoster: Schemas.Map({ userId: Schemas.String }),
 
-	// Server → Client
-	// team values match the Team enum in src/shared/team.ts: 1 = Red, 2 = Blue.
-	// Assignment is `roster.indexOf(userId) % 2` — stable across rejoin,
-	// and guaranteed to alternate (fixes the "two blue players in a row"
-	// issue the Phase 3 client hash could produce).
+	// Server → Client: joinRoster acknowledgement. `team` is vestigial
+	// (always 2); clients only use the message's arrival.
 	teamAssigned: Schemas.Map({ team: Schemas.Int }),
 
-	// Client → Server: cells painted by the sender since the last flush.
-	// Sent at PAINT_TICK_HZ. Server looks up sender's team from roster,
-	// interns the team Color4 into the palette, and writes the palette
-	// index into a per-cell PaintCell CRDT component. Not a state-sync channel.
+	// Client → Server: cells melted / stomped by the sender since the last
+	// flush. Sent at PAINT_TICK_HZ; the server writes the result into the
+	// PaintTile CRDT. Not a state-sync channel.
 	//
 	// targetStage semantics:
-	//   0 = full melt (torch lit, or campfire ring). Cell becomes
-	//       {index=team, stage=0} unconditionally.
-	//   1 = stomp / trample (torch unlit walk). Cell becomes
-	//       {index=team, stage=1} ONLY if it is currently at stage 2 or
-	//       PALETTE_NONE (pristine). Cells already at stage 0 or 1 are
-	//       left as-is — a torchless walker never overwrites a blue
-	//       melted path or an existing low crust.
+	//   0 = full melt (torch lit). Cell becomes stage 0 unconditionally.
+	//   1 = stomp / trample (torch unlit). Cell becomes stage 1 ONLY if
+	//       it is currently at stage 2 or pristine. Cells at stage 0 or 1
+	//       are left as-is.
 	//
 	// `cells` are integer snow cell keys (src/shared/snowGrid.ts cellKey).
 	// Server trusts them; position validation is deferred anti-cheat work.

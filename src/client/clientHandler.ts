@@ -2,22 +2,20 @@
  * clientHandler.ts — client network boundary.
  *
  * Inbound room messages → eventBus. Outbound: joinRoster + paintTick.
- * Paint *state* is CRDT only (PaintCell / PaletteEntry / PaintCoverage).
+ * Snow *state* is CRDT only (PaintTile / PaintCoverage).
  */
 
 import { engine, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { isStateSyncronized } from '@dcl/sdk/network'
 
 import { room } from 'src/shared/messages'
-import { cellIdToKey } from 'src/shared/paintGrid'
 import { PAINT_TICK_HZ, PAINT_TICK_MAX_IDS } from 'src/shared/settings'
-import { Team } from 'src/shared/team'
-import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
 
-import { drainPaintOutbox } from 'src/client/paint'
+import { drainSnowOutbox } from 'src/client/snow/snowBrush'
 import { PrecipitationLevel, setPrecipitation } from 'src/client/snowfall'
 
-let myTeam: Team = Team.None
+/** Set when the server acknowledges joinRoster (teamAssigned). paintTicks wait for it. */
+let rostered = false
 
 /**
  * When true, the outbound tick will re-send joinRoster on its next
@@ -34,24 +32,6 @@ const SYNC_LOG_INTERVAL_MS = 1000
 const SYNC_DOWN_WARN_MS    = 5000
 
 
-// MARK: toCellKeys
-
-// Transitional: the legacy paint outbox holds string ids; the wire carries
-// integer snow cell keys (same layout as paintGrid.cellIdToKey).
-function toCellKeys(ids: string[]): number[] {
-	const out: number[] = []
-	for (const id of ids) {
-		const key = cellIdToKey(id)
-		if (key === null) {
-			console.log(`clientHandler: toCellKeys: dropping unparseable cell id "${id}"`)
-			continue
-		}
-		out.push(key)
-	}
-	return out
-}
-
-
 // MARK: resolveJoinUserId
 
 function resolveJoinUserId(): string {
@@ -65,7 +45,6 @@ function resolveJoinUserId(): string {
 
 export function initClientHandler(): void {
 	wireInbound()
-	wireTeamAssigned()
 	wireOutbound()
 }
 
@@ -73,8 +52,10 @@ export function initClientHandler(): void {
 // MARK: wireInbound
 
 function wireInbound(): void {
-	room.onMessage('teamAssigned', ({ team }) => {
-		eventBus.emit(ClientEvents.TeamAssigned, { team: team as Team })
+	// Team is vestigial; the message is kept as the joinRoster acknowledgement.
+	room.onMessage('teamAssigned', () => {
+		rostered = true
+		console.log('clientHandler: wireInbound: rostered')
 	})
 
 	// Server-authoritative weather. Level 0..3 maps directly onto the
@@ -89,22 +70,12 @@ function wireInbound(): void {
 	// a paintTick arrives from a wallet the server doesn't have in its
 	// roster — typically because the server restarted and lost the
 	// in-memory roster. Flag the outbound loop to re-issue joinRoster on
-	// its next tick. Also clear myTeam so paint queueing pauses until the
-	// re-assignment reply lands, matching the fresh-boot behaviour.
+	// its next tick. Also clear rostered so paintTicks pause until the
+	// acknowledgement lands, matching the fresh-boot behaviour.
 	room.onMessage('pleaseRejoin', () => {
 		console.log('[Client] pleaseRejoin received — re-issuing joinRoster')
 		needsRejoin = true
-		myTeam      = Team.None
-	})
-}
-
-
-// MARK: wireTeamAssigned
-
-function wireTeamAssigned(): void {
-	eventBus.on(ClientEvents.TeamAssigned, ({ team }) => {
-		myTeam = team
-		console.log(`[Client] teamAssigned → ${myTeam === Team.Red ? 'RED' : 'BLUE'}`)
+		rostered    = false
 	})
 }
 
@@ -146,7 +117,7 @@ function wireOutbound(): void {
 		}
 
 		// Wait for roster before sending paint commands (outbox keeps growing).
-		if (myTeam === Team.None) return
+		if (!rostered) return
 
 		paintFlushClock += dt
 		if (paintFlushClock < paintInterval) return
@@ -154,9 +125,9 @@ function wireOutbound(): void {
 		// Drain melt (stage 0) and stomp (stage 1) outboxes separately —
 		// each maps to one paintTick with a coherent targetStage so the
 		// server can apply the right write policy in bulk.
-		const meltCells = toCellKeys(drainPaintOutbox(PAINT_TICK_MAX_IDS, 0))
+		const meltCells = drainSnowOutbox(PAINT_TICK_MAX_IDS, 0)
 		if (meltCells.length > 0) room.send('paintTick', { cells: meltCells,  targetStage: 0 })
-		const stompCells = toCellKeys(drainPaintOutbox(PAINT_TICK_MAX_IDS, 1))
+		const stompCells = drainSnowOutbox(PAINT_TICK_MAX_IDS, 1)
 		if (stompCells.length > 0) room.send('paintTick', { cells: stompCells, targetStage: 1 })
 	})
 }

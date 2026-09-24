@@ -14,7 +14,7 @@
 
 import { AudioSource, Entity, Transform, engine } from '@dcl/sdk/ecs'
 
-import { getSnowStageAtWorld } from 'src/client/paint'
+import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import {
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_PLAYFIELD_METERS,

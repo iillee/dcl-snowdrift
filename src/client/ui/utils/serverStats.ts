@@ -5,13 +5,13 @@
 import { engine } from '@dcl/sdk/ecs'
 
 import { ServerStats } from 'src/shared/components'
-import { paintGridCapacity } from 'src/shared/paintGrid'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
 	MAZE_TILE_WORLD_METERS,
 	PAINT_CELLS_PER_TILE_AXIS,
 } from 'src/shared/settings'
+import { snowGridCapacity } from 'src/shared/snowGrid'
 
 
 export type ServerStatsSnapshot = {
@@ -39,7 +39,7 @@ export function readServerStats(): ServerStatsSnapshot {
 	for (const [, s] of engine.getEntitiesWith(ServerStats)) {
 		return s
 	}
-	const cap = paintGridCapacity()
+	const cap = snowGridCapacity()
 	return {
 		tiles:             cap.tiles,
 		paintResolution:   PAINT_CELLS_PER_TILE_AXIS,
