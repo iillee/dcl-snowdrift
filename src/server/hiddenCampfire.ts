@@ -27,15 +27,6 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { room } from 'src/shared/messages'
-import {
-	getHiddenCampfireSeed,
-	HIDDEN_CAMPFIRE_COUNT,
-	pickHiddenCampfireTiles,
-	tileToWorld,
-} from 'src/shared/hiddenCampfire'
-import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
-import { CAMPFIRE_MELT_RADIUS_M } from 'src/shared/campfire'
 import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
@@ -45,18 +36,17 @@ import {
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
 } from 'src/shared/hearthFuel'
-import { rosterSize } from 'src/server/roster'
 import {
-	MAZE_GRID_HEIGHT,
-	MAZE_GRID_WIDTH,
-	MAZE_ORIGIN_OFFSET_METERS,
-	MAZE_TILE_WORLD_METERS,
-	PAINT_CELL_SIZE_METERS,
-	PAINT_CELLS_PER_TILE_AXIS,
-} from 'src/shared/settings'
-import { Team } from 'src/shared/team'
+	getHiddenCampfireSeed,
+	HIDDEN_CAMPFIRE_COUNT,
+	pickHiddenCampfireTiles,
+	tileToWorld,
+} from 'src/shared/hiddenCampfire'
+import { room } from 'src/shared/messages'
 
-import { applyPaint, markProtected, shrinkMeltRingTo } from 'src/server/paintState'
+import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
+import { rosterSize } from 'src/server/roster'
+import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
 
 
 // MARK: Melt-growth tuning
@@ -144,44 +134,7 @@ function seedHiddenMeltRing(index: number): void {
 	const grow = Math.min(1, secondsSinceIgnite[index] / MELT_GROWTH_DURATION_S)
 	const r    = hearthRadiusFromFuel(fuel[index]) * grow
 	if (r <= 0) return
-	const r2 = r * r
-	const cx = worldX[index]
-	const cz = worldZ[index]
-
-	const localCx = cx - MAZE_ORIGIN_OFFSET_METERS
-	const localCz = cz - MAZE_ORIGIN_OFFSET_METERS
-	const minCellsFromCenter = Math.ceil(r / PAINT_CELL_SIZE_METERS)
-	const centerColFloat     = localCx / PAINT_CELL_SIZE_METERS
-	const centerRowFloat     = localCz / PAINT_CELL_SIZE_METERS
-	const colStart = Math.floor(centerColFloat - minCellsFromCenter)
-	const colEnd   = Math.ceil (centerColFloat + minCellsFromCenter)
-	const rowStart = Math.floor(centerRowFloat - minCellsFromCenter)
-	const rowEnd   = Math.ceil (centerRowFloat + minCellsFromCenter)
-
-	const ty = 0
-	for (let gRow = rowStart; gRow <= rowEnd; gRow++) {
-		const tz  = Math.floor(gRow / PAINT_CELLS_PER_TILE_AXIS)
-		const row = gRow - tz * PAINT_CELLS_PER_TILE_AXIS
-		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
-		const wz = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
-		const dz = wz - cz
-
-		for (let gCol = colStart; gCol <= colEnd; gCol++) {
-			const tx  = Math.floor(gCol / PAINT_CELLS_PER_TILE_AXIS)
-			const col = gCol - tx * PAINT_CELLS_PER_TILE_AXIS
-			if (tx < 0 || tx >= MAZE_GRID_WIDTH) continue
-			const wx = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
-			const dx = wx - cx
-			if (dx * dx + dz * dz > r2) continue
-
-			const id = `${tx},${tz},${ty}:${col},${row}`
-			markProtected(id)
-			// Team.Blue matches the "melted" look used by the central
-			// campfire ring. A future ownership pass may attribute the
-			// ring to the igniting player's team instead.
-			applyPaint(id, Team.Blue)
-		}
-	}
+	meltDisc(worldX[index], worldZ[index], r)
 }
 
 
@@ -224,7 +177,7 @@ function snuffFire(index: number): void {
 	broadcastFuel(index)
 	// previousRadiusM = max possible so any cell this fire ever
 	// painted is swept; cells owned by other fires are left alone.
-	shrinkMeltRingTo(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
+	releaseDiscOutside(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
 }
 
@@ -329,7 +282,7 @@ export function setupHiddenCampfireServer(): void {
 				const r = hearthRadiusFromFuel(fuel[i])
 				// Bound to this fire's max possible radius so the shrink
 				// never touches cells owned by other fires.
-				shrinkMeltRingTo(worldX[i], worldZ[i], r, hearthRadiusFromFuel(FUEL_MAX))
+				releaseDiscOutside(worldX[i], worldZ[i], r, hearthRadiusFromFuel(FUEL_MAX))
 				console.log(`[Server] hiddenCampfire[${i}]: tier decay ${prevTier}->${newTier} ring->${r.toFixed(1)}m`)
 			}
 

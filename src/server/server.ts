@@ -5,138 +5,68 @@
  * (hammurabi-server). No 3D, no ~system/RestrictedActions — pure state
  * + WS message handling.
  *
- * Current responsibilities: roster/team assignment, authoritative paint
- * state (chunked PaintTile CRDT + palette), coverage CRDT publish.
+ * Current responsibilities: roster, authoritative snow state (chunked
+ * PaintTile CRDT), coverage CRDT publish, and the gameplay servers.
  *
- * Paint *state* syncs via CRDT; paintTick is the client→server command
+ * Snow *state* syncs via CRDT; paintTick is the client→server command
  * channel.
  */
 
 import { engine } from '@dcl/sdk/ecs'
 import { myProfile } from '@dcl/sdk/network'
 
+import { CAMPFIRE_MELT_RADIUS_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { room } from 'src/shared/messages'
-import { paintGridCapacity } from 'src/shared/paintGrid'
-import { flushDirtyPaintTiles, initPaintSync, paintedCellCount, paintTileEntityCount, relinkPaintSync } from 'src/shared/paintSync'
 import {
+	IS_DEV,
 	PAINT_COVERAGE_PUBLISH_HZ,
 	PAINT_TICK_MAX_IDS,
 } from 'src/shared/settings'
+import { snowGridCapacity } from 'src/shared/snowGrid'
 
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
-import {
-	applyPaint,
-	coverage,
-	clearAll as clearPaintState,
-	seedTeamPalette,
-	isCoverageDirty,
-	markProtected,
-	publishCoverage,
-	tickRegrowth,
-} from 'src/server/paintState'
-import { assignTeam, rosterSize, getTeam } from 'src/server/roster'
-import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
-import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
+import { sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
-import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
+import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
+import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
+import {
+	applyMelt,
+	clearAllSnow,
+	meltDisc,
+	meltedCellCount,
+	meltRandomCells,
+	publishCoverageIfDirty,
+	tickRegrowth,
+} from 'src/server/snowState'
+import {
+	flushDirtySnowTiles,
+	initSnowSync,
+	nonZeroSnowCells,
+	relinkSnowSync,
+	snowTileEntityCount,
+} from 'src/server/snowSync'
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
-import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
-import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
-import { Team } from 'src/shared/team'
-import {
-	MAZE_GRID_HEIGHT,
-	MAZE_GRID_WIDTH,
-	MAZE_ORIGIN_OFFSET_METERS,
-	MAZE_TILE_WORLD_METERS,
-	PAINT_CELL_SIZE_METERS,
-	PAINT_CELLS_PER_TILE_AXIS,
-} from 'src/shared/settings'
-import {
-	CAMPFIRE_MELT_DIAMETER_M,
-	CAMPFIRE_MELT_RADIUS_M,
-	CAMPFIRE_MELT_RADIUS_SQ_M,
-	CAMPFIRE_WORLD_X,
-	CAMPFIRE_WORLD_Z,
-} from 'src/shared/campfire'
+import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
+import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
 
 const HEARTBEAT_INTERVAL_S     = 5
 const PAINT_SUMMARY_INTERVAL_S = 5
+const DEV_MELT_BULK_MAX        = 50000
 
 
 // MARK: seedStartingArea
 
 /**
- * Pre-paint a circular ring around the campfire at scene center so the
- * canvas isn't empty on first load and the warm zone reads as "fire's
- * reach". Iterates the bounding-square of paint cells intersecting the
- * circle and paints those whose center falls within the radius.
- *
- * Cell world-center for (tx, tz, col, row) is
- *   ( tx*TILE + (col+0.5)*CELL , tz*TILE + (row+0.5)*CELL )
- * matching src/shared/maze/generator.ts tile placement (SW pivot,
- * MAZE_ORIGIN_OFFSET_METERS = 0 on the flat canvas).
- */
-/**
- * Paint the central melt ring at the given radius. Defaults to the
- * baseline CAMPFIRE_MELT_RADIUS_M (8 m == tier 3 "Warm"); the
- * hearth-fuel server calls this with the current fuel-derived radius
- * on upward tier crossings so the visible blue floor ring expands
- * with a well-fed fire. Cells stay protected once painted, so a
- * shrinking fire leaves a "high-water mark" until the next cycle roll.
+ * Melt and heat-protect the central hearth ring at `radiusM` (defaults to
+ * the baseline 8 m "Warm" tier). hearthFuel calls this with the
+ * fuel-derived radius on tier crossings so the ring tracks the fire.
  */
 export function seedStartingArea(radiusM: number = CAMPFIRE_MELT_RADIUS_M): void {
-	const cx = CAMPFIRE_WORLD_X
-	const cz = CAMPFIRE_WORLD_Z
-	const r  = radiusM
-	const r2 = radiusM * radiusM
-
-	// Convert the fire's WORLD position back to the interior playfield's
-	// grid space by subtracting the playfield origin offset. Every cell
-	// coord below is playfield-local; wx/wz below adds the offset back.
-	const localCx = cx - MAZE_ORIGIN_OFFSET_METERS
-	const localCz = cz - MAZE_ORIGIN_OFFSET_METERS
-	const minCellsFromCenter = Math.ceil(r / PAINT_CELL_SIZE_METERS)
-	const centerColFloat     = localCx / PAINT_CELL_SIZE_METERS
-	const centerRowFloat     = localCz / PAINT_CELL_SIZE_METERS
-	const colStart = Math.floor(centerColFloat - minCellsFromCenter)
-	const colEnd   = Math.ceil (centerColFloat + minCellsFromCenter)
-	const rowStart = Math.floor(centerRowFloat - minCellsFromCenter)
-	const rowEnd   = Math.ceil (centerRowFloat + minCellsFromCenter)
-
-	const ty = 0
-	let painted = 0
-	for (let gRow = rowStart; gRow <= rowEnd; gRow++) {
-		const tz  = Math.floor(gRow / PAINT_CELLS_PER_TILE_AXIS)
-		const row = gRow - tz * PAINT_CELLS_PER_TILE_AXIS
-		if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
-		const wz = tz * MAZE_TILE_WORLD_METERS + (row + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
-		const dz = wz - cz
-
-		for (let gCol = colStart; gCol <= colEnd; gCol++) {
-			const tx  = Math.floor(gCol / PAINT_CELLS_PER_TILE_AXIS)
-			const col = gCol - tx * PAINT_CELLS_PER_TILE_AXIS
-			if (tx < 0 || tx >= MAZE_GRID_WIDTH) continue
-			const wx = tx * MAZE_TILE_WORLD_METERS + (col + 0.5) * PAINT_CELL_SIZE_METERS + MAZE_ORIGIN_OFFSET_METERS
-			const dx = wx - cx
-
-			if (dx * dx + dz * dz > r2) continue
-
-			const id = `${tx},${tz},${ty}:${col},${row}`
-			// Mark BEFORE painting so the first regrowth tick that races us
-			// already sees the cell as heat-protected. When the fire
-			// eventually gets low / dies, unmarkProtected() will release
-			// these back to normal regrowth.
-			markProtected(id)
-			if (applyPaint(id, Team.Blue)) painted++
-		}
-	}
-	if (painted > 0) {
-		console.log(
-			`[Server] seedStartingArea: painted ${painted} cells in a ` +
-			`${(r * 2).toFixed(1)}m ring at (${cx.toFixed(1)}, ${cz.toFixed(1)})`
-		)
+	const changed = meltDisc(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, radiusM)
+	if (changed > 0) {
+		console.log(`server: seedStartingArea: melted ${changed} cells in a ${(radiusM * 2).toFixed(1)}m ring`)
 	}
 }
 
@@ -152,19 +82,16 @@ export async function setupServer(): Promise<void> {
 	// env var is a supported "notifications off" state, not an error.
 	loadDiscordWebhookUrl().catch(err => console.log('[Server] loadDiscordWebhookUrl error:', err))
 
-	const paintCap = paintGridCapacity()
+	const snowCap = snowGridCapacity()
 	console.log(
-		`[Server] paint grid: ${paintCap.cellCapacity} cell slots ` +
-		`(${paintCap.paintCellsPerTileAxis}×${paintCap.paintCellsPerTileAxis}/tile × ` +
-		`${paintCap.tiles} tiles × ${paintCap.levels} levels); ` +
-		`PaintTile networkIds ${paintCap.tileNetBase}+`
+		`[Server] snow grid: ${snowCap.cellCapacity} cells ` +
+		`(${snowCap.cellsPerTileAxis}×${snowCap.cellsPerTileAxis}/tile × ${snowCap.tiles} tiles)`
 	)
-	initPaintSync()
-	seedTeamPalette()
+	initSnowSync()
 	seedStartingArea()
 
 	initServerStats()
-	startServerStatsTick(() => coverage().total)
+	startServerStatsTick(() => meltedCellCount())
 	setupWeather()
 	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
 	// bucket if we ever cross-wire them.
@@ -190,8 +117,8 @@ export async function setupServer(): Promise<void> {
 		// correct visual reset. Fuel state itself is handled by the
 		// hearthFuel server (main hearth clamps back to floor as decay
 		// continues).
-		console.log('[Server] cycle: clearing paint canvas + reseeding central ring')
-		clearPaintState()
+		console.log('[Server] cycle: clearing snow + reseeding central ring')
+		clearAllSnow()
 		seedStartingArea()
 	})
 
@@ -274,14 +201,12 @@ export async function setupServer(): Promise<void> {
 		sendHearthFuelStateTo(from)
 	})
 
-	// Paint ingest — client-authored cell ids, attributed to sender's team.
-	// Server writes palette indexes into per-cell PaintCell CRDT; clients
-	// observe via sync. If sender hasn't joined the roster yet, drop silently.
-	room.onMessage('paintTick', ({ ids, targetStage }, context) => {
+	// Snow ingest — client-authored cell keys. Un-rostered senders (typically
+	// after a server restart) are nudged to rejoin instead of applied.
+	room.onMessage('paintTick', ({ cells, targetStage }, context) => {
 		const from = context?.from
 		if (!from) return
-		const team = getTeam(from)
-		if (team === null) {
+		if (getTeam(from) === null) {
 			paintDroppedTeam++
 			// Log this user at most once per minute so a mid-session
 			// server restart is visible in the log without flooding it.
@@ -302,22 +227,31 @@ export async function setupServer(): Promise<void> {
 			}
 			return
 		}
-		if (ids.length > PAINT_TICK_MAX_IDS) {
+		if (cells.length > PAINT_TICK_MAX_IDS) {
 			paintDroppedCap++
-			console.log(`[Server] paintTick from ${from} dropped: ${ids.length} ids > cap ${PAINT_TICK_MAX_IDS}`)
+			console.log(`[Server] paintTick from ${from} dropped: ${cells.length} cells > cap ${PAINT_TICK_MAX_IDS}`)
 			return
 		}
-		// Clamp targetStage defensively — only 0 (melt) and 1 (stomp) are
-		// valid; anything else falls back to full melt to preserve legacy
-		// message behavior.
+		// Only 0 (melt) and 1 (stomp) are valid; anything else is a full melt.
 		const stage: 0 | 1 = targetStage === 1 ? 1 : 0
 		let gained = 0
-		for (const id of ids) {
-			if (applyPaint(id, team, stage)) gained++
+		for (const key of cells) {
+			if (applyMelt(key, stage)) gained++
 		}
 		paintTicks++
-		paintIdsIn   += ids.length
+		paintIdsIn   += cells.length
 		paintApplied += gained
+	})
+
+	// DEV load test — melt N random cells to reproduce playtest snow load.
+	room.onMessage('devMeltBulk', ({ count }, context) => {
+		if (!IS_DEV) {
+			console.log(`[Server] devMeltBulk from ${context?.from} ignored: not a dev build`)
+			return
+		}
+		const n       = Math.max(0, Math.min(DEV_MELT_BULK_MAX, count | 0))
+		const changed = meltRandomCells(n)
+		console.log(`[Server] devMeltBulk: requested ${n}, melted ${changed} (total melted ${meltedCellCount()})`)
 	})
 
 	// Campfire ring refresh: the seed area must never degrade. Re-run the
@@ -367,7 +301,7 @@ export async function setupServer(): Promise<void> {
 	// tickRegrowth / ring-refresh mutations have queued their byte writes.
 	// One CRDT publish per touched tile per frame, instead of one per cell.
 	engine.addSystem(() => {
-		flushDirtyPaintTiles()
+		flushDirtySnowTiles()
 	})
 
 	// Coverage publish tick. Coalesces cell mutations into a single
@@ -378,9 +312,8 @@ export async function setupServer(): Promise<void> {
 		coverageClock += dt
 		if (coverageClock < COVERAGE_INTERVAL) return
 		coverageClock = 0
-		relinkPaintSync()
-		if (!isCoverageDirty()) return
-		publishCoverage()
+		relinkSnowSync()
+		publishCoverageIfDirty()
 	})
 
 	// Heartbeat + paintTick summary. Always logs so a live idle server is
@@ -397,7 +330,7 @@ export async function setupServer(): Promise<void> {
 					`[Server] paintTick ${PAINT_SUMMARY_INTERVAL_S}s: ` +
 					`ticks=${paintTicks} ids=${paintIdsIn} applied=${paintApplied} ` +
 					`droppedCap=${paintDroppedCap} droppedTeam=${paintDroppedTeam} ` +
-					`paintCells=${paintedCellCount()} tiles=${paintTileEntityCount()}`
+					`snowCells=${nonZeroSnowCells()} tiles=${snowTileEntityCount()}`
 				)
 				paintTicks       = 0
 				paintIdsIn       = 0
@@ -409,10 +342,8 @@ export async function setupServer(): Promise<void> {
 
 		if (heartbeatClock < HEARTBEAT_INTERVAL_S) return
 		heartbeatClock = 0
-		const c = coverage()
 		console.log(
-			`[Server] alive roster=${rosterSize()} cells=${paintedCellCount()} tiles=${paintTileEntityCount()} ` +
-			`coverage=red=${c.red}/blue=${c.blue}/total=${c.total} ` +
+			`[Server] alive roster=${rosterSize()} melted=${meltedCellCount()} tiles=${snowTileEntityCount()} ` +
 			`profileReady=${!!myProfile?.networkId}`
 		)
 	})

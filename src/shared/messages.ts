@@ -3,9 +3,8 @@
  *
  * Registered from both client and server (identical schema).
  *
- * Message set: joinRoster/teamAssigned, paintTick (command only).
- * Paint *state* syncs exclusively via CRDT components (PaintCell /
- * PaletteEntry / PaintCoverage) — not room messages.
+ * Snow *state* syncs exclusively via CRDT components (PaintTile /
+ * PaintCoverage); paintTick is the client → server command channel.
  */
 
 import { Schemas } from '@dcl/sdk/ecs'
@@ -38,16 +37,17 @@ export const Messages = {
 	//       left as-is — a torchless walker never overwrites a blue
 	//       melted path or an existing low crust.
 	//
-	// WHY ids and not positions: server doesn't have the maze generator (it's
-	// client-only for now), so it can't resolve position -> cell. Client
-	// authors ids via worldToCellId locally; server trusts them for Phase 4.
-	// Anti-cheat (position validation) is deferred to Phase 5 per the plan.
-	// Rate limit: server caps ids per message from PAINT_BRUSH_SIZE_CELLS
-	// (+ headroom); anything larger is dropped as suspicious.
+	// `cells` are integer snow cell keys (src/shared/snowGrid.ts cellKey).
+	// Server trusts them; position validation is deferred anti-cheat work.
+	// Rate limit: server drops messages over PAINT_TICK_MAX_IDS cells.
 	paintTick: Schemas.Map({
-		ids        : Schemas.Array(Schemas.String),
+		cells      : Schemas.Array(Schemas.Int),
 		targetStage: Schemas.Int,
 	}),
+
+	// Client → Server (DEV only): melt `count` random unprotected cells to
+	// reproduce playtest-scale snow load with a single player.
+	devMeltBulk: Schemas.Map({ count: Schemas.Int }),
 
 	// Server → Client: current precipitation level (0=CLEAR..3=HEAVY).
 	// Sent to the joining client on joinRoster, and broadcast to everyone

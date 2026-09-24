@@ -9,9 +9,11 @@ import { engine, Entity, NetworkEntity } from '@dcl/sdk/ecs'
 import { syncEntity } from '@dcl/sdk/network'
 
 import { ServerStats } from 'src/shared/components'
-import { paintGridCapacity, STATS_NETWORK_ID } from 'src/shared/paintGrid'
-import { paintedCellCount } from 'src/shared/paintSync'
+import { STATS_NETWORK_ID } from 'src/shared/networkIds'
 import { SERVER_STATS_PUBLISH_HZ } from 'src/shared/settings'
+import { snowGridCapacity } from 'src/shared/snowGrid'
+
+import { nonZeroSnowCells } from 'src/server/snowSync'
 
 const BUCKET_COUNT = 60
 
@@ -30,11 +32,11 @@ let lastJson       = ''
 export function initServerStats(): void {
 	if (statsEntity !== null) return
 
-	const cap = paintGridCapacity()
+	const cap = snowGridCapacity()
 	statsEntity = engine.addEntity()
 	ServerStats.create(statsEntity, {
 		tiles:             cap.tiles,
-		paintResolution:   cap.paintCellsPerTileAxis,
+		paintResolution:   cap.cellsPerTileAxis,
 		activeComponents:  0,
 		maxComponents:     cap.cellCapacity,
 		paintedCells:      0,
@@ -75,11 +77,11 @@ export function startServerStatsTick(getPaintedCells: () => number): void {
 		writeIdx          = (writeIdx + 1) % BUCKET_COUNT
 		pendingChanges    = 0
 
-		const cap = paintGridCapacity()
+		const cap = snowGridCapacity()
 		const snapshot = {
 			tiles:             cap.tiles,
-			paintResolution:   cap.paintCellsPerTileAxis,
-			activeComponents:  paintedCellCount(),
+			paintResolution:   cap.cellsPerTileAxis,
+			activeComponents:  nonZeroSnowCells(),
 			maxComponents:     cap.cellCapacity,
 			paintedCells:      getPaintedCells(),
 			totalChanges,

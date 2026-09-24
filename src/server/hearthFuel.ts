@@ -20,7 +20,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { room } from 'src/shared/messages'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	FUEL_MAIN_FLOOR,
 	FUEL_MAX,
@@ -31,10 +31,10 @@ import {
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
 } from 'src/shared/hearthFuel'
+import { room } from 'src/shared/messages'
+
 import { rosterSize } from 'src/server/roster'
-import { seedStartingArea } from 'src/server/server'
-import { shrinkMeltRingTo } from 'src/server/paintState'
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
 
 
 /** Broadcast when fuel has changed by more than this since the last
@@ -72,7 +72,7 @@ function maybeFireMaxBurst(): void {
 	if (mainFuel < FUEL_MAX)     return
 	maxBurstArmed = false
 	console.log(`[Server] hearthFuel: MAX BURST! ring -> ${FUEL_MAX_BURST_RADIUS_M}m`)
-	seedStartingArea(FUEL_MAX_BURST_RADIUS_M)
+	meltDisc(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, FUEL_MAX_BURST_RADIUS_M)
 	room.send('hearthMax', {})
 }
 
@@ -95,24 +95,22 @@ function rearmMaxBurstIfSafe(): void {
 /**
  * Reshape the visible blue melt ring to match the current fuel-derived
  * radius. Called on any tier crossing (up OR down).
- *   - Upward: seedStartingArea paints + protects the newly-warm outer
- *     band (cells inside the previous radius are already painted and
- *     idempotent no-ops).
- *   - Downward: shrinkMeltRingTo unprotects + force-clears any cells
- *     outside the new radius so the ring visibly retracts.
+ *   - Upward: meltDisc melts + protects the newly-warm outer band
+ *     (cells inside the previous radius are idempotent no-ops).
+ *   - Downward: releaseDiscOutside unprotects cells outside the new
+ *     radius so they regrow and the ring visibly retracts.
  *
- * Cycle roll resets the entire canvas separately via server.ts's
- * onCycleRoll (clearPaintState + seedStartingArea at baseline).
+ * Cycle roll resets the entire snow field separately via server.ts's
+ * onCycleRoll (clearAllSnow + seedStartingArea at baseline).
  */
 function syncMeltRingToCurrentFuel(): void {
 	const r = hearthRadiusFromFuel(mainFuel)
 	console.log(`[Server] hearthFuel: sync melt ring to ${r.toFixed(1)}m`)
-	seedStartingArea(r)
+	meltDisc(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r)
 	// previousRadiusM = FUEL_MAX_BURST_RADIUS_M so any cell the main
-	// hearth ever painted (including at max-burst) is considered ours
-	// and can be swept, but cells belonging to hidden fires far from
-	// the centre are left alone. See shrinkMeltRingTo docstring.
-	shrinkMeltRingTo(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r, FUEL_MAX_BURST_RADIUS_M)
+	// hearth ever melted (including at max-burst) is swept, while hidden
+	// fires far from the centre are left alone.
+	releaseDiscOutside(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r, FUEL_MAX_BURST_RADIUS_M)
 }
 
 

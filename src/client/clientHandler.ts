@@ -9,6 +9,7 @@ import { engine, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { isStateSyncronized } from '@dcl/sdk/network'
 
 import { room } from 'src/shared/messages'
+import { cellIdToKey } from 'src/shared/paintGrid'
 import { PAINT_TICK_HZ, PAINT_TICK_MAX_IDS } from 'src/shared/settings'
 import { Team } from 'src/shared/team'
 import { eventBus, ClientEvents } from 'src/shared/utils/eventBus'
@@ -31,6 +32,24 @@ let needsRejoin = false
 const SYNC_LOG_INTERVAL_MS = 1000
 /** After this, keep waiting but warn that the Multiplayer Server is likely down. */
 const SYNC_DOWN_WARN_MS    = 5000
+
+
+// MARK: toCellKeys
+
+// Transitional: the legacy paint outbox holds string ids; the wire carries
+// integer snow cell keys (same layout as paintGrid.cellIdToKey).
+function toCellKeys(ids: string[]): number[] {
+	const out: number[] = []
+	for (const id of ids) {
+		const key = cellIdToKey(id)
+		if (key === null) {
+			console.log(`clientHandler: toCellKeys: dropping unparseable cell id "${id}"`)
+			continue
+		}
+		out.push(key)
+	}
+	return out
+}
 
 
 // MARK: resolveJoinUserId
@@ -135,9 +154,9 @@ function wireOutbound(): void {
 		// Drain melt (stage 0) and stomp (stage 1) outboxes separately —
 		// each maps to one paintTick with a coherent targetStage so the
 		// server can apply the right write policy in bulk.
-		const meltIds = drainPaintOutbox(PAINT_TICK_MAX_IDS, 0)
-		if (meltIds.length > 0) room.send('paintTick', { ids: meltIds,  targetStage: 0 })
-		const stompIds = drainPaintOutbox(PAINT_TICK_MAX_IDS, 1)
-		if (stompIds.length > 0) room.send('paintTick', { ids: stompIds, targetStage: 1 })
+		const meltCells = toCellKeys(drainPaintOutbox(PAINT_TICK_MAX_IDS, 0))
+		if (meltCells.length > 0) room.send('paintTick', { cells: meltCells,  targetStage: 0 })
+		const stompCells = toCellKeys(drainPaintOutbox(PAINT_TICK_MAX_IDS, 1))
+		if (stompCells.length > 0) room.send('paintTick', { cells: stompCells, targetStage: 1 })
 	})
 }
