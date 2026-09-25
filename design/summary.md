@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-22.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-24.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -80,6 +80,16 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 - **Players accumulate biography** — worlds witnessed, solstices survived, discoveries credited to them, places where they froze.
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
+
+## Where the build is (2026-09-24)
+
+Phase 1 **Systems** is underway — about a third of the Systems checklist, further if you only count “does a session feel like a world.”
+
+**Playable now:** shared DAY / DUSK / NIGHT clock; night pressure from dusk; mortal spawn hearth; last-fire fade + reseed while players are in the scene; Day X in Help + sunrise splash; snow LOD planes + snowfall that waits for load.
+
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, empty-server persistence, return-screens, wood-as-a-real-trip, biomes / Kiln.
+
+**Next:** wood on **Monday 2026-09-28**. Group playtest **2026-09-29** — day/night loop. Owner away that weekend. Handoff: [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
 
 ## v1 build plan — at a glance
 

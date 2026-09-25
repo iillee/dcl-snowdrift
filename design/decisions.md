@@ -2,7 +2,20 @@
 
 Running log. Each line: `date · decision · why`.
 
-> **Note (2026-09-11):** several 2026-09-09 decisions below are now marked **[REOPENED]** — the plan has evolved into a further pivot toward man-vs-storm territory defense with two open decisions gated by prototypes. Source of truth is [`../docs/v1-4week-plan.md`](../docs/v1-4week-plan.md). The 2026-09-11+ entries at the bottom of this log reflect the current direction.
+> **Note (2026-09-11):** several 2026-09-09 decisions below are now marked **[REOPENED]** — the plan has evolved into a further pivot toward man-vs-storm territory defense with two open decisions gated by prototypes. Source of truth is [`gdd.md`](gdd.md). The 2026-09-11+ entries in this log reflect the current direction.
+
+---
+
+## 2026-09-24 session — phase clock + last-fire wipe
+
+Playtest day/night loop on `feat/phase-clock`. Handoff: [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
+
+- **2026-09-24 · Spawn hearth is fully mortal · owner-directed** — Fuel can reach zero. The livable-floor experiment is retired. Urgency to keep the fire lit is the 2026-09-29 playtest.
+- **2026-09-24 · Last fire out = fade-to-black + new seed for everyone in the scene · owner-directed** — Three-card copy (world's flame / after N nights / centuries pass / new civilization). Next world generates under black. `snowdrift.png` splash is cold-open only, never mid-run regen. Sleeping-ember (60 s) and dormancy are still the v1 *per-fire* target; they did not ship this session. Empty-server persistence still not built — wipe only happens while the scene is live.
+- **2026-09-24 · Night pressure starts at dusk · owner-directed** — Torch melt pinch, weaker flame, HEAVY-biased weather that will not sit fully CLEAR, faster drain. Sky change is the time sign; do not pin midnight or fight SkyboxTime for darkness.
+- **2026-09-24 · Heat only from your lit torch or a visible campfire · owner-directed** — Huddle / player-cluster warmth removed. Torch stays the all-in-one tool. Shift-run stays off.
+- **2026-09-24 · Day X lives in Help + sunrise splash, not a HUD chip · owner-directed** — Replaces the help-panel 24 h rebuild countdown. Day number is `cycleId + 1`. New run after wipe starts at Day 1. Spectator +/- dock left of the eye without shifting the rest of the top HUD.
+- **2026-09-24 · Personal death stays cheap; world death is the loss · owner-directed (intent)** — No permadeath. For the 2026-09-29 test, a death should drop carried wood at the corpse (not built yet). Night is defend-the-stockpile, not a second gather phase. Monday 2026-09-28 focus is wood so that night has a bill.
 
 ---
 

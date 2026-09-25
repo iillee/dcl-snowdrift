@@ -16,9 +16,11 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 ## Status
 
-**v0 prototype — playtest + sign-off.** The scene live at `snowdrift.dcl.eth` is the pre-pivot cozy multiplayer hangout. It proves the core verbs: torch, snow melt, wood pickup, hearth feed, chain-lighting between players, frost death, weather, day/night cycle, authoritative server, mobile playability, paint-CRDT at scale. If v0 sign-off passes, work begins on v1.
+**v1 Systems in progress** on `feat/phase-clock` (2026-09-24). The World at `snowdrift.dcl.eth` may still be the older v0 deploy until this branch ships.
 
-**v1 build — not started.** Adds the seasonal cycle, sleeping-ember failure model, persistent-civilization backend, procgen biomes and discoveries, tree-mining, the Charcoal Kiln, and the winter solstice event. See [`design/gdd.md`](design/gdd.md) for the full spec and [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md) for the phased build plan.
+**In the current build:** torch, melt, wood pickup, frost death, chain-light, weather, **server-owned DAY / DUSK / NIGHT**, last-fire fade-to-black + new seed, Day X help + sunrise splash, snow LOD planes.
+
+**Next playtest:** 2026-09-29 (day/night loop). **Next build day:** 2026-09-28 — wood. Full spec [`design/gdd.md`](design/gdd.md). Handoff [`design/session-2026-09-24-phase-clock.md`](design/session-2026-09-24-phase-clock.md). The phased plan lives in GDD §9 (the old `docs/v1-4week-plan.md` is archived).
 
 The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \§0.1):
 
@@ -28,20 +30,20 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 
 ## Design documentation
 
-- [`design/gdd.md`](design/gdd.md) — full GDD (submission-ready).
+- [`design/gdd.md`](design/gdd.md) — full GDD.
 - [`design/summary.md`](design/summary.md) — plain-English overview.
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions and rationale.
+- [`design/session-2026-09-24-phase-clock.md`](design/session-2026-09-24-phase-clock.md) — live handoff (clock + last-fire + Monday wood).
 - [`design/hypothesis-log.md`](design/hypothesis-log.md) — hypotheses (`H1-xx`) referenced from the GDD.
 - [`design/spatialization-plan.md`](design/spatialization-plan.md) — procgen biome + fire archetype spec.
-- [`docs/v1-4week-plan.md`](docs/v1-4week-plan.md) — phased build plan for v1.
+- GDD §9 — phased v1 plan (`docs/v1-4week-plan.md` is archived).
 
 ## How it plays (v1 target)
 
-- Spawn near a lit hearth. HUD shows day, season, and a countdown to nightfall.
-- Grab a torch. Its warmth melts snow beneath you as you walk, revealing buried wood.
-- Explore. Discover biome anchors (Deadwood Grove, Pine Grove) and the Charcoal Kiln; light their fires to expand safe territory.
-- Bring wood back to any lit fire. Each fire drains fuel independently and must be tended.
-- Night falls, cold accelerates, players huddle at fires to keep them alive until dawn.
+- Spawn near a lit hearth. The sky is the clock. Help shows **Day X**; sunrise splashes the day number.
+- Grab a torch. Heat comes from *your* lit torch or a visible campfire — not from huddling.
+- Melt snow, pick up wood, feed the fire. Night starts at dusk: smaller melt, heavier weather, faster drain.
+- If the last fire dies, the world fades to black and a new seed begins.
 - Seasons progress. Winter deepens. Nights get longer, snow gets heavier, cold gets sharper — leading up to the **winter solstice**: the longest and hardest night.
 - Survive the solstice with any fire still lit \→ the recovery seasons begin (thaw, spring). Fail with all fires dead and no one around \→ the next arriving player witnesses extinction, and a new seed rolls. That reset is a story ("winter reclaimed the village"), not a game-over screen.
 

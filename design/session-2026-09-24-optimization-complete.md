@@ -1,8 +1,8 @@
 # Session record — snow optimization complete
 
-*Written 2026-09-24. Start a **new chat** for the next work (day/night MVP + wood gathering). Point that session at this file plus [`gdd.md`](gdd.md).*
+*Written 2026-09-24. Snow-rewrite status only. Live product handoff is now [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).*
 
-The planning notes in [`optimization-branch-handoff.md`](optimization-branch-handoff.md) and [`paint-rewrite.md`](paint-rewrite.md) are historical. This file is the live status.
+The planning notes in [`optimization-branch-handoff.md`](optimization-branch-handoff.md) and [`paint-rewrite.md`](paint-rewrite.md) are historical.
 
 ---
 
@@ -38,14 +38,11 @@ Rewrote the snow layer so melt cost follows where people walk, not the whole map
 
 Optional solo rehearsal before that: `devMeltBulk` ~15k cells.
 
-## Next product work (new session)
+## Next product work
 
-Ile’s intent for this week, not started:
+Day/night MVP **landed** 2026-09-24 — see [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md). Next build day is wood (2026-09-28).
 
-1. **MVP day/night loop** — GDD Phase 1 clock (server-time authority). Existing `src/client/cycle.ts` / `src/server/cycle.ts` is a 24 h rebuild timer, not the full phase clock.
-2. **Wood gathering matured a bit** — enough for gameplay testing next to the new snow.
-
-Do not reopen snow architecture unless the group playtest regresses.
+Do not reopen snow architecture unless the 2026-09-29 group playtest regresses.
 
 ## Scale (decided in conversation, not built)
 

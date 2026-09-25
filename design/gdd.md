@@ -1,5 +1,5 @@
-*Work in progress · revised 2026-09-11 against `docs/v1-4week-plan.md`*
-*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · two open design decisions gated by Week 1–2 prototypes (see §0.1)*
+*Work in progress · revised 2026-09-24 (phase-clock session) against this file + [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md)*
+*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · Phase 1 Systems in progress (session clock + last-fire wipe live; seasons / empty-server persistence still open)*
 
 > **Reading order.** Sections are numbered by drafting priority, not reading order. Recommended read: §0 → §0.1 → §1 → §8 → §2 → §3 → §4 → §5 → §6 → §7 → §9. Hypotheses (`H1-xx`) referenced throughout resolve in [`design/hypothesis-log.md`](./hypothesis-log.md).
 
@@ -28,7 +28,7 @@
 
 **The pitch.** Earth, hundreds of millions of years ago, at the edge of the great freeze. You wake in a village around a fire. Melt snow with your torch to find wood. Feed the hearth against the night. Survive the winter solstice together — and, over many winters, uncover what the ancients left buried under the ice: a network of dormant volcanoes built to thaw the world when the time came.
 
-**Current status.** Playable core loop in SDK7, live at `snowdrift.dcl.eth` (v0 baseline). Verbs already shipped: torch, hearth, wood-gathering by melting snow, frost-death, torch chain-lighting, weather, day/night cycle. The v1 delivery layers a **seasonal cycle culminating in a winter solstice event**, sleeping-ember fire failure, and a communal survival arc across many in-game days.
+**Current status.** v1 Systems is in progress on `feat/phase-clock` (not yet the live World). Verbs from v0 still hold: torch, hearth, wood pickup, frost-death, torch chain-lighting, weather. **Now also in the build:** a server-owned DAY / DUSK / NIGHT clock (sky is the time sign; playtest cadence ~1 min day / 10 s dusk / 1 min night), night pressure from dusk (torch melt pinch, heavier weather that will not go fully CLEAR, faster fire drain), a fully mortal spawn hearth, last-fire-out fade-to-black + new-seed rebuild for everyone in the scene, and a Day X help line + sunrise splash. **Not in the build yet:** seasonal cycle, solstice phases (names exist, unused), 60 s sleeping-ember / dormancy, empty-server persistence / return-screens, tree-mining, biomes / Kiln. Next playtest **2026-09-29** is the day/night loop; Monday 2026-09-28 is wood.
 
 **At end of v1.** Live with: a day/night phase clock, a full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), the sleeping-ember failure model, **persistent shared-world survival roguelike** with lightweight persistence backend + DCL CRDT for in-scene sync (world state persists across empty-server periods; extinction triggers new-seed generation), **fire-survives extinction rule** (civilization ends only when the last fire dies; oldest surviving fire becomes new home if hearth falls), **multi-fire territory with fire dormancy** (defense mechanic locked — see §0.1), **two biomes + one functional discovery on a procgen map** (Deadwood Grove, Pine Grove, Cabin/Charcoal Kiln) with a **three-tier fuel system** (kindling / deadwood / pinewood) plus **charcoal portability** produced at the Kiln that surfaces the geography-as-tech-tree pillar as three distinct capabilities (quantity / quality / portability), one **mystery discovery** (Ancient Station foreshadow) hinting at v2, a winter solstice event with warning + whiteout + recovery arc, personal **"while you were gone" return-screens** on every session start, a **level visual redesign** (block/prop art pass + environment-layout iteration) that lifts the world from greybox to a cohesive Cryogenian look, and a first multiplayer playtest during the Solstice + Game Loops phase.
 
@@ -57,7 +57,7 @@ Every major design decision that was open at start of v1 planning is now resolve
 - *Post-review lock (2026-09-11).* Territory makes §3 Pillar 3 ("fire = safety, distance = stakes") mechanically real; quota is a bar, territory is a map.
 - **Fire dormancy:** fires that fully drain without a relight enter a 60 s ember state; if unsaved, they go *dormant* (cold-but-not-dead) and can be reclaimed later at a wood cost (3–5 logs).
 - **Extinction rule (locked 2026-09-22, revised from earlier hearth-only model):** civilization ends only when the *last* remaining fire dies. Loss of the central hearth is a dramatic state transition, not extinction. When the hearth dies with a satellite still lit, the **oldest continuously-burning surviving fire** becomes the community's new home — the respawn point and the HUD-designated "current hearth" — until the original is reclaimed or the community migrates permanently. Produces the exile / migration / reclamation narrative arc (see GDD Pillar 6).
-- **Hearth livable-floor:** *experimental during build.* Whether the spawn hearth has a decay floor that prevents death-by-neglect (only dying to a scripted stress event like solstice-with-nobody-present) versus fully mortal like every other fire — to be resolved by feel during Phase 2–3.
+- **Hearth livable-floor:** **LOCKED 2026-09-24 — spawn hearth is fully mortal.** Fuel can reach zero. If it is the last lit fire, the civilization ends (see extinction rule). The earlier “floor so neglect cannot kill the spawn hearth” experiment is retired; urgency to keep the fire lit is the point of the 2026-09-29 playtest.
 - **Territory concretized 2026-09-22** — three fire archetypes (spawn hearth / biome anchor / rest stop), two biomes (Deadwood Grove, Pine Grove) + one discovery (Cabin/Charcoal Kiln), procgen placement per world reset. Full spec in [`spatialization-plan.md`](spatialization-plan.md).
 
 **Decision C — Cabin/Kiln discovery tech. LOCKED 2026-09-22: Charcoal Kiln (portability logistics).**
@@ -117,13 +117,13 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 ### First 0–10 minutes (you)
 
-**0–5 sec.** You wake in a warm circle around a fire. Snow falls beyond it. Others stand nearby with lit torches. HUD: *"Day 3 — Night in 4:12"* and a fire-network status readout (which satellite fires are lit, which are dormant).
+**0–5 sec.** You wake in a warm circle around a fire. Snow falls beyond it. Others stand nearby with lit torches. The sky is the clock. Help (`?`) shows **Day X** and the live phase countdown; a gold **Day X** title splashes at each sunrise. No always-on day-countdown chip on the HUD.
 
 **5–10 sec.** You step out; a chill cue plays, a frost meter appears. You grab a torch from the hearth pile. Wood chunks glow under the snow when your torch is near.
 
 **10–60 sec.** You walk to a glow. Snow melts under you. Pick up a log — carrying 1. Deposit at the hearth; its fuel gauge visibly refills; the fire brightens and its warmth radius grows.
 
-**1–3 min.** "Night in" hits 1:00. Sky darkens; players run for a fire; you follow. Cold accelerates. Someone feeds a log. The fire holds. Dawn breaks.
+**1–3 min.** The sky darkens (dusk). Night pressure starts at sunset — torch melt shrinks, weather thickens, fire drain doubles. Players run for a fire. Someone feeds a log. The fire holds. Dawn breaks; **Day X** splashes.
 
 **3–10 min.** Day 2. Cold multiplier climbs; a *"Cold ×1.4"* chip appears. Wood near the hearth is gone — you walk further. Torch drops low; you hand off to an incoming player. First coordination beat.
 
@@ -388,6 +388,8 @@ The 5-week solo-with-AI budget (75–100 hours) is realistically ~half of what t
 
 ~5 weeks of calendar between the bookends, split across the five themed phases below in whatever proportion the build demands. Playtests happen at natural seams — end of Systems, end of Depth + Holes, and inside Solstice + Game Loops — not on fixed dates. Schedule applies to both Reach and Core tiers.
 
+**Phase 1 progress (2026-09-24).** Session clock + in-scene last-fire extinction are playable. Snow LOD planes and delayed snowfall started. Still open for Systems: seasonal table, fog, sleeping-ember / dormancy, serverless empty-server persistence + return-screens, content-pool scaffolding, H1-06 8-player mobile gate. Next group playtest **2026-09-29** (day/night loop). Owner away 2026-09-26–27; build day **2026-09-28** is wood. Detail in [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
+
 ### 9.1 Reach v1 — the five phases (ambition target)
 
 *Reviewer note: this is the implementer-facing detailed table for the Reach scope. A condensed reviewer summary + side-by-side Reach/Core comparison lives in [`design/summary.md`](./summary.md). The Core scope that we commit to Foundation is §9.2 immediately below.*
@@ -473,6 +475,8 @@ This is the honest 5-week scope. Every gameplay pillar in §3 has at least one m
 
 **The two-hand rule.** Your torch is always in one hand. The other hand carries *one thing at a time* — a log, a warmth item, an ancient find. Picking up something new drops what you had. No inventory screen, no menu. Every reveal under the snow is a decision: *is this worth the log I was carrying?*
 
+**Heat (locked 2026-09-24).** Warmth comes only from *your* lit torch or a *visible* campfire. No huddle / player-cluster bubble. Shift-run is off. Night torch debuffs (smaller melt, weaker flame) start at **dusk**, not at a later midnight pin. The sky changing is the time sign.
+
 **The three-horizon pitch:**
 > *Stay home and you can survive today.*
 > *Expand and you may survive the winter.*
@@ -494,10 +498,10 @@ Each horizon corresponds to one of the three nested loops:
 
 | # | Step | Player does | Sees / hears | What changes | Why do it again |
 |---|---|---|---|---|---|
-| 1 | **Dawn** | Wakes near a lit fire | Fire warms, day count ticks up, season indicator visible on HUD | Frost resets | New day to expand or reclaim |
+| 1 | **Dawn** | Wakes near a lit fire | Fire warms; **Day X** sunrise splash; Help shows the calendar day | Frost resets | New day to expand or reclaim |
 | 2 | **Day (gather / expand)** | Ventures out with lit torch; melts snow; picks up revealed wood; returns and feeds a fire. In territory model: may reclaim a lost fire | Snow melts under torch; wood chunks glow; other players' torches visible across the field | Wood picked up, torch fuel drains, frost accumulates outside warmth; fire fuel refills | Days will shorten; nights will get colder |
 | 3 | **Dusk** | Regroups near a fire; commits to which one(s) to hold overnight | Sky darkens, weather thickens, "Night in 1:00" warning | Fires low on fuel may not survive without immediate feeding | Getting caught out at nightfall is fatal |
-| 4 | **Night (defend)** | Stays near warmth, feeds fires from stockpile | Cold rises, snowfall heavy, fire fuel draining, snow regrows aggressively | Fire fuel drains; if under-tended, a fire enters sleeping-ember state (60 s to relight); if unsaved, the fire dies and its territory refreezes | Moments from surviving another day |
+| 4 | **Night (defend)** | Stays near a fire or their own lit torch; feeds from stockpile | Cold rises, snowfall heavy, fire fuel draining, snow regrows; torch is a one-tile path | Fire fuel drains faster. **Live now:** if the last fire hits zero, the world fades to black and reseeds. **Still planned:** 60 s sleeping-ember then dormancy on non-last fires | Moments from surviving another day |
 | 5 | **Dawn resolves** | Sees which fires lived | Sunrise; surviving fires still warm; dead-fire embers gone | `day++`; season may advance; cold trends up toward solstice | Tomorrow will be harder — the solstice approaches |
 
 ### Per-year beats (the seasonal arc)
@@ -526,7 +530,7 @@ Each horizon corresponds to one of the three nested loops:
 
 **Per-year:** the winter solstice is the annual climax. Post-solstice recovery seasons are the reward; the arc rolls back into a new autumn.
 
-**Individual death:** respawn at nearest fire with frost reset. Contribution time lost, not the run.
+**Individual death:** respawn at the spawn hearth with frost reset and torch extinguished. Contribution time lost, not the run. **Stakes for the 2026-09-29 playtest (intent, not all built):** death should drop a carried log at the corpse so a suicide-charge wastes the trip; the world-loss is still last-fire-out, not permadeath. Carried-wood drop is Monday work if wood lands.
 
 **Cycle length:** `[OPEN: determined by build + playtest]` — day/night cycle length, dusk window, season length, and solstice day-number are all balance dials that only reveal their right values once the loop is playable. Any specific number stated pre-build is a guess. Solstice arrival will be a fixed **day number** within the run (roguelike model, per §0.1 Decision A).
 

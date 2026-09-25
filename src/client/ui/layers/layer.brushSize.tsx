@@ -570,7 +570,12 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 				color    = {tint}
 				font     = "sans-serif"
 				textAlign= "middle-center"
-				uiTransform = {{ width: '100%', height: '100%' }}
+				uiTransform = {{
+					width : '100%',
+					height: '100%',
+					// Sans-serif + / – sit a few px low in the 72 square.
+					margin: { bottom: 8 },
+				}}
 			/>
 		</UiEntity>
 	)
