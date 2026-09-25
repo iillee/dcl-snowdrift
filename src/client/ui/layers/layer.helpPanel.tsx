@@ -20,12 +20,14 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { playUiClick } from 'src/client/audio'
-import { msUntilNextRebuild } from 'src/client/cycle'
-import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
+import { VERSION } from 'src/shared/data/version'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
+
+import { playUiClick } from 'src/client/audio'
+import { getMainFireFuel } from 'src/client/hearthFuel'
+import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
+import { getDayNumber, getPhaseLabel, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { VERSION }  from 'src/shared/data/version'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
@@ -51,26 +53,27 @@ const BTN_SIZE         = 72
 // bar reads as the same rhythm as the row itself.
 const GAP_BELOW_BAR_PX = 16
 
-const PANEL_W = 440
-// Bumped from 152 to make room for a dedicated version-chip row below
-// the four info lines. Each info line is ~26 tall + a 4 gap; the chip
-// row adds ~28 (24 tall + 4 gap above).
-const PANEL_H = 188
+const DAY_LINE_H    = 40
+const DAY_GAP       = 8
+const BODY_LINE_H   = 26
+const BODY_GAP      = 4
+const BODY_COUNT    = 4
+const VERSION_H     = 24
+const VERSION_GAP   = 8
+const PANEL_PAD     = spacing.lg
+const PANEL_BORDER  = 4
+
+// Hug the copy: short lines no longer need the old 440 x rebuild-timer box.
+const PANEL_W = 340
+const PANEL_H =
+	PANEL_PAD * 2 +
+	PANEL_BORDER * 2 +
+	DAY_LINE_H + DAY_GAP +
+	BODY_COUNT * BODY_LINE_H + (BODY_COUNT - 1) * BODY_GAP +
+	VERSION_GAP + VERSION_H
 
 
-// MARK: formatCountdown
-/** Format a positive ms duration as `HH:MM:SS`. Mirrors layer.cyclePanel. */
-function formatCountdown(ms: number): string {
-	const total = Math.max(0, Math.floor(ms / 1000))
-	const h     = Math.floor(total / 3600)
-	const m     = Math.floor((total % 3600) / 60)
-	const s     = total % 60
-	const pad   = (n: number) => (n < 10 ? `0${n}` : `${n}`)
-	return `${pad(h)}:${pad(m)}:${pad(s)}`
-}
-
-// One central bonfire is always lit from cycle start; the three hidden
-// ones toggle as players ignite them. Total = 1 + HIDDEN_CAMPFIRE_COUNT.
+// Spawn hearth + hidden pits. Spawn can go out; the count is live.
 const TOTAL_CAMPFIRES = 1 + HIDDEN_CAMPFIRE_COUNT
 
 
@@ -101,9 +104,9 @@ class HelpPanelLayer extends Layer {
 					width         : PANEL_W,
 					height        : PANEL_H,
 					margin        : { top },
-					padding       : spacing.lg,
+					padding       : PANEL_PAD,
 					borderRadius  : borderRadius.md,
-					borderWidth   : 4,
+					borderWidth   : PANEL_BORDER,
 					borderColor   : Color4.create(1, 1, 1, 0.75),
 					flexDirection : 'column',
 					alignItems    : 'stretch',
@@ -111,6 +114,18 @@ class HelpPanelLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
+				{/* Day header — calendar day of this run. Larger than the
+				   body copy so it reads first when the panel drops. */}
+				<Label
+					value    = {isPhaseHydrated()
+						? `<b><color=#ffcc4d>Day ${getDayNumber()}</color></b>`
+						: '<b>Day —</b>'}
+					fontSize = {fontSizes.subhead}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: DAY_LINE_H, margin: { bottom: DAY_GAP } }}
+				/>
 				{/* Line 1 — top-level directive. Deliberately terse so it
 				   frames the two mechanic lines below as HOW to do it. */}
 				<Label
@@ -119,7 +134,7 @@ class HelpPanelLayer extends Layer {
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
+					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
 				/>
 				{/* Line 2 — core loop. "wood" is bold + yellow to mirror the
 				   warm-gold fuel bar so the language + colour align. */}
@@ -129,29 +144,30 @@ class HelpPanelLayer extends Layer {
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
+					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
 				/>
 				{/* Line 3 — objective + progress. Central bonfire counts as 1
 				   (always lit at cycle start); hidden ones tick up as they're
 				   ignited. Reads from getHiddenCampfireWarmthPositions().length
 				   so it stays in lockstep with the frost-warmth signal. */}
 				<Label
-					value    = {`Find and light the hidden campfires: <b><color=#ffcc4d>${1 + getHiddenCampfireWarmthPositions().length}/${TOTAL_CAMPFIRES}</color></b>`}
+					value    = {`Fires lit: <b><color=#ffcc4d>${(getMainFireFuel() > 0 ? 1 : 0) + getHiddenCampfireWarmthPositions().length}/${TOTAL_CAMPFIRES}</color></b>`}
 					fontSize = {20}
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 26, margin: { bottom: 4 } }}
+					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
 				/>
-				{/* Line 2 — mirrors the ClockButton countdown (msUntilNextRebuild
-				   is the shared source of truth for the 24 h UTC rollover). */}
+				{/* Line 4 — live phase + countdown from the server clock. */}
 				<Label
-					value    = {`World rebuilds in <b><color=#ffcc4d>${formatCountdown(msUntilNextRebuild())}</color></b>`}
+					value    = {isPhaseHydrated()
+						? `Now: <b><color=#ffcc4d>${getPhaseLabel()}</color></b>`
+						: 'Now: waiting for day clock'}
 					fontSize = {20}
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: 26 }}
+					uiTransform = {{ width: '100%', height: BODY_LINE_H }}
 				/>
 				{/* Version chip — dedicated row at the bottom of the panel.
 				   Wrapper row is flex-centred so the auto-width chip sits in
@@ -162,8 +178,8 @@ class HelpPanelLayer extends Layer {
 					key         = "ui_HelpPanel_versionRow"
 					uiTransform = {{
 						width         : '100%',
-						height        : 24,
-						margin        : { top: 8 },
+						height        : VERSION_H,
+						margin        : { top: VERSION_GAP },
 						flexDirection : 'row',
 						justifyContent: 'center',
 						alignItems    : 'center',
@@ -173,7 +189,7 @@ class HelpPanelLayer extends Layer {
 						key         = "ui_HelpPanel_version"
 						uiTransform = {{
 							width       : 'auto',
-							height      : 24,
+							height      : VERSION_H,
 							borderRadius: borderRadius.sm,
 							padding     : { right: 4, left: 4 },
 						}}

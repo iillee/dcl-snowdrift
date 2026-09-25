@@ -27,6 +27,8 @@ import { movePlayerTo, triggerEmote } from '~system/RestrictedActions'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { FROST_MAX }                                             from 'src/shared/frost/tuning'
+
+import { isEmberFailing }                                        from 'src/client/emberFail'
 import { getFrostLocal, resetFrostLocal }                        from 'src/client/frost/accumulation'
 import { extinguishTorch }                                       from 'src/client/torchEquip'
 import { isTopDownActive, toggleTopDownCamera }                  from 'src/client/topDownCamera'
@@ -164,6 +166,7 @@ export function setupFrostDeath(): void {
 			// accumulator debounces CRDT writes at a 0.5 epsilon so the
 			// synced value can lag the actual float by that much — enough
 			// to never quite hit FROST_MAX in the component.
+			if (isEmberFailing()) return
 			if (getFrostLocal() >= FROST_MAX) enterDying()
 			return
 		}

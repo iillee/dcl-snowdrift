@@ -23,6 +23,7 @@ import { engine } from '@dcl/sdk/ecs'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	FUEL_MAIN_FLOOR,
+	FUEL_MAIN_INITIAL,
 	FUEL_MAX,
 	FUEL_MAX_BURST_RADIUS_M,
 	LOG_FUEL_SECONDS,
@@ -33,6 +34,9 @@ import {
 } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
 
+import { onCycleRoll } from 'src/server/cycle'
+import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
+import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
 
@@ -47,7 +51,7 @@ const BROADCAST_FUEL_DELTA = 3
 const BROADCAST_HEARTBEAT_S = 2
 
 
-let mainFuel              = FUEL_MAIN_FLOOR
+let mainFuel              = FUEL_MAIN_INITIAL
 let lastBroadcastFuel     = -999   // force first broadcast
 let lastBroadcastTier     = -1
 let lastBroadcastPlayers  = -1
@@ -122,6 +126,30 @@ export function getMainFireFuel(): number {
 }
 
 
+// MARK: resetMainFireFuel
+/** Restore the spawn hearth to its opening Warm tank (cycle rebuild). */
+export function resetMainFireFuel(): void {
+	mainFuel          = FUEL_MAIN_INITIAL
+	maxBurstArmed     = true
+	lastBroadcastFuel = -999
+	broadcastFuel()
+	syncMeltRingToCurrentFuel()
+	console.log(`[Server] hearthFuel: reset to ${FUEL_MAIN_INITIAL}s`)
+}
+
+
+// MARK: snuffMainFire
+/** Force the spawn hearth out. Used by the dev ember-fail trigger. */
+export function snuffMainFire(): void {
+	if (mainFuel <= 0) return
+	const prevTier = hearthTierFromFuel(mainFuel)
+	mainFuel = 0
+	if (hearthTierFromFuel(mainFuel) !== prevTier) syncMeltRingToCurrentFuel()
+	broadcastFuel()
+	console.log('[Server] hearthFuel: snuffed')
+}
+
+
 // MARK: sendHearthFuelStateTo
 /**
  * Push the current fuel snapshot to a single client. Called from the
@@ -169,6 +197,10 @@ export function setupHearthFuelServer(): void {
 		// Main hearth handler - filter to target=-1 only. Hidden fire
 		// slots (0..N-1) are handled by src/server/hiddenCampfire.ts.
 		if (target !== -1) return
+		if (isEmberFailing()) {
+			console.log('[Server] hearthFuel: feed ignored — ember fail in progress')
+			return
+		}
 		const from     = context?.from ?? 'unknown'
 		const prev     = mainFuel
 		const prevTier = hearthTierFromFuel(prev)
@@ -187,8 +219,9 @@ export function setupHearthFuelServer(): void {
 
 	// Decay + broadcast tick.
 	engine.addSystem((dt: number) => {
+		if (isEmberFailing()) return
 		const players   = rosterSize()
-		const drainRate = hearthDecayRate(players)
+		const drainRate = hearthDecayRate(players) * getPhaseDrainMul()
 		const prev      = mainFuel
 		const prevTier  = hearthTierFromFuel(prev)
 		mainFuel        = Math.max(FUEL_MAIN_FLOOR, mainFuel - drainRate * dt)
@@ -197,6 +230,10 @@ export function setupHearthFuelServer(): void {
 		// grows / shrinks in lock-step with the fuel model.
 		if (hearthTierFromFuel(mainFuel) !== prevTier) syncMeltRingToCurrentFuel()
 		rearmMaxBurstIfSafe()
+		if (prev > 0 && mainFuel <= 0) {
+			console.log('[Server] hearthFuel: spawn hearth burned out')
+			checkEmberFail()
+		}
 
 		heartbeatClock += dt
 		const tier        = hearthTierFromFuel(mainFuel)
@@ -222,5 +259,9 @@ export function setupHearthFuelServer(): void {
 		void prev
 	})
 
-	console.log(`[Server] hearthFuel: installed. floor=${FUEL_MAIN_FLOOR}s max=${FUEL_MAX}s log=+${LOG_FUEL_SECONDS}s`)
+	onCycleRoll(() => {
+		resetMainFireFuel()
+	})
+
+	console.log(`[Server] hearthFuel: installed. floor=${FUEL_MAIN_FLOOR}s initial=${FUEL_MAIN_INITIAL}s max=${FUEL_MAX}s log=+${LOG_FUEL_SECONDS}s`)
 }

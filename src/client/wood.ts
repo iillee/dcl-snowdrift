@@ -8,11 +8,12 @@
  * Lifecycle:
  *   - On cycle-state hydration: server broadcasts woodActiveSet with
  *     the current seed and active indices. Client rebuilds scatter,
- *     spawns GLBs for each active idx.
- *   - Trickle respawn: server broadcasts woodChunkActive { seed, idx }
- *     -> client spawns one GLB.
+ *     then reveals a GLB only where snow is melted.
+ *   - Reveal: a chunk GLB only exists while the snow cell under it is
+ *     fully melted. Regrowth hides it again; the active set stays.
  *   - Pickup: proximity poll sends woodPickupRequest; server confirms
- *     with woodChunkRemoved -> client despawns.
+ *     with woodChunkRemoved -> client despawns. Server also rejects
+ *     pickups on unmelted cells.
  *
  * Local pickup effect: reuses pickupLogs() so the F slot fills the
  * same way it does for a hearth pile. Two systems (scatter chunks +
@@ -21,14 +22,17 @@
  */
 
 import { Billboard, BillboardMode, GltfContainer, Material, MaterialTransparencyMode, MeshRenderer, Transform, engine, Entity } from '@dcl/sdk/ecs'
-import { Color3, Color4, Quaternion, Vector3 }                                                                                  from '@dcl/sdk/math'
+import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+import { getPlayer } from '@dcl/sdk/players'
 
 import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
-import { computeWoodScatter, WoodChunk }            from 'src/shared/woodScatter'
-import { hasLogs, pickupLogs }                      from 'src/client/logsInventory'
-import { spawnLogsBounce }                          from 'src/client/logsPickupFx'
-import { room }                                     from 'src/shared/messages'
-import { getPlayer }                                from '@dcl/sdk/players'
+import { room } from 'src/shared/messages'
+import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
+import { computeWoodScatter, WoodChunk } from 'src/shared/woodScatter'
+
+import { hasLogs, pickupLogs } from 'src/client/logsInventory'
+import { spawnLogsBounce } from 'src/client/logsPickupFx'
+import { getDisplayedStage } from 'src/client/snow/snowModel'
 
 
 /**
@@ -77,6 +81,7 @@ interface ChunkRec {
 
 let currentSeed         = 0
 let scatter             : WoodChunk[] = []
+const activeIdx         = new Set<number>()
 const chunkEntities     = new Map<number, ChunkRec>()
 
 let installed = false
@@ -97,18 +102,13 @@ export function setupWoodClient(): void {
 
 	room.onMessage('woodActiveSet', ({ seed, indices }) => {
 		rebuildForSeed(seed)
-		// Despawn any previously spawned chunk not in the new active set;
-		// spawn any active idx not currently rendered. Handles both
-		// hydration (empty -> full) and cycle roll (old set -> new set)
-		// in one code path.
-		const activeSet = new Set<number>(indices)
+		activeIdx.clear()
+		for (const idx of indices) activeIdx.add(idx)
 		for (const idx of chunkEntities.keys()) {
-			if (!activeSet.has(idx)) despawnChunk(idx)
+			if (!activeIdx.has(idx)) despawnChunk(idx)
 		}
-		for (const idx of activeSet) {
-			if (!chunkEntities.has(idx)) spawnChunk(idx, /* armed */ true)
-		}
-		console.log(`wood: activeSet applied seed=${seed} active=${activeSet.size}`)
+		syncWoodReveal()
+		console.log(`wood: activeSet applied seed=${seed} active=${activeIdx.size}`)
 	})
 
 	room.onMessage('woodChunkActive', ({ seed, idx }) => {
@@ -116,13 +116,13 @@ export function setupWoodClient(): void {
 			console.log(`wood: chunkActive stale seed ${seed} vs ${currentSeed}, ignoring`)
 			return
 		}
-		// Fresh spawns start unarmed - the local player might be standing
-		// right on top of the reactivated chunk.
-		spawnChunk(idx, /* armed */ false)
+		activeIdx.add(idx)
+		syncWoodReveal()
 	})
 
 	room.onMessage('woodChunkRemoved', ({ seed, idx, pickerId }) => {
 		if (seed !== currentSeed) return
+		activeIdx.delete(idx)
 		despawnChunk(idx)
 		// Remote FX: local player already got their bounce optimistically
 		// in pickupLogs(), so only play here when someone ELSE grabbed it.
@@ -219,6 +219,39 @@ function despawnChunk(idx: number): void {
 }
 
 
+// MARK: isSnowMeltedAt
+
+/** True when the snow cell at world (x, z) is fully melted. */
+function isSnowMeltedAt(
+	x: number,
+	z: number,
+): boolean {
+	const key = worldToCellKey(x, z)
+	if (key === null) return false
+	return getDisplayedStage(key) === STAGE_MELTED
+}
+
+
+// MARK: syncWoodReveal
+
+/**
+ * Spawn GLBs for active chunks on melted cells; hide them again if
+ * snow has grown back. Called after every active-set change and on
+ * the proximity poll so melt underfoot reveals wood without a second
+ * system.
+ */
+function syncWoodReveal(): void {
+	for (const idx of activeIdx) {
+		const c = scatter[idx]
+		if (!c) continue
+		const melted  = isSnowMeltedAt(c.worldX, c.worldZ)
+		const spawned = chunkEntities.has(idx)
+		if (melted && !spawned) spawnChunk(idx, true)
+		if (!melted && spawned) despawnChunk(idx)
+	}
+}
+
+
 // MARK: proximityPollSystem
 let accum = 0
 function proximityPollSystem(dt: number): void {
@@ -226,6 +259,7 @@ function proximityPollSystem(dt: number): void {
 	if (accum < POLL_INTERVAL_S) return
 	accum = 0
 
+	syncWoodReveal()
 	if (chunkEntities.size === 0) return
 	if (hasLogs()) {
 		armChunksOutOfRange()

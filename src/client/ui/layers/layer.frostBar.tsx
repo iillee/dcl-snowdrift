@@ -19,16 +19,17 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { FROST_MAX }                               from 'src/shared/frost/tuning'
+
+import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
 import { getFrostLocal }                           from 'src/client/frost/accumulation'
-import { ClockButton, DevRollButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
+import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
+import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
 // while the timer lives in the HelpPanel. Flip to `true` to restore the
 // standalone HUD button + popover.
 const SHOW_CLOCK_BUTTON = false
-import { SHOW_DEV_ROLL_BUTTON } from 'src/client/devFlags'
-import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
-import { FROST_MAX }                               from 'src/shared/frost/tuning'
 
 
 // Font-awesome atlas from the UI component kit — same asset the
@@ -131,6 +132,14 @@ class FrostBarLayer extends Layer {
 		super({
 			id  : 'frostBar',
 			zone: ZoneType.TopCenter,
+			// Kit TopCenter is width 50% / left 25%. On a half-width
+			// ultrawide that box is narrower than the HUD row, and Yoga
+			// shrinks the square buttons on X. Give the cluster the
+			// full top band so the squares keep their size.
+			uiTransform: {
+				width   : '90%',
+				position: { top: 8, left: '5%' },
+			},
 		})
 	}
 
@@ -250,6 +259,7 @@ class FrostBarLayer extends Layer {
 					flexDirection : 'row',
 					justifyContent: 'center',
 					alignItems    : 'center',
+					flexShrink    : 0,
 					// Desktop: nudge the whole top-centre HUD cluster (clock, eye,
 					// mute, frost bar, torch) to the right so it clears the
 					// countdown popover that pops out to the LEFT of the clock.
@@ -273,6 +283,8 @@ class FrostBarLayer extends Layer {
 				{!mobile && <MuteButton />}
 				{!mobile && <HelpButton />}
 				{!mobile && SHOW_DEV_ROLL_BUTTON && <DevRollButton />}
+				{!mobile && SHOW_DEV_ADVANCE_PHASE && <DevAdvancePhaseButton />}
+				{!mobile && SHOW_DEV_SNUFF_BUTTON && <DevSnuffButton />}
 				{/* Outer frame — same tinted-black bg + rounded corners as the
 				   action-bar buttons, so the HUD reads as one system. */}
 				<UiEntity
@@ -280,6 +292,9 @@ class FrostBarLayer extends Layer {
 					uiTransform = {{
 						width          : innerW + borderPx * 2,
 						height         : innerH + borderPx * 2,
+						minWidth       : innerW + borderPx * 2,
+						minHeight      : innerH + borderPx * 2,
+						flexShrink     : 0,
 						justifyContent : 'center',
 						alignItems     : 'center',
 						// L+R margin matches BTN_MARGIN_X on desktop so the gap

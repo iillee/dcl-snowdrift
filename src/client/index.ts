@@ -44,6 +44,9 @@ import { initSnowRenderer } from 'src/client/snow/snowRenderer'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
+import { setupDaySplash } from 'src/client/daySplash'
+import { setupEmberFailClient } from 'src/client/emberFail'
+import { setupPhaseClient } from 'src/client/phase'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupLogsClient } from 'src/client/logs'
 import { setupLogsInput } from 'src/client/logsInput'
@@ -60,14 +63,11 @@ import {
 	setupPerimeter,
 } from 'src/client/perimeter'
 import { setupProps } from 'src/client/props/spawn'
-// Skybox forced cycle is intentionally not imported — see the disabled
-// setupSkybox() call in setupClient() for the rationale.
-// import { setupSkybox } from 'src/client/skybox'
+import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchChain } from 'src/client/torchChain'
-import { setupTorchWarmth } from 'src/client/torchWarmth'
 import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
@@ -166,6 +166,9 @@ export async function setupClient(): Promise<void> {
 	// initClientHandler so we don't miss the hydration `cycleState` that
 	// arrives immediately after joinRoster.
 	setupCycleClient()
+	setupPhaseClient()
+	setupDaySplash()
+	setupSkybox()
 
 	initPlayerNet()
 	initLocomotionGate()
@@ -187,6 +190,7 @@ export async function setupClient(): Promise<void> {
 	// so the joinRoster hydration broadcast (hearthFuelUpdate) is caught
 	// on the very first frame the joiner is in the room.
 	setupHearthFuelClient()
+	setupEmberFailClient()
 	// Remote-torch + chain-light subscribers MUST register before
 	// initClientHandler for the same reason as the hydration paths
 	// above: the server's sendTorchStatesTo(joiner) inside joinRoster
@@ -194,13 +198,9 @@ export async function setupClient(): Promise<void> {
 	// registered later (e.g. after the tile cascade completes) misses that
 	// initial hydration. Symptom before this move: a late-joining
 	// desktop client never sees a mobile player's lit state, so
-	// warmth-together ignores them as "unlit" — while the mobile can
-	// still chain-light the desktop because mobile has correct local
-	// state. torchWarmth doesn't subscribe to messages but depends on
-	// remoteTorches being installed, so it moves with the pair.
+	// chain-light ignores them as "unlit."
 	setupRemoteTorches()
 	setupTorchChain()
-	setupTorchWarmth()
 	// 3D fuel bar above the fire. Reads from hearthFuel state, so it's
 	// spawned AFTER the subscriber above (order isn't strictly required
 	// since it lerps from the tier-3 floor, but keeps intent tidy).
@@ -227,14 +227,6 @@ export async function setupClient(): Promise<void> {
 	// when top-down is inactive.
 	engine.addSystem(dragPollSystem)
 
-	// Skybox forced cycle is disabled — the dusk→night sweep felt too fast
-	// even at 30 min per round trip, so we let DCL's default sky run. The
-	// `setupSkybox()` module (and its `releaseSkyboxLock()` unwind) is
-	// preserved in `src/client/skybox.ts` behind this call site; re-enable
-	// by uncommenting once we have a much slower cadence or a parked-at-
-	// dusk fixed value.
-	// setupSkybox()
-
 	// Campfire + its VFX/audio come FIRST so they claim the initial
 	// asset-load bandwidth. The player spawns next to the fire and needs
 	// it visible on the first frame. Cliff GLBs start as soon as the
@@ -254,7 +246,7 @@ export async function setupClient(): Promise<void> {
 	// Local torch visuals + fuel-drain / relight input. Kept eager (no
 	// message subscribers, no hydration-order dependency) alongside the
 	// other cold-open spawns above. Message-subscriber siblings
-	// (setupRemoteTorches / setupTorchChain / setupTorchWarmth) are
+	// (setupRemoteTorches / setupTorchChain) are
 	// installed further up before joinRoster — see the hydration-order
 	// comment there. Do NOT re-add them here.
 	setupTorch()

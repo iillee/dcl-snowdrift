@@ -14,7 +14,7 @@
  * on the scene particle budget shared with snowfall.
  */
 
-import { PBParticleSystem_BlendMode, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
+import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -114,6 +114,11 @@ export function setupCampfireSmoke(): void {
 		if (Math.abs(mult - lastMult) < 0.05) return
 		lastMult   = mult
 		const ps   = ParticleSystem.getMutable(emitter)
+		if (mult <= 0) {
+			ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
+			return
+		}
+		ps.playbackState        = PBParticleSystem_PlaybackState.PS_PLAYING
 		ps.initialVelocitySpeed = { start: INITIAL_SPEED_MIN * mult, end: INITIAL_SPEED_MAX * mult }
 		ps.lifetime             = LIFETIME_S * mult
 	})

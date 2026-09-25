@@ -26,9 +26,11 @@ import { snowGridCapacity } from 'src/shared/snowGrid'
 
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
+import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
 import { sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
+import { sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
 import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import {
@@ -99,6 +101,9 @@ export async function setupServer(): Promise<void> {
 	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
+	// Day/night clock after cycle so it can subscribe to onCycleRoll
+	// (reset to DAY when the 24 h world wipe fires).
+	setupPhaseServer()
 	setupHiddenCampfireServer()
 	setupLogsServer()
 	setupWoodServer()
@@ -107,6 +112,7 @@ export async function setupServer(): Promise<void> {
 	// so decayRate has a real player count immediately) but before the
 	// joinRoster handler is invoked - hydration below needs it live.
 	setupHearthFuelServer()
+	setupEmberFailServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the
@@ -117,9 +123,8 @@ export async function setupServer(): Promise<void> {
 	// clear and hidden reset are independent, but keeps the intent clear.
 	onCycleRoll(() => {
 		// Cycle wipes fuel-driven expansion too - baseline ring is the
-		// correct visual reset. Fuel state itself is handled by the
-		// hearthFuel server (main hearth clamps back to floor as decay
-		// continues).
+		// correct visual reset. Fuel itself is reset by hearthFuel's
+		// onCycleRoll handler (back to FUEL_MAIN_INITIAL).
 		console.log('[Server] cycle: clearing snow + reseeding central ring')
 		clearAllSnow()
 		seedStartingArea()
@@ -195,6 +200,7 @@ export async function setupServer(): Promise<void> {
 		// on join so a fresh client's HUD shows a correct rebuild timer
 		// from the first frame instead of trusting local Date.now().
 		sendCycleStateTo(from)
+		sendPhaseStateTo(from)
 		// Hydrate held-torch lit states for everyone already in the room so
 		// the joiner sees flames instead of dark sticks until each remote
 		// player's next lit-state change.
@@ -202,6 +208,7 @@ export async function setupServer(): Promise<void> {
 		// Current main-hearth fuel snapshot so the joiner's fire visuals
 		// (radius, upcoming billboard) match the room from the first frame.
 		sendHearthFuelStateTo(from)
+		sendEmberFailTo(from)
 		// Force a fresh PaintTile write so this joiner cannot hydrate
 		// from the empty create() snapshot that syncEntity may have
 		// captured before the seed flush.

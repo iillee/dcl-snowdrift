@@ -19,9 +19,11 @@
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { playTorchSfxLocal }                                                 from 'src/client/audio'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+
+import { playTorchSfxLocal } from 'src/client/audio'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
+import { getLivePhaseConfig } from 'src/client/phase'
 import {
 	TORCH_FUEL_MAX_S,
 	consumeTorchFuel,
@@ -118,7 +120,7 @@ export function setupTorchInput(): void {
 	engine.addSystem((dt: number) => {
 		// \u2500\u2500 Fuel drain \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 		if (isTorchLit()) {
-			const remaining = consumeTorchFuel(dt)
+			const remaining = consumeTorchFuel(dt * getLivePhaseConfig().torchDrainMul)
 			if (remaining <= 0) {
 				extinguishTorch()
 				console.log('torchInput: torch burnt out (fuel=0)')

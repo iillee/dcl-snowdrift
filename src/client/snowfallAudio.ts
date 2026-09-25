@@ -12,7 +12,7 @@
 
 import { AudioSource, Entity, Transform, engine } from '@dcl/sdk/ecs'
 
-import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
+import { PrecipitationLevel, getPrecipitation, isSnowfallArmed } from 'src/client/snowfall'
 
 
 // MARK: Tuning
@@ -39,7 +39,7 @@ function applyLevel(): void {
 
 	const level  = getPrecipitation()
 	const volume = VOLUME_BY_LEVEL[level]
-	const play   = level !== PrecipitationLevel.CLEAR
+	const play   = isSnowfallArmed() && level !== PrecipitationLevel.CLEAR
 
 	AudioSource.createOrReplace(audioEnt, {
 		audioClipUrl: SNOWFALL_SRC,

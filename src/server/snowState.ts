@@ -18,6 +18,7 @@ import {
 	forEachCellInDisc,
 	isCellKeyValid,
 	snowByteFromStage,
+	worldToCellKey,
 } from 'src/shared/snowGrid'
 
 import { noteComponentChange } from 'src/server/serverStats'
@@ -84,6 +85,24 @@ export function applyMelt(
 	writeStage(key, 0)
 	coverageDirty = true
 	return true
+}
+
+
+// MARK: getStageAtWorld
+
+/**
+ * Authoritative stage at world (x, z). Missing cells are pristine.
+ * Off-playfield reads as pristine so callers never treat a cliff
+ * pocket as melted ground.
+ */
+export function getStageAtWorld(
+	x: number,
+	z: number,
+): SnowStage {
+	const key = worldToCellKey(x, z)
+	if (key === null) return STAGE_PRISTINE
+	const state = cells.get(key)
+	return state ? state.stage : STAGE_PRISTINE
 }
 
 

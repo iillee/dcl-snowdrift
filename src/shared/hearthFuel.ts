@@ -10,8 +10,8 @@
  * Design (see PLAN.md v2.14 / this session's design chat):
  *   - 1 log         = LOG_FUEL_SECONDS (+60 s)
  *   - Hard cap      = FUEL_MAX (600 s -> 10 logs banked)
- *   - Main fire     = never below MAIN_FLOOR (150 s -> tier 3 "Warm").
- *                     Melt radius therefore never shrinks below 8 m.
+ *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
+ *                     and can burn to 0. Last fire out is game over.
  *   - Hidden fires  = no floor. Fuel -> 0 snuffs them; snow-cover
  *                     re-buries them via precipitation.
  *   - 5 tiers       = readable UI + tier-snapped flame model scale.
@@ -35,18 +35,19 @@ export const LOG_FUEL_SECONDS  = 60
  *  from making the UI unreadable and gives Roaring a defined peak. */
 export const FUEL_MAX          = 600
 
-/** Main fire's floor. Cannot decay below tier 3 ("Warm"), so the
- *  central hearth is always at least at the default 8 m melt radius.
- *  Named MAIN_FLOOR so hidden fires (floor = 0) read as the exception. */
-export const FUEL_MAIN_FLOOR   = 150
+/** Main fire's decay floor. Zero so the spawn hearth can go out. */
+export const FUEL_MAIN_FLOOR   = 0
+
+/** Fuel the spawn hearth starts (and rebuilds) at. Warm / 8 m ring. */
+export const FUEL_MAIN_INITIAL = 150
 
 /** Hidden bonfires can burn all the way out. */
 export const FUEL_HIDDEN_FLOOR = 0
 
-/** Fuel value a hidden fire starts at when ignited. Lands in tier 3
- *  (Warm) so a fresh discovery feels like a real fire, but the ~3.3
- *  min solo drain window means players need to feed it to sustain. */
-export const FUEL_HIDDEN_INITIAL = 200
+/** Fuel a hidden fire starts at when first ignited. Ember (tier 1),
+ *  just into the lowest bar — a spark, not a camp. Solo drain is
+ *  ~1 s/s, so this is a short window to feed it or it dies. */
+export const FUEL_HIDDEN_INITIAL = 30
 
 /** Melt radius (m) for the one-shot "you filled the fire" burst that
  *  fires when fuel first reaches FUEL_MAX. Bigger than the tier-5
@@ -66,7 +67,7 @@ export const FUEL_MAX_BURST_RADIUS_M = 22
 export const TIER_FUEL: readonly number[] = [0, 60, 150, 300, 450, FUEL_MAX] as const
 
 /** Human-readable tier names (index 0 unused; tiers are 1..5). */
-export const TIER_NAMES: readonly string[] = ['', 'Ember', 'Low', 'Warm', 'Bright', 'Roaring'] as const
+export const TIER_NAMES: readonly string[] = ['Out', 'Ember', 'Low', 'Warm', 'Bright', 'Roaring'] as const
 
 /** Melt radius (m) at each tier's LOWER bound. Continuous fuel values
  *  interpolate linearly between adjacent anchors. Anchor 3 (index 2)
@@ -85,9 +86,17 @@ export const TIER_SMOKE_HEIGHT: readonly number[] = [0.4, 0.7, 1.0, 1.4, 1.9] as
 export const TIER_VOLUME: readonly number[] = [0.30, 0.50, 0.70, 0.85, 1.00] as const
 
 
+// MARK: hearthIsLit
+/** True when a fire still has fuel in the tank. */
+export function hearthIsLit(fuel: number): boolean {
+	return fuel > 0
+}
+
+
 // MARK: hearthTierFromFuel
-/** Which tier index (1..5) a given fuel value lives in. */
+/** Which tier index (1..5) a given fuel value lives in. 0 = out. */
 export function hearthTierFromFuel(fuel: number): number {
+	if (fuel <= 0) return 0
 	for (let i = 1; i <= 5; i++) {
 		if (fuel < TIER_FUEL[i]) return i
 	}
@@ -125,27 +134,31 @@ function interpAnchor(fuel: number, anchors: readonly number[]): number {
 
 
 // MARK: hearthRadiusFromFuel
-/** Melt radius (m) as a continuous function of fuel. */
+/** Melt radius (m) as a continuous function of fuel. Dead fire = 0. */
 export function hearthRadiusFromFuel(fuel: number): number {
+	if (fuel <= 0) return 0
 	return interpAnchor(fuel, TIER_RADIUS_M)
 }
 
 
 // MARK: hearthSmokeHeightFromFuel
 export function hearthSmokeHeightFromFuel(fuel: number): number {
+	if (fuel <= 0) return 0
 	return interpAnchor(fuel, TIER_SMOKE_HEIGHT)
 }
 
 
 // MARK: hearthVolumeFromFuel
 export function hearthVolumeFromFuel(fuel: number): number {
+	if (fuel <= 0) return 0
 	return interpAnchor(fuel, TIER_VOLUME)
 }
 
 
 // MARK: hearthFlameScaleFromFuel
-/** Flame scale SNAPS to the active tier (no interp). */
+/** Flame scale SNAPS to the active tier (no interp). Out = 0. */
 export function hearthFlameScaleFromFuel(fuel: number): number {
+	if (fuel <= 0) return 0
 	return TIER_FLAME_SCALE[hearthTierFromFuel(fuel) - 1]
 }
 

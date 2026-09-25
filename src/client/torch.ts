@@ -4,12 +4,13 @@
  * Uses the AvatarAttach two-layer pattern proven in flagtag:
  *
  *   Anchor (AvatarAttach on right hand)   \u2190 engine tracks bone
- *     \u2514\u2500 Model (STATIC child, offsets set once)
+ *     \u2514\u2500 Model / flame / smoke (STATIC children, offsets set once)
  *
  * The anchor's Transform must not be mutated after AvatarAttach is
  * created \u2014 Bevy's attach-propagation races with per-frame Transform
- * writes on direct children and will detach the model. All positional
- * tuning lives on the child Model layer, which is safe.
+ * writes on the anchor and will detach the model. Do not parent the
+ * torch to CameraEntity: a Gltf + particle child on the camera kills
+ * the React-ECS HUD.
  *
  * Model: Log_Large_01 from the large_log asset pack, scaled way down
  * (~7 % of its authored size) so the log reads as a torch shaft in the
@@ -26,12 +27,8 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
+import { getLivePhaseConfig } from 'src/client/phase'
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
-import {
-	TORCH_WARMTH_TIER_EMISSIVE_MULT,
-	TORCH_WARMTH_TIER_FLAME_SCALE,
-	getLocalTorchWarmthTier,
-} from 'src/client/torchWarmth'
 
 
 // MARK: Tuning
@@ -51,7 +48,8 @@ const TORCH_OFFSET  = Vector3.create(0.04, 0.12, 0.10)
 // +60 = 2 hours clockwise on a clock face (looking straight down on the
 // avatar), so the torch angles across the palm rather than pointing
 // straight along the forearm axis.
-const TORCH_ROTATION = Quaternion.fromEulerDegrees(90, -30, 90)
+const TORCH_ROTATION    = Quaternion.fromEulerDegrees(90, -30, 90)
+const TORCH_MODEL_SCALE = Vector3.create(TORCH_SCALE, TORCH_SCALE * 2, TORCH_SCALE * 2)
 
 
 // MARK: Flame + fuel-bar tuning
@@ -101,18 +99,17 @@ const SMOKE_SIZE_END_MAX      = 0.72
 
 
 // MARK: State
-let installed  = false
-let torchTip:  Entity = 0 as Entity
-let flame:     Entity = 0 as Entity
-let smoke:     Entity = 0 as Entity
+let installed    = false
+let torchAnchor: Entity = 0 as Entity
+let torchTip:    Entity = 0 as Entity
+let flame:       Entity = 0 as Entity
+let smoke:       Entity = 0 as Entity
 
 // MARK: isTorchProtecting
 /**
- * Whether the held torch is actively halting the baseline frost drop.
- * Read by src/client/frost/accumulation.ts each poll. Torch protection
- * requires the entity to be installed AND the flame lit — an
- * unlit / burnt-out torch offers no warmth. Independent of campfire
- * proximity: the fire always trumps and thaws regardless.
+ * Whether YOUR held torch is lit. The only personal heat source.
+ * A friend's torch does not warm you — chain-light their flame if
+ * you want them safe. Campfire thaw is separate and always wins.
  */
 export function isTorchProtecting(): boolean {
 	return installed && isTorchLit()
@@ -135,37 +132,35 @@ export function setupTorch(): void {
 
 	// Layer 1: Anchor \u2014 rides the right hand bone. Transform is a stub;
 	// AvatarAttach overrides it every frame. Never write to it again.
-	const anchor = engine.addEntity()
-	AvatarAttach.create(anchor, {
+	torchAnchor = engine.addEntity()
+	AvatarAttach.create(torchAnchor, {
 		anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND,
 	})
-	Transform.create(anchor, { position: Vector3.Zero(), scale: Vector3.One() })
+	Transform.create(torchAnchor, { position: Vector3.Zero(), scale: Vector3.One() })
 
-	// Layer 2: Model \u2014 STATIC child that carries the visual offsets. Set
+	// Layer 2: Model — STATIC child that carries the visual offsets. Set
 	// once and never mutated so it never fights AvatarAttach propagation.
 	torchTip = engine.addEntity()
 	Transform.create(torchTip, {
-		parent  : anchor,
+		parent  : torchAnchor,
 		position: TORCH_OFFSET,
 		rotation: TORCH_ROTATION,
-		// Stretched 2× on Y and Z so the log reads as a longer, slimmer
-		// torch shaft rather than the stubby proportions of the source
-		// mesh. X is left at base scale to keep the grip thickness.
-		scale   : Vector3.create(TORCH_SCALE, TORCH_SCALE * 2, TORCH_SCALE * 2),
+		scale   : TORCH_MODEL_SCALE,
 	})
 	GltfContainer.create(torchTip, {
 		src                         : TORCH_MODEL,
-		// Colliders off \u2014 a hand-held prop should not block anything.
+		// Colliders off — a hand-held prop should not block anything.
 		visibleMeshesCollisionMask  : 0,
 		invisibleMeshesCollisionMask: 0,
 	})
+	VisibilityComponent.create(torchTip, { visible: true })
 
 	// Layer 3: Flame — small emissive sphere at the torch tip. Parented
 	// to the ANCHOR (right hand) so its local axes are un-rotated and
 	// nudging offsets is straightforward.
 	flame = engine.addEntity()
 	Transform.create(flame, {
-		parent  : anchor,
+		parent  : torchAnchor,
 		position: FLAME_LOCAL_POS,
 		scale   : FLAME_SIZE,
 	})
@@ -184,7 +179,7 @@ export function setupTorch(): void {
 	// fuel-tracker system below toggles playbackState with lit state.
 	smoke = engine.addEntity()
 	Transform.create(smoke, {
-		parent  : anchor,
+		parent  : torchAnchor,
 		position: SMOKE_LOCAL_POS,
 		rotation: Quaternion.Identity(),
 	})
@@ -251,28 +246,21 @@ export function setupTorch(): void {
 			if (ps.playbackState !== desired) ps.playbackState = desired
 		}
 
-		// "Torches burn brighter together" — cluster tier stacks a size
-		// AND emissive multiplier on top of the fuel-driven base. Fuel
-		// shrinks the flame as it burns; cluster tier swells + brightens
-		// it when friends are close. Two players meeting = an unmissable
-		// flame-swell moment both visually AND in ambient light.
-		const tier = lit ? getLocalTorchWarmthTier() : 0
+		// Fuel shrinks the flame. Night pinches it further (torchFlameMul).
+		const flameMul = getLivePhaseConfig().torchFlameMul
 
 		const flameT = Transform.getMutableOrNull(flame)
 		if (flameT !== null) {
 			const base = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
-			const s    = base * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
+			const s    = base * flameMul
 			flameT.scale.x = s
 			flameT.scale.y = s
 			flameT.scale.z = s
 		}
 
-		// Emissive brightness — mutate in place so we don't churn the
-		// full PBR material record every frame. Only writes on tier change
-		// to keep the CRDT diff quiet.
 		const mat = Material.getMutableOrNull(flame)
 		if (mat !== null && mat.material?.$case === 'pbr') {
-			const want = FLAME_EMISSIVE * TORCH_WARMTH_TIER_EMISSIVE_MULT[tier]
+			const want = FLAME_EMISSIVE * flameMul
 			if (mat.material.pbr.emissiveIntensity !== want) {
 				mat.material.pbr.emissiveIntensity = want
 			}

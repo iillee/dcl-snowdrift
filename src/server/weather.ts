@@ -16,6 +16,14 @@ import { engine } from '@dcl/sdk/ecs'
 
 import { room } from 'src/shared/messages'
 
+import {
+	getPhaseWeatherEnterLevel,
+	getPhaseWeatherFloor,
+	getPhaseWeatherHeavyBias,
+	getPhaseWeatherSpeedMul,
+	onPhaseChange,
+} from 'src/server/phase'
+
 
 // MARK: Tuning
 // Bounds of the discrete weather level. Mirrors PrecipitationLevel in
@@ -37,12 +45,8 @@ const CHANGE_INTERVAL_MAX_S = 75
 // jumping to a fully random level. Higher = smoother weather arcs.
 const STEP_TRANSITION_P = 0.75
 
-// Probability that a ±1 step goes DOWN (toward CLEAR) rather than up.
-// > 0.5 biases the equilibrium toward calmer weather so players get
-// sustained clear-sky windows to build without snow re-burying work.
-// At 0.65, combined with the 25 % random-jump path, CLEAR sits around
-// ~50 % of the time and HEAVY drops to ~8 %.
-const STEP_DOWN_P = 0.65
+// Night snaps to HEAVY at sunset, then may step down. weatherFloor
+// keeps night from going fully CLEAR. Day has no floor.
 
 
 // MARK: State
@@ -54,21 +58,25 @@ let clockS            = 0
 // MARK: pickNextLevel
 /**
  * Choose the next weather level. With STEP_TRANSITION_P probability,
- * step \u00b11 (clamped to bounds) so intensity moves gradually. Otherwise
- * jump to any level except the current one for occasional surprises.
+ * step ±1 (clamped to bounds). The up-vs-down roll uses the phase
+ * weatherHeavyBias so night drifts toward HEAVY. Otherwise jump to
+ * any other level for occasional surprises.
  */
 function pickNextLevel(): number {
+	const floor = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, getPhaseWeatherFloor()))
 	if (Math.random() < STEP_TRANSITION_P) {
-		// \u00b11 step. When at a bound, we must step the only direction that
-		// stays in-range.
-		if (currentLevel === MIN_LEVEL) return currentLevel + 1
+		if (currentLevel <= floor) return Math.min(MAX_LEVEL, currentLevel + 1)
 		if (currentLevel === MAX_LEVEL) return currentLevel - 1
-		return currentLevel + (Math.random() < STEP_DOWN_P ? -1 : 1)
+		return currentLevel + (Math.random() < getPhaseWeatherHeavyBias() ? 1 : -1)
 	}
-	// Full-random jump excluding the current level.
-	let next = Math.floor(Math.random() * (MAX_LEVEL - MIN_LEVEL))
-	if (next >= currentLevel) next++
-	return Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, next))
+	const span = MAX_LEVEL - floor + 1
+	let next  = floor + Math.floor(Math.random() * span)
+	if (next === currentLevel) {
+		next = currentLevel <= floor
+			? Math.min(MAX_LEVEL, currentLevel + 1)
+			: currentLevel - 1
+	}
+	return Math.max(floor, Math.min(MAX_LEVEL, next))
 }
 
 
@@ -76,8 +84,9 @@ function pickNextLevel(): number {
 /** Reset the clock and pick a new random interval to wait. */
 function scheduleNextChange(): void {
 	clockS = 0
-	nextChangeAtS = CHANGE_INTERVAL_MIN_S +
-		Math.random() * (CHANGE_INTERVAL_MAX_S - CHANGE_INTERVAL_MIN_S)
+	const span = CHANGE_INTERVAL_MAX_S - CHANGE_INTERVAL_MIN_S
+	const raw  = CHANGE_INTERVAL_MIN_S + Math.random() * span
+	nextChangeAtS = raw / Math.max(0.25, getPhaseWeatherSpeedMul())
 }
 
 
@@ -91,7 +100,8 @@ function broadcastWeather(): void {
 // MARK: applyLevel
 /** Set the weather to `level`, broadcast, and re-schedule the next change. */
 function applyLevel(level: number): void {
-	const clamped = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, level | 0))
+	const floor   = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, getPhaseWeatherFloor()))
+	const clamped = Math.max(floor, Math.min(MAX_LEVEL, level | 0))
 	if (clamped === currentLevel) {
 		// Even a "no-op" set from a player request should still nudge the
 		// timer so the auto-cycler does not immediately overwrite them.
@@ -125,6 +135,24 @@ export function sendCurrentWeatherTo(userId: string): void {
 }
 
 
+// MARK: syncWeatherToPhase
+
+/**
+ * On dusk/night enter, snap up to weatherEnterLevel (HEAVY) so sunset
+ * is immediately a storm. Never sit below weatherFloor.
+ */
+function syncWeatherToPhase(): void {
+	const floor = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, getPhaseWeatherFloor()))
+	const enter = getPhaseWeatherEnterLevel()
+	let target = currentLevel
+	if (enter !== null && currentLevel < enter) target = enter
+	if (target < floor) target = floor
+	if (target === currentLevel) return
+	console.log(`[Server] weather: phase snap ${currentLevel} → ${target}`)
+	applyLevel(target)
+}
+
+
 // MARK: setupWeather
 /**
  * Boot the server's weather cycle: install the tick system, register
@@ -133,6 +161,7 @@ export function sendCurrentWeatherTo(userId: string): void {
  */
 export function setupWeather(): void {
 	scheduleNextChange()
+	onPhaseChange(syncWeatherToPhase)
 
 	// Player-driven weather changes. Server accepts unconditionally \u2014
 	// this is a coop scene, not competitive, so any player can steer.

@@ -1,57 +1,43 @@
 /**
- * brush.ts — melt brush footprint, derived from torch state.
+ * brush.ts — melt brush footprint, derived from torch fuel and phase.
  *
- * Brush size is NOT player-controlled. It is a strict function of the
- * torch AND, when lit, the local cluster tier from torchWarmth.ts:
- *   - Torch unlit / none          -> BRUSH_UNLIT (1x1) stomp footprint
- *   - Torch lit, solo    (tier 0) -> 3x3 melt (BRUSH_TORCH_LIT baseline)
- *   - Torch lit, paired  (tier 1) -> 5x5 melt
- *   - Torch lit, cluster (tier 2) -> 7x7 melt
+ *   - Torch unlit / none     -> 1x1 stomp
+ *   - Torch lit, fuel > 1/3  -> 3x3 melt
+ *   - Torch lit, fuel <= 1/3 -> 1x1 melt (low-fuel tell)
+ *   - Dusk and night         -> 1x1 melt (PhaseConfig.meltBrushCap)
  *
- * The lit-brush size lives in torchWarmth.TORCH_WARMTH_TIER_BRUSH_CELLS
- * alongside the matching warmth-disc radii, so the "where I melt is
- * where I heat" semantic parity is enforced at a single source of truth.
- *
- * When we later add torch upgrades or double-torch cells per PLAN.md's
- * B1 candidates, add cases here — the accumulation and paint systems
- * only read getBrushCells() and don't care where the number comes from.
+ * Being near another player does not change the brush. Chain-light
+ * is the only togetherness verb.
  */
 
-import { isTorchLit } from 'src/client/torchEquip'
-import {
-	TORCH_WARMTH_TIER_BRUSH_CELLS,
-	getLocalTorchWarmthTier,
-} from 'src/client/torchWarmth'
+import { phaseMeltBrushCells } from 'src/shared/phase'
+
+import { getLivePhaseConfig } from 'src/client/phase'
+import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
 
 
 // MARK: Sizes
+/** Daytime melt while the torch has more than a third of its fuel. */
+export const BRUSH_TORCH_LIT = 3
 /**
- * Melt footprint when the torch flame is burning AND the local player
- * is solo (no other lit torch within CLUSTER_PROXIMITY_M). Kept as an
- * exported const for any downstream module that needs the baseline
- * (currently none outside historical references).
+ * Unlit stomp footprint. Demotes pristine cells to stage 1 rather
+ * than fully melting (see src/server/snowState.ts).
  */
-export const BRUSH_TORCH_LIT = TORCH_WARMTH_TIER_BRUSH_CELLS[0]
-/**
- * Fallback footprint when the torch is out. Kept above 0 so a
- * torchless player can still crawl home instead of being stranded.
- * Under the paintTick stomp policy (see src/server/snowState.ts) an
- * unlit brush demotes pristine cells to stage 1 rather than fully
- * melting, so this is more of a "trample" footprint than a melt.
- */
-export const BRUSH_UNLIT     = 1
+export const BRUSH_UNLIT = 1
+/** Fuel fraction at or below this pinches the day brush to one tile. */
+const LOW_FUEL_MELT_FRAC = 1 / 3
 
 
 // MARK: getBrushCells
+
 /**
- * Current brush footprint as an odd cell count (1, 3, 5, or 7). Read
- * every frame by the painting system. When lit, scales with the local
- * cluster tier from torchWarmth.ts so paired/clustered players carve
- * wider trails than solo ones — measurable cooperation payoff visible
- * in the world's persistent melt state.
+ * Current brush footprint as an odd cell count (1 or 3). Night and
+ * low fuel both land on one tile.
  */
 export function getBrushCells(): number {
 	if (!isTorchLit()) return BRUSH_UNLIT
-	const tier = getLocalTorchWarmthTier()
-	return TORCH_WARMTH_TIER_BRUSH_CELLS[tier]
+	const cells = getTorchFuelFraction() <= LOW_FUEL_MELT_FRAC
+		? BRUSH_UNLIT
+		: BRUSH_TORCH_LIT
+	return phaseMeltBrushCells(getLivePhaseConfig(), cells)
 }

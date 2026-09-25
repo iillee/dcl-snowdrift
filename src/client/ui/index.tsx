@@ -12,11 +12,13 @@
 
 import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
-import { SHOW_SERVER_STATS, SHOW_TORCH_WARMTH_DEBUG }  from 'src/client/devFlags'
+import { SHOW_SERVER_STATS } from 'src/client/devFlags'
 import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 // CyclePanel is rendered inline by ClockButton (see layer.brushSize.tsx)
 // so it's anchored to the clock icon — not a top-level kit layer.
+import { daySplashLayer }     from 'src/client/ui/layers/layer.daySplash'
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
+import { emberFailLayer }     from 'src/client/ui/layers/layer.emberFail'
 import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
 import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
 import { hotbarBridgeLayer }          from 'src/client/ui/layers/layer.hotbarBridge'
@@ -33,7 +35,6 @@ import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
 import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
-import { torchWarmthDebugLayer } from 'src/client/ui/layers/layer.torchWarmthDebug'
 // versionLayer is retired — the version chip now lives inside the
 // help panel footer (see layer.helpPanel > ui_HelpPanel_version).
 
@@ -49,7 +50,6 @@ export function setupUi() {
 	// the kit uses array position as z-order (later = above), so serverStats
 	// stays at the bottom of the stack like it always was.
 	const devLayers = SHOW_SERVER_STATS ? [serverStatsLayer] : []
-	if (SHOW_TORCH_WARMTH_DEBUG) devLayers.push(torchWarmthDebugLayer)
 
 	SetupUiComponentKit({
 		layers: [
@@ -82,9 +82,15 @@ export function setupUi() {
 			// is clicked. Registered above HUD chrome so its border isn't
 			// clipped by lower layers, but below deathFade / splash.
 			helpPanelLayer,
+			// Sunrise "Day X" sits above HUD chrome, below death / ember /
+			// loading so those still cover it.
+			daySplashLayer,
 			// Death fade must sit above gameplay HUD but below the cold-open
 			// splash so a splash-during-death still covers the screen.
 			deathFadeLayer,
+			// Ember-fail game over sits above death fade. Splash is skipped
+			// during fail so this title stays readable on black.
+			emberFailLayer,
 			// Splash must be last so it renders on top of every other layer.
 			loadingSplashLayer,
 		],

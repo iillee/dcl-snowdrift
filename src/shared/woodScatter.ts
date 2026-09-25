@@ -34,21 +34,15 @@ import {
 
 // MARK: Tuning constants
 /**
- * How many chunk positions the scatter tries to place per seed. This
- * is the POOL of candidate positions - the server only activates a
- * subset (WOOD_ACTIVE_TARGET) at any time, and picks fresh unused
- * idxes on trickle respawn so wood never comes back at the same spot
- * a player just picked it up from. Large pool = many possible spawn
- * locations per cycle before the field "runs out" (which anchors on
- * the midnight cycle roll anyway).
+ * How many chunk positions the scatter tries to place per seed. The
+ * server activates a WOOD_ACTIVE_TARGET subset at cycle start. The
+ * rest of the pool is unused until the next 24 h rebuild.
  */
 export const WOOD_POOL_SIZE = 200
 
 /**
- * How many chunks are active in the world at any one time. Server
- * maintains this count via the trickle respawn - drops below when
- * players pick up faster than the trickle can refill, grows back
- * toward this over time.
+ * How many chunks are active at cycle start. No in-run refill —
+ * pickups stay gone until the 24 h world rebuild.
  */
 export const WOOD_ACTIVE_TARGET = 40
 
@@ -67,9 +61,8 @@ export const WOOD_CENTER_EXCLUSION_M = 12
 export const WOOD_PEAK_RADIUS_M = 50
 
 /**
- * Sampling radius (m) - hard outer boundary. Set slightly below the
- * playfield half-diagonal so chunks never spawn against the cliff
- * perimeter. Playfield is 128x128, half-diagonal ~90 m.
+ * Sampling radius (m) — hard outer boundary. Keeps the v0 gather
+ * ring inside a short walk of the hearth on the 480 m playfield.
  */
 export const WOOD_MAX_RADIUS_M = 80
 

@@ -15,7 +15,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { forceLocalCycleRoll } from 'src/client/cycle'
-import { SHOW_DEV_ROLL_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
+import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
 import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
@@ -28,7 +28,7 @@ import { dropLogAtPlayer } from 'src/client/logsInput'
 import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
-import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
+import { canZoomIn, canZoomOut, isTopDownActive, toggleTopDownCamera, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
@@ -57,6 +57,16 @@ function slotBg(): Color4 { return isMobile() ? SLOT_BG_MB : SLOT_BG_DT }
 // Shared button footprint so every action button in the bar looks identical.
 const BTN_SIZE       = 72
 const BTN_MARGIN_X   = 8   // horizontal breathing room per-button (left + right)
+// Yoga defaults flexShrink to 1. The TopCenter zone is a % of the real
+// canvas, so a half-width ultrawide window compresses this row on X
+// only and turns the 72×72 buttons into rectangles. Lock the square.
+const HUD_SQUARE = {
+	width     : BTN_SIZE,
+	height    : BTN_SIZE,
+	minWidth  : BTN_SIZE,
+	minHeight : BTN_SIZE,
+	flexShrink: 0,
+} as const
 
 // MARK: slotSize / slotIconSize
 // Mobile inventory slots (TorchButton, LogsButton) are rendered larger
@@ -104,8 +114,7 @@ function BrushButton(props: {
 		<UiEntity
 			key         = {`ui_BrushBtn_${props.keySuffix}`}
 			uiTransform = {{
-				width        : BTN_SIZE,
-				height       : BTN_SIZE,
+				...HUD_SQUARE,
 				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',
@@ -151,6 +160,22 @@ function forceCycleRoll(): void {
 	console.log('layer.brushSize: forceCycleRoll: local rebuild + emit devRollCycle')
 	forceLocalCycleRoll()
 	room.send('devRollCycle', {})
+}
+
+
+// MARK: forceAdvancePhase
+/** Ask the server to jump to the next daily phase. */
+function forceAdvancePhase(): void {
+	console.log('layer.brushSize: forceAdvancePhase: emit devAdvancePhase')
+	room.send('devAdvancePhase', {})
+}
+
+
+// MARK: forceSnuffFires
+/** Ask the server to extinguish every fire (ember-fail playtest). */
+function forceSnuffFires(): void {
+	console.log('layer.brushSize: forceSnuffFires: emit devSnuffFires')
+	room.send('devSnuffFires', {})
 }
 
 
@@ -254,8 +279,7 @@ class ActionBarLayer extends Layer {
 					<UiEntity
 						key = "ui_PrecipBtn"
 						uiTransform = {{
-							width        : BTN_SIZE,
-							height       : BTN_SIZE,
+							...HUD_SQUARE,
 							margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 							justifyContent: 'center',
 							alignItems   : 'center',
@@ -285,8 +309,7 @@ export function HelpButton() {
 		<UiEntity
 			key = "ui_HelpBtn"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				...HUD_SQUARE,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
@@ -413,8 +436,7 @@ export function ClockButton() {
 		<UiEntity
 			key = "ui_ClockBtn"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				...HUD_SQUARE,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
@@ -463,33 +485,92 @@ export function ClockButton() {
  * Top-down camera toggle. Same footprint as the torch button; border
  * turns warm gold while top-down is active. Exported so the frost-bar
  * layer can host it inline on desktop.
+ *
+ * Zoom +/- dock to the left of the eye with absolute position so they
+ * do not push mute / help / frost along the row when spectator opens.
  */
 export function SpectatorButton() {
 	const specActive = isTopDownActive()
+	const gap        = BTN_MARGIN_X * 2
 	return (
 		<UiEntity
-			key = "ui_SpectatorBtn"
+			key = "ui_SpectatorCluster"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				...HUD_SQUARE,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+			}}
+		>
+			<UiEntity
+				key = "ui_SpectatorBtn"
+				uiTransform = {{
+					...HUD_SQUARE,
+					justifyContent: 'center',
+					alignItems    : 'center',
+					borderRadius  : borderRadius.md,
+					borderWidth   : TORCH_BORDER_W,
+					borderColor   : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
+				}}
+				uiBackground = {{ color: PANEL_BG }}
+				onMouseDown  = {() => { playUiClick(); toggleTopDownCamera() }}
+			>
+				<UiEntity
+					key = "ui_ViewToggle_icon_desktop"
+					uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
+					uiBackground = {{
+						textureMode: 'stretch',
+						texture    : { src: EYE_ICON_SRC },
+						color      : specActive ? GOLD : WHITE,
+					}}
+				/>
+			</UiEntity>
+			{specActive && <ZoomHudButton kind="in"  dockRight={(BTN_SIZE + gap) * 2} />}
+			{specActive && <ZoomHudButton kind="out" dockRight={BTN_SIZE + gap} />}
+		</UiEntity>
+	)
+}
+
+
+// MARK: ZoomHudButton
+
+/**
+ * Spectator zoom control. Docked left of the eye via `dockRight` so
+ * the top HUD row keeps its resting layout. Grayed at the altitude
+ * limit so + / - still sit in place but refuse a dead click.
+ */
+function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
+	const enabled = props.kind === 'in' ? canZoomIn() : canZoomOut()
+	const glyph   = props.kind === 'in' ? '+' : '–'
+	const tint    = enabled ? WHITE : DIM
+	return (
+		<UiEntity
+			key = {props.kind === 'in' ? 'ui_ZoomInBtn' : 'ui_ZoomOutBtn'}
+			uiTransform = {{
+				...HUD_SQUARE,
+				positionType  : 'absolute',
+				position      : { top: 0, right: props.dockRight },
 				justifyContent: 'center',
 				alignItems    : 'center',
 				borderRadius  : borderRadius.md,
 				borderWidth   : TORCH_BORDER_W,
-				borderColor   : specActive ? TORCH_BORDER_ON : TORCH_BORDER_OFF,
+				borderColor   : TORCH_BORDER_OFF,
 			}}
 			uiBackground = {{ color: PANEL_BG }}
-			onMouseDown  = {() => { playUiClick(); toggleTopDownCamera() }}
+			onMouseDown  = {() => {
+				if (!enabled) return
+				playUiClick()
+				if (props.kind === 'in') zoomIn()
+				else                     zoomOut()
+			}}
 		>
-			<UiEntity
-				key = "ui_ViewToggle_icon_desktop"
-				uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
-				uiBackground = {{
-					textureMode: 'stretch',
-					texture    : { src: EYE_ICON_SRC },
-					color      : specActive ? GOLD : WHITE,
-				}}
+			<Label
+				value    = {`<b>${glyph}</b>`}
+				fontSize = {48}
+				color    = {tint}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%' }}
 			/>
 		</UiEntity>
 	)
@@ -510,8 +591,7 @@ export function DevRollButton() {
 		<UiEntity
 			key = "ui_DevRollBtn"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				...HUD_SQUARE,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
@@ -535,6 +615,74 @@ export function DevRollButton() {
 }
 
 
+// MARK: DevSnuffButton
+/**
+ * Dev-only button that snuffs every fire so we can playtest game over.
+ * Hidden unless SHOW_DEV_SNUFF_BUTTON.
+ */
+export function DevSnuffButton() {
+	return (
+		<UiEntity
+			key = "ui_DevSnuffBtn"
+			uiTransform = {{
+				...HUD_SQUARE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); forceSnuffFires() }}
+		>
+			<Label
+				value    = "OUT"
+				fontSize = {18}
+				color    = {WHITE}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%', margin: { top: isMobile() ? -12 : -4 } }}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: DevAdvancePhaseButton
+/**
+ * Dev-only button that jumps the day/night clock to the next phase.
+ * Same footprint as DevRollButton. Hidden unless SHOW_DEV_ADVANCE_PHASE.
+ */
+export function DevAdvancePhaseButton() {
+	return (
+		<UiEntity
+			key = "ui_DevAdvancePhaseBtn"
+			uiTransform = {{
+				...HUD_SQUARE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); forceAdvancePhase() }}
+		>
+			<Label
+				value    = "⏭"
+				fontSize = {32}
+				color    = {WHITE}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%', margin: { top: isMobile() ? -12 : -4 } }}
+			/>
+		</UiEntity>
+	)
+}
+
+
 // MARK: MuteButton
 /**
  * Audio mute toggle. Same footprint as the torch button. Exported so
@@ -545,8 +693,7 @@ export function MuteButton() {
 		<UiEntity
 			key = "ui_MuteBtn"
 			uiTransform = {{
-				width         : BTN_SIZE,
-				height        : BTN_SIZE,
+				...HUD_SQUARE,
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
@@ -926,8 +1073,7 @@ function _PaintSwatchButton(props: {
 		<UiEntity
 			key         = {`ui_SwatchBtn_${props.keySuffix}`}
 			uiTransform = {{
-				width        : BTN_SIZE,
-				height       : BTN_SIZE,
+				...HUD_SQUARE,
 				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems   : 'center',

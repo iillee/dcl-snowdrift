@@ -28,11 +28,8 @@ export const SHOW_SERVER_STATS         = false
 /** '⇆' button that forces an immediate server cycle rollover (world regen). */
 export const SHOW_DEV_ROLL_BUTTON      = false
 
-/**
- * Small top-right readout showing the local torch's cluster tier, disc
- * radius, and how many lit torches are within CLUSTER_PROXIMITY_M.
- * Useful when playtesting warmth-together solo with two accounts —
- * lets you confirm the mechanic fired without watching both flames at
- * once. See src/client/ui/layers/layer.torchWarmthDebug.tsx.
- */
-export const SHOW_TORCH_WARMTH_DEBUG   = false
+/** '⏭' button that jumps the day/night clock to the next phase. */
+export const SHOW_DEV_ADVANCE_PHASE    = false
+
+/** 'OUT' button that snuffs every fire to playtest ember-fail game over. */
+export const SHOW_DEV_SNUFF_BUTTON     = false

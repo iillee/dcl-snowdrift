@@ -20,7 +20,7 @@ import { engine } from '@dcl/sdk/ecs'
 
 import { room } from 'src/shared/messages'
 import {
-	FUEL_MAIN_FLOOR,
+	FUEL_MAIN_INITIAL,
 	hearthFlameScaleFromFuel,
 	hearthRadiusFromFuel,
 	hearthSmokeHeightFromFuel,
@@ -37,8 +37,8 @@ import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 const LERP_TIME_S = 0.25
 
 
-let currentFuel  = FUEL_MAIN_FLOOR
-let targetFuel   = FUEL_MAIN_FLOOR
+let currentFuel  = FUEL_MAIN_INITIAL
+let targetFuel   = FUEL_MAIN_INITIAL
 let playerCount  = 1
 let installed    = false
 

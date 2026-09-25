@@ -13,15 +13,21 @@
  *   3 HEAVY  — blizzard-density, faster fall, bigger flakes
  *
  * Level is mutated at runtime via setPrecipitation(); the single emitter
- * is reconfigured in place rather than destroyed and respawned, so
- * prewarmed particles are preserved on adjustment.
+ * is reconfigured in place rather than destroyed and respawned.
+ *
+ * The emitter is created stopped. Particles stay off through cold-open
+ * (snow tiles + cliff GLBs) so load is not fighting a prewarmed flake
+ * fill. Emission arms once the splash would release.
  */
 
 import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Vector3 } from '@dcl/sdk/math'
 
-import { refreshSnowfallAudio } from 'src/client/snowfallAudio'
 import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS } from 'src/shared/settings'
+
+import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
+import { isSnowSettled } from 'src/client/snow/snowRenderer'
+import { refreshSnowfallAudio } from 'src/client/snowfallAudio'
 
 
 // MARK: PrecipitationLevel
@@ -75,8 +81,8 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		gravityMult: 0.08,
 		speedMin   : 1.0,
 		speedMax   : 1.8,
-		sizeMin    : 0.08,
-		sizeMax    : 0.18,
+		sizeMin    : 0.16,
+		sizeMax    : 0.36,
 		alphaBirth : 0.95,
 	},
 	[PrecipitationLevel.MEDIUM]: {
@@ -85,8 +91,8 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		gravityMult: 0.28,
 		speedMin   : 2.4,
 		speedMax   : 3.6,
-		sizeMin    : 0.28,
-		sizeMax    : 0.55,
+		sizeMin    : 0.56,
+		sizeMax    : 1.10,
 		alphaBirth : 1.0,
 	},
 	[PrecipitationLevel.HEAVY ]: {
@@ -100,8 +106,8 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		gravityMult: 0.45,
 		speedMin   : 3.6,
 		speedMax   : 5.2,
-		sizeMin    : 0.42,
-		sizeMax    : 0.80,
+		sizeMin    : 0.62,
+		sizeMax    : 1.15,
 		alphaBirth : 1.0,
 	},
 }
@@ -110,6 +116,7 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 // MARK: State
 let emitterEntity: number | null = null
 let currentLevel : PrecipitationLevel = PrecipitationLevel.LIGHT
+let emissionArmed = false
 
 
 // MARK: applyProfile
@@ -140,16 +147,40 @@ function applyProfile(level: PrecipitationLevel): void {
 		start: Color4.create(1, 1, 1, p.alphaBirth),
 		end  : Color4.create(1, 1, 1, Math.min(1, p.alphaBirth + 0.05)),
 	}
-	// Ensure emission resumes if we were previously CLEAR.
-	ps.playbackState = PBParticleSystem_PlaybackState.PS_PLAYING
+	// Stay stopped until cold-open arms, and while weather is CLEAR.
+	ps.playbackState = emissionArmed && level !== PrecipitationLevel.CLEAR
+		? PBParticleSystem_PlaybackState.PS_PLAYING
+		: PBParticleSystem_PlaybackState.PS_STOPPED
+}
+
+
+// MARK: isSnowfallArmed
+
+/** True once cold-open finished and flakes are allowed to emit. */
+export function isSnowfallArmed(): boolean {
+	return emissionArmed
+}
+
+
+// MARK: tryArmSnowfall
+
+/** Start flakes after snow tiles and cliff GLBs have landed. */
+function tryArmSnowfall(): void {
+	if (emissionArmed) return
+	if (!isSnowSettled()) return
+	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return
+	emissionArmed = true
+	applyProfile(currentLevel)
+	refreshSnowfallAudio()
+	console.log(`snowfall: tryArmSnowfall: emission armed at ${PrecipitationLevel[currentLevel]}`)
 }
 
 
 // MARK: setupSnowfall
 /**
- * Spawn the scene-wide snowfall emitter at LIGHT intensity. Idempotent —
- * safe to call once from client bootstrap. No update loop; the emitter
- * runs on the renderer side.
+ * Spawn the scene-wide snowfall emitter, stopped. Idempotent — safe
+ * to call once from client bootstrap. Flakes start after cold-open
+ * settles so load is not competing with a particle fill.
  */
 export function setupSnowfall(): void {
 	if (emitterEntity !== null) {
@@ -196,11 +227,13 @@ export function setupSnowfall(): void {
 		blendMode            : PBParticleSystem_BlendMode.PSB_ALPHA,
 		billboard            : true,
 		loop                 : true,
-		prewarm              : true,
+		prewarm              : false,
+		playbackState        : PBParticleSystem_PlaybackState.PS_STOPPED,
 	})
 
 	currentLevel = PrecipitationLevel.LIGHT
-	console.log('snowfall: setupSnowfall: emitter spawned at LIGHT')
+	engine.addSystem(tryArmSnowfall)
+	console.log('snowfall: setupSnowfall: emitter spawned stopped until cold-open settles')
 }
 
 

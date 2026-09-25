@@ -98,18 +98,34 @@ export function sendCycleStateTo(userId: string): void {
 }
 
 
+// MARK: mixSeed
+
+/** Nudge a seed so two rolls in the same UTC day still differ. */
+function mixSeed(prev: number): number {
+	let s = (prev ^ (Date.now() & 0x7fffffff) ^ 0x9E3779B1) >>> 0
+	if (s === 0)    s = 1
+	if (s === prev) s = (prev + 1) >>> 0 || 1
+	return s
+}
+
+
 // MARK: rollCycle
 /**
  * Advance the cycle: sample fresh seed + next boundary, fire every
  * subscribed handler in order, then broadcast the new cycleState.
  *
- * Exposed for tests / manual triggers (e.g. a dev-only "roll now"
- * message). Normally invoked automatically by the boundary-detection
- * system in setupCycleServer().
+ * `newSeed` forces a layout even when the 24 h bucket has not moved
+ * (ember-fail mid-day). If omitted, uses the UTC bucket; if that
+ * matches the live seed, mixes so clients still rebuild.
  */
-export function rollCycle(): void {
+export function rollCycle(opts?: { newSeed?: number }): void {
 	const oldSeed = currentSeed
-	currentSeed        = getHiddenCampfireSeed()
+	if (opts?.newSeed !== undefined && opts.newSeed !== 0) {
+		currentSeed = opts.newSeed
+	} else {
+		currentSeed = getHiddenCampfireSeed()
+	}
+	if (currentSeed === oldSeed) currentSeed = mixSeed(oldSeed)
 	currentNextRebuild = nextRebuildEpochMs()
 	rollCount++
 	console.log(

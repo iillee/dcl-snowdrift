@@ -1,24 +1,18 @@
 /**
- * layer.loadingSplash.tsx — cold-open + world-rebuild splash.
+ * layer.loadingSplash.tsx — cold-open thumbnail + mid-game black cover.
  *
- * Full-screen thumbnail overlay shown in two situations:
- *   1. Cold-open — from scene start until the snow layer settles (cliff
- *      mask known, CRDT state applied, every root built once) and the
- *      perimeter cliff GLBs have finished loading.
- *   2. Cycle rollover — a temporary override triggered by
- *      showRebuildSplash(ms). Covers the ~few seconds while the world
- *      regenerates around the player (maze reshuffle, hidden fire
- *      relocation, teleport home).
- *
- * There's no fade — the layer just stops rendering on the frame the
- * relevant signal flips. If we want a fade later, wire an alpha ramp
- * here that ticks down over ~500 ms after the last signal releases.
+ *   1. Cold-open — snowdrift.png until snow settles and cliff GLBs load.
+ *   2. Mid-game regen — solid black, never the thumbnail. Ember-fail
+ *      owns its own black cards, so this cover stays off during that
+ *      cinematic.
  */
 
 import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import { Color4 } from '@dcl/sdk/math'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { isEmberFailing } from 'src/client/emberFail'
 import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
 import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 
@@ -27,72 +21,49 @@ const SPLASH_IMAGE = 'assets/images/snowdrift.png'
 
 // Minimum time (ms) the cold-open splash stays visible from module
 // load, even if the first maze rebuild's spawn queue drains sooner.
-// Without this, fast clients (small maze / good network) can complete
-// the whole cascade in <200 ms and never perceive the splash — the
-// player watches the world assemble in front of them instead of
-// getting a clean curtain. 2 s matches the perceived duration of the
-// cycle-rollover splash so both feel like the same beat.
 const COLD_OPEN_MIN_MS = 2000
 
-// Wall-clock ms at which this module first loaded. Used to enforce
-// COLD_OPEN_MIN_MS. Captured at import time so it reflects true scene
-// start, not the first frame the splash system happens to tick.
 const coldOpenStartedAtMs = Date.now()
 
+// Once the first winter has been shown, the thumbnail must never
+// return. Mid-game perimeter teardown used to look like a cold-open
+// (cliffs go to zero for a frame) and flashed snowdrift.png on OUT.
+let coldOpenReleased = false
 
-// MARK: Rebuild override state
-// Absolute wall-clock ms until which the splash forces itself visible
-// regardless of the cold-open latch. Zero means no override active.
-let rebuildOverrideUntilMs = 0
 
+// MARK: isColdOpenActive
 
-// MARK: showRebuildSplash
-/**
- * Force the splash on for `durationMs` from now. Called by the cycle
- * rollover handler in src/client/cycle.ts so players see a clean
- * "world is regenerating" curtain instead of the maze teardown and
- * teleport happening under their feet in-view.
- */
-export function showRebuildSplash(durationMs: number): void {
-	const until = Date.now() + durationMs
-	if (until > rebuildOverrideUntilMs) rebuildOverrideUntilMs = until
-	console.log(`layer.loadingSplash: showRebuildSplash: covering next ${durationMs}ms`)
+/** True only for the first load-in. Never again after that. */
+function isColdOpenActive(): boolean {
+	if (coldOpenReleased) return false
+	if (isEmberFailing()) return false
+	if (!isSnowSettled()) return true
+	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
+	if (Date.now() - coldOpenStartedAtMs < COLD_OPEN_MIN_MS) return true
+	coldOpenReleased = true
+	return false
 }
 
 
-// MARK: isSplashActive
+// MARK: isMidGameCoverActive
+
 /**
- * Splash stays visible while ANY of the following is true:
- *   1. Cold-open: snow hasn't settled or cliff GLBs are still loading.
- *   2. Rebuild override timer is still running (dev-roll or real
- *      cycle rollover triggered showRebuildSplash).
- *   3. A snow full pass (after a cycle-roll mask change) is still in
- *      flight. Live melting never triggers this; only mask changes do.
+ * Black curtain for a mid-game seed roll that is not the ember-fail
+ * cinematic. Ember-fail already holds black + title cards.
  */
-function isSplashActive(): boolean {
-	if (!isSnowSettled()) return true
-	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
-	// Cold-open minimum: even if the first cascade drained very quickly,
-	// keep the splash up until COLD_OPEN_MIN_MS has elapsed since module
-	// load. Guarantees every player sees the splash regardless of client
-	// speed — playtest 2026-08-28 surfaced fast clients that skipped it
-	// entirely and watched the maze assemble live, which was disorienting.
-	if (Date.now() - coldOpenStartedAtMs < COLD_OPEN_MIN_MS) return true
-	if (Date.now() < rebuildOverrideUntilMs) return true
-	// Once the override window has opened at least once (i.e. we're
-	// past cold-open and a rebuild has been requested), keep the
-	// splash up until the snow full pass finishes. Without this the
-	// splash uncovers a half-built field on slower machines.
-	if (rebuildOverrideUntilMs > 0 && isSnowRebuilding()) return true
+function isMidGameCoverActive(): boolean {
+	if (isEmberFailing()) return false
+	if (isColdOpenActive()) return false
+	if (isSnowRebuilding()) return true
+	if (hasPerimeterSpawned() && !arePerimeterModelsReady()) return true
 	return false
 }
 
 
 // MARK: LoadingSplashLayer
 /**
- * Full-screen splash pinned above every other layer. Renders the scene
- * thumbnail centred and scaled to cover; hides itself once initial
- * tile spawn has completed AND no rebuild override is active.
+ * Full-screen splash pinned above every other layer. Thumbnail on
+ * cold-open only; mid-game regen is a black field.
  */
 class LoadingSplashLayer extends Layer {
 	constructor() {
@@ -105,24 +76,40 @@ class LoadingSplashLayer extends Layer {
 
 	// MARK: body
 	body() {
-		if (!isSplashActive()) return <UiEntity />
+		if (isColdOpenActive()) {
+			return (
+				<UiEntity
+					key         = "ui_LoadingSplash_cold"
+					uiTransform = {{
+						width         : '100%',
+						height        : '100%',
+						positionType  : 'absolute',
+						justifyContent: 'center',
+						alignItems    : 'center',
+					}}
+					uiBackground = {{
+						textureMode: 'stretch',
+						texture    : { src: SPLASH_IMAGE },
+					}}
+				/>
+			)
+		}
 
-		return (
-			<UiEntity
-				key         = "ui_LoadingSplash_root"
-				uiTransform = {{
-					width         : '100%',
-					height        : '100%',
-					positionType  : 'absolute',
-					justifyContent: 'center',
-					alignItems    : 'center',
-				}}
-				uiBackground = {{
-					textureMode: 'stretch',
-					texture    : { src: SPLASH_IMAGE },
-				}}
-			/>
-		)
+		if (isMidGameCoverActive()) {
+			return (
+				<UiEntity
+					key         = "ui_LoadingSplash_mid"
+					uiTransform = {{
+						width : '100%',
+						height: '100%',
+						positionType: 'absolute',
+					}}
+					uiBackground = {{ color: Color4.Black() }}
+				/>
+			)
+		}
+
+		return <UiEntity key="ui_LoadingSplash_hidden" uiTransform={{ display: 'none' }} />
 	}
 }
 

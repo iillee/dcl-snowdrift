@@ -45,6 +45,8 @@ import {
 import { room } from 'src/shared/messages'
 
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
+import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
+import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
 
@@ -179,6 +181,27 @@ function snuffFire(index: number): void {
 	// painted is swept; cells owned by other fires are left alone.
 	releaseDiscOutside(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
+	checkEmberFail()
+}
+
+
+// MARK: isAnyHiddenFireLit
+/** True if at least one hidden bonfire still has fuel. */
+export function isAnyHiddenFireLit(): boolean {
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (lit[i] && fuel[i] > 0) return true
+	}
+	return false
+}
+
+
+// MARK: snuffAllHiddenFires
+/** Force every hidden fire out. Used by the dev ember-fail trigger. */
+export function snuffAllHiddenFires(): void {
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (!lit[i] && fuel[i] <= 0) continue
+		snuffFire(i)
+	}
 }
 
 
@@ -264,7 +287,7 @@ export function setupHiddenCampfireServer(): void {
 	let   ringClock       = 0
 	engine.addSystem((dt: number) => {
 		const players   = rosterSize()
-		const drainRate = hearthDecayRate(players)
+		const drainRate = hearthDecayRate(players) * getPhaseDrainMul()
 		let anyLit      = false
 
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -315,6 +338,10 @@ export function setupHiddenCampfireServer(): void {
 	// hidden fire slot. Ignites nothing - fire must already be lit.
 	room.onMessage('feedFireRequest', ({ target }, context) => {
 		if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
+		if (isEmberFailing()) {
+			console.log(`[Server] hiddenCampfire[${target}]: feed ignored — ember fail in progress`)
+			return
+		}
 		const from = context?.from ?? 'unknown'
 		if (!lit[target]) {
 			console.log(`[Server] hiddenCampfire[${target}]: feed from ${from} ignored - not lit`)

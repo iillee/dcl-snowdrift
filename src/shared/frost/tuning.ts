@@ -21,9 +21,9 @@ export const FROST_MAX = 100
 /**
  * Seconds-to-freeze from ambient cold alone, when the player is
  * outdoors, torchless, and standing on a bare (melted) path. This is
- * the "steady drop" the held torch cancels — with a torch equipped
- * this contribution goes to zero and only the snow-depth term (below)
- * can freeze the player.
+ * Day: a lit torch cancels this term. Night: ambient still leaks
+ * through the torch (see PhaseConfig.torchLeakPhases). Only campfire
+ * heat fully stops it.
  */
 export const FROST_TIME_BASELINE_S = 30 // 30s from baseline alone — punishing to make the torch a hard dependency
 
@@ -43,9 +43,10 @@ export const FROST_TIME_BASELINE_S = 30 // 30s from baseline alone — punishing
  * Stage 0 is Infinity so bare paths add no snow-based frost.
  *
  * Effective time-to-freeze combines rates additively:
- *   rate      = (1 / BASELINE) + (1 / SNOW_STAGE[stage])
- *   with torch: rate = 1 / SNOW_STAGE[stage]  (baseline halted)
- *   at fire:    rate = -(1 / THAW)            (active recovery)
+ *   day, torchless: (1 / BASELINE) + (1 / SNOW_STAGE[stage])
+ *   day, torch:     snow term only
+ *   night, torch:   (1 / leak) + snow * snowFrostMul
+ *   at fire:        -(1 / THAW)
  */
 export const FROST_TIME_SNOW_STAGE_S: Record<0 | 1 | 2 | 3, number> = {
 	0: Number.POSITIVE_INFINITY,

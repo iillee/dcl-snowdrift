@@ -41,11 +41,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
-import {
-	TORCH_WARMTH_TIER_EMISSIVE_MULT,
-	TORCH_WARMTH_TIER_FLAME_SCALE,
-	getRemoteTorchWarmthTier,
-} from 'src/client/torchWarmth'
+import { getLivePhaseConfig } from 'src/client/phase'
 
 
 // MARK: Tuning
@@ -169,21 +165,15 @@ function createRemoteTorch(userIdLower: string): void {
 
 
 // MARK: setupRemoteFlameScaler
-// Per-frame updater that scales every remote's flame by its current
-// cluster tier (see src/client/torchWarmth.ts). Mirrors the flame swell
-// on the LOCAL torch in torch.ts so both parties see each other's
-// flame grow when they meet. Remote flames don't have a fuel-driven
-// base shrink (fuel isn't synced) — they render at the constant
-// FLAME_SIZE, so the tier multiplier applies directly.
+// Night pinches remote flames to match the local torch (torchFlameMul).
+// Fuel isn't synced, so remotes stay at a constant FLAME_SIZE.
 function setupRemoteFlameScaler(): void {
 	engine.addSystem(() => {
-		remoteTorches.forEach((rt, userIdLower) => {
-			const lit  = remoteLitByUser.get(userIdLower) === true
-			const tier = lit ? getRemoteTorchWarmthTier(userIdLower) : 0
-
+		remoteTorches.forEach((rt) => {
+			const flameMul = getLivePhaseConfig().torchFlameMul
 			const t = Transform.getMutableOrNull(rt.flame)
 			if (t !== null) {
-				const s = FLAME_SIZE * TORCH_WARMTH_TIER_FLAME_SCALE[tier]
+				const s = FLAME_SIZE * flameMul
 				if (t.scale.x !== s) {
 					t.scale.x = s
 					t.scale.y = s
@@ -193,7 +183,7 @@ function setupRemoteFlameScaler(): void {
 
 			const mat = Material.getMutableOrNull(rt.flame)
 			if (mat !== null && mat.material?.$case === 'pbr') {
-				const want = FLAME_EMISSIVE * TORCH_WARMTH_TIER_EMISSIVE_MULT[tier]
+				const want = FLAME_EMISSIVE * flameMul
 				if (mat.material.pbr.emissiveIntensity !== want) {
 					mat.material.pbr.emissiveIntensity = want
 				}

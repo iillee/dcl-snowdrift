@@ -237,6 +237,38 @@ export const Messages = {
 	// cheat here — this is a dev affordance, remove or gate before a
 	// production deploy that exposes it to random visitors).
 	devRollCycle: Schemas.Map({}),
+
+	// Server → Client: authoritative day/night phase. Server owns the
+	// clock; clients rebuild a local start time from phaseAgeSec.
+	// Do NOT send Date.now() — Schemas.Number is too coarse at epoch-ms
+	// scale (≈2 min steps) and a 60 s phase looks already finished.
+	//   phaseName         — DAY / DUSK / NIGHT (solstice names later)
+	//   phaseIndex        — index in the daily table
+	//   phaseAgeSec       — seconds already elapsed in this phase
+	//   phaseDurationSec  — real seconds this phase lasts
+	//   cycleId           — increments each full DAY→NIGHT wrap
+	// Sent on join, on every phase change, and on a ~15 s heartbeat.
+	phaseState: Schemas.Map({
+		phaseName       : Schemas.String,
+		phaseIndex      : Schemas.Int,
+		phaseAgeSec     : Schemas.Number,
+		phaseDurationSec: Schemas.Number,
+		cycleId         : Schemas.Int,
+	}),
+
+	// Client → Server (DEV only): jump to the next daily phase now.
+	devAdvancePhase: Schemas.Map({}),
+
+	// Server → Client: the last fire in the world just went out.
+	// Clients fade to black and hold a game-over title. The server
+	// then rollCycles with a fresh seed so a new winter starts.
+	emberFail: Schemas.Map({
+		nights: Schemas.Int,
+	}),
+
+	// Client → Server (DEV only): snuff every fire so we can playtest
+	// the ember-fail / game-over path without waiting out the tank.
+	devSnuffFires: Schemas.Map({}),
 }
 
 export const room = registerMessages(Messages)

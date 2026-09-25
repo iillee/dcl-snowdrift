@@ -31,8 +31,8 @@
 import { HIDDEN_CYCLE_MS, getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
+
 import { teleportHome } from 'src/client/player'
-import { showRebuildSplash } from 'src/client/ui/layers/layer.loadingSplash'
 
 
 // MARK: State
@@ -99,9 +99,9 @@ export function cycleMazeSeed(cycleSeed: number): number {
 
 // MARK: applyCycleSeedChange
 /**
- * Run the full seed-change reaction (splash, teleport, SeedHolder
- * publish, subsystem notifications) for a new seed. Idempotent - if
- * newSeed equals the currently-tracked serverSeed, returns early.
+ * Run the full seed-change reaction (teleport, SeedHolder publish,
+ * subsystem notifications) for a new seed. Idempotent - if newSeed
+ * equals the currently-tracked serverSeed, returns early.
  *
  * Exported so a client-side dev button can trigger the same UX
  * without waiting for a server round-trip. The regular server
@@ -117,16 +117,12 @@ export function applyCycleSeedChange(newSeed: number): void {
 		`(${hadSeed ? 'rebuild' : 'hydration'})`,
 	)
 
-	// Splash + teleport only on ROLLOVER, not first hydration - the
-	// loading splash is already on-screen at boot and no regen has
-	// happened yet.
+	// Teleport only on ROLLOVER, not first hydration. Mid-game cover
+	// is black (ember-fail cards, or the splash layer's black field).
 	if (hadSeed) {
-		// Minimum splash duration; the splash layer additionally holds
-		// itself visible while isRebuilding() is true, so if the tile
-		// cascade runs long we don't uncover a half-built maze. Six
-		// seconds is a comfortable floor for the teardown + teleport +
-		// hidden-fire relocation to settle even on a slow machine.
-		showRebuildSplash(6000)
+		// Mid-game regen never uses the thumbnail splash. Ember-fail
+		// holds its own black cards; other rolls get a black cover
+		// from the splash layer until snow + cliffs settle.
 		teleportHome()
 	}
 
