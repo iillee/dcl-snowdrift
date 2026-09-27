@@ -147,8 +147,8 @@ function applyProfile(level: PrecipitationLevel): void {
 		start: Color4.create(1, 1, 1, p.alphaBirth),
 		end  : Color4.create(1, 1, 1, Math.min(1, p.alphaBirth + 0.05)),
 	}
-	// Stay stopped until cold-open arms, and while weather is CLEAR.
-	ps.playbackState = emissionArmed && level !== PrecipitationLevel.CLEAR
+	// Stay stopped until cold-open arms. CLEAR already stopped above.
+	ps.playbackState = emissionArmed
 		? PBParticleSystem_PlaybackState.PS_PLAYING
 		: PBParticleSystem_PlaybackState.PS_STOPPED
 }
