@@ -2,9 +2,9 @@
  * phase.ts — authoritative day/night clock.
  *
  * Owns the current daily phase and broadcasts `phaseState` so every
- * client agrees. Independent of the 24 h UTC rebuild clock in
- * cycle.ts: that one wipes the world; this one is the minutes-long
- * day players feel.
+ * client agrees. Independent of the world seed in cycle.ts: that one
+ * rolls the world on last-fire-out; this one is the minutes-long day
+ * players feel.
  *
  * Always starts at DAY. On cycle roll, resets to DAY with a fresh
  * start time so a new world begins at dawn.
@@ -147,6 +147,19 @@ export function sendPhaseStateTo(userId: string): void {
 }
 
 
+// MARK: noteEnteredPhase
+
+/**
+ * Count a dusk when the clock enters it. The live tick and enterPhase
+ * both step the phase, and the fail cards read this counter. The tick
+ * must not call enterPhase: that snaps the start time to now, while a
+ * late frame has to keep the leftover time.
+ */
+function noteEnteredPhase(name: string): void {
+	if (name === 'DUSK') nightsThisRun++
+}
+
+
 // MARK: enterPhase
 
 function enterPhase(
@@ -159,7 +172,7 @@ function enterPhase(
 	phaseIndex       = index
 	phaseStartedAtMs = Date.now()
 	const cfg = currentConfig()
-	if (cfg.name === 'DUSK') nightsThisRun++
+	noteEnteredPhase(cfg.name)
 	console.log(
 		`[Server] phase: enterPhase: ${prev} → ${cfg.name} ` +
 		`dur=${cfg.durationSec}s cycleId=${cycleId} (${reason})`
@@ -171,7 +184,7 @@ function enterPhase(
 
 // MARK: advancePhase
 
-/** Move to the next daily phase. Used by the tick and the dev button. */
+/** Move to the next daily phase. Dev button only. The live tick steps in place. */
 export function advancePhase(reason: string = 'tick'): void {
 	enterPhase(nextDailyIndex(phaseIndex), reason)
 }
@@ -234,9 +247,10 @@ export function setupPhaseServer(): void {
 			if (wrapped) cycleId++
 			const prev = currentConfig().name
 			phaseIndex = next
+			noteEnteredPhase(currentConfig().name)
 			console.log(
 				`[Server] phase: tick ${prev} → ${currentConfig().name} ` +
-				`cycleId=${cycleId}`
+				`cycleId=${cycleId} nights=${nightsThisRun}`
 			)
 			stepped++
 		}

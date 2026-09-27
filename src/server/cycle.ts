@@ -1,19 +1,17 @@
 /**
- * cycle.ts — authoritative 24 h cycle clock + rollover.
+ * cycle.ts — authoritative world seed + rollover.
  *
  * Owns two facts:
- *   - currentSeed          : which 24 h bucket the world is in
- *   - nextRebuildEpochMs   : wall-clock ms of the next midnight-UTC roll
+ *   - currentSeed          : which world layout is live
+ *   - nextRebuildEpochMs   : legacy midnight-UTC boundary, still sent in
+ *                            `cycleState` for wire compatibility only
  *
- * Both are computed from the server's own Date.now() and broadcast to
- * clients via the `cycleState` message. Clients render the countdown
- * as `nextRebuildEpochMs - Date.now()` (local), so as long as the
- * host machine's NTP is sane every peer sees the same timer to within
- * a second or two.
+ * The world no longer rolls on a wall-clock schedule. Only the last
+ * fire dying (emberFail.ts) or the dev button ends a run, so a
+ * civilization survives midnight UTC.
  *
  * Rollover:
- *   A polling system checks each tick whether Date.now() has crossed
- *   currentNextRebuild. When it has, rollCycle() fires:
+ *   rollCycle() fires:
  *     1. Samples fresh currentSeed + nextRebuildEpochMs.
  *     2. Invokes every registered onCycleRoll subscriber (hidden
  *        campfire reset, paint clear + reseed, central-fire ring
@@ -26,8 +24,6 @@
  * handler at boot. Order of registration = order of invocation, so
  * register the paint clear BEFORE ring reseeds if you add a new one.
  */
-
-import { engine } from '@dcl/sdk/ecs'
 
 import { getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
@@ -147,9 +143,9 @@ export function rollCycle(opts?: { newSeed?: number }): void {
 
 // MARK: setupCycleServer
 /**
- * Sample the current bucket + next boundary, broadcast, and start the
- * boundary-detection tick. Idempotent \u2014 call once during setupServer
- * bootstrap alongside the other server subsystems.
+ * Sample the boot seed, broadcast it, and register the dev roll
+ * handler. Call once during setupServer bootstrap alongside the other
+ * server subsystems.
  */
 export function setupCycleServer(): void {
 	currentSeed        = getHiddenCampfireSeed()
@@ -160,15 +156,6 @@ export function setupCycleServer(): void {
 		`(in ${((currentNextRebuild - Date.now()) / 1000 / 60).toFixed(1)} min)`,
 	)
 	broadcastCycleState()
-
-	// Boundary detection. Runs every frame but does almost nothing \u2014 a
-	// single wall-clock compare. When the boundary passes, rollCycle()
-	// fires exactly once (currentNextRebuild is bumped inside rollCycle
-	// so we don't re-fire on the next tick).
-	engine.addSystem(() => {
-		if (Date.now() < currentNextRebuild) return
-		rollCycle()
-	})
 
 	// DEV: force an immediate rollover via the devRollCycle message.
 	// Same code path as the timer trigger; sender is not validated because
