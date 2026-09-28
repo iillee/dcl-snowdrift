@@ -17,12 +17,10 @@ import { PAINT_BRUSH_LEAD_METERS } from 'src/shared/settings'
 import {
 	SNOW_CELL_M,
 	SNOW_GROUND_TOP_Y,
-	tileKeyOfCell,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
 
 import { getBrushCells } from 'src/client/brush'
-import { isTileMasked } from 'src/client/snow/playfieldMask'
 import { getDisplayedStage, setOptimisticStage } from 'src/client/snow/snowModel'
 import { isTorchLit } from 'src/client/torchEquip'
 
@@ -66,7 +64,6 @@ function snowBrushSystem(): void {
 		for (let dx = -half; dx <= half; dx++) {
 			const key = worldToCellKey(sx + dx * SNOW_CELL_M, sz + dz * SNOW_CELL_M)
 			if (key === null) continue
-			if (isTileMasked(tileKeyOfCell(key))) continue
 			if (targetStage === 0) {
 				meltOutbox.add(key)
 				setOptimisticStage(key, 0)

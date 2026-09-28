@@ -38,7 +38,6 @@ import { setupFrostDeath }       from 'src/client/frost/death'
 import { setupLoadTimeline } from 'src/client/loadTimeline'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initPlayerNet } from 'src/client/player'
-import { setMaskedTiles } from 'src/client/snow/playfieldMask'
 import { initSnowBrush } from 'src/client/snow/snowBrush'
 import { initSnowModel } from 'src/client/snow/snowModel'
 import { initSnowRenderer } from 'src/client/snow/snowRenderer'
@@ -91,16 +90,16 @@ engine.addSystem(() => {
   if (s !== 0 && s !== currentSeed) {
     currentSeed = s
     // Perimeter cliffs share the seed too, so every reroll produces a
-    // fresh skyline. Set the seed FIRST — both the snow mask (via
-    // getReservedPlayfieldCells) and setupPerimeter() read it. Spawn
-    // immediately so the splash can wait on the cliff GLBs instead of
-    // dropping onto an empty horizon.
+    // fresh skyline. Set the seed FIRST — getReservedPlayfieldCells and
+    // setupPerimeter() both read it. Spawn immediately so the splash can
+    // wait on the cliff GLBs instead of dropping onto an empty horizon.
+    // Snow does not depend on the layout: it covers the whole playfield
+    // and the cliffs sit on top of it.
     setPerimeterSeed(s)
     setupPerimeter()
     const reservedTiles = getReservedPlayfieldCells()
-    setMaskedTiles(reservedTiles)
-    // Props scatter uses the same reserved-cell set as the snow mask so
-    // trees / huts / etc never land on perimeter cliffs. clearProps
+    // Props scatter avoids the cliff footprint so trees / huts / etc
+    // never land on perimeter cliffs. clearProps
     // is a no-op on the first seed; on rerolls the reroll button has
     // already cleared them, but calling here too keeps the flow
     // idempotent for any future non-UI seed change (server-driven,

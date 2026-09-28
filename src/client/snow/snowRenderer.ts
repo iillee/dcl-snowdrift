@@ -1,8 +1,11 @@
 /**
  * snowRenderer.ts — draws the snow layer from snowModel.
  *
- * Ground: a few large slabs (top at SNOW_GROUND_TOP_Y, melt-blue, physics
- * collider) covering every unmasked tile. Replaces the per-tile GLBs.
+ * Ground: one slab (top at SNOW_GROUND_TOP_Y, melt-blue, physics collider)
+ * under the whole playfield. Snow covers every tile regardless of the
+ * cliff layout; cliffs sit on top and hide what is under them, so a new
+ * seed never forces a snow or ground rebuild. Building starts on the
+ * first frame, before the seed or the CRDT snapshot arrive.
  *
  * Snow: one quadtree per 16 m root. A node renders as a single mesh when
  * every cell under it shares a stage; otherwise it splits (16 -> 8 -> 4 ->
@@ -48,12 +51,6 @@ import {
 	tileCoordsFromKey,
 } from 'src/shared/snowGrid'
 
-import {
-	computeOpenRects,
-	isMaskReady,
-	isTileMasked,
-	maskVersion,
-} from 'src/client/snow/playfieldMask'
 import {
 	drainDirtyRoots,
 	getDisplayedStages,
@@ -104,7 +101,6 @@ const anims             = new Map<Entity, LeafAnim>()
 const retireQueue: Array<{ entity: Entity; framesLeft: number }> = []
 
 let groundEntities:   Entity[] = []
-let builtMaskVersion  = -1
 let initialized       = false
 let waitMs            = 0
 let syncFallbackUsed  = false
@@ -118,6 +114,11 @@ let liveNodeCount     = 0
 export function initSnowRenderer(): void {
 	if (initialized) return
 	initialized = true
+	buildGround()
+	for (let k = 0; k < ROOT_COUNT; k++) {
+		pendingRoots.add(k)
+		fullPassRemaining.add(k)
+	}
 	engine.addSystem(snowRenderSystem)
 	engine.addSystem(leafAnimSystem)
 	setupSnowSun()
@@ -127,8 +128,9 @@ export function initSnowRenderer(): void {
 // MARK: isSnowSettled
 
 /**
- * Latched true once the mask is known, the initial CRDT state is applied
- * and every root has been built at least once. Live edits never reset it.
+ * Latched true once every root has been built at least once and the
+ * initial CRDT state is applied (or the sync fallback elapsed). Live
+ * edits never reset it.
  */
 export function isSnowSettled(): boolean {
 	return coldOpenSettled
@@ -137,7 +139,7 @@ export function isSnowSettled(): boolean {
 
 // MARK: isSnowRebuilding
 
-/** True while a full pass (cold open or mask change) is still in flight. */
+/** True while the cold-open full pass is still in flight. */
 export function isSnowRebuilding(): boolean {
 	return fullPassRemaining.size > 0
 }
@@ -161,31 +163,27 @@ export function snowRenderStats(): { nodes: number; animating: number; ground: n
 function snowRenderSystem(dt: number): void {
 	flushRetireQueue()
 
-	if (maskVersion() !== builtMaskVersion) {
-		builtMaskVersion = maskVersion()
-		rebuildGround()
-		for (let k = 0; k < ROOT_COUNT; k++) {
-			pendingRoots.add(k)
-			fullPassRemaining.add(k)
-		}
-	}
-
 	drainDirtyRoots(pendingRoots, urgentRoots)
 	promoteNearbyPlanes()
 
-	if (!isMaskReady()) return
-	if (!isSnowHydrated()) {
+	if (pendingRoots.size > 0) processPendingRoots()
+
+	// Pristine snow is drawn without waiting on the server. The splash
+	// still holds for the CRDT snapshot so the campfire ring is melted
+	// on the first visible frame.
+	let dataReady = isSnowHydrated()
+	if (!dataReady) {
 		waitMs += dt * 1000
-		if (waitMs < SYNC_FALLBACK_MS) return
-		if (!syncFallbackUsed) {
-			syncFallbackUsed = true
-			console.log(`snowRenderer: snowRenderSystem: no CRDT sync after ${SYNC_FALLBACK_MS}ms, rendering local state`)
+		if (waitMs >= SYNC_FALLBACK_MS) {
+			dataReady = true
+			if (!syncFallbackUsed) {
+				syncFallbackUsed = true
+				console.log(`snowRenderer: snowRenderSystem: no CRDT sync after ${SYNC_FALLBACK_MS}ms, releasing with local state`)
+			}
 		}
 	}
 
-	if (pendingRoots.size > 0) processPendingRoots()
-
-	if (!coldOpenSettled && fullPassRemaining.size === 0) {
+	if (!coldOpenSettled && dataReady && fullPassRemaining.size === 0 && pendingRoots.size === 0) {
 		coldOpenSettled = true
 		console.log(
 			`snowRenderer: snowRenderSystem: cold open settled, ${liveNodeCount} snow nodes, ` +
@@ -304,7 +302,6 @@ function rebuildRoot(
 ): number {
 	const stages = getDisplayedStages()
 	const base   = tileKey * SNOW_TILE_CELL_COUNT
-	const masked = isTileMasked(tileKey)
 
 	let rs = roots.get(tileKey)
 	const firstBuild = rs === undefined
@@ -313,11 +310,11 @@ function rebuildRoot(
 		roots.set(tileKey, rs)
 	}
 
-	const desired = masked ? new Map<number, number>() : buildDesired(tileKey, stages)
+	const desired = buildDesired(tileKey, stages)
 
 	// Cells whose stage changed since the last build animate as 1 m leaves.
 	const changedLeaves: number[] = []
-	if (!firstBuild && !masked) {
+	if (!firstBuild) {
 		for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) {
 			if (rs.snapshot[i] !== stages[base + i]) changedLeaves.push(i)
 		}
@@ -421,7 +418,7 @@ function rebuildRoot(
 
 // MARK: stageAtWorldCell
 
-/** Stage at a world cell, or -1 off the playfield. Masked tiles read as 0. */
+/** Stage at a world cell, or -1 off the playfield. */
 function stageAtWorldCell(
 	gx    : number,
 	gz    : number,
@@ -431,7 +428,6 @@ function stageAtWorldCell(
 	const tx = Math.floor(gx / SNOW_TILE_CELLS)
 	const tz = Math.floor(gz / SNOW_TILE_CELLS)
 	const key = tz * SNOW_TILES_X + tx
-	if (isTileMasked(key)) return 0
 	const col = gx - tx * SNOW_TILE_CELLS
 	const row = gz - tz * SNOW_TILE_CELLS
 	return stages[key * SNOW_TILE_CELL_COUNT + row * SNOW_TILE_CELLS + col]
@@ -671,34 +667,33 @@ function leafAnimSystem(dt: number): void {
 }
 
 
-// MARK: rebuildGround
+// MARK: buildGround
 
-function rebuildGround(): void {
+/** One slab and collider under the whole playfield. Cliffs sit on top of it. */
+function buildGround(): void {
 	for (const e of groundEntities) engine.removeEntity(e)
 	groundEntities = []
-	for (const r of computeOpenRects()) {
-		const e     = engine.addEntity()
-		const sizeX = r.w * SNOW_TILE_M
-		const sizeZ = r.h * SNOW_TILE_M
-		Transform.create(e, {
-			position: Vector3.create(
-				SNOW_ORIGIN_M + r.tx * SNOW_TILE_M + sizeX / 2,
-				SNOW_GROUND_TOP_Y - GROUND_THICKNESS_M / 2,
-				SNOW_ORIGIN_M + r.tz * SNOW_TILE_M + sizeZ / 2,
-			),
-			scale: Vector3.create(sizeX, GROUND_THICKNESS_M, sizeZ),
-		})
-		MeshRenderer.setBox(e)
-		MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
-		Material.setPbrMaterial(e, {
-			albedoColor:       GROUND_BLUE,
-			roughness:         1.0,
-			metallic:          0.0,
-			specularIntensity: 0.0,
-		})
-		groundEntities.push(e)
-	}
-	console.log(`snowRenderer: rebuildGround: ${groundEntities.length} slabs for mask version ${builtMaskVersion}`)
+	const e     = engine.addEntity()
+	const sizeX = SNOW_TILES_X * SNOW_TILE_M
+	const sizeZ = SNOW_TILES_Z * SNOW_TILE_M
+	Transform.create(e, {
+		position: Vector3.create(
+			SNOW_ORIGIN_M + sizeX / 2,
+			SNOW_GROUND_TOP_Y - GROUND_THICKNESS_M / 2,
+			SNOW_ORIGIN_M + sizeZ / 2,
+		),
+		scale: Vector3.create(sizeX, GROUND_THICKNESS_M, sizeZ),
+	})
+	MeshRenderer.setBox(e)
+	MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
+	Material.setPbrMaterial(e, {
+		albedoColor:       GROUND_BLUE,
+		roughness:         1.0,
+		metallic:          0.0,
+		specularIntensity: 0.0,
+	})
+	groundEntities.push(e)
+	console.log(`snowRenderer: buildGround: one ${sizeX}x${sizeZ}m slab`)
 }
 
 

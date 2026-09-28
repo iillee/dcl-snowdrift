@@ -25,7 +25,6 @@ import { SeedHolder, seedHolder } from 'src/shared/components'
 import { isRostered } from 'src/client/clientHandler'
 import { getEmberFailPhaseName, isEmberFailing } from 'src/client/emberFail'
 import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
-import { isMaskReady } from 'src/client/snow/playfieldMask'
 import { isSnowHydrated } from 'src/client/snow/snowModel'
 import { isSnowRebuilding, isSnowSettled, snowRenderStats } from 'src/client/snow/snowRenderer'
 import { isColdOpenReleased } from 'src/client/ui/layers/layer.loadingSplash'
@@ -40,7 +39,7 @@ const coldOpenGates: Gate[] = [
 	{ name: 'rostered (server acked joinRoster)', test: isRostered,                                         firedAtMs: null },
 	{ name: 'CRDT state synced',                  test: isStateSyncronized,                                 firedAtMs: null },
 	{ name: 'seed known',                         test: () => (SeedHolder.getOrNull(seedHolder)?.seed ?? 0) !== 0, firedAtMs: null },
-	{ name: 'snow mask ready',                    test: isMaskReady,                                        firedAtMs: null },
+	{ name: 'snow first pass built',              test: () => !isSnowRebuilding(),                          firedAtMs: null },
 	{ name: 'snow CRDT hydrated',                 test: isSnowHydrated,                                     firedAtMs: null },
 	{ name: 'cliffs spawned',                     test: hasPerimeterSpawned,                                firedAtMs: null },
 	{ name: 'cliff GLBs loaded',                  test: arePerimeterModelsReady,                            firedAtMs: null },
