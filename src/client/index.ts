@@ -62,7 +62,7 @@ import {
 	setPerimeterSeed,
 	setupPerimeter,
 } from 'src/client/perimeter'
-import { setupProps } from 'src/client/props/spawn'
+import { clearProps, setupProps } from 'src/client/props/spawn'
 import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
@@ -99,27 +99,27 @@ engine.addSystem(() => {
     setupPerimeter()
     const reservedTiles = getReservedPlayfieldCells()
     // Props scatter avoids the cliff footprint so trees / huts / etc
-    // never land on perimeter cliffs. clearProps
-    // is a no-op on the first seed; on rerolls the reroll button has
-    // already cleared them, but calling here too keeps the flow
-    // idempotent for any future non-UI seed change (server-driven,
-    // scheduled rotation, etc.).
+    // never land on perimeter cliffs. They follow the seed like the
+    // cliffs do, so clear them first: a world death or a late server
+    // seed would otherwise leave props placed for the old layout.
     const reserved = new Set<string>(
       reservedTiles.map(c => `${c.tx},${c.tz},0`)
     )
+    clearProps()
     setupProps(s, reserved)
   }
 })
 
-// ─── First-joiner initialization ────────────────────────────────────
-// If we've been in-scene for a grace period and the synced seed is still 0,
-// nobody has ever set it — we're the first player. Roll a seed from the
-// UTC round index so the scene isn't empty forever. Subsequent joiners
-// will receive the current seed via CRDT sync before their grace elapses
-// and skip this path.
+// ─── Offline seed fallback ──────────────────────────────────────────
+// The server's cycleState is the seed authority. Only if it has not
+// arrived after a long grace (no server at all, e.g. a preview without
+// the Multiplayer Server) pick a local seed so the scene is not empty.
+// A short grace here raced the live server on first visits: the scene
+// built cliffs and props for a made-up seed, then rebuilt the cliffs
+// ~0.2 s later when the real one landed. Matches the snow sync fallback.
 let initTimer = 0
 let initDone = false
-const INIT_GRACE = 1.5 // seconds
+const INIT_GRACE = 8 // seconds
 engine.addSystem((dt: number) => {
   if (initDone) return
   initTimer += dt

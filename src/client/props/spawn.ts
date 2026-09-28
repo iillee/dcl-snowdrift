@@ -2,10 +2,9 @@
  * spawn.ts — client-side spawning of scattered props.
  *
  * Converts the pure PropPlacement list produced by
- * src/shared/props/scatter.ts into live entities. Runs ONCE per scene
- * lifetime: props are persistent decoration that must NOT churn on
- * every maze rebuild (unlike tiles). If we ever want per-round shuffle
- * we'll add an explicit clearProps()/respawn path.
+ * src/shared/props/scatter.ts into live entities. Props follow the
+ * seed: the seed watcher calls clearProps() then setupProps() on every
+ * new seed so they never sit inside a newer cliff layout.
  *
  * Placement is fully deterministic on the shared maze seed, so every
  * client spawns the same props at the same coords without CRDT sync.
@@ -29,10 +28,9 @@ const defsById = new Map<string, PropDef>(PROP_CATALOG.map(d => [d.id, d]))
 
 // MARK: setupProps
 /**
- * Spawn all cataloged props for the given seed. Idempotent — subsequent
- * calls (e.g. from a seed change) are ignored to keep props stable
- * across maze rebuilds. Pass the same reserved-cell set that was fed
- * to the maze generator so props don't land on cliffs / structures.
+ * Spawn all cataloged props for the given seed. Ignored until
+ * clearProps() runs, so call clearProps() first on a seed change. Pass
+ * the cliff reserved-cell set so props don't land on cliffs.
  */
 export function setupProps(seed: number, reservedCells: ReadonlySet<string>): void {
 	if (hasSpawned) {
@@ -67,10 +65,8 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 
 // MARK: clearProps
 /**
- * Tear down all spawned prop entities. Not called on maze rebuild by
- * design — reserved for shutdown / debug / a future round-shuffle
- * feature. After clearProps() a fresh setupProps() call will spawn
- * again.
+ * Tear down all spawned prop entities. Called by the seed watcher
+ * before every setupProps(). No-op before the first spawn.
  */
 export function clearProps(): void {
 	for (const e of spawnedEntities) engine.removeEntity(e)
