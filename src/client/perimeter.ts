@@ -175,6 +175,15 @@ export function hasPerimeterSpawned(): boolean {
 const PERIM_LOAD_TIMEOUT_MS = 12000
 let perimSpawnedAtMs   = 0
 let perimTimeoutLogged = false
+let perimGeneration    = 0
+
+
+// MARK: getPerimeterGeneration
+
+/** Increments every time setupPerimeter spawns a fresh ring. */
+export function getPerimeterGeneration(): number {
+	return perimGeneration
+}
 
 
 // MARK: arePerimeterModelsReady
@@ -185,21 +194,22 @@ let perimTimeoutLogged = false
  */
 export function arePerimeterModelsReady(): boolean {
 	if (perimEntities.length === 0) return false
-	if (perimSpawnedAtMs > 0 && Date.now() - perimSpawnedAtMs >= PERIM_LOAD_TIMEOUT_MS) {
-		if (!perimTimeoutLogged) {
-			perimTimeoutLogged = true
-			console.log(
-				`perimeter: arePerimeterModelsReady: ${PERIM_LOAD_TIMEOUT_MS}ms timeout, ` +
-				`releasing splash with ${perimEntities.length} cliff entities`
-			)
-		}
-		return true
-	}
+	let allLoaded = true
 	for (const e of perimEntities) {
 		const st = GltfContainerLoadingState.getOrNull(e)
-		if (st === null) return false
-		if (st.currentState === LoadingState.LOADING) return false
-		if (st.currentState === LoadingState.UNKNOWN) return false
+		if (st === null || st.currentState === LoadingState.LOADING || st.currentState === LoadingState.UNKNOWN) {
+			allLoaded = false
+			break
+		}
+	}
+	if (allLoaded) return true
+	if (perimSpawnedAtMs === 0 || Date.now() - perimSpawnedAtMs < PERIM_LOAD_TIMEOUT_MS) return false
+	if (!perimTimeoutLogged) {
+		perimTimeoutLogged = true
+		console.log(
+			`perimeter: arePerimeterModelsReady: ${PERIM_LOAD_TIMEOUT_MS}ms timeout, ` +
+			`releasing splash with ${perimEntities.length} cliff entities`
+		)
 	}
 	return true
 }
@@ -815,6 +825,7 @@ export function setupPerimeter(): void {
 	}
 	perimSpawnedAtMs   = Date.now()
 	perimTimeoutLogged = false
+	perimGeneration++
 
 	console.log(
 		`perimeter: setupPerimeter: ring built ` +

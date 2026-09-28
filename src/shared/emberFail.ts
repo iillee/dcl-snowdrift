@@ -9,14 +9,17 @@
 
 
 // MARK: Timing
+// Whole sequence is ~7.9 s when the new world is ready in time:
+// fade out 0.9 + two full cards 2 × 2.0 + last card in/hold 1.55 + fade in 1.4.
+
 /** Seconds to fade the world to black after the last fire dies. */
-export const EMBER_FAIL_FADE_OUT_S = 1.4
+export const EMBER_FAIL_FADE_OUT_S = 0.9
 
 /** Fade in / out for each title card. */
-export const EMBER_FAIL_LINE_FADE_S = 0.85
+export const EMBER_FAIL_LINE_FADE_S = 0.45
 
 /** How long a card sits fully visible. */
-export const EMBER_FAIL_LINE_HOLD_S = 2.4
+export const EMBER_FAIL_LINE_HOLD_S = 1.1
 
 /**
  * Reseed as soon as the fade-to-black has finished so the new seed
@@ -25,7 +28,7 @@ export const EMBER_FAIL_LINE_HOLD_S = 2.4
 export const EMBER_FAIL_REBUILD_DELAY_S = EMBER_FAIL_FADE_OUT_S
 
 /** Seconds to fade the new winter in under the last line. */
-export const EMBER_FAIL_FADE_IN_S = 2.2
+export const EMBER_FAIL_FADE_IN_S = 1.4
 
 
 // MARK: emberFailLine1

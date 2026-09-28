@@ -19,8 +19,8 @@ import {
 import { room } from 'src/shared/messages'
 
 import { onCycleSeedChange } from 'src/client/cycle'
-import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
-import { isSnowRebuilding } from 'src/client/snow/snowRenderer'
+import { arePerimeterModelsReady, getPerimeterGeneration, hasPerimeterSpawned } from 'src/client/perimeter'
+import { isSnowRebuilding, snowRenderStats } from 'src/client/snow/snowRenderer'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
@@ -45,11 +45,11 @@ let worldOpacity = 0
 let textOpacity  = 0
 let nightsLived     = 0
 let rebuilt         = false
-let sawRebuildPass  = false
+let perimGenAtFail  = 0
 let installed       = false
 
-/** If the snow pass never flags, do not pin the cards forever. */
-const READY_FALLBACK_S = 48
+/** If the new world never reports ready, do not pin the cards forever. */
+const READY_FALLBACK_S = 15
 
 
 // MARK: getEmberFailWorldOpacity
@@ -82,6 +82,14 @@ export function getEmberFailText(): string {
 }
 
 
+// MARK: getEmberFailPhaseName
+
+/** Current fail-cinematic step, e.g. "LINE2_HOLD". "IDLE" when not failing. */
+export function getEmberFailPhaseName(): string {
+	return Phase[phase]
+}
+
+
 // MARK: isEmberFailing
 /** True while the fail cinematic owns the screen. */
 export function isEmberFailing(): boolean {
@@ -91,13 +99,18 @@ export function isEmberFailing(): boolean {
 
 // MARK: isNewWorldReady
 
-/** Seed landed, snow full-pass finished, cliffs loaded. */
+/**
+ * Seed landed, the new cliff ring spawned and loaded, and no snow roots
+ * are left to draw. The snow pass often finishes inside one frame, so
+ * readiness is read from state, never from having seen it in progress.
+ */
 function isNewWorldReady(): boolean {
 	if (!rebuilt) return false
-	if (!sawRebuildPass) return false
-	if (isSnowRebuilding()) return false
+	if (getPerimeterGeneration() <= perimGenAtFail) return false
 	if (!hasPerimeterSpawned()) return false
 	if (!arePerimeterModelsReady()) return false
+	if (isSnowRebuilding()) return false
+	if (snowRenderStats().pendingRoots > 0) return false
 	return true
 }
 
@@ -110,7 +123,6 @@ function finishFail(): void {
 	phase          = Phase.IDLE
 	phaseTimer     = 0
 	rebuilt        = false
-	sawRebuildPass = false
 	unlockPlayer()
 	console.log('emberFail: cards complete — new civilization')
 }
@@ -145,7 +157,7 @@ function beginFail(nights: number): void {
 	textOpacity  = 0
 	nightsLived    = nights
 	rebuilt        = false
-	sawRebuildPass = false
+	perimGenAtFail = getPerimeterGeneration()
 	lockPlayer()
 }
 
@@ -174,7 +186,6 @@ export function setupEmberFailClient(): void {
 
 	engine.addSystem((dt: number) => {
 		if (phase === Phase.IDLE) return
-		if (rebuilt && isSnowRebuilding()) sawRebuildPass = true
 		phaseTimer += dt
 
 		if (phase === Phase.FADE_OUT) {

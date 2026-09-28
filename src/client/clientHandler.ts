@@ -43,6 +43,14 @@ function resolveJoinUserId(): string {
 }
 
 
+// MARK: isRostered
+
+/** True once the server has acknowledged joinRoster. */
+export function isRostered(): boolean {
+	return rostered
+}
+
+
 // MARK: initClientHandler
 
 export function initClientHandler(): void {

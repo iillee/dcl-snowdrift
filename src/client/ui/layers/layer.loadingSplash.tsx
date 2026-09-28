@@ -31,6 +31,14 @@ const coldOpenStartedAtMs = Date.now()
 let coldOpenReleased = false
 
 
+// MARK: isColdOpenReleased
+
+/** True once the cold-open thumbnail has dropped for good. */
+export function isColdOpenReleased(): boolean {
+	return coldOpenReleased
+}
+
+
 // MARK: isColdOpenActive
 
 /** True only for the first load-in. Never again after that. */

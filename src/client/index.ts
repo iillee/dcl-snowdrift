@@ -35,6 +35,7 @@ import { initClientHandler } from 'src/client/clientHandler'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupFrostDeath }       from 'src/client/frost/death'
+import { setupLoadTimeline } from 'src/client/loadTimeline'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initPlayerNet } from 'src/client/player'
 import { setMaskedTiles } from 'src/client/snow/playfieldMask'
@@ -137,6 +138,7 @@ engine.addSystem((dt: number) => {
 // ─── setupClient — boot sequence ────────────────────────────────────
 export async function setupClient(): Promise<void> {
 	if (STRESS_COUNT > 0) { runStress(STRESS_COUNT); return }
+	setupLoadTimeline()
 	initAudio()
 	initHelpPanelHotkey()
 
