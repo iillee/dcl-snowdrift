@@ -100,10 +100,22 @@ function wireOutbound(): void {
 	let syncWaitMs      = 0
 	let downWarned      = false
 	let joinRetryClock  = 0
+	let hadSync         = false
 
 	engine.addSystem((dt: number) => {
 		const synced = isStateSyncronized()
-		if (!synced) {
+		if (synced) {
+			hadSync    = true
+			syncWaitMs = 0
+			downWarned = false
+		} else {
+			// Preview rebuilds kill hammurabi. The client can still think
+			// it is rostered, skip paintTick, and never get pleaseRejoin.
+			if (hadSync && rostered) {
+				console.log('[Client] CRDT dropped after roster — re-issuing joinRoster')
+				rostered    = false
+				needsRejoin = true
+			}
 			syncWaitMs += dt * 1000
 			if (syncWaitMs - lastSyncLog >= SYNC_LOG_INTERVAL_MS) {
 				lastSyncLog = syncWaitMs

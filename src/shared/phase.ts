@@ -53,8 +53,9 @@ export interface PhaseConfig {
 	 */
 	weatherEnterLevel   : number | null
 	/**
-	 * Odd cell-count cap on the torch melt brush. `null` keeps the
-	 * cluster size (3 / 5). Night is 1 — a one-tile goat path.
+	 * Odd cell-count cap on the torch melt brush. Unused while a lit
+	 * torch always melts 3-wide; kept so night can pinch later without
+	 * a schema change.
 	 */
 	meltBrushCap        : number | null
 	/** Flame size/emissive multiplier. Night is 0.65 — a weaker glow. */
@@ -281,8 +282,8 @@ export function torchLeakFreezeSec(
 // MARK: phaseMeltBrushCells
 
 /**
- * Torch melt footprint in odd cell counts. Night caps at one tile
- * regardless of cluster size; day keeps the cluster brush.
+ * Torch melt footprint in odd cell counts. Currently unused by the
+ * client (lit torch is always 3-wide). Left for a later night pinch.
  */
 export function phaseMeltBrushCells(
 	cfg          : PhaseConfig,
