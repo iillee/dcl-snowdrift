@@ -19,12 +19,6 @@ import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 
 const SPLASH_IMAGE = 'assets/images/snowdrift.png'
 
-// Minimum time (ms) the cold-open splash stays visible from module
-// load, even if the first maze rebuild's spawn queue drains sooner.
-const COLD_OPEN_MIN_MS = 2000
-
-const coldOpenStartedAtMs = Date.now()
-
 // Once the first winter has been shown, the thumbnail must never
 // return. Mid-game perimeter teardown used to look like a cold-open
 // (cliffs go to zero for a frame) and flashed snowdrift.png on OUT.
@@ -47,7 +41,6 @@ function isColdOpenActive(): boolean {
 	if (isEmberFailing()) return false
 	if (!isSnowSettled()) return true
 	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
-	if (Date.now() - coldOpenStartedAtMs < COLD_OPEN_MIN_MS) return true
 	coldOpenReleased = true
 	return false
 }

@@ -1,9 +1,10 @@
 /**
  * snowSync.ts — server-side PaintTile CRDT buffers for the snow layer.
  *
- * One synced entity per snow tile carries a byte per cell (see
- * snowGrid.snowByteFromStage). Bytes are mutated in memory; only dirty
- * tiles are published, once per engine tick, via flushDirtySnowTiles().
+ * Tiles are created on first melt and then kept. A fully-pristine buffer
+ * is published as zeros rather than removeEntity: dropping a fixed
+ * tileNetworkId and later recreating it fails to sync, so client melt
+ * expires after the optimistic timeout and snow appears to grow back.
  *
  * syncEntity needs myProfile.networkId, which resolves asynchronously.
  * Entities created before that are retried on every flush and relink.
@@ -84,6 +85,7 @@ export function writeSnowByte(
 ): boolean {
 	const tileKey = tileKeyOfCell(key)
 	const idx     = localIndexOfCell(key)
+	if (byte === 0 && !tileBuffers.has(tileKey)) return false
 	const buf     = ensureTile(tileKey)
 	const prev    = buf[idx]
 	if (prev === byte) return false
@@ -119,7 +121,7 @@ export function flushDirtySnowTiles(): number {
 
 // MARK: zeroAllSnowTiles
 
-/** Reset every allocated tile to pristine and mark changed tiles dirty. */
+/** World reset: keep tile entities, zero buffers, mark dirty. */
 export function zeroAllSnowTiles(): void {
 	for (const [tileKey, buf] of tileBuffers) {
 		let changed = false

@@ -33,6 +33,7 @@ import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 
 import { teleportHome } from 'src/client/player'
+import { resetSnowToPristine } from 'src/client/snow/snowModel'
 
 
 // MARK: State
@@ -124,6 +125,7 @@ export function applyCycleSeedChange(newSeed: number): void {
 		// holds its own black cards; other rolls get a black cover
 		// from the splash layer until snow + cliffs settle.
 		teleportHome()
+		resetSnowToPristine()
 	}
 
 	// Push the derived maze seed. The seed watcher in

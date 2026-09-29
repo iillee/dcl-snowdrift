@@ -7,10 +7,11 @@
  *               optimistic writes
  *
  * Every PaintTile change is applied straight into these arrays the frame
- * it is observed, independent of any render entity. The renderer reads
- * `displayed` and is told which 16 m roots changed; it never gates model
- * updates, so arrival order between CRDT data and render entities cannot
- * lose a change.
+ * it is observed, independent of any render entity. A missing PaintTile
+ * means that tile is pristine. The renderer reads `displayed` and is
+ * told which 16 m roots changed; it never gates model updates, so
+ * arrival order between CRDT data and render entities cannot lose a
+ * change.
  *
  * Optimistic writes expire after OPTIMISTIC_TIMEOUT_MS: if the server has
  * not moved the cell by then, displayed snaps back to the server value.
@@ -74,8 +75,10 @@ function snowModelSystem(dt: number): void {
 	let seen = 0
 	let empty = 0
 	let unresolved = 0
+	const live = new Set<Entity>()
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		seen++
+		live.add(entity)
 		const incoming = tile.cells
 		if (!incoming || incoming.length === 0) {
 			empty++
@@ -96,10 +99,12 @@ function snowModelSystem(dt: number): void {
 		applyTileBytes(entity, tileKey, incoming)
 	}
 
-	if (!hydrated && tileShadow.size > 0) {
+	pruneGoneTiles(live)
+
+	if (!hydrated && synced) {
 		hydrated = true
 		console.log(
-			`snowModel: snowModelSystem: hydrated from ${tileShadow.size} PaintTile entities ` +
+			`snowModel: snowModelSystem: hydrated paintTiles=${tileShadow.size} ` +
 			`synced=${synced}`
 		)
 	}
@@ -172,6 +177,36 @@ function applyTileBytes(
 }
 
 
+// MARK: resetTileToPristine
+
+function resetTileToPristine(tileKey: number): void {
+	const base = tileKey * SNOW_TILE_CELL_COUNT
+	let changed = false
+	for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) {
+		const key = base + i
+		pending.delete(key)
+		serverStages[key] = STAGE_PRISTINE
+		if (displayedStages[key] !== STAGE_PRISTINE) {
+			displayedStages[key] = STAGE_PRISTINE
+			changed = true
+		}
+	}
+	if (changed) dirtyRoots.add(tileKey)
+}
+
+
+// MARK: pruneGoneTiles
+
+function pruneGoneTiles(live: Set<Entity>): void {
+	for (const [entity, tileKey] of tileKeyByEnt) {
+		if (live.has(entity)) continue
+		tileKeyByEnt.delete(entity)
+		tileShadow.delete(entity)
+		resetTileToPristine(tileKey)
+	}
+}
+
+
 // MARK: expirePending
 
 function expirePending(): void {
@@ -238,7 +273,42 @@ export function drainDirtyRoots(
 
 // MARK: isSnowHydrated
 
-/** True once the initial CRDT state has been received and applied. */
+/** True once CRDT state is synchronized. Missing PaintTiles count as pristine. */
 export function isSnowHydrated(): boolean {
 	return hydrated
 }
+
+
+// MARK: resetSnowToPristine
+
+/**
+ * World death: locally clear melt, then re-read live PaintTiles.
+ * The hearth ring is often byte-identical after a reseed, so CRDT
+ * will not send a new write — skipping that re-read left spawn snowed.
+ */
+export function resetSnowToPristine(): void {
+	for (let i = 0; i < CELL_COUNT; i++) {
+		if (serverStages[i] === STAGE_PRISTINE && displayedStages[i] === STAGE_PRISTINE) continue
+		serverStages[i]    = STAGE_PRISTINE
+		displayedStages[i] = STAGE_PRISTINE
+		dirtyRoots.add(tileKeyOfCell(i))
+	}
+	pending.clear()
+	tileShadow.clear()
+	let reapplied = 0
+	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
+		const incoming = tile.cells
+		if (!incoming || incoming.length === 0) continue
+		let tileKey = tileKeyByEnt.get(entity)
+		if (tileKey === undefined) {
+			const resolved = resolveTileKey(entity, tile.tileKey)
+			if (resolved === null) continue
+			tileKey = resolved
+			tileKeyByEnt.set(entity, tileKey)
+		}
+		applyTileBytes(entity, tileKey, incoming)
+		reapplied++
+	}
+	console.log(`snowModel: resetSnowToPristine: reapplied ${reapplied} PaintTiles`)
+}
+
