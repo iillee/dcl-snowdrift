@@ -31,6 +31,7 @@ import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCam
 // registered here.
 import { loadingSplashLayer } from 'src/client/ui/layers/layer.loadingSplash'
 import { preloadLayer }       from 'src/client/ui/layers/layer.preload'
+import { chopPromptLayer }    from 'src/client/ui/layers/layer.chopPrompt'
 import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
@@ -77,6 +78,7 @@ export function setupUi() {
 			inventoryHotbarLayer,
 			relightPromptLayer,
 			feedPromptLayer,
+			chopPromptLayer,
 			hiddenCampfirePromptLayer,
 			// Help panel — slides down from the top when the HelpButton (?)
 			// is clicked. Registered above HUD chrome so its border isn't

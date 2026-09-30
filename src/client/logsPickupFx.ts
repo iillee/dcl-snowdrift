@@ -39,12 +39,11 @@ const BOUNCE_DURATION_S = 0.6
 const LOG_MODEL_SRC    = 'assets/models/logs_pickup.glb'
 const BRANCH_MODEL_SRC = 'assets/models/branch.glb'
 
-/** Uniform scale of the bouncing log. The world pile GLB is roughly
- *  full-log size; shrunk here so it reads as a cartoon "+1" pop over
- *  the head without dwarfing the avatar. */
-const LOG_SCALE = 0.6
-/** Native branch is 4.19 m on Y. 0.18 → ~0.75 m over the head. */
-const BRANCH_SCALE = 0.18
+/** Uniform scale of the bouncing log. Matches the world pile so the
+ *  pop over the head reads as the same piece you just picked up. */
+const LOG_SCALE = 1
+/** Native branch is 4.19 m on Y. 0.32 → ~1.3 m over the head. */
+const BRANCH_SCALE = 0.32
 /** Keep the stick readable in the pop, not a vertical pole. */
 const BRANCH_PITCH_X_DEG = 90
 

@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-24.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-29.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -24,8 +24,9 @@ The pitch:
 
 ## How a session actually plays
 
-- **First 30 seconds.** You spawn at the central hearth. Others are here (or their traces are — melted paths, banked wood, still-warm fires). You grab a torch from the hearth pile.
-- **First 5 minutes.** Step out. Melt snow. Reveal wood chunks (kindling scatter everywhere; deadwood clustered around dead trees; pinewood clustered around pines). Fell a tree by holding torch heat at its base until it falls. Carry logs back. Feed a fire.
+- **First 30 seconds (playtest build).** Black screen: "Don't let the fire die." You wake by the hearth. Day 1 if you started the world; otherwise the world's current day. Light the torch at the fire.
+- **First few minutes (playtest build).** Melt snow to reveal a branch (30 s) or a log (60 s). Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The far trees are a second trip.
+- **v1 target, not in this build.** Kindling everywhere, deadwood and pine around groves, fell a tree by holding torch heat, charcoal at a kiln.
 - **Session shape.** Gather → tend → hold territory → decide which fires matter → make it to the next solstice.
 
 ## The three nested loops
@@ -81,15 +82,15 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-09-24)
+## Where the build is (2026-09-29)
 
-Phase 1 **Systems** is underway — about a third of the Systems checklist, further if you only count “does a session feel like a world.”
+Phase 1 **Systems** is underway. The playtest slice is the day/night loop plus a wood trip.
 
-**Playable now:** shared DAY / DUSK / NIGHT clock; night pressure from dusk; mortal spawn hearth; last-fire fade + reseed while players are in the scene; Day X in Help + sunrise splash; snow LOD planes + snowfall that waits for load.
+**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; melt-to-reveal branches and logs; six choppable trees; one carry slot; last-fire fade + reseed (wood lost, torch emptied); Day N on join and at sunrise; black cold open; gold warmth pulse while the bar refills; snow LOD planes.
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, empty-server persistence, return-screens, wood-as-a-real-trip, biomes / Kiln.
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, empty-server persistence, return-screens, pine, kiln, hold-torch-to-fell.
 
-**Next:** wood on **Monday 2026-09-28**. Group playtest **2026-09-29** — day/night loop. Owner away that weekend. Handoff: [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
+**Handoff:** [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 ## v1 build plan — at a glance
 

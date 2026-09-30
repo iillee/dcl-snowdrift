@@ -21,6 +21,7 @@ import {
 } from 'src/shared/phase'
 
 import { beginDaySplash } from 'src/client/daySplash'
+import { isWorldCovered } from 'src/client/ui/layers/layer.loadingSplash'
 
 
 // MARK: State
@@ -31,6 +32,11 @@ let phaseDurationSec = 0
 let cycleId          = 0
 let hydrated         = false
 let installed        = false
+let serverPhaseSeen  = false
+/** Sunrise card still owed. Held while a cover hides the screen. */
+let dawnSplashArmed  = false
+/** False for the boot placeholder until the server confirms this dawn. */
+let dawnSplashLive   = false
 
 
 // MARK: isPhaseHydrated
@@ -172,15 +178,28 @@ function applyPhaseState(msg: {
 			`${first ? ' (hydration)' : ''}`
 		)
 	}
-	// A cycleId drop is a new run (ember-fail / world roll). Dawn
-	// splash stays off — ember-fail owns the screen — but the clock
-	// starts at DAWN so the sun is still rising when the cover drops.
-	if (!first && msg.cycleId < prevCycle) {
+	// Boot parks the clock on DAWN before the server speaks. The first
+	// snapshot is the world's real day: Day 1 for the player who
+	// starts the sunrise, or whatever day is already underway for
+	// everyone who joins later.
+	const opening = !serverPhaseSeen
+	serverPhaseSeen = true
+	if (opening) {
+		dawnSplashArmed = true
+		dawnSplashLive  = true
+	}
+	// A cycleId drop is a new run (ember-fail / world roll). The
+	// clock starts at DAWN; the title waits until that cover lifts.
+	if (!opening && msg.cycleId < prevCycle) {
 		console.log(
 			`phase: applyPhaseState: new run cycleId ${prevCycle} -> ${cycleId}, ` +
 			`${phaseName} remaining=${formatPhaseCountdown(getPhaseRemainingSec())}`
 		)
-	} else if (!first && changed && msg.cycleId >= prevCycle) {
+		if (phaseName === 'DAWN') {
+			dawnSplashArmed = true
+			dawnSplashLive  = true
+		}
+	} else if (!opening && changed && msg.cycleId >= prevCycle) {
 		maybeAnnounceDawn(prevName)
 	}
 }
@@ -220,10 +239,26 @@ function catchUpLocal(): void {
 
 // MARK: maybeAnnounceDawn
 
-/** Sunrise title once per wrap into DAWN. Skip the join-hydration snapshot. */
+/** Arm the sunrise title once per wrap into DAWN. */
 function maybeAnnounceDawn(prevName: string): void {
 	if (prevName === 'DAWN') return
 	if (phaseName !== 'DAWN') return
+	dawnSplashArmed = true
+	dawnSplashLive  = true
+}
+
+
+// MARK: tryDawnSplash
+
+/**
+ * Play the armed day card once the world is visible. Join shows
+ * the world's current day. Later sunrises show the new number.
+ */
+function tryDawnSplash(): void {
+	if (!dawnSplashArmed || !dawnSplashLive) return
+	if (isWorldCovered()) return
+	dawnSplashArmed = false
+	dawnSplashLive  = false
 	beginDaySplash(getDayNumber())
 }
 
@@ -248,6 +283,7 @@ export function setupPhaseClient(): void {
 	})
 	engine.addSystem(() => {
 		catchUpLocal()
+		tryDawnSplash()
 	})
 	console.log('phase: setupPhaseClient: listening for phaseState')
 }
@@ -267,5 +303,9 @@ export function resetPhaseToDawn(reason: string): void {
 	phaseStartedAtMs = Date.now()
 	cycleId          = 0
 	hydrated         = true
+	dawnSplashArmed  = true
+	// Boot is a placeholder until the server snapshot. A cycle roll
+	// is already the new run's sunrise.
+	dawnSplashLive   = reason !== 'boot'
 	console.log(`phase: resetPhaseToDawn: ${cfg.name} ${cfg.durationSec}s (${reason})`)
 }

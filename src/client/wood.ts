@@ -20,7 +20,9 @@
  * chunks + dropped piles) share one carry state; the player carries
  * either a branch or a log.
  *
- * Four logs sit at the foot of each scattered tree, toward the hearth.
+ * Trees are not piles of meshes. Each trunk holds four logs. Standing
+ * close with an empty F slot offers Chop, and each chop spends one
+ * and shrinks the model.
  */
 
 import { Billboard, BillboardMode, Material, MaterialTransparencyMode, MeshRenderer, Transform, engine, Entity } from '@dcl/sdk/ecs'
@@ -31,11 +33,19 @@ import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
-import { computeWoodScatter, WoodChunk } from 'src/shared/woodScatter'
+import {
+	computeWoodScatter,
+	TREE_CHOP_RADIUS_SQ,
+	treeSitesFromProps,
+	WoodChunk,
+	WoodTreeSite,
+	WOOD_BAND_TREE,
+} from 'src/shared/woodScatter'
 
 import { hasLogs, pickupLogs } from 'src/client/logsInventory'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
 import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { onPropTreesSpawned, syncTreeScales } from 'src/client/props/spawn'
 import { getDisplayedStage } from 'src/client/snow/snowModel'
 import { attachWoodModel } from 'src/client/woodVisual'
 
@@ -76,6 +86,7 @@ interface ChunkRec {
 
 let currentSeed         = 0
 let scatter             : WoodChunk[] = []
+let treeSites           : WoodTreeSite[] = []
 const activeIdx         = new Set<number>()
 const chunkEntities     = new Map<number, ChunkRec>()
 
@@ -103,6 +114,7 @@ export function setupWoodClient(): void {
 			if (!activeIdx.has(idx)) despawnChunk(idx)
 		}
 		syncWoodReveal()
+		syncTreeWoodScale()
 		console.log(`wood: activeSet applied seed=${seed} active=${activeIdx.size}`)
 	})
 
@@ -113,12 +125,14 @@ export function setupWoodClient(): void {
 		}
 		activeIdx.add(idx)
 		syncWoodReveal()
+		syncTreeWoodScale()
 	})
 
 	room.onMessage('woodChunkRemoved', ({ seed, idx, pickerId }) => {
 		if (seed !== currentSeed) return
 		activeIdx.delete(idx)
 		despawnChunk(idx)
+		syncTreeWoodScale()
 		// Remote FX: local player already got their bounce optimistically
 		// in pickupLogs(), so only play here when someone ELSE grabbed it.
 		// If we can't identify ourselves (getPlayer() null on early frames),
@@ -132,8 +146,23 @@ export function setupWoodClient(): void {
 		spawnLogsBounce(pickerId, scatter[idx]?.kind)
 	})
 
+	onPropTreesSpawned(syncTreeWoodScale)
 	engine.addSystem(proximityPollSystem)
 	console.log('wood: setupWoodClient: handlers + proximity poll installed')
+}
+
+
+// MARK: syncTreeWoodScale
+
+/** Shrink each tree to the share of its four logs that are still there. */
+function syncTreeWoodScale(): void {
+	const remaining: number[] = []
+	for (const c of scatter) {
+		if (c.treeIndex === undefined) continue
+		if (remaining[c.treeIndex] === undefined) remaining[c.treeIndex] = 0
+		if (activeIdx.has(c.idx)) remaining[c.treeIndex]++
+	}
+	syncTreeScales(remaining)
 }
 
 
@@ -143,6 +172,7 @@ function rebuildForSeed(seed: number): void {
 	currentSeed = seed
 	const reserved = reservedCellsForMazeSeed(cycleMazeSeed(seed))
 	scatter        = computeWoodScatter(seed, reserved)
+	treeSites      = treeSitesFromProps(cycleMazeSeed(seed), reserved)
 	console.log(`wood: rebuildForSeed seed=${seed} count=${scatter.length}`)
 }
 
@@ -229,6 +259,10 @@ function syncWoodReveal(): void {
 	for (const idx of activeIdx) {
 		const c = scatter[idx]
 		if (!c) continue
+		if (c.band === WOOD_BAND_TREE) {
+			if (chunkEntities.has(idx)) despawnChunk(idx)
+			continue
+		}
 		const melted  = isSnowMeltedAt(c.worldX, c.worldZ)
 		const spawned = chunkEntities.has(idx)
 		if (melted && !spawned) spawnChunk(idx, true)
@@ -276,6 +310,67 @@ function proximityPollSystem(dt: number): void {
 		console.log(`wood: pickup request sent idx=${idx} kind=${rec.kind}`)
 		break // one pickup per poll
 	}
+}
+
+
+// MARK: findChopChunk
+
+/** Nearest trunk that still has a log, or null when F is full or none are in reach. */
+function findChopChunk(): WoodChunk | null {
+	if (hasLogs()) return null
+	const player = Transform.getOrNull(engine.PlayerEntity)
+	if (!player) return null
+	const px = player.position.x
+	const pz = player.position.z
+	let best  : WoodChunk | null = null
+	let bestD = TREE_CHOP_RADIUS_SQ
+	for (const site of treeSites) {
+		const dx = px - site.worldX
+		const dz = pz - site.worldZ
+		const d  = dx * dx + dz * dz
+		if (d > bestD) continue
+		let chunk: WoodChunk | null = null
+		for (const c of scatter) {
+			if (c.treeIndex !== site.treeIndex) continue
+			if (c.band !== WOOD_BAND_TREE) continue
+			if (!activeIdx.has(c.idx)) continue
+			chunk = c
+			break
+		}
+		if (!chunk) continue
+		best  = chunk
+		bestD = d
+	}
+	return best
+}
+
+
+// MARK: canChopWood
+
+/** True while the Chop prompt should show: empty F slot, trunk in reach, wood left. */
+export function canChopWood(): boolean {
+	return findChopChunk() !== null
+}
+
+
+// MARK: tryChopWood
+
+/**
+ * Take one log off the nearest tree into the F slot and shrink that
+ * trunk. The server is told so every client agrees. No-op when the
+ * slot is full or no tree is in reach.
+ */
+export function tryChopWood(): void {
+	const chunk = findChopChunk()
+	if (!chunk) return
+	activeIdx.delete(chunk.idx)
+	syncTreeWoodScale()
+	pickupLogs(chunk.kind)
+	room.send('woodPickupRequest', { seed: currentSeed, idx: chunk.idx })
+	console.log(
+		`wood: tryChopWood: tree ${chunk.treeIndex} idx=${chunk.idx} ` +
+		`at (${chunk.worldX.toFixed(1)}, ${chunk.worldZ.toFixed(1)})`
+	)
 }
 
 

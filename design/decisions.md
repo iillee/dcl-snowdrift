@@ -6,6 +6,18 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-09-29 session — wood loop in the playtest build
+
+Shipped state: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md). The 9/25 plan's "logs buried under the tree" and "drop the log at the corpse" did not ship.
+
+- **2026-09-29 · Trees are chopped, not a pile of logs · owner-directed** — Six `tree_4` around the hearth (64 / 96 / 144 / 88 / 168 / 104 m). Four logs each, no meshes at the trunk. Empty F slot within 5 m shows Chop Wood. Each chop shrinks the tree by a quarter until it hides. Replaces the 9/25 "logs under the model" pass and is the playtest form of tree-mining. Hold-torch-to-fell is not in this build.
+- **2026-09-29 · Two wood values, one slot · owner-directed** — Branch 30 s, log 60 s. Branches and a few logs hide under snow until the cell is melted. No hearth log that grows back.
+- **2026-09-29 · World death deletes the pack; personal death does not drop it · owner-directed** — Last fire out: wood gone, torch empty. Personal freeze: torch out, fuel kept, wood kept, wake at camp. The 9/24 "drop at the corpse" idea was not taken.
+- **2026-09-29 · Day card on join and on every sunrise · owner-directed** — First player sees Day 1 because they start the dawn. Everyone else sees the day the world is on. Cold open is black with "Don't let the fire die" until you are down by the fire.
+- **2026-09-29 · Warmth wash breathes with the bar · owner-directed** — Gold overlay once per segment while a fire refills heat, then a fade-out when the bar reads full. Blue flash stays the cold-segment hit.
+
+---
+
 ## 2026-09-24 session — phase clock + last-fire wipe
 
 Playtest day/night loop on `feat/phase-clock`. Handoff: [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).

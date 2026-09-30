@@ -1,6 +1,6 @@
 # Session record — wood loop for the 9/29 playtest
 
-*Written 2026-09-25, Friday morning. Builds on [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).*
+*Written 2026-09-25, Friday morning. Builds on [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md). This is the plan, not the result. What shipped is [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).*
 
 Branch: `feat/wood-loop`, cut from `feat/phase-clock`. Do not merge to `main` while the snow review is on main.
 

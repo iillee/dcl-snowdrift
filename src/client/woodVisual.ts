@@ -3,9 +3,8 @@
  *
  * branch.glb native size 0.66 × 4.19 × 0.30 m (Y is the long axis),
  * no colliders, no clips. Scale 0.40 → ~1.68 m stick. Pitch 90° so
- * it lies on the snow (thickness becomes world Y). Native Z is 0.30 m,
- * so world Y is half of that times scale, plus a small pad so the
- * mesh sits on the slab instead of clipping into it.
+ * it lies on the snow. The mesh hangs 0.173 m below the origin once
+ * pitched (scale 1), so world Y lifts that hang onto the slab top.
  *
  * logs_pickup.glb is 0.70 × 0.33 × 0.69 m with colliders we disable.
  */
@@ -14,6 +13,7 @@ import { Entity, GltfContainer, Transform } from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { LOGS_PILE_WORLD_Y } from 'src/shared/logs'
+import { SNOW_GROUND_TOP_Y } from 'src/shared/snowGrid'
 import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 
 
@@ -24,8 +24,11 @@ const LOG_MODEL    = 'assets/models/logs_pickup.glb'
 const BRANCH_SCALE = 0.40
 /** Lay the long axis along the ground. */
 const BRANCH_PITCH_X_DEG = 90
-/** Half native Z (0.30 m) after scale, plus a snow-contact pad. */
-const BRANCH_WORLD_Y = (0.30 / 2) * BRANCH_SCALE + 0.05
+/** Metres the pitched mesh extends below the origin, before scale. */
+const BRANCH_HANG_BELOW_M = 0.173
+/** Clearance above the slab so the stick does not z-fight the ground. */
+const BRANCH_PAD_M = 0.02
+const BRANCH_WORLD_Y = SNOW_GROUND_TOP_Y + BRANCH_HANG_BELOW_M * BRANCH_SCALE + BRANCH_PAD_M
 
 
 // MARK: attachWoodModel

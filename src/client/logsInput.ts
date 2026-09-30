@@ -10,7 +10,7 @@
  * pile at the requested position and broadcasts logPileAdded so every
  * client (including us) sees the new GLB via src/client/logs.ts.
  *
- * F while not carrying is a no-op for now.
+ * F while not carrying chops the nearest tree, when one is in reach.
  */
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
@@ -18,6 +18,7 @@ import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 import { room } from 'src/shared/messages'
 
 import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { tryChopWood } from 'src/client/wood'
 
 
 let installed = false
@@ -66,7 +67,10 @@ export function setupLogsInput(): void {
 		fHeldPrev    = fHeld
 
 		if (!rising) return
-		if (!hasLogs()) return
+		if (!hasLogs()) {
+			tryChopWood()
+			return
+		}
 
 		if (isInFeedRange()) {
 			feedFire()

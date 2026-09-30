@@ -7,8 +7,9 @@
  * layer.frostFlash.tsx renders a full-screen overlay driven by that
  * alpha; the segment-detection system below polls getFrostLocal each
  * frame and calls triggerFrostFlash whenever the blue block count
- * increases. A thaw at a fire does the inverse: each blue block that
- * turns back to gold flashes the screen the heat bar's yellow.
+ * increases. While a fire is thawing remaining frost, a separate gold
+ * overlay breathes once per bar segment, in step with the refill,
+ * then fades out once the bar reads full.
  *
  * Segment math is duplicated from layer.frostBar.tsx on purpose so
  * the flash tracks what the player actually SEES, not the raw frost
@@ -17,7 +18,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { getFrostLocal } from 'src/client/frost/accumulation'
+import { getFrostLocal, isPlayerWarming } from 'src/client/frost/accumulation'
 import { FROST_MAX }     from 'src/shared/frost/tuning'
 
 
@@ -31,6 +32,16 @@ const FLASH_PEAK_ALPHA = 0.28
 // gains produce distinct pulses; long enough to actually register on
 // mobile where the eye may miss a sub-200 ms flicker.
 const FLASH_DURATION_S = 0.6
+// One gold breath per heat-bar segment. The phase is the segment
+// currently refilling, so the pulse tracks the thaw instead of a
+// fixed timer. Peak stays under the cold flash.
+const WARM_PULSE_PEAK = 0.14
+// How fast the wash can rise when you step into a fire mid-segment,
+// so it does not pop to full strength.
+const WARM_ENTER_S    = 0.45
+// Leaving the fire, or the bar reading full, eases the current wash
+// out instead of cutting it off.
+const WARM_FADE_OUT_S = 0.8
 // Segment resolution — must match SEGMENT_COUNT in layer.frostBar.tsx.
 // Duplicated rather than imported to keep this module free of any UI
 // layer dependency (the layer imports us, not the other way round).
@@ -41,7 +52,8 @@ const SEGMENT_COUNT    = 10
 let flashAlpha    = 0
 let flashElapsed  = 0
 let warmAlpha     = 0
-let warmElapsed   = 0
+let warmBlend     = 0
+let wasWarming    = false
 let lastBlueCount = 0
 
 
@@ -81,21 +93,9 @@ export function getFrostFlashAlpha(): number {
 }
 
 
-// MARK: triggerWarmFlash
-
-/**
- * Kick the heat-bar gold flash. Fires when a blue segment thaws back
- * to gold, which only happens inside a fire's warm ring.
- */
-export function triggerWarmFlash(): void {
-	warmAlpha   = Math.max(warmAlpha, FLASH_PEAK_ALPHA)
-	warmElapsed = 0
-}
-
-
 // MARK: getWarmFlashAlpha
 
-/** Current warm-overlay alpha in [0, FLASH_PEAK_ALPHA]. Zero = don't draw. */
+/** Current warm-overlay alpha in [0, WARM_PULSE_PEAK]. Zero = don't draw. */
 export function getWarmFlashAlpha(): number {
 	return warmAlpha
 }
@@ -103,9 +103,10 @@ export function getWarmFlashAlpha(): number {
 
 // MARK: initFrostFlash
 /**
- * Register the per-frame system that (a) fades the flash toward zero
- * and (b) watches for new blue segments and retriggers the flash. Call
- * once from client bootstrap after initFrostAccumulation.
+ * Register the per-frame system that fades the cold flash, breathes
+ * the warm overlay while a fire is thawing frost, and retriggers the
+ * cold flash when a new blue segment appears. Call once from client
+ * bootstrap after initFrostAccumulation.
  */
 export function initFrostFlash(): void {
 	lastBlueCount = coldBlocks(getFrostLocal())
@@ -118,20 +119,33 @@ export function initFrostFlash(): void {
 			flashAlpha = FLASH_PEAK_ALPHA * (1 - t)
 			if (flashAlpha < 0.001) flashAlpha = 0
 		}
-		if (warmAlpha > 0) {
-			warmElapsed += dt
-			const t = Math.min(1, warmElapsed / FLASH_DURATION_S)
-			warmAlpha = FLASH_PEAK_ALPHA * (1 - t)
-			if (warmAlpha < 0.001) warmAlpha = 0
+		// One breath per segment still refilling. The bar reads full
+		// before frost hits exactly 0, and the wash stops on that
+		// read: fade whatever is up, then stay clear.
+		const frost   = getFrostLocal()
+		const cold    = coldBlocks(frost)
+		const warming = isPlayerWarming() && cold > 0
+		if (warming) {
+			if (!wasWarming) warmBlend = 0
+			warmBlend = Math.min(1, warmBlend + dt / WARM_ENTER_S)
+			const warmthPct = 1 - frost / FROST_MAX
+			const into      = warmthPct * SEGMENT_COUNT
+			const frac      = into - Math.floor(into)
+			const pulse     = WARM_PULSE_PEAK * Math.sin(Math.PI * frac)
+			warmAlpha = pulse * warmBlend
+			wasWarming = true
+		} else {
+			wasWarming = false
+			warmBlend  = 0
+			if (warmAlpha > 0) {
+				warmAlpha -= (WARM_PULSE_PEAK / WARM_FADE_OUT_S) * dt
+				if (warmAlpha < 0.001) warmAlpha = 0
+			}
 		}
 
-		// Blue on the way up, gold on the way down. Thaw only happens
-		// inside a fire, so a lost blue segment is the warm pulse.
-		const now = coldBlocks(getFrostLocal())
-		if (now > lastBlueCount) triggerFrostFlash()
-		else if (now < lastBlueCount) triggerWarmFlash()
-		lastBlueCount = now
+		if (cold > lastBlueCount) triggerFrostFlash()
+		lastBlueCount = cold
 	})
 
-	console.log('frostFlash: initFrostFlash: segment-gain flash armed')
+	console.log('frostFlash: initFrostFlash: cold flash and warm pulse armed')
 }

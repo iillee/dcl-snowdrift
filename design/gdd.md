@@ -1,5 +1,5 @@
-*Work in progress · revised 2026-09-24 (phase-clock session) against this file + [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md)*
-*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · Phase 1 Systems in progress (session clock + last-fire wipe live; seasons / empty-server persistence still open)*
+*Work in progress · revised 2026-09-29 (playtest wood loop) against [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md)*
+*Doc: `▓▓▓▓▓▓▓▓▓▓` · all sections drafted · Phase 1 Systems in progress (clock, wood trip, last-fire wipe live; seasons / empty-server persistence still open)*
 
 > **Reading order.** Sections are numbered by drafting priority, not reading order. Recommended read: §0 → §0.1 → §1 → §8 → §2 → §3 → §4 → §5 → §6 → §7 → §9. Hypotheses (`H1-xx`) referenced throughout resolve in [`design/hypothesis-log.md`](./hypothesis-log.md).
 
@@ -28,7 +28,7 @@
 
 **The pitch.** Earth, hundreds of millions of years ago, at the edge of the great freeze. You wake in a village around a fire. Melt snow with your torch to find wood. Feed the hearth against the night. Survive the winter solstice together — and, over many winters, uncover what the ancients left buried under the ice: a network of dormant volcanoes built to thaw the world when the time came.
 
-**Current status.** v1 Systems is in progress on `feat/phase-clock` (not yet the live World). Verbs from v0 still hold: torch, hearth, wood pickup, frost-death, torch chain-lighting, weather. **Now also in the build:** a server-owned DAY / DUSK / NIGHT clock (sky is the time sign; playtest cadence ~1 min day / 10 s dusk / 1 min night), night pressure from dusk (torch melt pinch, heavier weather that will not go fully CLEAR, faster fire drain), a fully mortal spawn hearth, last-fire-out fade-to-black + new-seed rebuild for everyone in the scene, and a Day X help line + sunrise splash. **Not in the build yet:** seasonal cycle, solstice phases (names exist, unused), 60 s sleeping-ember / dormancy, empty-server persistence / return-screens, tree-mining, biomes / Kiln. Next playtest **2026-09-29** is the day/night loop; Monday 2026-09-28 is wood.
+**Current status.** v1 Systems is in the playtest build (2026-09-29). Verbs from v0 still hold: torch, hearth, frost-death, torch chain-lighting, weather. **Now also in the build:** Dawn 12 s / Day 2:00 / Dusk 0:15 / Night 1:00; night pressure from dusk (heavier weather, weaker flame, faster drain; a lit torch stays 3-wide); mortal spawn hearth; last-fire wipe that empties wood and the torch; black cold open ("Don't let the fire die") until you are down by the fire; Day N on join and at every sunrise; snow wood (branch 30 s, log 60 s) revealed by melting; six trees you chop with F (four logs each, the model shrinks, then hides). **Not in the build yet:** seasonal cycle, solstice, sleeping-ember / dormancy, empty-server persistence / return-screens, pine, kiln, hold-torch-to-fell. Detail: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 **At end of v1.** Live with: a day/night phase clock, a full seasonal cycle (autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring), the sleeping-ember failure model, **persistent shared-world survival roguelike** with lightweight persistence backend + DCL CRDT for in-scene sync (world state persists across empty-server periods; extinction triggers new-seed generation), **fire-survives extinction rule** (civilization ends only when the last fire dies; oldest surviving fire becomes new home if hearth falls), **multi-fire territory with fire dormancy** (defense mechanic locked — see §0.1), **two biomes + one functional discovery on a procgen map** (Deadwood Grove, Pine Grove, Cabin/Charcoal Kiln) with a **three-tier fuel system** (kindling / deadwood / pinewood) plus **charcoal portability** produced at the Kiln that surfaces the geography-as-tech-tree pillar as three distinct capabilities (quantity / quality / portability), one **mystery discovery** (Ancient Station foreshadow) hinting at v2, a winter solstice event with warning + whiteout + recovery arc, personal **"while you were gone" return-screens** on every session start, a **level visual redesign** (block/prop art pass + environment-layout iteration) that lifts the world from greybox to a cohesive Cryogenian look, and a first multiplayer playtest during the Solstice + Game Loops phase.
 
@@ -117,13 +117,13 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 ### First 0–10 minutes (you)
 
-**0–5 sec.** You wake in a warm circle around a fire. Snow falls beyond it. Others stand nearby with lit torches. The sky is the clock. Help (`?`) shows **Day X** and the live phase countdown; a gold **Day X** title splashes at each sunrise. No always-on day-countdown chip on the HUD.
+**0–5 sec.** The screen is black: "Don't let the fire die." You wake laid down by the fire as that cover fades. The sky is at sunrise. A gold **Day N** title shows — Day 1 if you started the world, otherwise the day the world is already on. The same title returns at every later sunrise. Help (`?`) shows the day and the phase countdown. No always-on day chip.
 
-**5–10 sec.** You step out; a chill cue plays, a frost meter appears. You grab a torch from the hearth pile. Wood chunks glow under the snow when your torch is near.
+**5–10 sec.** You stand. A chill cue plays and the heat bar is there. Your torch starts unlit and full. Light it at the fire. Wood is not visible until snow is melted.
 
-**10–60 sec.** You walk to a glow. Snow melts under you. Pick up a log — carrying 1. Deposit at the hearth; its fuel gauge visibly refills; the fire brightens and its warmth radius grows.
+**10–60 sec.** You walk out. Snow melts under the torch. A branch or a log appears and goes into the one F slot (30 s / 60 s of fire). Or you walk to a tree: within 5 m, with an empty slot, **Chop Wood** takes one log and the tree shrinks. Feed the hearth. Standing in the fire, a gold wash breathes once per segment the bar refills, then fades out when the bar is full.
 
-**1–3 min.** The sky darkens (dusk). Night pressure starts at sunset — torch melt shrinks, weather thickens, fire drain doubles. Players run for a fire. Someone feeds a log. The fire holds. Dawn breaks; **Day X** splashes.
+**1–3 min.** The sky darkens (dusk). Night pressure starts at sunset — weather thickens, the flame weakens, fire drain doubles. The torch still melts 3-wide. Players run for a fire. Someone feeds wood. The fire holds. Dawn breaks; **Day N** splashes.
 
 **3–10 min.** Day 2. Cold multiplier climbs; a *"Cold ×1.4"* chip appears. Wood near the hearth is gone — you walk further. Torch drops low; you hand off to an incoming player. First coordination beat.
 
@@ -388,7 +388,7 @@ The 5-week solo-with-AI budget (75–100 hours) is realistically ~half of what t
 
 ~5 weeks of calendar between the bookends, split across the five themed phases below in whatever proportion the build demands. Playtests happen at natural seams — end of Systems, end of Depth + Holes, and inside Solstice + Game Loops — not on fixed dates. Schedule applies to both Reach and Core tiers.
 
-**Phase 1 progress (2026-09-24).** Session clock + in-scene last-fire extinction are playable. Snow LOD planes and delayed snowfall started. Still open for Systems: seasonal table, fog, sleeping-ember / dormancy, serverless empty-server persistence + return-screens, content-pool scaffolding, H1-06 8-player mobile gate. Next group playtest **2026-09-29** (day/night loop). Owner away 2026-09-26–27; build day **2026-09-28** is wood. Detail in [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
+**Phase 1 progress (2026-09-29).** Session clock, the wood trip (melt, carry, chop, feed), and in-scene last-fire extinction are playable. Snow LOD planes and delayed snowfall are in. Still open for Systems: seasonal table, fog, sleeping-ember / dormancy, serverless empty-server persistence + return-screens, content-pool scaffolding, H1-06 8-player mobile gate. Playtest build detail: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 ### 9.1 Reach v1 — the five phases (ambition target)
 

@@ -1,14 +1,15 @@
 /**
  * layer.loadingSplash.tsx — cold-open black + mid-game black cover.
  *
- *   1. Cold-open — solid black until the player is collapsed at the
- *      fire and the snow and cliffs are up, then a short fade.
+ *   1. Cold-open — solid black, with the fire line, until the player
+ *      is collapsed at the fire and the snow and cliffs are up, then
+ *      a short fade.
  *   2. Mid-game regen — solid black, never a title card. Ember-fail
  *      owns its own black cards, so this cover stays off during that
  *      cinematic.
  */
 
-import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
@@ -17,10 +18,15 @@ import { isEmberFailing } from 'src/client/emberFail'
 import { isPlayerLaidDownAtHome } from 'src/client/frost/death'
 import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
 import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
+import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
 /** Fade-out once the player is down and the world is ready to see. */
 const COLD_OPEN_FADE_MS = 800
+/** Line held on the cold-open black. Mid-game covers stay blank. */
+const COLD_OPEN_LINE = "Don't let the fire die"
+
+const { fontSizes } = UI_THEME
 
 // Once the first winter has been shown, the cold-open cover must
 // never return. Mid-game perimeter teardown used to look like a
@@ -94,6 +100,20 @@ function isMidGameCoverActive(): boolean {
 }
 
 
+// MARK: isWorldCovered
+
+/**
+ * True while a full-screen cover hides the world: cold open (including
+ * its fade), ember-fail, or a mid-game rebuild. Sunrise titles wait
+ * on this so the day line is actually visible.
+ */
+export function isWorldCovered(): boolean {
+	if (isEmberFailing()) return true
+	if (!coldOpenReleased) return true
+	return isMidGameCoverActive()
+}
+
+
 // MARK: LoadingSplashLayer
 /**
  * Full-screen splash pinned above every other layer. Cold-open and
@@ -116,12 +136,36 @@ class LoadingSplashLayer extends Layer {
 				<UiEntity
 					key         = "ui_LoadingSplash_cold"
 					uiTransform = {{
-						width         : '100%',
-						height        : '100%',
-						positionType  : 'absolute',
+						width          : '100%',
+						height         : '100%',
+						positionType   : 'absolute',
+						alignItems     : 'center',
+						justifyContent : 'center',
+						flexDirection  : 'column',
 					}}
 					uiBackground = {{ color: Color4.create(0, 0, 0, alpha) }}
-				/>
+				>
+					<UiEntity
+						key         = "ui_LoadingSplash_lineWrap"
+						uiTransform = {{
+							width          : '84%',
+							height         : 80,
+							alignItems     : 'center',
+							justifyContent : 'center',
+							opacity        : alpha,
+						}}
+					>
+						<Label
+							key         = "ui_LoadingSplash_line"
+							value       = {COLD_OPEN_LINE}
+							fontSize    = {fontSizes.display}
+							color       = {Color4.White()}
+							font        = "sans-serif"
+							textAlign   = "middle-center"
+							uiTransform = {{ width: '100%', height: 80 }}
+						/>
+					</UiEntity>
+				</UiEntity>
 			)
 		}
 

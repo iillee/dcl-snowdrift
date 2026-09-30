@@ -21,6 +21,7 @@ import { isMobile }           from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { isChopPromptVisible }            from 'src/client/ui/layers/layer.chopPrompt'
 import { isFeedPromptVisible }            from 'src/client/ui/layers/layer.feedPrompt'
 import { isHiddenCampfirePromptVisible }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 import { isRelightPromptVisible }         from 'src/client/ui/layers/layer.relightPrompt'
@@ -74,7 +75,7 @@ class HotbarBridgeLayer extends Layer {
 		// both the relight and hidden-campfire tooltips share that slot
 		// (only one at a time; see the yield in layer.relightPrompt).
 		const showLeft    = isRelightPromptVisible() || isHiddenCampfirePromptVisible()
-		const showFeed    = isFeedPromptVisible()
+		const showFeed    = isFeedPromptVisible() || isChopPromptVisible()
 
 		return (
 			<UiEntity

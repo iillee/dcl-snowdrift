@@ -11,8 +11,9 @@
  *   - Far  (35-80 m): keep the old gather belt, peak density at 50 m.
  *
  * Kind is stamped at placement (stable per seed). Wilderness is
- * kindling. Each scattered tree_4 holds four logs about a metre
- * out from the trunk, so the base mesh does not cover them.
+ * kindling. Each scattered tree_4 holds four logs at the trunk.
+ * Those are not world meshes: the player chops the tree, and each
+ * chop spends one of the four.
  *
  * Index is the chunk's position in the returned array. Stable per
  * seed, so the server can broadcast just `{ idx }` and every client
@@ -62,15 +63,13 @@ export const WOOD_BAND_NEAR = 0
 export const WOOD_BAND_FAR  = 1
 export const WOOD_BAND_TREE = 2
 
-/** Logs at each scattered tree, sitting just outside the trunk. */
+/** Chops each scattered tree still holds at cycle start. */
 export const WOOD_LOGS_PER_TREE = 4
-/** Prop id whose feet get the log cluster. Matches PROP_CATALOG. */
+/** How close the player must stand to chop, measured from the trunk. */
+export const TREE_CHOP_RADIUS_M = 5
+export const TREE_CHOP_RADIUS_SQ = TREE_CHOP_RADIUS_M * TREE_CHOP_RADIUS_M
+/** Prop id the chops attach to. Matches PROP_CATALOG. */
 const TREE_PROP_ID = 'tree_4'
-/** Distance from the tree origin to each log (m). */
-const TREE_LOG_RADIUS_M = 1
-/** Per-log wobble so the four are not a perfect ring. */
-const TREE_LOG_RADIUS_JITTER_M = 0.15
-const TREE_LOG_ANGLE_JITTER_RAD = 0.35
 
 
 // MARK: Types
@@ -196,7 +195,7 @@ function placeFarBand(
 
 /**
  * Feet of the seed-scattered trees. Same inputs the prop spawner uses,
- * so the log clusters land on the models already in the world.
+ * so chops land on the models already in the world.
  */
 export function treeSitesFromProps(
 	mazeSeed: number,
@@ -212,44 +211,22 @@ export function treeSitesFromProps(
 }
 
 
-// MARK: treeLogWorld
-
-function treeLogWorld(
-	site: WoodTreeSite,
-	slot: number,
-	base: number,
-	rng : () => number,
-): { x: number, z: number } {
-	const turn = (rng() * 2 - 1) * TREE_LOG_ANGLE_JITTER_RAD
-	const ang  = base + slot * (Math.PI / 2) + turn
-	const r    = TREE_LOG_RADIUS_M + (rng() * 2 - 1) * TREE_LOG_RADIUS_JITTER_M
-	return {
-		x: site.worldX + Math.sin(ang) * r,
-		z: site.worldZ + Math.cos(ang) * r,
-	}
-}
-
-
 // MARK: placeTreeLogs
 
 /**
- * Append four logs around each trunk, about a metre out from the
- * origin. The seed turns the set so they are not always on the same
- * sides, and a quarter-turn keeps them from stacking.
+ * Four log records at each trunk. They are not placed as meshes.
+ * Chopping spends one record and the tree model scales down.
  */
 function placeTreeLogs(
 	out  : WoodChunk[],
 	sites: WoodTreeSite[],
-	rng  : () => number,
 ): void {
 	for (const site of sites) {
-		const base = rng() * Math.PI * 2
 		for (let slot = 0; slot < WOOD_LOGS_PER_TREE; slot++) {
-			const p = treeLogWorld(site, slot, base, rng)
 			out.push({
 				idx      : out.length,
-				worldX   : p.x,
-				worldZ   : p.z,
+				worldX   : site.worldX,
+				worldZ   : site.worldZ,
 				kind     : WOOD_KIND_LOG,
 				band     : WOOD_BAND_TREE,
 				treeIndex: site.treeIndex,
@@ -284,7 +261,7 @@ export function computeWoodScatter(
 		)
 	}
 	const sites = treeSitesFromProps(cycleMazeSeed(seed), reserved)
-	placeTreeLogs(out, sites, rng)
+	placeTreeLogs(out, sites)
 	console.log(`woodScatter: computeWoodScatter: ${sites.length} tree clusters`)
 	return out
 }

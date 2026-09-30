@@ -1,8 +1,9 @@
 /**
  * daySplash.ts — "Day X" title card at each sunrise.
  *
- * Driven by phase.ts when the clock wraps into DAY. Join hydration
- * does not splash. Ember-fail owns the screen, so we skip there.
+ * Driven by phase.ts on join and on every sunrise. Join shows the
+ * world's current day. Phase waits until the screen cover is gone
+ * so the line is visible. Ember-fail owns the screen, so we skip there.
  */
 
 import { engine } from '@dcl/sdk/ecs'

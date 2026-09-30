@@ -159,7 +159,9 @@ export function setupWoodServer(): void {
 			console.log(`[Server] wood: pickup ${idx} from ${from} - no scatter row`)
 			return
 		}
-		if (getStageAtWorld(chunk.worldX, chunk.worldZ) !== STAGE_MELTED) {
+		// Tree chops are the trunk itself, not a mesh buried in the snow.
+		// Ground branches and logs still have to be melted clear.
+		if (chunk.band !== WOOD_BAND_TREE && getStageAtWorld(chunk.worldX, chunk.worldZ) !== STAGE_MELTED) {
 			console.log(`[Server] wood: pickup ${idx} from ${from} rejected - snow not melted`)
 			return
 		}

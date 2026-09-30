@@ -72,6 +72,7 @@ import { setupTorchInput } from 'src/client/torchInput'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
 import { setupRelightPromptVisibility } from 'src/client/ui/layers/layer.relightPrompt'
+import { setupChopPromptVisibility }     from 'src/client/ui/layers/layer.chopPrompt'
 import { setupFeedPromptVisibility }    from 'src/client/ui/layers/layer.feedPrompt'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
 import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
@@ -266,5 +267,6 @@ export async function setupClient(): Promise<void> {
 	// instead of a hard swap (see layer.relightPrompt / layer.feedPrompt).
 	setupRelightPromptVisibility()
 	setupFeedPromptVisibility()
+	setupChopPromptVisibility()
 
 }

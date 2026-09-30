@@ -17,11 +17,14 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 import { scatterProps } from 'src/shared/props/scatter'
+import { WOOD_LOGS_PER_TREE } from 'src/shared/woodScatter'
 
 
 // MARK: Module state
 const spawnedEntities: Entity[] = []
+const trees: { entity: Entity, fullScale: number }[] = []
 let hasSpawned = false
+let onTreesSpawned: (() => void) | null = null
 
 const defsById = new Map<string, PropDef>(PROP_CATALOG.map(d => [d.id, d]))
 
@@ -58,8 +61,12 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 		})
 		GltfContainer.create(e, { src: def.model })
 		spawnedEntities.push(e)
+		if (p.propId === 'tree_4') {
+			trees.push({ entity: e, fullScale: p.scale })
+		}
 	}
 	console.log(`props: setupProps: spawned ${placements.length} props for seed ${seed}`)
+	if (onTreesSpawned) onTreesSpawned()
 }
 
 
@@ -71,5 +78,37 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 export function clearProps(): void {
 	for (const e of spawnedEntities) engine.removeEntity(e)
 	spawnedEntities.length = 0
+	trees.length = 0
 	hasSpawned = false
+}
+
+
+// MARK: onPropTreesSpawned
+
+/**
+ * Run after the tree models exist. Wood uses this to size them from
+ * the logs still at each trunk.
+ */
+export function onPropTreesSpawned(fn: () => void): void {
+	onTreesSpawned = fn
+}
+
+
+// MARK: syncTreeScales
+
+/**
+ * Size each tree from how many of its logs are left. 4/4 is the
+ * spawned scale, 3/4 is 75% of that, and 0 hides the model.
+ */
+export function syncTreeScales(remainingByTree: number[]): void {
+	for (let i = 0; i < trees.length; i++) {
+		const remaining = remainingByTree[i] ?? 0
+		const frac      = remaining / WOOD_LOGS_PER_TREE
+		const s         = trees[i].fullScale * frac
+		Transform.getMutable(trees[i].entity).scale = Vector3.create(s, s, s)
+		console.log(
+			`props: syncTreeScales: tree ${i} logs=${remaining}/${WOOD_LOGS_PER_TREE} ` +
+			`scale=${s.toFixed(2)}`
+		)
+	}
 }

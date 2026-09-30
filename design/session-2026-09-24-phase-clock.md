@@ -1,6 +1,6 @@
 # Session record — phase clock + last-fire wipe
 
-*Written 2026-09-24. Start a **new chat** for Monday’s wood pass. Point that session at this file plus [`gdd.md`](gdd.md) and [`decisions.md`](decisions.md).*
+*Written 2026-09-24. The wood pass that followed is recorded in [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md). This file is the clock and last-fire handoff only.*
 
 The snow-rewrite notes in [`session-2026-09-24-optimization-complete.md`](./session-2026-09-24-optimization-complete.md) are still true for snow. This file is the live product handoff.
 

@@ -43,6 +43,8 @@ import { isTorchProtecting } from 'src/client/torch'
 let sampleAccum      = 0
 let frost            = 0
 let lastWrittenFrost = 0
+/** True while a fire is actively thawing remaining frost. */
+let warmingByFire    = false
 // Matches SEGMENT_COUNT in layer.frostBar.tsx. Kept as a local literal
 // (instead of importing from a UI layer) so the accumulator has no
 // downward dependency on the UI. Update both if the bar changes.
@@ -114,7 +116,9 @@ export function initFrostAccumulation(): void {
 			// warmed by the campfire.
 			frost -= (FROST_MAX / FROST_TIME_TO_THAW_S) * step
 			if (frost < 0) frost = 0
+			warmingByFire = frost > 0
 		} else {
+			warmingByFire = false
 			// Ambient + snow. Fire is the only full cancel. A lit torch
 			// blocks ambient only when torchLeakPhases is null (day).
 			let ratePerSec = 0
@@ -170,7 +174,18 @@ export function resetFrostLocal(): void {
 	frost            = 0
 	lastWrittenFrost = 0
 	lastChunkIndex   = 0
+	warmingByFire    = false
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
+}
+
+
+// MARK: isPlayerWarming
+/**
+ * True while the player is standing in a lit fire and still has frost
+ * left to thaw. Fully warm, or outside every fire, reads false.
+ */
+export function isPlayerWarming(): boolean {
+	return warmingByFire
 }
 
 

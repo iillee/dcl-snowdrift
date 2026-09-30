@@ -2,7 +2,8 @@
  * layer.frostFlash.tsx — full-screen tint that pulses with the heat bar.
  *
  * Blue when a cold segment fills. Gold, the same yellow as the warm
- * blocks, when a segment thaws back beside a fire.
+ * blocks, breathes once per segment while a fire is refilling the
+ * bar, then fades out once the bar is full.
  *
  * Alpha comes from getFrostFlashAlpha() and getWarmFlashAlpha() in
  * src/client/frost/frostFlash.

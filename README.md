@@ -16,11 +16,11 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 ## Status
 
-**v1 Systems in progress** on `feat/phase-clock` (2026-09-24). The World at `snowdrift.dcl.eth` may still be the older v0 deploy until this branch ships.
+**v1 Systems in progress** (2026-09-29 playtest build). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
 
-**In the current build:** torch, melt, wood pickup, frost death, chain-light, weather, **server-owned DAY / DUSK / NIGHT**, last-fire fade-to-black + new seed, Day X help + sunrise splash, snow LOD planes.
+**In the current build:** torch, melt, branch/log pickup, choppable trees, frost death, chain-light, weather, **Dawn / Day / Dusk / Night**, last-fire fade-to-black + new seed, Day N on join and at sunrise, black cold open, snow LOD planes.
 
-**Next playtest:** 2026-09-29 (day/night loop). **Next build day:** 2026-09-28 — wood. Full spec [`design/gdd.md`](design/gdd.md). Handoff [`design/session-2026-09-24-phase-clock.md`](design/session-2026-09-24-phase-clock.md). The phased plan lives in GDD §9 (the old `docs/v1-4week-plan.md` is archived).
+Full spec [`design/gdd.md`](design/gdd.md). What the build actually does: [`design/session-2026-09-29-playtest.md`](design/session-2026-09-29-playtest.md). The phased plan lives in GDD §9.
 
 The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \§0.1):
 
@@ -33,16 +33,17 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 - [`design/gdd.md`](design/gdd.md) — full GDD.
 - [`design/summary.md`](design/summary.md) — plain-English overview.
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions and rationale.
-- [`design/session-2026-09-24-phase-clock.md`](design/session-2026-09-24-phase-clock.md) — live handoff (clock + last-fire + Monday wood).
+- [`design/session-2026-09-29-playtest.md`](design/session-2026-09-29-playtest.md) — what the playtest build does.
+- [`design/session-2026-09-24-phase-clock.md`](design/session-2026-09-24-phase-clock.md) — earlier clock + last-fire handoff.
 - [`design/hypothesis-log.md`](design/hypothesis-log.md) — hypotheses (`H1-xx`) referenced from the GDD.
 - [`design/spatialization-plan.md`](design/spatialization-plan.md) — procgen biome + fire archetype spec.
 - GDD §9 — phased v1 plan (`docs/v1-4week-plan.md` is archived).
 
 ## How it plays (v1 target)
 
-- Spawn near a lit hearth. The sky is the clock. Help shows **Day X**; sunrise splashes the day number.
-- Grab a torch. Heat comes from *your* lit torch or a visible campfire — not from huddling.
-- Melt snow, pick up wood, feed the fire. Night starts at dusk: smaller melt, heavier weather, faster drain.
+- Spawn laid down by the hearth under a black screen ("Don't let the fire die"). The day title shows the world's current day. Help shows **Day N**; every sunrise shows it again.
+- Light a torch at the fire. Heat comes from *your* lit torch or a visible campfire — not from huddling.
+- Melt snow, pick up a branch or a log, or chop a tree. One thing in the F slot. Feed the fire. Night starts at dusk: heavier weather, weaker flame, faster drain. The torch still melts 3-wide.
 - If the last fire dies, the world fades to black and a new seed begins.
 - Seasons progress. Winter deepens. Nights get longer, snow gets heavier, cold gets sharper — leading up to the **winter solstice**: the longest and hardest night.
 - Survive the solstice with any fire still lit \→ the recovery seasons begin (thaw, spring). Fail with all fires dead and no one around \→ the next arriving player witnesses extinction, and a new seed rolls. That reset is a story ("winter reclaimed the village"), not a game-over screen.
