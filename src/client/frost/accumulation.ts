@@ -6,8 +6,9 @@
  * getSnowStageAtWorld(), and pushes FrostLevel up or down accordingly.
  * Heat is only a visible fire or YOUR lit torch. Standing near another
  * player does nothing. A campfire removes frost at its tier's rate,
- * and the cold still applies, so Ember loses from dusk onward while
- * Warm and above still clear you. Your lit torch blocks ambient
+ * and the cold still applies. Ember holds the bar still through the
+ * day and loses from dusk onward. Warm and above still clear you.
+ * Your lit torch blocks ambient
  * during day and leaks at night, but only outside a fire. Snow
  * always chills.
  *
@@ -28,7 +29,7 @@ import {
 	FROST_TIME_BASELINE_S,
 	FROST_TIME_SNOW_STAGE_S,
 } from 'src/shared/frost/tuning'
-import { hearthWarmthPerSec } from 'src/shared/hearthFuel'
+import { hearthTierFromFuel, hearthWarmthPerSec } from 'src/shared/hearthFuel'
 import { ambientFreezeSec, torchLeakFreezeSec, type PhaseConfig } from 'src/shared/phase'
 
 import { playFrostChunkSfx } from 'src/client/audio'
@@ -121,8 +122,10 @@ export function initFrostAccumulation(): void {
 		const dz    = z - CAMPFIRE_WORLD_Z
 		const mainMeltRSq = getMainFireMeltRadiusSq()
 		let warmthPerSec = 0
+		let warmthFuel   = 0
 		if (mainMeltRSq > 0 && dx * dx + dz * dz <= mainMeltRSq) {
-			warmthPerSec = hearthWarmthPerSec(getMainFireFuel())
+			warmthFuel   = getMainFireFuel()
+			warmthPerSec = hearthWarmthPerSec(warmthFuel)
 		}
 		if (isHiddenCampfireLit()) {
 			for (const hp of getHiddenCampfireWarmthPositions()) {
@@ -131,18 +134,27 @@ export function initFrostAccumulation(): void {
 				const hdz = z - hp.z
 				if (hdx * hdx + hdz * hdz > hp.radiusSq) continue
 				const pit = hearthWarmthPerSec(hp.fuel)
-				if (pit > warmthPerSec) warmthPerSec = pit
+				if (pit <= warmthPerSec) continue
+				warmthPerSec = pit
+				warmthFuel   = hp.fuel
 			}
 		}
 		if (warmthPerSec > 0) {
-			// Cold still applies. The tier only wins when its warmth
-			// is larger, so Ember loses from dusk onward and Warm
-			// still clears you. The torch does not add or cancel here.
-			const net = ambientColdPerSec(phase) + snowColdPerSec(x, y, z, phase) - warmthPerSec
-			frost += net * step
-			if (frost < 0) frost = 0
-			if (frost > FROST_MAX) frost = FROST_MAX
-			warmingByFire = net < 0 && frost > 0
+			// Ember holds the bar through dawn and day: no thaw, no
+			// frost gain, no gold wash. From dusk it loses, same as night.
+			// Every stronger tier still nets against the cold. The torch
+			// does not add or cancel inside a ring.
+			const dayEmber = hearthTierFromFuel(warmthFuel) === 1
+				&& phase.ambientFreezePhases === null
+			if (dayEmber) {
+				warmingByFire = false
+			} else {
+				const net = ambientColdPerSec(phase) + snowColdPerSec(x, y, z, phase) - warmthPerSec
+				frost += net * step
+				if (frost < 0) frost = 0
+				if (frost > FROST_MAX) frost = FROST_MAX
+				warmingByFire = net < 0 && frost > 0
+			}
 		} else {
 			warmingByFire = false
 			// Ambient + snow. A lit torch blocks ambient only when

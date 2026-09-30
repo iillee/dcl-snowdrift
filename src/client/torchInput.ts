@@ -21,7 +21,8 @@ import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
-import { playTorchSfxLocal } from 'src/client/audio'
+import { playSurgeSfxLocal, playTorchSfxLocal } from 'src/client/audio'
+import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
 import {
@@ -87,7 +88,24 @@ export function tryRelightAtFire(): void {
 	const dx = x - CAMPFIRE_WORLD_X
 	const dz = z - CAMPFIRE_WORLD_Z
 	const nearCentral = dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
-	const nearHidden  = isInHiddenRelightRange()
+	const hearthOut   = getMainFireFuel() <= 0
+
+	// A dead hearth has no flame to give the torch. A lit torch can
+	// pass its own flame across and leave the hearth at Ember. The
+	// torch keeps whatever fuel it already had.
+	if (nearCentral && hearthOut) {
+		if (!isTorchLit()) {
+			console.log('torchInput: tryRelightAtFire: hearth is out and the torch is dark')
+			return
+		}
+		requestHearthSpark()
+		relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
+		playSurgeSfxLocal()
+		console.log('torchInput: tryRelightAtFire: sparked the dead hearth')
+		return
+	}
+
+	const nearHidden = isInHiddenRelightRange()
 
 	if (!nearCentral && !nearHidden) {
 		console.log(`torchInput: tryRelightAtFire: outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)

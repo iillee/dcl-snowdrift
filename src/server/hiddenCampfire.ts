@@ -47,7 +47,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
-import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
+import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
@@ -183,7 +183,6 @@ function snuffFire(index: number): void {
 	// painted is swept; cells owned by other fires are left alone.
 	releaseDiscOutside(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
-	checkEmberFail()
 }
 
 
@@ -345,8 +344,11 @@ export function setupHiddenCampfireServer(): void {
 			return
 		}
 		const from = context?.from ?? 'unknown'
-		if (!lit[target]) {
-			console.log(`[Server] hiddenCampfire[${target}]: feed from ${from} ignored - not lit`)
+		if (!lit[target] || fuel[target] <= 0) {
+			console.log(`[Server] hiddenCampfire[${target}]: feed refused from ${from} — fire is out`)
+			if (context?.from) {
+				room.send('feedFireRejected', { kind: clampWoodKind(kind) }, { to: [context.from] })
+			}
 			return
 		}
 		const add      = fuelSecondsForKind(clampWoodKind(kind))

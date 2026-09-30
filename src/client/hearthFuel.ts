@@ -7,9 +7,8 @@
  * accessors for everything downstream (frost accumulation, upcoming
  * billboard UI, tier-scaled flame/smoke/audio).
  *
- * Send side is a single function: requestFeedFire(). Called from
- * logsInventory.feedFire() the moment the local player consumes a log
- * so the server bumps fuel with no extra input plumbing.
+ * Send side: requestFeedFire() when a log is fed, and
+ * requestHearthSpark() when a lit torch relights a dead hearth.
  *
  * Bootstrap order (see src/client/index.ts): setupHearthFuelClient()
  * MUST run before initClientHandler so the joinRoster hydration
@@ -111,6 +110,18 @@ export function requestFeedFire(
 ): void {
 	room.send('feedFireRequest', { target, kind })
 	console.log(`hearthFuel: requestFeedFire: target=${target} kind=${kind}`)
+}
+
+
+// MARK: requestHearthSpark
+/**
+ * Ask the server to relight a dead main hearth at the Ember spark.
+ * The caller has already checked for a lit torch in range. The torch
+ * stays lit. This only passes the flame to the hearth.
+ */
+export function requestHearthSpark(): void {
+	room.send('hearthSparkRequest', {})
+	console.log('hearthFuel: requestHearthSpark: passing the torch flame to the dead hearth')
 }
 
 

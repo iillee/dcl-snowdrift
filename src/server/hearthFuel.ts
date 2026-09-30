@@ -6,8 +6,9 @@
  *   - lastBroadcastFuel / lastBroadcastPlayers : throttle state
  *
  * Message contracts:
- *   Client -> Server  feedFireRequest    {}
- *   Server -> Client  hearthFuelUpdate   { fuel, players }
+ *   Client -> Server  feedFireRequest      { target, kind }
+ *   Client -> Server  hearthSparkRequest   {}
+ *   Server -> Client  hearthFuelUpdate     { fuel, players }
  *
  * Decay tick runs every frame (see setupHearthFuelServer). We only
  * broadcast when fuel has drifted by BROADCAST_FUEL_DELTA seconds
@@ -22,6 +23,7 @@ import { engine } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
+	FUEL_HIDDEN_INITIAL,
 	FUEL_MAIN_FLOOR,
 	FUEL_MAIN_INITIAL,
 	FUEL_MAX,
@@ -38,7 +40,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { onCycleRoll } from 'src/server/cycle'
-import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
+import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
@@ -156,6 +158,23 @@ export function snuffMainFire(): void {
 }
 
 
+// MARK: sparkMainFire
+/**
+ * Relight a dead spawn hearth at the Ember spark. Same 30 s a hidden
+ * pit starts at. No-op while it still has fuel. The torch is not spent.
+ */
+function sparkMainFire(from: string): void {
+	if (mainFuel > 0) {
+		console.log(`[Server] hearthFuel: spark ignored from ${from} — hearth still lit (${mainFuel.toFixed(1)}s)`)
+		return
+	}
+	mainFuel = FUEL_HIDDEN_INITIAL
+	syncMeltRingToCurrentFuel()
+	broadcastFuel()
+	console.log(`[Server] hearthFuel: sparked by ${from} to ${FUEL_HIDDEN_INITIAL}s (Ember)`)
+}
+
+
 // MARK: sendHearthFuelStateTo
 /**
  * Push the current fuel snapshot to a single client. Called from the
@@ -210,6 +229,13 @@ export function setupHearthFuelServer(): void {
 		const from     = context?.from ?? 'unknown'
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = mainFuel
+		if (prev <= 0) {
+			console.log(`[Server] hearthFuel: feed refused from ${from} — hearth is out`)
+			if (context?.from) {
+				room.send('feedFireRejected', { kind: clampWoodKind(kind) }, { to: [context.from] })
+			}
+			return
+		}
 		if (!feedFitsFire(prev, kind)) {
 			console.log(
 				`[Server] hearthFuel: feed refused from ${from} kind=${clampWoodKind(kind)} ` +
@@ -234,6 +260,15 @@ export function setupHearthFuelServer(): void {
 		broadcastFuel()
 	})
 
+	room.onMessage('hearthSparkRequest', (_payload, context) => {
+		const from = context?.from ?? 'unknown'
+		if (isEmberFailing()) {
+			console.log(`[Server] hearthFuel: spark ignored from ${from} — ember fail in progress`)
+			return
+		}
+		sparkMainFire(from)
+	})
+
 	// Decay + broadcast tick.
 	engine.addSystem((dt: number) => {
 		if (isEmberFailing()) return
@@ -248,9 +283,8 @@ export function setupHearthFuelServer(): void {
 		if (hearthTierFromFuel(mainFuel) !== prevTier) syncMeltRingToCurrentFuel()
 		rearmMaxBurstIfSafe()
 		if (prev > 0 && mainFuel <= 0) {
-			console.log('[Server] hearthFuel: spawn hearth burned out')
+			console.log('[Server] hearthFuel: spawn hearth burned out — world keeps going')
 			syncMeltRingToCurrentFuel()
-			checkEmberFail()
 		}
 
 		heartbeatClock += dt

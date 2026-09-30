@@ -12,7 +12,9 @@
  *   - 1 branch      = BRANCH_FUEL_SECONDS (+30 s)
  *   - Hard cap      = FUEL_MAX (600 s -> 10 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
- *                     and can burn to 0. Last fire out is game over.
+ *                     and can burn to 0. A lit torch sparks it back
+ *                     to the same 30 s Ember a hidden pit starts at.
+ *                     The world does not end when it goes out.
  *   - Hidden fires  = no floor. Fuel -> 0 snuffs them; snow-cover
  *                     re-buries them via precipitation.
  *   - 5 tiers       = flame, smoke height, smoke density, light
@@ -123,9 +125,10 @@ export const TIER_VOLUME: readonly number[] = [0.25, 0.45, 0.70, 0.90, 1.00] as 
  *
  * Day bare cold is ~3.3/s. Dusk and night share one bare cold, ~4.8/s.
  *
- *   Ember    4    beats day (slow clear). Loses to dusk/night: a
- *                 60s night on bare ground fills about half the bar
- *                 from warm, instead of freezing you in ~21s outside.
+ *   Ember    4    holds the bar through dawn and day (the cold is
+ *                 not applied). Loses to dusk/night: a 60s night on
+ *                 bare ground fills about half the bar from warm,
+ *                 instead of freezing you in ~21s outside.
  *   Low      6    beats dusk/night. A full bar clears in ~80s.
  *   Warm     7    the opening fire. Night recovery matches the old
  *                 45s thaw.

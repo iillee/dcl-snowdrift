@@ -210,6 +210,11 @@ export const Messages = {
 		kind  : Schemas.Int,
 	}),
 
+	// Client -> Server: a lit torch is passing its flame to a dead main
+	// hearth. The server restores the Ember spark and leaves the torch
+	// burning. Ignored while the hearth still has fuel.
+	hearthSparkRequest: Schemas.Map({}),
+
 	// Server -> Client: that feed was refused because the piece would
 	// pass the cap. The sender puts the wood back in the F slot.
 	feedFireRejected: Schemas.Map({

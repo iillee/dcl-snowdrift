@@ -1,18 +1,13 @@
 /**
- * layer.relightPrompt.tsx — proximity tooltip: "Press E to light" /
- * "Press E to top off".
+ * layer.relightPrompt.tsx — proximity tooltip: "LIGHT TORCH" beside a
+ * living fire, or "LIGHT FIRE" beside a dead hearth when the torch
+ * is already lit.
  *
- * Visible when ALL of the following are true:
- *   - torch is equipped
- *   - local player is inside the campfire heat ring
- *   - torch is either NOT lit, OR is lit but not at full fuel
- *     (so the player can walk back to the fire and re-press E to
- *     top off before heading out again).
- *
- * The player still has to press E — this layer is only the affordance
- * hint. The actual light/refill happens in src/client/torchInput.ts,
- * whose E-press handler already calls relightTorch() unconditionally
- * inside the radius, and relightTorch() refills fuel to max.
+ * A living fire shows the prompt when the torch is equipped and either
+ * dark or not full, so E can light it or top it off. A dead hearth
+ * shows it only for a lit torch, including a full one, because that
+ * press sparks the hearth and does not change the torch. A dark torch
+ * at a dead hearth has no flame to pass, so the prompt stays hidden.
  *
  * Body is re-evaluated per frame by the UI kit, so we sample the
  * player Transform + torch state inline. Cheap: 3 subs, 2 mults, one
@@ -27,10 +22,11 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { getMainFireFuel }                                                 from 'src/client/hearthFuel'
 import { isInHiddenRelightRange }                                          from 'src/client/hiddenCampfire'
 import { isHiddenCampfirePromptVisible }                                   from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch } from 'src/client/torchEquip'
-import { isTorchRelightOnCooldown }                                        from 'src/client/torchInput'
+import { getTorchFuelFraction, isTorchEquipped, isTorchLit }               from 'src/client/torchEquip'
+import { isTorchRelightOnCooldown, tryRelightAtFire }                      from 'src/client/torchInput'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
 
@@ -90,6 +86,24 @@ const PADDING_X_DT    = 14
 const TOP_OFF_HIDE_THRESHOLD = 0.98
 
 
+// MARK: isNearMainHearth
+/** True inside the fixed 3 m relight ring around the spawn hearth. */
+function isNearMainHearth(): boolean {
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	if (t === null) return false
+	const dx = t.position.x - CAMPFIRE_WORLD_X
+	const dz = t.position.z - CAMPFIRE_WORLD_Z
+	return dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M
+}
+
+
+// MARK: canSparkMainHearth
+/** Lit torch in range of a hearth that has burned out. */
+function canSparkMainHearth(): boolean {
+	return isTorchLit() && getMainFireFuel() <= 0 && isNearMainHearth()
+}
+
+
 // MARK: shouldShowPrompt
 /**
  * Visibility gates in one place. Returns false early on any failed
@@ -107,15 +121,13 @@ function shouldShowPrompt(): boolean {
 	// higher-value action, so it takes precedence over the top-off /
 	// relight prompt.
 	if (isHiddenCampfirePromptVisible()) return false
-	// Lit AND essentially full — nothing to gain from another E-press.
+	// A full torch has nothing to take from a living fire, but it can
+	// still pass its flame to a dead hearth.
+	if (canSparkMainHearth()) return true
 	if (isTorchLit() && getTorchFuelFraction() >= TOP_OFF_HIDE_THRESHOLD) return false
-
-	const t = Transform.getOrNull(engine.PlayerEntity)
-	if (t === null) return false
-
-	const dx = t.position.x - CAMPFIRE_WORLD_X
-	const dz = t.position.z - CAMPFIRE_WORLD_Z
-	if (dx * dx + dz * dz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M) return true
+	// Dead hearth, dark torch: no flame on either side.
+	if (isNearMainHearth() && getMainFireFuel() <= 0) return false
+	if (isNearMainHearth()) return true
 
 	// Second valid source once the hidden campfire has been ignited —
 	// same prompt, same affordance, just a different fire.
@@ -182,7 +194,7 @@ class RelightPromptLayer extends Layer {
 				// Clicking the tooltip also relights on both platforms — it's
 				// the big visible thing next to the button, so it must be a
 				// live tap target.
-				onMouseDown = {relightTorch}
+				onMouseDown = {tryRelightAtFire}
 			>
 				{/* Desktop uses <b> rich-text markup for a bolder read; the
 				   hitbox/paint mismatch that markup causes (see
@@ -191,7 +203,9 @@ class RelightPromptLayer extends Layer {
 				   on the plain string. */}
 				<Label
 					key         = "ui_RelightPrompt_label"
-					value       = {mobile ? 'LIGHT TORCH' : '<b>LIGHT TORCH</b>'}
+					value       = {canSparkMainHearth()
+						? (mobile ? 'LIGHT FIRE' : '<b>LIGHT FIRE</b>')
+						: (mobile ? 'LIGHT TORCH' : '<b>LIGHT TORCH</b>')}
 					fontSize    = {fontPx}
 					color       = {FG_BLACK}
 					font        = "sans-serif"

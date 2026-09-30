@@ -95,17 +95,16 @@ export function clearCarriedWood(): void {
 
 // MARK: isInFeedRange
 /**
- * True when the local player is inside the feed radius of ANY fire -
- * central campfire OR any currently-lit hidden bonfire. Same 3m radius
- * as relight (see FEED_RADIUS_SQ), so "stand at the fire" means the
- * same thing whether you're at the hearth or a discovered pit.
+ * True when the local player is inside the feed radius of a fire that
+ * is already burning. A dead hearth takes a torch, not wood. Same 3 m
+ * radius as relight, at the spawn hearth or a lit hidden pit.
  */
 export function isInFeedRange(): boolean {
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (t === null) return false
 	const dx = t.position.x - CAMPFIRE_WORLD_X
 	const dz = t.position.z - CAMPFIRE_WORLD_Z
-	if (dx * dx + dz * dz <= FEED_RADIUS_SQ) return true
+	if (dx * dx + dz * dz <= FEED_RADIUS_SQ && getMainFireFuel() > 0) return true
 	// Hidden pits are only feed-able while lit. isInHiddenRelightRange
 	// already enforces both the lit check and the same 3m radius, so we
 	// piggy-back on it here.
@@ -152,6 +151,10 @@ export function restoreRejectedFeed(kind: number): void {
  */
 export function feedFire(): void {
 	if (!_hasLogs) return
+	if (!isInFeedRange()) {
+		console.log('logsInventory: feedFire: refused, that fire is out')
+		return
+	}
 	if (isCarriedFeedBlocked()) {
 		console.log('logsInventory: feedFire: refused, piece would pass the cap')
 		return

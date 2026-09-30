@@ -1,9 +1,9 @@
 /**
- * emberFail.ts — last-fire-out is game over.
+ * emberFail.ts — world-end cards and reseed.
  *
- * When the spawn hearth and every hidden fire are dark, broadcast
- * emberFail, hold so clients can fade to black, then roll the world
- * onto a new seed. The spawn hearth is reset by hearthFuel's
+ * No longer started when the last fire goes out. The dev snuff still
+ * broadcasts emberFail, holds so clients can fade to black, then rolls
+ * the world onto a new seed. The spawn hearth is reset by hearthFuel's
  * onCycleRoll handler during that roll.
  */
 
@@ -41,8 +41,8 @@ export function sendEmberFailTo(userId: string): void {
 
 // MARK: checkEmberFail
 /**
- * Call after any fire snuffs. Starts the fail sequence once, the
- * moment no fire in the world still has fuel.
+ * Start the fail sequence once every fire is already dark. The dev
+ * snuff calls this. A fire burning out on its own does not.
  */
 export function checkEmberFail(): void {
 	if (failing) return
