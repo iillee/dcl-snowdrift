@@ -15,16 +15,16 @@
  *                     and can burn to 0. Last fire out is game over.
  *   - Hidden fires  = no floor. Fuel -> 0 snuffs them; snow-cover
  *                     re-buries them via precipitation.
- *   - 5 tiers       = readable UI + tier-snapped flame model scale.
- *   - Radius/smoke/ = continuous interpolation between tier anchors
- *     volume          (feels alive, not steppy).
+ *   - 5 tiers       = flame, smoke height, smoke density, light
+ *                     range, crackle, and melt ring step together.
+ *   - The fuel bar  = hidden. The fire itself is the health readout.
  *   - Multi-player  = decayRate = 1 + log2(playerCount). Doubling
  *                     players adds +1 log/min drain. Solo sustainable,
  *                     20-player spikes still fun (~5.3x).
  *
- * Anchor 3 (radius 8 m) is the CURRENT static melt radius, so the
- * default tier-3 state matches today's behaviour exactly - fuel just
- * lets it grow past that OR (for hidden fires) shrink below it.
+ * Warm is the opening fire: flame 1, smoke 1, melt ring 8 m, light
+ * 8 m. The other tiers step off that. A full tank still bursts the
+ * ring out to FUEL_MAX_BURST_RADIUS_M.
  */
 
 import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
@@ -74,21 +74,46 @@ export const TIER_FUEL: readonly number[] = [0, 60, 150, 300, 450, FUEL_MAX] as 
 /** Human-readable tier names (index 0 unused; tiers are 1..5). */
 export const TIER_NAMES: readonly string[] = ['Out', 'Ember', 'Low', 'Warm', 'Bright', 'Roaring'] as const
 
-/** Melt radius (m) at each tier's LOWER bound. Continuous fuel values
- *  interpolate linearly between adjacent anchors. Anchor 3 (index 2)
- *  is 8 m so tier-3 Warm matches today's static CAMPFIRE_MELT_RADIUS_M. */
-export const TIER_RADIUS_M: readonly number[] = [3, 5, 8, 12, 17] as const
+/**
+ * Melt radius (m) for the whole tier. Warm stays 8 m so the opening
+ * ring matches CAMPFIRE_MELT_RADIUS_M. Low and Ember sit inside that
+ * so a weakening fire pulls the circle in.
+ */
+export const TIER_RADIUS_M: readonly number[] = [4, 6, 8, 12, 17] as const
 
-/** Flame GLB uniform scale per tier. SNAPS (no interp) - a smoothly
- *  growing flame GLB reads as morphing; a punchy step-up per tier
- *  reads as an achievement. */
-export const TIER_FLAME_SCALE: readonly number[] = [0.5, 0.75, 1.0, 1.35, 1.75] as const
+/**
+ * Flame GLB uniform scale for the whole tier. Warm stays 1. A smooth
+ * grow reads as morphing; the step is the state change.
+ */
+export const TIER_FLAME_SCALE: readonly number[] = [0.45, 0.70, 1.00, 1.50, 2.00] as const
 
-/** Smoke column height multiplier per tier (interpolated). */
-export const TIER_SMOKE_HEIGHT: readonly number[] = [0.4, 0.7, 1.0, 1.4, 1.9] as const
+/**
+ * Smoke column multiplier for the whole tier. Warm stays 1. Launch
+ * speed and lifetime both take this, so the plume height steps harder
+ * than the number.
+ */
+export const TIER_SMOKE_HEIGHT: readonly number[] = [0.40, 0.70, 1.00, 1.40, 1.90] as const
 
-/** Fire ambient volume 0..1 per tier (interpolated). */
-export const TIER_VOLUME: readonly number[] = [0.30, 0.50, 0.70, 0.85, 1.00] as const
+/**
+ * Smoke emission multiplier for the whole tier. Warm stays 1, which
+ * is the authored puff rate. Lower tiers thin the column. Higher
+ * tiers thicken it without scaling puff size.
+ */
+export const TIER_SMOKE_DENSITY: readonly number[] = [0.40, 0.70, 1.00, 1.35, 1.65] as const
+
+/**
+ * Point-light range (m) for the whole tier. Warm stays 8 m, the same
+ * pool the melt ring used to define. The glow now steps on its own,
+ * tighter than the ring when the fire is weak and wider when it is strong.
+ */
+export const TIER_LIGHT_RANGE_M: readonly number[] = [3.5, 5.5, 8, 14, 20] as const
+
+/**
+ * Crackle multiplier for the whole tier. Warm stays 0.70, the volume
+ * the opening fire already played. Heard loudness is the campfire
+ * clip times this.
+ */
+export const TIER_VOLUME: readonly number[] = [0.25, 0.45, 0.70, 0.90, 1.00] as const
 
 
 // MARK: fuelSecondsForKind
@@ -116,62 +141,74 @@ export function hearthTierFromFuel(fuel: number): number {
 }
 
 
-// MARK: interpAnchor
+// MARK: tierAnchor
+
 /**
- * Linear interp between two adjacent tier anchor tables. Given a fuel
- * value and an anchor array of length 5, returns the interpolated value
- * for that fuel position on the piecewise-linear curve.
- *
- * The anchor at index i corresponds to fuel = TIER_FUEL[i], i.e. the
- * LOWER bound of tier (i+1). So anchor[0]=fuel 0, anchor[4]=fuel 450.
- * Fuel above 450 continues extrapolating linearly toward FUEL_MAX
- * using the last segment's slope (so overfill past 450 keeps ramping
- * up to the anchor[4] value at FUEL_MAX rather than clamping early).
+ * The anchor for whichever tier `fuel` is in. Dead fire is 0.
+ * Flame, smoke, light, crackle, and the melt ring share this so they
+ * change together.
  */
-function interpAnchor(fuel: number, anchors: readonly number[]): number {
-	if (fuel <= TIER_FUEL[0]) return anchors[0]
-	if (fuel >= TIER_FUEL[5]) return anchors[4]
-	// Find the segment that contains this fuel value.
-	for (let i = 0; i < 4; i++) {
-		const lo = TIER_FUEL[i]
-		const hi = TIER_FUEL[i + 1]
-		if (fuel >= lo && fuel < hi) {
-			const t = (fuel - lo) / (hi - lo)
-			return anchors[i] + (anchors[i + 1] - anchors[i]) * t
-		}
-	}
-	// Segment 4 covers TIER_FUEL[4]..TIER_FUEL[5]; extend anchor[4] flat.
-	return anchors[4]
+function tierAnchor(fuel: number, anchors: readonly number[]): number {
+	const tier = hearthTierFromFuel(fuel)
+	if (tier <= 0) return 0
+	return anchors[tier - 1]
 }
 
 
 // MARK: hearthRadiusFromFuel
-/** Melt radius (m) as a continuous function of fuel. Dead fire = 0. */
+/** Melt radius (m) for the active tier. Dead fire = 0. */
 export function hearthRadiusFromFuel(fuel: number): number {
-	if (fuel <= 0) return 0
-	return interpAnchor(fuel, TIER_RADIUS_M)
+	return tierAnchor(fuel, TIER_RADIUS_M)
 }
 
 
 // MARK: hearthSmokeHeightFromFuel
+/** Smoke-column multiplier for the active tier. Dead fire = 0. */
 export function hearthSmokeHeightFromFuel(fuel: number): number {
-	if (fuel <= 0) return 0
-	return interpAnchor(fuel, TIER_SMOKE_HEIGHT)
+	return tierAnchor(fuel, TIER_SMOKE_HEIGHT)
+}
+
+
+// MARK: hearthSmokeDensityFromFuel
+/** Smoke emission multiplier for the active tier. Dead fire = 0. */
+export function hearthSmokeDensityFromFuel(fuel: number): number {
+	return tierAnchor(fuel, TIER_SMOKE_DENSITY)
+}
+
+
+// MARK: hearthLightRangeFromFuel
+/** Point-light range (m) for the active tier. Dead fire = 0. */
+export function hearthLightRangeFromFuel(fuel: number): number {
+	return tierAnchor(fuel, TIER_LIGHT_RANGE_M)
 }
 
 
 // MARK: hearthVolumeFromFuel
+/** Crackle multiplier for the active tier. Dead fire = 0. */
 export function hearthVolumeFromFuel(fuel: number): number {
-	if (fuel <= 0) return 0
-	return interpAnchor(fuel, TIER_VOLUME)
+	return tierAnchor(fuel, TIER_VOLUME)
+}
+
+
+// MARK: feedFitsFire
+
+/**
+ * True when feeding `kind` would land on or under the cap. A piece
+ * that would pass FUEL_MAX is refused whole. The fire does not take
+ * a partial log.
+ */
+export function feedFitsFire(
+	fuel : number,
+	kind : number,
+): boolean {
+	return fuel + fuelSecondsForKind(kind) <= FUEL_MAX
 }
 
 
 // MARK: hearthFlameScaleFromFuel
-/** Flame scale SNAPS to the active tier (no interp). Out = 0. */
+/** Flame scale for the active tier. Out = 0. */
 export function hearthFlameScaleFromFuel(fuel: number): number {
-	if (fuel <= 0) return 0
-	return TIER_FLAME_SCALE[hearthTierFromFuel(fuel) - 1]
+	return tierAnchor(fuel, TIER_FLAME_SCALE)
 }
 
 

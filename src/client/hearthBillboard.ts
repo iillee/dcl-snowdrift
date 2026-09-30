@@ -22,6 +22,9 @@
  * (frost-bar match) - tier is communicated by fill height + ticks.
  * Fuel at or below zero hides the bar (scale 0) so a dead fire has
  * no empty gauge.
+ *
+ * SHOW_HEARTH_FUEL_BAR is off while the flame, the smoke, and the
+ * melt ring are the health readout. The gauge stays in this file.
  */
 
 import {
@@ -40,6 +43,10 @@ import { isTopDownActive } from 'src/client/topDownCamera'
 
 
 // MARK: Layout constants
+
+/** Fuel gauge above each fire. Off so the sunrise stays clear. */
+export const SHOW_HEARTH_FUEL_BAR = false
+
 const BAR_Y_OFFSET = 4.5
 const BAR_WIDTH    = 1.0
 const BAR_HEIGHT   = 2.0
@@ -94,15 +101,16 @@ interface BillboardRig {
 
 const rigs: Set<BillboardRig> = new Set()
 let systemInstalled           = false
+let setupInstalled            = false
 let mainRig: BillboardRig | null = null
 
 
 // MARK: spawnHearthBillboard
 /**
  * Create a billboard instance floating BAR_Y_OFFSET metres above
- * (worldX, worldY, worldZ). Returns a handle that must be passed to
- * destroyHearthBillboard() when the fire snuffs, otherwise the
- * entities leak until scene teardown.
+ * (worldX, worldY, worldZ). Returns null while SHOW_HEARTH_FUEL_BAR
+ * is off. A live handle must be passed to destroyHearthBillboard()
+ * when the fire snuffs, otherwise the entities leak until teardown.
  *
  * The per-frame update system is installed on first call.
  */
@@ -112,7 +120,8 @@ export function spawnHearthBillboard(
 	worldZ          : number,
 	fuelGetter      : () => number,
 	playerCountGetter: () => number,
-): BillboardRig {
+): BillboardRig | null {
+	if (!SHOW_HEARTH_FUEL_BAR) return null
 	const root = engine.addEntity()
 	Transform.create(root, {
 		position: Vector3.create(worldX, worldY + BAR_Y_OFFSET, worldZ),
@@ -279,8 +288,16 @@ export function destroyHearthBillboard(rig: BillboardRig | null): void {
  * Idempotent - safe to call once during client bootstrap.
  */
 export function setupHearthBillboard(): void {
-	if (mainRig !== null) {
+	if (setupInstalled) {
 		console.log('hearthBillboard: setupHearthBillboard: already installed, skipping')
+		return
+	}
+	setupInstalled = true
+	if (!SHOW_HEARTH_FUEL_BAR) {
+		console.log(
+			'hearthBillboard: setupHearthBillboard: fuel bar hidden, ' +
+			'flame smoke and melt ring carry the state'
+		)
 		return
 	}
 	mainRig = spawnHearthBillboard(

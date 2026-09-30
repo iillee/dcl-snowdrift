@@ -21,7 +21,7 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { feedFire, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { UI_THEME }                         from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile }               from 'src/client/ui/utils/atlas'
 
@@ -40,10 +40,11 @@ const { fontSizes, borderRadius } = UI_THEME
 // Solid warm gold background with black text — reads as a bright,
 // opaque call-to-action anchored to the hotbar slot. Shared by mobile
 // and desktop now that both platforms use the same tooltip design.
-const BG_GOLD     = Color4.create(1.00, 0.80, 0.30, 1)
-const FG_BLACK    = Color4.create(0, 0, 0, 1)
-// Warm gold border shared with the hotbar buttons' active state.
-const BORDER_GOLD = Color4.create(1.00, 0.80, 0.30, 0.95)
+const BG_GOLD      = Color4.create(1.00, 0.80, 0.30, 1)
+const BG_WHITE     = Color4.create(1, 1, 1, 1)
+const FG_BLACK     = Color4.create(0, 0, 0, 1)
+const BORDER_GOLD  = Color4.create(1.00, 0.80, 0.30, 0.95)
+const BORDER_WHITE = Color4.create(1, 1, 1, 0.95)
 
 // Per-platform sizing keyed off the underlying hotbar button. See
 // layer.relightPrompt for the derivation of these numbers — kept in
@@ -91,6 +92,7 @@ class FeedPromptLayer extends Layer {
 		if (!shouldShowPrompt()) return <UiEntity key="ui_FeedPrompt_hidden" uiTransform={{ display: 'none' }} />
 
 		const mobile   = isMobile()
+		const full     = isCarriedFeedBlocked()
 		const height   = mobile ? TOOLTIP_H_MB   : TOOLTIP_H_DT
 		const halfRow  = mobile ? HOTBAR_HALF_MB : HOTBAR_HALF_DT
 		const bottomPx = mobile ? BOTTOM_MB : BOTTOM_DT
@@ -98,6 +100,9 @@ class FeedPromptLayer extends Layer {
 		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
 		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
 		const labelH   = Math.round(fontPx * 1.6)
+		const label    = full
+			? (mobile ? 'FIRE FULL' : '<b>FIRE FULL</b>')
+			: (mobile ? 'FEED FIRE' : '<b>FEED FIRE</b>')
 
 		// Mirror of the relight tooltip on the opposite side of centre:
 		// anchor LEFT edge to screen centre, push right by halfRow so the
@@ -115,18 +120,18 @@ class FeedPromptLayer extends Layer {
 					padding      : { top: 0, bottom: 0, left: padX, right: padX },
 					borderRadius : borderRadius.md,
 					borderWidth  : borderW,
-					borderColor  : BORDER_GOLD,
+					borderColor  : full ? BORDER_WHITE : BORDER_GOLD,
 				}}
-				uiBackground = {{ color: BG_GOLD }}
-				// Clicking the tooltip also feeds on both platforms — the
-				// bubble IS the primary tap target next to the button.
-				onMouseDown = {feedFire}
+				uiBackground = {{ color: full ? BG_WHITE : BG_GOLD }}
+				// Clicking the tooltip feeds, unless the piece would pass
+				// the cap. Then the chip is only a notice.
+				onMouseDown = {() => { if (!full) feedFire() }}
 			>
 				{/* Desktop uses <b> markup for a bolder read; only mobile is
 				   sensitive to the rich-text hitbox mismatch (see bug report). */}
 				<Label
 					key         = "ui_FeedPrompt_label"
-					value       = {mobile ? 'FEED FIRE' : '<b>FEED FIRE</b>'}
+					value       = {label}
 					fontSize    = {fontPx}
 					color       = {FG_BLACK}
 					font        = "sans-serif"

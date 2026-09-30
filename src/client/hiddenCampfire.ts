@@ -42,11 +42,12 @@ import {
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { playSurgeSfxAt } from 'src/client/audio'
+import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
-import { hearthFlameScaleFromFuel, hearthTierFromFuel } from 'src/shared/hearthFuel'
+import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
 } from 'src/client/hearthBillboard'
@@ -306,10 +307,7 @@ function applyLitVisuals(index: number): void {
 			position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
 			parent  : pit,
 		})
-		syncPointLight(light, hearthLightParams(
-			getHiddenFireFuel(index),
-			getHiddenFireMeltRadius(index),
-		))
+		syncPointLight(light, hearthLightParams(getHiddenFireFuel(index)))
 	}
 
 	// Match src/client/campfire.ts's proven `create` (not `createOrReplace`)
@@ -322,7 +320,7 @@ function applyLitVisuals(index: number): void {
 		loop        : true,
 		playing     : true,
 		global      : false,
-		volume      : CAMPFIRE_VOLUME,
+		volume      : CAMPFIRE_VOLUME * hearthVolumeFromFuel(getHiddenFireFuel(index)),
 	})
 
 	if (smokeEntity[index] === null) {
@@ -358,6 +356,11 @@ function applyLitVisuals(index: number): void {
 			loop                 : true,
 			prewarm              : false,
 		})
+		applyHearthSmoke(
+			smoke,
+			hearthSmokeHeightFromFuel(getHiddenFireFuel(index)),
+			hearthSmokeDensityFromFuel(getHiddenFireFuel(index)),
+		)
 	}
 
 	// Tear the locator beacon down the moment the fire lights so the
@@ -639,7 +642,7 @@ export function setupHiddenCampfire(): void {
 			const fuel  = getHiddenFireFuel(i)
 			const light = lightEntity[i]
 			if (light !== null) {
-				syncPointLight(light, hearthLightParams(fuel, getHiddenFireMeltRadius(i)))
+				syncPointLight(light, hearthLightParams(fuel))
 			}
 			if (flame === null) {
 				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1
@@ -651,6 +654,18 @@ export function setupHiddenCampfire(): void {
 			const s = hearthFlameScaleFromFuel(fuel)
 			const t = Transform.getMutableOrNull(flame)
 			if (t !== null) t.scale = Vector3.create(s, s, s)
+			const smoke = smokeEntity[i]
+			if (smoke !== null) {
+				applyHearthSmoke(
+					smoke,
+					hearthSmokeHeightFromFuel(fuel),
+					hearthSmokeDensityFromFuel(fuel),
+				)
+			}
+			const pit = firePitEntity[i]
+			if (pit !== null && AudioSource.has(pit)) {
+				AudioSource.getMutable(pit).volume = CAMPFIRE_VOLUME * hearthVolumeFromFuel(fuel)
+			}
 			console.log(`hiddenCampfire[${i}]: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
 		}
 	})

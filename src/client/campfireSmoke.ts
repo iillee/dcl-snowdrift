@@ -14,11 +14,12 @@
  * on the scene particle budget shared with snowfall.
  */
 
-import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
+import { Entity, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { getMainFireSmokeHeight } from 'src/client/hearthFuel'
+
+import { getMainFireSmokeDensity, getMainFireSmokeHeight, getMainFireTier } from 'src/client/hearthFuel'
 
 
 // MARK: Tuning
@@ -47,6 +48,54 @@ const SIZE_START_MIN  = 0.4
 const SIZE_START_MAX  = 0.7
 const SIZE_END_MIN    = 1.6
 const SIZE_END_MAX    = 2.4
+/** Ceiling so a roaring plume stays a column. */
+const SMOKE_MAX_ALIVE = 150
+
+
+// MARK: densityAlpha
+
+/** Thin the puff when the tier is below Warm. Warm and above stay put. */
+function densityAlpha(
+	base    : number,
+	density : number,
+): number {
+	const mul = density < 1 ? 0.45 + 0.55 * density : 1
+	return base * mul
+}
+
+
+// MARK: applyHearthSmoke
+
+/**
+ * Step a hearth plume to the active tier. `height` scales the column.
+ * `density` scales how many puffs are born, and thins them below Warm.
+ * A dead fire stops the emitter.
+ */
+export function applyHearthSmoke(
+	emitter : Entity,
+	height  : number,
+	density : number,
+): void {
+	const ps = ParticleSystem.getMutable(emitter)
+	if (height <= 0 || density <= 0) {
+		ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
+		return
+	}
+	const alive = RATE_PER_S * density * LIFETIME_S * height
+	ps.playbackState        = PBParticleSystem_PlaybackState.PS_PLAYING
+	ps.rate                 = RATE_PER_S * density
+	ps.maxParticles         = Math.max(8, Math.min(SMOKE_MAX_ALIVE, Math.ceil(alive)))
+	ps.initialVelocitySpeed = { start: INITIAL_SPEED_MIN * height, end: INITIAL_SPEED_MAX * height }
+	ps.lifetime             = LIFETIME_S * height
+	ps.initialColor         = {
+		start: Color4.create(0.60, 0.58, 0.55, densityAlpha(0.70, density)),
+		end  : Color4.create(0.68, 0.66, 0.63, densityAlpha(0.60, density)),
+	}
+	ps.colorOverTime        = {
+		start: Color4.create(0.78, 0.78, 0.78, densityAlpha(0.50, density)),
+		end  : Color4.create(0.90, 0.90, 0.92, 0.0),
+	}
+}
 
 
 // MARK: setupCampfireSmoke
@@ -98,28 +147,14 @@ export function setupCampfireSmoke(): void {
 
 	console.log('campfireSmoke: setupCampfireSmoke: plume spawned above campfire')
 
-	// Tier-scaled plume. Tuning constants above are the tier-3 "Warm"
-	// baseline (multiplier == 1.0). Bigger fires push the column HIGHER
-	// and let particles LAST LONGER - explicitly NOT scaling rate or
-	// particle size, so a Roaring hearth doesn't turn into a soot cloud.
-	// Column height comes from launch velocity * lifetime, so scaling
-	// both compounds nicely into a taller plume.
-	//
-	// Throttled to only rewrite when the multiplier drifts by > 0.05 -
-	// ParticleSystem mutations aren't as cheap as Transform mutations
-	// and per-frame writes here would be wasteful.
-	let lastMult = -1
+	// Height and density step with the tier. Puff size stays put so a
+	// strong fire is a thicker column, not a bigger blob.
+	let lastTier = -2
 	engine.addSystem(() => {
-		const mult = getMainFireSmokeHeight()
-		if (Math.abs(mult - lastMult) < 0.05) return
-		lastMult   = mult
-		const ps   = ParticleSystem.getMutable(emitter)
-		if (mult <= 0) {
-			ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
-			return
-		}
-		ps.playbackState        = PBParticleSystem_PlaybackState.PS_PLAYING
-		ps.initialVelocitySpeed = { start: INITIAL_SPEED_MIN * mult, end: INITIAL_SPEED_MAX * mult }
-		ps.lifetime             = LIFETIME_S * mult
+		const tier = getMainFireTier()
+		if (tier === lastTier) return
+		lastTier = tier
+		applyHearthSmoke(emitter, getMainFireSmokeHeight(), getMainFireSmokeDensity())
+		console.log(`campfireSmoke: plume tier ${tier}`)
 	})
 }

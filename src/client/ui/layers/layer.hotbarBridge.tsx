@@ -23,13 +23,15 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { isChopPromptVisible }            from 'src/client/ui/layers/layer.chopPrompt'
 import { isFeedPromptVisible }            from 'src/client/ui/layers/layer.feedPrompt'
+import { isCarriedFeedBlocked }           from 'src/client/logsInventory'
 import { isHiddenCampfirePromptVisible }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 import { isRelightPromptVisible }         from 'src/client/ui/layers/layer.relightPrompt'
 
 
 // Same warm gold as the tooltip body + button active border, so the
 // bridge blends into both when they touch.
-const BG_GOLD = Color4.create(1.00, 0.80, 0.30, 1)
+const BG_GOLD  = Color4.create(1.00, 0.80, 0.30, 1)
+const BG_WHITE = Color4.create(1, 1, 1, 1)
 
 // Geometry — matches TOOLTIP_H / HOTBAR_HALF from the prompt layers.
 // Kept as local constants; if the button size ever changes, sync all
@@ -76,6 +78,7 @@ class HotbarBridgeLayer extends Layer {
 		// (only one at a time; see the yield in layer.relightPrompt).
 		const showLeft    = isRelightPromptVisible() || isHiddenCampfirePromptVisible()
 		const showFeed    = isFeedPromptVisible() || isChopPromptVisible()
+		const feedColor   = isCarriedFeedBlocked() ? BG_WHITE : BG_GOLD
 
 		return (
 			<UiEntity
@@ -107,8 +110,8 @@ class HotbarBridgeLayer extends Layer {
 					uiBackground = {{ color: BG_GOLD }}
 				/>
 				{/* RIGHT bridge — joins the Logs button to the feed
-				    tooltip. Left edge anchored at centre + innerOffset,
-				    extends rightward for width. */}
+				    tooltip. White while the fire is too full to take
+				    the carried piece. */}
 				<UiEntity
 					key         = "ui_HotbarBridge_right"
 					uiTransform = {{
@@ -120,7 +123,7 @@ class HotbarBridgeLayer extends Layer {
 						pointerFilter: 'none',
 						display      : showFeed ? 'flex' : 'none',
 					}}
-					uiBackground = {{ color: BG_GOLD }}
+					uiBackground = {{ color: feedColor }}
 				/>
 			</UiEntity>
 		)

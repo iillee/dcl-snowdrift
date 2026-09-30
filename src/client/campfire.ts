@@ -14,7 +14,6 @@ import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
 import {
 	getMainFireFlameScale,
 	getMainFireFuel,
-	getMainFireMeltRadius,
 	getMainFireTier,
 	getMainFireVolume,
 } from 'src/client/hearthFuel'
@@ -28,8 +27,9 @@ const CAMPFIRE_FLAME_MODEL = 'assets/asset-packs/campfire/Fireplace_01/Fireplace
 const CAMPFIRE_SFX         = 'assets/sounds/campfire.mp3'
 // Volume at zero distance. DCL attenuates with distance automatically
 // when global=false, so this is the "standing on the fire" ceiling.
-// Now MULTIPLIED by hearthFuel's tier volume curve (0.3..1.0), so the
-// fire's audible presence grows/shrinks with fuel.
+	// Now MULTIPLIED by the tier crackle step, so the fire's audible
+	// presence changes with the tier. Writes happen on the tier change
+	// only: touching AudioSource every frame restarts the loop.
 const CAMPFIRE_VOLUME = 0.8
 /** Local Y of the hearth point light, above the log pile. */
 const HEARTH_LIGHT_Y  = 1.4
@@ -64,7 +64,7 @@ export function setupCampfire(): void {
 		loop        : true,
 		playing     : true,
 		global      : false,
-		volume      : CAMPFIRE_VOLUME,
+		volume      : CAMPFIRE_VOLUME * getMainFireVolume(),
 	})
 
 	const light = engine.addEntity()
@@ -72,41 +72,29 @@ export function setupCampfire(): void {
 		parent  : root,
 		position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
 	})
-	syncPointLight(light, hearthLightParams(getMainFireFuel(), getMainFireMeltRadius()))
+	syncPointLight(light, hearthLightParams(getMainFireFuel()))
 
 	// Relight is handled entirely by torchInput.ts: press E anywhere
 	// inside the campfire heat ring. Proximity-only — no pointer/aim
 	// required. The old pointerEventsSystem hook on this GLB was
 	// removed because it forced the player to look at the fire.
 
-	// Tier-scaled visuals + audio. Flame scale SNAPS on tier change
-	// (feels punchy - a growing GLB reads as morphing). Volume lerps
-	// every frame off the hearthFuel volume curve, which is already
-	// smoothed by the client-side fuel lerp.
-	// Only write to the AudioSource when the volume actually moves past
-	// an epsilon. Per-frame `getMutable(root).volume = X` marks the
-	// component dirty and, while the fuel is lerping after a feed, the
-	// CRDT ships a new AudioSource state every tick — which the current
-	// renderer treats as "restart", producing an audible sped-up glitch
-	// on the crackle loop. Static-state ticks are already a no-op because
-	// the value doesn't change; we just need to skip near-equal writes
-	// during the lerp too.
-	const VOLUME_WRITE_EPSILON = 0.005
-	let lastTier         = -1
-	let lastWrittenVol   = -1
+	// Tier-scaled visuals + audio. Flame, crackle, and the light step
+	// together. Crackle is written only when the tier changes. A
+	// per-frame AudioSource write restarts the loop.
+	let lastTier = -1
 	engine.addSystem(() => {
 		const tier = getMainFireTier()
 		if (tier !== lastTier) {
 			const s = getMainFireFlameScale()
 			Transform.getMutable(flame).scale = Vector3.create(s, s, s)
-			lastTier = tier
-			console.log(`campfire: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
-		}
-		const vol = CAMPFIRE_VOLUME * getMainFireVolume()
-		if (Math.abs(vol - lastWrittenVol) >= VOLUME_WRITE_EPSILON) {
+			const vol = CAMPFIRE_VOLUME * getMainFireVolume()
 			AudioSource.getMutable(root).volume = vol
-			lastWrittenVol = vol
+			lastTier = tier
+			console.log(
+				`campfire: tier ${tier} flame=${s.toFixed(2)}x crackle=${vol.toFixed(2)}`
+			)
 		}
-		syncPointLight(light, hearthLightParams(getMainFireFuel(), getMainFireMeltRadius()))
+		syncPointLight(light, hearthLightParams(getMainFireFuel()))
 	})
 }

@@ -22,6 +22,7 @@ import {
 	FUEL_MAIN_INITIAL,
 	hearthFlameScaleFromFuel,
 	hearthRadiusFromFuel,
+	hearthSmokeDensityFromFuel,
 	hearthSmokeHeightFromFuel,
 	hearthTierFromFuel,
 	hearthVolumeFromFuel,
@@ -141,12 +142,17 @@ export function getMainFireFlameScale(): number {
 	return hearthFlameScaleFromFuel(currentFuel)
 }
 
-/** Interpolated smoke column height multiplier. */
+/** Smoke-column multiplier for the active tier. */
 export function getMainFireSmokeHeight(): number {
 	return hearthSmokeHeightFromFuel(currentFuel)
 }
 
-/** Interpolated ambient volume 0..1. */
+/** Smoke emission multiplier for the active tier. */
+export function getMainFireSmokeDensity(): number {
+	return hearthSmokeDensityFromFuel(currentFuel)
+}
+
+/** Crackle multiplier for the active tier. */
 export function getMainFireVolume(): number {
 	return hearthVolumeFromFuel(currentFuel)
 }

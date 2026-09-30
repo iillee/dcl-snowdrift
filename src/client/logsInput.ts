@@ -1,9 +1,10 @@
 /**
  * logsInput.ts - F-key handler for the logs inventory slot.
  *
- * F while carrying a log:
- *   - inside the campfire feed radius -> feed the fire (consume the log)
- *   - outside the feed radius         -> drop the log at player feet
+ * F while carrying wood, standing at a fire:
+ *   - the piece fits under the cap -> feed the fire
+ *   - the piece would pass the cap -> nothing, the FIRE FULL chip stays
+ * F while carrying wood, away from a fire -> drop it at your feet
  *
  * Drop and feed both clear the local F slot immediately. Drop also
  * sends a logDropRequest to the server; the server spawns a fresh
@@ -17,7 +18,7 @@ import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
 import { room } from 'src/shared/messages'
 
-import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange, restoreRejectedFeed } from 'src/client/logsInventory'
 import { tryChopWood } from 'src/client/wood'
 
 
@@ -60,6 +61,10 @@ export function setupLogsInput(): void {
 		return
 	}
 	installed = true
+
+	room.onMessage('feedFireRejected', ({ kind }) => {
+		restoreRejectedFeed(kind)
+	})
 
 	engine.addSystem((_dt: number) => {
 		const fHeld  = inputSystem.isPressed(InputAction.IA_SECONDARY)

@@ -31,6 +31,7 @@ import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
 	FUEL_MAX,
+	feedFitsFire,
 	fuelSecondsForKind,
 	hearthDecayRate,
 	hearthRadiusFromFuel,
@@ -350,8 +351,18 @@ export function setupHiddenCampfireServer(): void {
 		}
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = fuel[target]
+		if (!feedFitsFire(prev, kind)) {
+			console.log(
+				`[Server] hiddenCampfire[${target}]: feed refused from ${from} kind=${clampWoodKind(kind)} ` +
+				`${prev.toFixed(1)}s + ${add}s would pass the cap`
+			)
+			if (context?.from) {
+				room.send('feedFireRejected', { kind: clampWoodKind(kind) }, { to: [context.from] })
+			}
+			return
+		}
 		const prevTier = hearthTierFromFuel(prev)
-		fuel[target]   = Math.min(FUEL_MAX, prev + add)
+		fuel[target]   = prev + add
 		const newTier  = hearthTierFromFuel(fuel[target])
 		console.log(
 			`[Server] hiddenCampfire[${target}]: feed by ${from} kind=${clampWoodKind(kind)} ` +

@@ -2,8 +2,9 @@
  * fireLight.ts — point lights that read remaining burn time.
  *
  * Torches: range and intensity follow fuel fraction so a dying flame
- * is a shrinking pool. Fires: range equals the melt ring, intensity
- * scales with that radius so a bigger fire lights a bigger circle.
+ * is a shrinking pool. Fires: range steps with the fuel tier, wider
+ * than the melt ring when the fire is strong and tighter when it is
+ * weak. Intensity scales with that range.
  *
  * No shadows — the snow sun already uses the scene's shadow budget.
  * Active lights flicker so they read as fire, not bulbs.
@@ -11,6 +12,8 @@
 
 import { Entity, LightSource } from '@dcl/sdk/ecs'
 import { Color3 } from '@dcl/sdk/math'
+
+import { hearthLightRangeFromFuel } from 'src/shared/hearthFuel'
 
 
 // MARK: Color
@@ -30,7 +33,7 @@ const TORCH_INTENSITY_MAX = 9000
 
 
 // MARK: Hearth pool
-/** Candela per metre of melt radius. Warm (8 m) lands near the SDK default. */
+/** Candela per metre of light range. Warm (8 m) lands near the SDK default. */
 const HEARTH_INTENSITY_PER_M = 2000
 
 
@@ -92,21 +95,19 @@ export function torchLightParams(
 
 // MARK: hearthLightParams
 /**
- * Point-light params for a campfire. Range tracks the melt ring.
- * Intensity grows with the same radius so remaining fuel reads as a
- * bigger, brighter pool. Fuel at or below zero turns the light off.
+ * Point-light params for a campfire. Range is the tier's light pool,
+ * not the melt ring. Intensity grows with that range. Fuel at or
+ * below zero turns the light off.
  */
-export function hearthLightParams(
-	fuel        : number,
-	meltRadiusM : number,
-): FireLightParams {
-	if (fuel <= 0 || meltRadiusM <= 0.1) {
+export function hearthLightParams(fuel: number): FireLightParams {
+	const range = hearthLightRangeFromFuel(fuel)
+	if (fuel <= 0 || range <= 0.1) {
 		return { active: false, intensity: 0, range: 0 }
 	}
 	return {
 		active    : true,
-		intensity : meltRadiusM * HEARTH_INTENSITY_PER_M,
-		range     : meltRadiusM,
+		intensity : range * HEARTH_INTENSITY_PER_M,
+		range     : range,
 	}
 }
 

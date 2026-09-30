@@ -10,10 +10,11 @@
 import { Transform, engine } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { feedFitsFire } from 'src/shared/hearthFuel'
 import { clampWoodKind, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 import { playDropSfx, playPickupSfx, playSurgeSfxLocal } from 'src/client/audio'
-import { requestFeedFire } from 'src/client/hearthFuel'
+import { getHiddenFireFuel, getMainFireFuel, requestFeedFire } from 'src/client/hearthFuel'
 import { getLitHiddenFires, isInHiddenRelightRange } from 'src/client/hiddenCampfire'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
 
@@ -111,13 +112,49 @@ export function isInFeedRange(): boolean {
 }
 
 
+// MARK: isCarriedFeedBlocked
+
+/**
+ * True when the carried piece would push the fire you are standing at
+ * past the cap. The prompt says the fire is full, and F does nothing.
+ */
+export function isCarriedFeedBlocked(): boolean {
+	if (!_hasLogs) return false
+	if (!isInFeedRange()) return false
+	const target = pickFeedTarget()
+	const fuel   = target < 0 ? getMainFireFuel() : getHiddenFireFuel(target)
+	return !feedFitsFire(fuel, _kind)
+}
+
+
+// MARK: restoreRejectedFeed
+
+/**
+ * Put a refused piece back in the F slot. No-op if the slot was filled
+ * again before the refusal arrived.
+ */
+export function restoreRejectedFeed(kind: number): void {
+	if (_hasLogs) {
+		console.log('logsInventory: restoreRejectedFeed: slot already full, wood not restored')
+		return
+	}
+	_hasLogs = true
+	_kind    = clampWoodKind(kind)
+	console.log(`logsInventory: restoreRejectedFeed: kind=${_kind} back in the F slot`)
+}
+
+
 // MARK: feedFire
 /**
  * Consume the carried piece and ask the server to add its fuel to the
- * nearest lit fire in range.
+ * nearest lit fire in range. A piece that would pass the cap stays put.
  */
 export function feedFire(): void {
 	if (!_hasLogs) return
+	if (isCarriedFeedBlocked()) {
+		console.log('logsInventory: feedFire: refused, piece would pass the cap')
+		return
+	}
 	const kind = _kind
 	_hasLogs   = false
 	// Ignition surge is the whoosh on placement. Replaces the earlier

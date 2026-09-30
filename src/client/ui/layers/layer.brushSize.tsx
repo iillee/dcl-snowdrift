@@ -20,7 +20,7 @@ import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from '
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
-import { feedFire, getCarriedKind, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { feedFire, getCarriedKind, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { isChopPromptVisible }    from 'src/client/ui/layers/layer.chopPrompt'
 import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
 import { isHiddenCampfirePromptVisible } from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
@@ -900,9 +900,11 @@ export function LogsButton() {
 	// up — mirrors the Torch slot so the gold border consistently means
 	// "tooltip is pointing at this slot", not "slot is holding something".
 	// Carry-state is already shown by the log icon appearing in the slot.
-	const borderColor = (isFeedPromptVisible() || isChopPromptVisible())
-		? Color4.create(1.00, 0.80, 0.30, 0.95)
-		: Color4.create(1, 1, 1, 0.75)
+	const borderColor = isCarriedFeedBlocked()
+		? Color4.create(1, 1, 1, 0.95)
+		: (isFeedPromptVisible() || isChopPromptVisible())
+			? Color4.create(1.00, 0.80, 0.30, 0.95)
+			: Color4.create(1, 1, 1, 0.75)
 
 	return (
 		<UiEntity

@@ -203,11 +203,17 @@ export const Messages = {
 	// Client -> Server: player fed a carried piece to a fire. `target`
 	// selects which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1
 	// == the respective hidden bonfire. `kind` is WOOD_KIND_BRANCH or
-	// WOOD_KIND_LOG; fuel seconds come from fuelSecondsForKind. Server
-	// trusts the client's has-carry guard for now.
+	// WOOD_KIND_LOG; fuel seconds come from fuelSecondsForKind. The
+	// server refuses a piece that would pass FUEL_MAX.
 	feedFireRequest: Schemas.Map({
 		target: Schemas.Int,
 		kind  : Schemas.Int,
+	}),
+
+	// Server -> Client: that feed was refused because the piece would
+	// pass the cap. The sender puts the wood back in the F slot.
+	feedFireRejected: Schemas.Map({
+		kind: Schemas.Int,
 	}),
 
 	// Server -> Client: current main-hearth fuel in seconds. Broadcast

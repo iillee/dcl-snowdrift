@@ -28,6 +28,7 @@ import {
 	FUEL_MAX_BURST_RADIUS_M,
 	LOG_FUEL_SECONDS,
 	TIER_FUEL,
+	feedFitsFire,
 	fuelSecondsForKind,
 	hearthDecayRate,
 	hearthRadiusFromFuel,
@@ -195,9 +196,9 @@ export function setupHearthFuelServer(): void {
 	}
 	installed = true
 
-	// Feed handler. Trust the client's has-log guard for now; server
-	// just clamps to the max. Immediate broadcast so the feeder sees
-	// their contribution land without waiting for the next threshold.
+	// Feed handler. A piece that would pass the cap is refused and the
+	// wood stays in the sender's hands. Immediate broadcast so a feed
+	// that lands shows up without waiting for the next threshold.
 	room.onMessage('feedFireRequest', ({ target, kind }, context) => {
 		// Main hearth handler - filter to target=-1 only. Hidden fire
 		// slots (0..N-1) are handled by src/server/hiddenCampfire.ts.
@@ -209,8 +210,18 @@ export function setupHearthFuelServer(): void {
 		const from     = context?.from ?? 'unknown'
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = mainFuel
+		if (!feedFitsFire(prev, kind)) {
+			console.log(
+				`[Server] hearthFuel: feed refused from ${from} kind=${clampWoodKind(kind)} ` +
+				`${prev.toFixed(1)}s + ${add}s would pass the cap`
+			)
+			if (context?.from) {
+				room.send('feedFireRejected', { kind: clampWoodKind(kind) }, { to: [context.from] })
+			}
+			return
+		}
 		const prevTier = hearthTierFromFuel(prev)
-		mainFuel       = Math.min(FUEL_MAX, mainFuel + add)
+		mainFuel       = prev + add
 		const newTier  = hearthTierFromFuel(mainFuel)
 		console.log(
 			`[Server] hearthFuel: feed by ${from} kind=${clampWoodKind(kind)} ` +
