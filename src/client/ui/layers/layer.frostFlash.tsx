@@ -1,8 +1,11 @@
 /**
- * layer.frostFlash.tsx — full-screen blue tint that pulses each time
- * the frost bar gains a new blue segment.
+ * layer.frostFlash.tsx — full-screen tint that pulses with the heat bar.
  *
- * Alpha is driven by getFrostFlashAlpha() from src/client/frost/frostFlash.
+ * Blue when a cold segment fills. Gold, the same yellow as the warm
+ * blocks, when a segment thaws back beside a fire.
+ *
+ * Alpha comes from getFrostFlashAlpha() and getWarmFlashAlpha() in
+ * src/client/frost/frostFlash.
  * When alpha is zero this layer renders an invisible pass-through, so
  * pointer events fall through to the game unobstructed.
  *
@@ -20,7 +23,7 @@ import { Color4 } from '@dcl/sdk/math'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { getFrostFlashAlpha } from 'src/client/frost/frostFlash'
+import { getFrostFlashAlpha, getWarmFlashAlpha } from 'src/client/frost/frostFlash'
 
 
 // MARK: Palette
@@ -29,6 +32,8 @@ import { getFrostFlashAlpha } from 'src/client/frost/frostFlash'
 // language. Slightly desaturated in the R channel for a colder, less
 // cheerful tint at full alpha.
 const FLASH_COLOR = { r: 0.35, g: 0.55, b: 0.95 }
+// Same gold as COL_WARM on the heat bar (1.00, 0.80, 0.30).
+const WARM_COLOR  = { r: 1.00, g: 0.80, b: 0.30 }
 
 
 // MARK: FrostFlashLayer
@@ -43,22 +48,46 @@ class FrostFlashLayer extends Layer {
 
 	// MARK: body
 	body() {
-		const alpha = getFrostFlashAlpha()
-		if (alpha <= 0) return <UiEntity key="ui_FrostFlash_hidden" uiTransform={{ display: 'none' }} />
+		const cold = getFrostFlashAlpha()
+		const warm = getWarmFlashAlpha()
+		if (cold <= 0 && warm <= 0) {
+			return <UiEntity key="ui_FrostFlash_hidden" uiTransform={{ display: 'none' }} />
+		}
 
 		return (
 			<UiEntity
 				key         = "ui_FrostFlash_root"
 				uiTransform = {{
-					positionType: 'absolute',
-					position    : { top: '-10%', left: '-10%' },
-					width       : '120%',
-					height      : '120%',
-					// Never eat clicks — this is atmospheric, not modal.
+					width        : '100%',
+					height       : '100%',
 					pointerFilter: 'none',
 				}}
-				uiBackground = {{ color: Color4.create(FLASH_COLOR.r, FLASH_COLOR.g, FLASH_COLOR.b, alpha) }}
-			/>
+			>
+				<UiEntity
+					key         = "ui_FrostFlash_warm"
+					uiTransform = {{
+						display      : warm > 0 ? 'flex' : 'none',
+						positionType : 'absolute',
+						position     : { top: '-10%', left: '-10%' },
+						width        : '120%',
+						height       : '120%',
+						pointerFilter: 'none',
+					}}
+					uiBackground = {{ color: Color4.create(WARM_COLOR.r, WARM_COLOR.g, WARM_COLOR.b, warm) }}
+				/>
+				<UiEntity
+					key         = "ui_FrostFlash_cold"
+					uiTransform = {{
+						display      : cold > 0 ? 'flex' : 'none',
+						positionType : 'absolute',
+						position     : { top: '-10%', left: '-10%' },
+						width        : '120%',
+						height       : '120%',
+						pointerFilter: 'none',
+					}}
+					uiBackground = {{ color: Color4.create(FLASH_COLOR.r, FLASH_COLOR.g, FLASH_COLOR.b, cold) }}
+				/>
+			</UiEntity>
 		)
 	}
 }

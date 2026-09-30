@@ -6,8 +6,9 @@
  * alpha value that decays linearly toward zero over a fixed duration.
  * layer.frostFlash.tsx renders a full-screen overlay driven by that
  * alpha; the segment-detection system below polls getFrostLocal each
- * frame and calls triggerFrostFlash whenever the "blue block count"
- * (ceil(frost/FROST_MAX * SEGMENT_COUNT)) increases.
+ * frame and calls triggerFrostFlash whenever the blue block count
+ * increases. A thaw at a fire does the inverse: each blue block that
+ * turns back to gold flashes the screen the heat bar's yellow.
  *
  * Segment math is duplicated from layer.frostBar.tsx on purpose so
  * the flash tracks what the player actually SEES, not the raw frost
@@ -39,6 +40,8 @@ const SEGMENT_COUNT    = 10
 // MARK: State
 let flashAlpha    = 0
 let flashElapsed  = 0
+let warmAlpha     = 0
+let warmElapsed   = 0
 let lastBlueCount = 0
 
 
@@ -78,6 +81,26 @@ export function getFrostFlashAlpha(): number {
 }
 
 
+// MARK: triggerWarmFlash
+
+/**
+ * Kick the heat-bar gold flash. Fires when a blue segment thaws back
+ * to gold, which only happens inside a fire's warm ring.
+ */
+export function triggerWarmFlash(): void {
+	warmAlpha   = Math.max(warmAlpha, FLASH_PEAK_ALPHA)
+	warmElapsed = 0
+}
+
+
+// MARK: getWarmFlashAlpha
+
+/** Current warm-overlay alpha in [0, FLASH_PEAK_ALPHA]. Zero = don't draw. */
+export function getWarmFlashAlpha(): number {
+	return warmAlpha
+}
+
+
 // MARK: initFrostFlash
 /**
  * Register the per-frame system that (a) fades the flash toward zero
@@ -95,12 +118,18 @@ export function initFrostFlash(): void {
 			flashAlpha = FLASH_PEAK_ALPHA * (1 - t)
 			if (flashAlpha < 0.001) flashAlpha = 0
 		}
+		if (warmAlpha > 0) {
+			warmElapsed += dt
+			const t = Math.min(1, warmElapsed / FLASH_DURATION_S)
+			warmAlpha = FLASH_PEAK_ALPHA * (1 - t)
+			if (warmAlpha < 0.001) warmAlpha = 0
+		}
 
-		// Segment gain detection. We only flash on crossings UPWARD:
-		// warming back down past a boundary must not fire a flash, or
-		// standing next to the fire would strobe blue as frost thaws.
+		// Blue on the way up, gold on the way down. Thaw only happens
+		// inside a fire, so a lost blue segment is the warm pulse.
 		const now = coldBlocks(getFrostLocal())
 		if (now > lastBlueCount) triggerFrostFlash()
+		else if (now < lastBlueCount) triggerWarmFlash()
 		lastBlueCount = now
 	})
 

@@ -13,14 +13,14 @@
  * rng.ts so we never perturb the maze generator's RNG state.
  */
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_TILE_WORLD_METERS,
 } from 'src/shared/settings'
-
-import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 
 
 // MARK: PropPlacement
@@ -114,7 +114,7 @@ export function scatterProps(
 	// from the second RNG stream below.
 	const phase1Rng    = makeRng((seed | 0) ^ 0x50524F50)
 	const phase1Claims = new Set<string>()
-	const phase1Cells  : Array<{ def: PropDef; tx: number; tz: number }> = []
+	const phase1Cells  : Array<{ def: PropDef; tx: number; tz: number; worldX?: number; worldZ?: number }> = []
 	for (const def of PROP_CATALOG.filter(p => p.reserves)) {
 		for (let i = 0; i < def.count; i++) {
 			const cell = pickCell(phase1Rng, def, mergeSets(reservedSet, phase1Claims))
@@ -127,8 +127,16 @@ export function scatterProps(
 	// ── Phase 2: non-reserving props ─────────────────────────────
 	const phase2Rng   = makeRng((seed | 0) ^ 0x53434154) // 'SCAT'
 	const usedCells   = new Set<string>(phase1Claims) // don't double-up
-	const phase2Cells : Array<{ def: PropDef; tx: number; tz: number }> = []
+	const phase2Cells : Array<{ def: PropDef; tx: number; tz: number; worldX?: number; worldZ?: number }> = []
 	for (const def of PROP_CATALOG.filter(p => !p.reserves)) {
+		if (def.radiiM !== undefined && def.radiiM.length > 0) {
+			const ring = placeRing(phase2Rng, def, mergeSets(reservedSet, usedCells))
+			for (const p of ring) {
+				usedCells.add(cellKey(p.tx, p.tz))
+				phase2Cells.push(p)
+			}
+			continue
+		}
 		for (let i = 0; i < def.count; i++) {
 			const cell = pickCell(phase2Rng, def, mergeSets(reservedSet, usedCells))
 			if (cell === null) {
@@ -143,7 +151,7 @@ export function scatterProps(
 	// ── Jitter + yaw pass (shared RNG for both phases) ───────────
 	const jitterRng = makeRng((seed | 0) ^ 0x4A495454) // 'JITT'
 	for (const c of [...phase1Cells, ...phase2Cells]) {
-		out.push(materialize(c.def, c.tx, c.tz, jitterRng))
+		out.push(materialize(c.def, c.tx, c.tz, jitterRng, c.worldX, c.worldZ))
 	}
 	return out
 }
@@ -161,6 +169,50 @@ function mergeSets(a: ReadonlySet<string>, b: ReadonlySet<string>): Set<string> 
 
 const CENTER_TX = Math.floor(MAZE_GRID_WIDTH  / 2)
 const CENTER_TZ = Math.floor(MAZE_GRID_HEIGHT / 2)
+
+// MARK: placeRing
+
+/**
+ * Copies around the hearth on even bearings, each at its own radius.
+ * One seed roll turns the whole set, so the close tree is not always
+ * on the same side. A slot on a cliff walks forward a few degrees
+ * and keeps its radius.
+ */
+function placeRing(
+	rng    : () => number,
+	def    : PropDef,
+	blocked: ReadonlySet<string>,
+): Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> {
+	const radii = def.radiiM ?? []
+	const count = Math.min(def.count, radii.length)
+	const base  = rng() * Math.PI * 2
+	const step  = (Math.PI * 2) / count
+	const out   : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
+	const claimed = new Set<string>()
+	for (let i = 0; i < count; i++) {
+		const radius = radii[i]
+		let placed = false
+		for (let n = 0; n < 12; n++) {
+			const ang    = base + i * step + n * (step / 12)
+			const worldX = CAMPFIRE_WORLD_X + Math.sin(ang) * radius
+			const worldZ = CAMPFIRE_WORLD_Z + Math.cos(ang) * radius
+			const tx     = Math.floor((worldX - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+			const tz     = Math.floor((worldZ - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+			if (tx < 0 || tz < 0 || tx >= MAZE_GRID_WIDTH || tz >= MAZE_GRID_HEIGHT) continue
+			const key = cellKey(tx, tz)
+			if (blocked.has(key) || claimed.has(key)) continue
+			claimed.add(key)
+			out.push({ def, tx, tz, worldX, worldZ })
+			placed = true
+			break
+		}
+		if (!placed) {
+			console.log(`scatter: placeRing: ${def.id}: could not place instance ${i + 1}/${count}`)
+		}
+	}
+	return out
+}
+
 
 function pickCell(
 	rng     : () => number,
@@ -182,18 +234,21 @@ function pickCell(
 }
 
 function materialize(
-	def : PropDef,
-	tx  : number,
-	tz  : number,
-	rng : () => number,
+	def    : PropDef,
+	tx     : number,
+	tz     : number,
+	rng    : () => number,
+	fixedX?: number,
+	fixedZ?: number,
 ): PropPlacement {
 	// Jitter within the cell — keep a small margin so props don't cross
-	// tile borders and end up half-inside a neighbor.
+	// tile borders and end up half-inside a neighbor. Ring slots pass
+	// a fixed point so the even spacing survives.
 	const MARGIN = 0.15 // fraction of cell reserved as edge buffer
 	const jx = MARGIN + rng() * (1 - 2 * MARGIN)
 	const jz = MARGIN + rng() * (1 - 2 * MARGIN)
-	const worldX = MAZE_ORIGIN_OFFSET_METERS + (tx + jx) * MAZE_TILE_WORLD_METERS
-	const worldZ = MAZE_ORIGIN_OFFSET_METERS + (tz + jz) * MAZE_TILE_WORLD_METERS
+	const worldX = fixedX ?? (MAZE_ORIGIN_OFFSET_METERS + (tx + jx) * MAZE_TILE_WORLD_METERS)
+	const worldZ = fixedZ ?? (MAZE_ORIGIN_OFFSET_METERS + (tz + jz) * MAZE_TILE_WORLD_METERS)
 	const yawDeg = (def.randomYaw ?? true) ? rng() * 360 : 0
 	const jitter = def.scaleJitter ?? 0
 	const scale  = def.scale * (1 + (rng() * 2 - 1) * jitter)

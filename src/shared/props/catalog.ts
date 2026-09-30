@@ -43,9 +43,18 @@ export interface PropDef {
 	/**
 	 * Minimum straight-line distance (in grid cells) from the campfire
 	 * at scene centre. Prevents huts / trees from spawning on top of
-	 * the spawn ring. Optional; defaults to 0.
+	 * the spawn ring. Optional; defaults to 0. Ignored when
+	 * `radiiM` is set.
 	 */
 	minCellsFromCampfire?: number
+	/**
+	 * Metres from the hearth for each copy. Bearings stay evenly
+	 * spaced and the whole set rotates with the seed, so the trees
+	 * surround the fire without sharing one radius. Length should
+	 * match `count`. A copy on a cliff steps a few degrees along
+	 * its bearing.
+	 */
+	radiiM?: number[]
 	/** Random Y rotation applied on spawn (degrees, uniform 0..360). Default true. */
 	randomYaw?: boolean
 	/**
@@ -71,8 +80,16 @@ export const PROP_CATALOG: PropDef[] = [
 		scale                : 6,
 		yOffset              : 0,
 		reserves             : false,
-		count                : 3,
-		minCellsFromCampfire : 3,
+		// Six trees around the hearth, not on one circle. The set
+		// rotates with the seed. Lit torch is 30 s at the melted-path
+		// jog (8 m/s): 2 s of fuel per metre of round trip.
+		//   64 m        close. 16 s there and back, time to take a log.
+		//   88–104 m    mid. A straight solo trip, little spare.
+		//   144 / 168 m far. One torch dies on the walk home. A hidden
+		//               fire on the way, or one chain-light (15 s),
+		//               is what gets you back.
+		count                : 6,
+		radiiM               : [64, 96, 144, 88, 168, 104],
 		randomYaw            : true,
 		scaleJitter          : 1 / 3,
 	},
