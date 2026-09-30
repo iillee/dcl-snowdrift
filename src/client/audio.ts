@@ -27,9 +27,9 @@ const TORCH_SRC = 'assets/sounds/torch.mp3'
 const FROST_SRC = 'assets/sounds/frost.mp3'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
-// don't want. Retrigger the sample every FROST_SFX_WINDOW_S while the
-// player is actively taking damage so only the useful head of the
-// clip is ever heard.
+// don't want. After a cue starts, cut it once this window elapses.
+// This does NOT gate the next cue — a bar step can land well inside
+// the window, and that step still has to be heard.
 const FROST_SFX_WINDOW_S = 3.0
 
 let musicEnt: Entity = 0 as Entity
@@ -38,12 +38,15 @@ let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
 
-// Frost SFX driver state. The clip is one-shot per invocation of
-// playFrostChunkSfx(); the system below just auto-silences it after
-// FROST_SFX_WINDOW_S so the trailing dead air of the 8 s source clip
-// never plays.
+// Frost SFX driver state. playFrostChunkSfx() only stops the voice and
+// raises frostSfxPending. The system below starts it on the next frame
+// so the renderer sees playing false, then true. A same-frame rewrite
+// that leaves playing:true and currentTime:0 is ignored, which used to
+// drop every cue that landed while the previous one was still inside
+// the 3 s tail window (about every third bar step in snow).
 let frostSfxPlaying  = false
 let frostSfxElapsedS = 0
+let frostSfxPending  = false
 // Music starts muted by default; player unmutes via the mute button.
 let musicMuted = true
 let playStartMs = 0
@@ -62,19 +65,28 @@ export function initAudio(): void {
   Transform.create(surgeSfxEnt, { parent: engine.CameraEntity })
   frostSfxEnt = engine.addEntity()
   Transform.create(frostSfxEnt, { parent: engine.CameraEntity })
-  // Frost SFX auto-silencer. playFrostChunkSfx() fires the clip and
-  // sets frostSfxPlaying=true; this system stops it after the useful
-  // head window (~3 s) so we never hear the trailing hiss.
+  AudioSource.create(frostSfxEnt, {
+	  audioClipUrl: FROST_SRC,
+	  playing: false, loop: false, volume: 0.28, global: true, currentTime: 0,
+  })
+  // Starts a pending frost cue, then cuts the clip after the useful
+  // head (~3 s) so the trailing hiss of the 8 s source never plays.
+  // Registered before frost accumulation, so a cue requested this
+  // frame is heard on the next one.
   engine.addSystem((dt: number) => {
+	  if (frostSfxPending) {
+		  frostSfxPending  = false
+		  frostSfxPlaying  = true
+		  frostSfxElapsedS = 0
+		  AudioSource.playSound(frostSfxEnt, FROST_SRC, true)
+		  return
+	  }
 	  if (!frostSfxPlaying) return
 	  frostSfxElapsedS += dt
 	  if (frostSfxElapsedS < FROST_SFX_WINDOW_S) return
 	  frostSfxPlaying  = false
 	  frostSfxElapsedS = 0
-	  AudioSource.createOrReplace(frostSfxEnt, {
-		  audioClipUrl: FROST_SRC,
-		  playing: false, loop: false, volume: 0.28, global: true,
-	  })
+	  AudioSource.stopSound(frostSfxEnt, true)
   })
   musicEnt = engine.addEntity()
   Transform.create(musicEnt, { parent: engine.CameraEntity })
@@ -182,20 +194,19 @@ export function playDropSfx(): void {
 // MARK: playFrostChunkSfx
 /**
  * Fire the frost SFX once as a discrete cue. Call on the rising edge
- * of a new blue chunk on the frost bar (i.e. when the visible cold
- * segment count increments). Not tied to continuous damage state —
- * walking through shallow snow that never fills a full segment stays
- * silent. The auto-silencer above cuts the clip at FROST_SFX_WINDOW_S
- * so the trailing dead air never plays.
+ * of a new blue chunk on the frost bar (when the visible cold segment
+ * count increments). Shallow snow that never fills a segment stays
+ * silent. Stops the voice now and plays it next frame, so a step that
+ * lands while the previous cue is still ringing still restarts from
+ * the top. The auto-silencer cuts the clip at FROST_SFX_WINDOW_S so
+ * the trailing dead air never plays.
  */
 export function playFrostChunkSfx(): void {
 	if (!frostSfxEnt) return
-	frostSfxPlaying  = true
+	AudioSource.stopSound(frostSfxEnt, true)
+	frostSfxPlaying  = false
 	frostSfxElapsedS = 0
-	AudioSource.createOrReplace(frostSfxEnt, {
-		audioClipUrl: FROST_SRC,
-		playing: true, loop: false, volume: 0.28, global: true, currentTime: 0,
-	})
+	frostSfxPending  = true
 }
 
 

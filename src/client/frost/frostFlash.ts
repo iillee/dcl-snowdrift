@@ -11,15 +11,16 @@
  * overlay breathes once per bar segment, in step with the refill,
  * then fades out once the bar reads full.
  *
- * Segment math is duplicated from layer.frostBar.tsx on purpose so
- * the flash tracks what the player actually SEES, not the raw frost
- * value. If the bar's segmentation changes, mirror it here.
+ * Segment count comes from visibleColdSegments() in accumulation.ts,
+ * the same count the frost bar draws, so the flash lands on the
+ * steps the player actually sees.
  */
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { getFrostLocal, isPlayerWarming } from 'src/client/frost/accumulation'
-import { FROST_MAX }     from 'src/shared/frost/tuning'
+import { FROST_MAX } from 'src/shared/frost/tuning'
+
+import { FROST_BAR_SEGMENTS, getFrostLocal, isPlayerWarming, visibleColdSegments } from 'src/client/frost/accumulation'
 
 
 // MARK: Tuning
@@ -42,10 +43,6 @@ const WARM_ENTER_S    = 0.45
 // Leaving the fire, or the bar reading full, eases the current wash
 // out instead of cutting it off.
 const WARM_FADE_OUT_S = 0.8
-// Segment resolution — must match SEGMENT_COUNT in layer.frostBar.tsx.
-// Duplicated rather than imported to keep this module free of any UI
-// layer dependency (the layer imports us, not the other way round).
-const SEGMENT_COUNT    = 10
 
 
 // MARK: State
@@ -55,23 +52,6 @@ let warmAlpha     = 0
 let warmBlend     = 0
 let wasWarming    = false
 let lastBlueCount = 0
-
-
-// MARK: coldBlocks
-// Mirror of the warm-block math in layer.frostBar.tsx, then subtracted
-// from SEGMENT_COUNT to get the number of visible blue blocks. The bar
-// rounds warmth UP (Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT)))
-// so the last sliver of warmth still shows a full warm block — which
-// means the FIRST sliver of frost shows ZERO blue blocks. Earlier
-// versions of this file ceil-ed on frost directly, so the flash fired
-// on first entry into snow while the bar still looked fully warm.
-function coldBlocks(frost: number): number {
-	if (frost <= 0)         return 0
-	if (frost >= FROST_MAX) return SEGMENT_COUNT
-	const warmthPct  = 1 - frost / FROST_MAX
-	const warmBlocks = Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT))
-	return SEGMENT_COUNT - warmBlocks
-}
 
 
 // MARK: triggerFrostFlash
@@ -109,7 +89,7 @@ export function getWarmFlashAlpha(): number {
  * bootstrap after initFrostAccumulation.
  */
 export function initFrostFlash(): void {
-	lastBlueCount = coldBlocks(getFrostLocal())
+	lastBlueCount = visibleColdSegments(getFrostLocal())
 
 	engine.addSystem((dt: number) => {
 		// Fade.
@@ -123,13 +103,13 @@ export function initFrostFlash(): void {
 		// before frost hits exactly 0, and the wash stops on that
 		// read: fade whatever is up, then stay clear.
 		const frost   = getFrostLocal()
-		const cold    = coldBlocks(frost)
+		const cold    = visibleColdSegments(frost)
 		const warming = isPlayerWarming() && cold > 0
 		if (warming) {
 			if (!wasWarming) warmBlend = 0
 			warmBlend = Math.min(1, warmBlend + dt / WARM_ENTER_S)
 			const warmthPct = 1 - frost / FROST_MAX
-			const into      = warmthPct * SEGMENT_COUNT
+			const into      = warmthPct * FROST_BAR_SEGMENTS
 			const frac      = into - Math.floor(into)
 			const pulse     = WARM_PULSE_PEAK * Math.sin(Math.PI * frac)
 			warmAlpha = pulse * warmBlend

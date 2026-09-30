@@ -30,6 +30,7 @@ import { FROST_MAX } from 'src/shared/frost/tuning'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isEmberFailing } from 'src/client/emberFail'
 import { getFrostLocal, resetFrostLocal } from 'src/client/frost/accumulation'
+import { dropLogAtPlayer } from 'src/client/logsInput'
 import { clearCarriedWood } from 'src/client/logsInventory'
 import { teleportHome } from 'src/client/player'
 import { emptyTorch, extinguishTorch } from 'src/client/torchEquip'
@@ -150,6 +151,9 @@ function fireDeathEmote(): void {
 function enterDying(): void {
 	if (phase !== Phase.IDLE) return
 	console.log('frost/death: enterDying: player frozen, starting sequence')
+	// Still standing where they froze. The pile stays there; the slot
+	// is empty when they wake at the hearth.
+	dropLogAtPlayer()
 	// Force the player back to first-person / follow camera before the
 	// death sequence plays — the emote + fade + teleport all read wrong
 	// from the top-down spectator view, and the wake beat wants the

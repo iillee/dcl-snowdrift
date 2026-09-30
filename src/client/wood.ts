@@ -89,6 +89,12 @@ let scatter             : WoodChunk[] = []
 let treeSites           : WoodTreeSite[] = []
 const activeIdx         = new Set<number>()
 const chunkEntities     = new Map<number, ChunkRec>()
+/** Idx -> Date.now() when the local player grabbed it. Reveal must
+ *  not put the GLB back while this is set, or the head pop plays over
+ *  a chunk that is still sitting on the snow. Cleared on the server
+ *  confirm, or after PENDING_PICKUP_MS if the confirm never comes. */
+const pendingPickup     = new Map<number, number>()
+const PENDING_PICKUP_MS = 3000
 
 let installed = false
 
@@ -110,8 +116,14 @@ export function setupWoodClient(): void {
 		rebuildForSeed(seed)
 		activeIdx.clear()
 		for (const idx of indices) activeIdx.add(idx)
+		// A full set can arrive while our own pickup is still in flight
+		// (join hydration). Drop claims the server has already removed,
+		// and keep the rest so reveal does not respawn them.
+		for (const idx of pendingPickup.keys()) {
+			if (!activeIdx.has(idx)) pendingPickup.delete(idx)
+		}
 		for (const idx of chunkEntities.keys()) {
-			if (!activeIdx.has(idx)) despawnChunk(idx)
+			if (!activeIdx.has(idx) || pendingPickup.has(idx)) despawnChunk(idx)
 		}
 		syncWoodReveal()
 		syncTreeWoodScale()
@@ -130,6 +142,7 @@ export function setupWoodClient(): void {
 
 	room.onMessage('woodChunkRemoved', ({ seed, idx, pickerId }) => {
 		if (seed !== currentSeed) return
+		pendingPickup.delete(idx)
 		activeIdx.delete(idx)
 		despawnChunk(idx)
 		syncTreeWoodScale()
@@ -256,6 +269,7 @@ function isSnowMeltedAt(
  * system.
  */
 function syncWoodReveal(): void {
+	releaseStalePickups()
 	for (const idx of activeIdx) {
 		const c = scatter[idx]
 		if (!c) continue
@@ -263,10 +277,43 @@ function syncWoodReveal(): void {
 			if (chunkEntities.has(idx)) despawnChunk(idx)
 			continue
 		}
+		// Local grab already hid this chunk. Spawning it again before
+		// the server confirms is the flicker: the GLB pops back on the
+		// snow while the head bounce is still playing.
+		if (pendingPickup.has(idx)) {
+			if (chunkEntities.has(idx)) despawnChunk(idx)
+			continue
+		}
 		const melted  = isSnowMeltedAt(c.worldX, c.worldZ)
 		const spawned = chunkEntities.has(idx)
 		if (melted && !spawned) spawnChunk(idx, true)
 		if (!melted && spawned) despawnChunk(idx)
+	}
+}
+
+
+// MARK: claimPickup
+/**
+ * Hide a ground chunk the local player just grabbed, and remember it
+ * so a reveal pass cannot put the GLB back before the server agrees.
+ */
+function claimPickup(idx: number): void {
+	pendingPickup.set(idx, Date.now())
+	despawnChunk(idx)
+}
+
+
+// MARK: releaseStalePickups
+/**
+ * Give up claims whose confirm never arrived, so a rejected pickup
+ * (snow still covering it on the server) can show the chunk again.
+ */
+function releaseStalePickups(): void {
+	const now = Date.now()
+	for (const [idx, at] of pendingPickup) {
+		if (now - at < PENDING_PICKUP_MS) continue
+		pendingPickup.delete(idx)
+		console.log(`wood: releaseStalePickups: idx=${idx} confirm timed out, revealing again`)
 	}
 }
 
@@ -301,11 +348,10 @@ function proximityPollSystem(dt: number): void {
 		}
 		if (!inRange) continue
 
-		// Optimistically fill the F slot + hide the entity, then ask the
-		// server to make it authoritative. Confirmation arrives as
-		// woodChunkRemoved, which destroys the entity.
+		// Hide the ground GLB first, then fill the F slot (which plays
+		// the head pop). Confirm arrives as woodChunkRemoved.
+		claimPickup(idx)
 		pickupLogs(rec.kind)
-		despawnChunk(idx)
 		room.send('woodPickupRequest', { seed: currentSeed, idx })
 		console.log(`wood: pickup request sent idx=${idx} kind=${rec.kind}`)
 		break // one pickup per poll

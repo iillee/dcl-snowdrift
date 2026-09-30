@@ -19,10 +19,8 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { FROST_MAX }                               from 'src/shared/frost/tuning'
-
 import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
-import { getFrostLocal }                           from 'src/client/frost/accumulation'
+import { FROST_BAR_SEGMENTS, getFrostLocal, visibleColdSegments } from 'src/client/frost/accumulation'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { getUVsForAtlasTile }                      from 'src/client/ui/utils/atlas'
 
@@ -47,7 +45,7 @@ const FIRE_TILE_ROW = 1
 
 
 // MARK: Layout
-const SEGMENT_COUNT = 10
+const SEGMENT_COUNT = FROST_BAR_SEGMENTS
 // True squares. Desktop segment size is picked so the frost bar's
 // outer frame (the white-bordered rectangle behind the segments)
 // matches the neighbouring buttons' BTN_SIZE = 72 in height, keeping
@@ -145,10 +143,9 @@ class FrostBarLayer extends Layer {
 
 	body() {
 		const frost      = getFrostLocal()
-		const warmthPct  = Math.max(0, Math.min(1, 1 - frost / FROST_MAX))
-		// Round up so the last sliver of warmth still shows a full block;
-		// only a truly full frost bar (>= FROST_MAX) shows zero warm blocks.
-		const warmBlocks = frost >= FROST_MAX ? 0 : Math.max(1, Math.ceil(warmthPct * SEGMENT_COUNT))
+		// Warm blocks are whatever the shared cold-segment count has not
+		// taken yet, so the drawn bar and the freeze cue stay on one grid.
+		const warmBlocks = SEGMENT_COUNT - visibleColdSegments(frost)
 		const mobile     = isMobile()
 		const segSize    = mobile ? SEG_SIZE_MB     : SEG_SIZE_DT
 		const segGap     = mobile ? SEG_GAP_MB      : SEG_GAP_DT

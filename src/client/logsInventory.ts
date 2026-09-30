@@ -69,7 +69,8 @@ export function pickupLogs(kind: number = WOOD_KIND_LOG): void {
 // MARK: dropLogs
 /**
  * Clear the F slot. Called when the player drops the piece on the
- * ground or loses it on death (future).
+ * ground, including a freeze. The world-death wipe uses
+ * clearCarriedWood so nothing is left behind.
  */
 export function dropLogs(): void {
 	if (!_hasLogs) return

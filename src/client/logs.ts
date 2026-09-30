@@ -11,9 +11,9 @@
  *   - Server broadcasts logPileAdded / logPileRemoved.
  *   - Client spawns / despawns entities in reaction.
  *   - Local proximity poll walks the map and, on close-enough distance,
- *     optimistically hides the entity, flips local hasLogs() true, and
- *     sends logPickupRequest to the server. Server confirms with
- *     logPileRemoved, at which point we destroy the entity for real.
+ *     removes the ground GLB, flips local hasLogs() true, and sends
+ *     logPickupRequest. Server confirms with logPileRemoved, which
+ *     no-ops if we already destroyed the entity.
  *
  * Optimism / race behaviour:
  *   - Two clients over the same pile in the same frame will both send
@@ -24,7 +24,7 @@
  *     nothing to roll back local carrying. See design note above.
  */
 
-import { Transform, VisibilityComponent, engine, Entity } from '@dcl/sdk/ecs'
+import { Transform, engine, Entity } from '@dcl/sdk/ecs'
 
 import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
@@ -149,10 +149,11 @@ function proximityPollSystem(dt: number): void {
 		}
 		if (!inRange) continue
 
-		// Pickup! Optimistically hide the GLB + flip local carry state,
-		// then ask the server to make it authoritative. On confirmation
-		// we get a logPileRemoved and the entity is destroyed.
-		VisibilityComponent.createOrReplace(rec.entity, { visible: false })
+		// Remove the ground GLB before the head pop. Hiding it in place
+		// left the mesh up for a frame (and again if the model finished
+		// loading after the hide), so the piece showed on the snow and
+		// over the head at once.
+		despawnPileEntity(id)
 		pickupLogs(rec.kind)
 		room.send('logPickupRequest', { id })
 		console.log(`logs: proximityPollSystem: sent logPickupRequest #${id} kind=${rec.kind}`)

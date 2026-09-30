@@ -45,11 +45,12 @@ let frost            = 0
 let lastWrittenFrost = 0
 /** True while a fire is actively thawing remaining frost. */
 let warmingByFire    = false
-// Matches SEGMENT_COUNT in layer.frostBar.tsx. Kept as a local literal
-// (instead of importing from a UI layer) so the accumulator has no
-// downward dependency on the UI. Update both if the bar changes.
-const FROST_BAR_SEGMENTS = 10
-let lastChunkIndex = 0
+// Layout width of the frost bar. The bar and the cold flash both read
+// this so a step on screen, the blue flash, and the freeze cue share
+// one grid. Kept here (not in the UI layer) so the accumulator does
+// not depend downward on a layer.
+export const FROST_BAR_SEGMENTS = 10
+let lastColdSegments = 0
 
 // Any change bigger than this triggers a CRDT write. 0.5% chosen so a
 // full 0->100 sweep produces ~200 writes over minutes, not thousands.
@@ -145,15 +146,13 @@ export function initFrostAccumulation(): void {
 				if (frost > FROST_MAX) frost = FROST_MAX
 			}
 		}
-		// Play the frost SFX only when a new blue chunk fills on the bar
-		// (edge trigger on the visible segment index). Ambient wading
-		// through shallow snow that never fills a full segment stays
-		// silent — the cue is reserved for perceptible progress toward
-		// freezing. Chunks can also DECREASE (thaw); we only fire on
-		// the upward edge.
-		const chunkIndex = Math.floor((frost / FROST_MAX) * FROST_BAR_SEGMENTS)
-		if (chunkIndex > lastChunkIndex) playFrostChunkSfx()
-		lastChunkIndex = chunkIndex
+		// Play the frost SFX only when the bar grows a new blue segment.
+		// Same count the bar draws, so each visible step gets a cue.
+		// Shallow snow that never fills a segment stays silent. Thaw
+		// shrinks the count; we only fire on the upward edge.
+		const coldSegments = visibleColdSegments(frost)
+		if (coldSegments > lastColdSegments) playFrostChunkSfx()
+		lastColdSegments = coldSegments
 
 		// Debounced CRDT write.
 		if (Math.abs(frost - lastWrittenFrost) >= FROST_WRITE_EPSILON) {
@@ -171,10 +170,10 @@ export function initFrostAccumulation(): void {
  * warmth instead of carrying frost into the new run.
  */
 export function resetFrostLocal(): void {
-	frost            = 0
-	lastWrittenFrost = 0
-	lastChunkIndex   = 0
-	warmingByFire    = false
+	frost             = 0
+	lastWrittenFrost  = 0
+	lastColdSegments  = 0
+	warmingByFire     = false
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 }
 
@@ -196,4 +195,20 @@ export function isPlayerWarming(): boolean {
  */
 export function getFrostLocal(): number {
 	return frost
+}
+
+
+// MARK: visibleColdSegments
+/**
+ * Blue segments the frost bar is showing for this frost value.
+ * Warmth rounds up, so the first sliver of frost still reads as a
+ * full warm bar and this returns 0. Only a full bar returns every
+ * segment. The freeze cue and the cold flash both use this count.
+ */
+export function visibleColdSegments(value: number): number {
+	if (value <= 0) return 0
+	if (value >= FROST_MAX) return FROST_BAR_SEGMENTS
+	const warmthPct  = 1 - value / FROST_MAX
+	const warmBlocks = Math.max(1, Math.ceil(warmthPct * FROST_BAR_SEGMENTS))
+	return FROST_BAR_SEGMENTS - warmBlocks
 }
