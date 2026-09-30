@@ -34,6 +34,7 @@ import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
 import { initClientHandler } from 'src/client/clientHandler'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { beginCollapsedAtHome, setupFrostDeath } from 'src/client/frost/death'
+import { setupFrostRescue } from 'src/client/frost/rescue'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupLoadTimeline } from 'src/client/loadTimeline'
 import { initLocomotionGate } from 'src/client/locomotion'
@@ -176,6 +177,7 @@ export async function setupClient(): Promise<void> {
 	initFrostAccumulation()
 	initFrostFlash()
 	setupFrostDeath()
+	setupFrostRescue()
 	// First join: same collapsed dawn pose as world reset. Loading
 	// splash owns the black, so this FSM does not fade.
 	initPlayerNet(() => {

@@ -18,6 +18,7 @@
 import { room } from 'src/shared/messages'
 
 import { onCycleRoll } from 'src/server/cycle'
+import { isPlayerFrozen } from 'src/server/frostLife'
 
 
 interface TorchCache {
@@ -96,6 +97,10 @@ export function setupTorchServer(): void {
 		}
 		if (torchByUser.get(senderId)?.lit !== 1) {
 			console.log(`torchServer: chainLightRequest: sender ${senderId} not lit, dropping`)
+			return
+		}
+		if (isPlayerFrozen(targetId)) {
+			console.log(`torchServer: chainLightRequest: ${targetId} is frozen, dropping`)
 			return
 		}
 		if (torchByUser.get(targetId)?.lit === 1) {

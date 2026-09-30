@@ -71,6 +71,29 @@ export function teleportHome(): void {
 }
 
 
+// MARK: teleportNear
+/**
+ * Teleport the local player to a standing spot, looking at a point.
+ * Used when a freeze resolves at the nearest lit fire.
+ */
+export function teleportNear(
+	x    : number,
+	z    : number,
+	lookX: number,
+	lookZ: number,
+): void {
+	if (isTopDownActive()) {
+		console.log('player: teleportNear: leaving spectator so the arrival look can land')
+		toggleTopDownCamera()
+	}
+	movePlayerTo({
+		newRelativePosition: { x, y: SPAWN_Y, z },
+		cameraTarget       : { x: lookX, y: 1.2, z: lookZ },
+		avatarTarget       : { x: lookX, y: 1.2, z: lookZ },
+	}).catch(() => {})
+}
+
+
 // MARK: initPlayerNet
 /**
  * After a short load beat, run `onReady` (first-join collapse).

@@ -1,0 +1,391 @@
+/**
+ * rescue.ts — ice blocks and the torch thaw.
+ *
+ * Your own cube follows your avatar in world space, which both
+ * clients can read. Everyone else's is an AvatarAttach on their
+ * hips: a remote player's Transform is not their world position, so
+ * a cube placed from it never lands on them, and a child of their
+ * player entity is invisible on mobile. FrostDeath itself does not
+ * replicate; the server broadcast says who is frozen.
+ * Standing inside ICE_RESCUE_RADIUS_M with a lit torch melts the cube
+ * from the top, one third per second. Everyone draws that height from
+ * the server. If the torch leaves early, the cube grows back a third
+ * per second. At ICE_THAW_S the cube is gone, the player can move,
+ * and their torch can be lit again. A presence heartbeat keeps a
+ * disconnect from counting as someone still alive.
+ */
+
+import {
+	AvatarAnchorPointType,
+	AvatarAttach,
+	engine,
+	Entity,
+	Material,
+	MaterialTransparencyMode,
+	MeshRenderer,
+	PlayerIdentityData,
+	Transform,
+} from '@dcl/sdk/ecs'
+import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
+import { isMobile } from '@dcl/sdk/platform'
+
+import { FrostDeath } from 'src/shared/frost/components'
+import { ICE_RESCUE_RADIUS_M, ICE_THAW_S } from 'src/shared/frost/tuning'
+import { room } from 'src/shared/messages'
+
+import { grantFrostRescue, noteLocalMelt } from 'src/client/frost/death'
+import { isTorchLit } from 'src/client/torchEquip'
+
+
+const HEARTBEAT_S = 5
+const RESCUE_R_SQ = ICE_RESCUE_RADIUS_M * ICE_RESCUE_RADIUS_M
+
+const ICE_DIFFUSE  = Color4.create(0.55, 0.82, 1.0, 0.55)
+const ICE_ALBEDO   = Color4.create(0.55, 0.82, 1.0, 0.38)
+const ICE_EMISSIVE = Color3.create(0.4, 0.7, 0.95)
+/** Blue glass with its own alpha. Mobile drops PBR transparency, so that client uses this unlit texture. */
+const ICE_TEXTURE  = 'assets/images/ice-alpha.png'
+/** Equal sides, tall enough to cover a standing avatar. Centre is half that, so the bottom sits on the feet. */
+const ICE_SIZE     = 2.1
+const ICE_CENTER_Y = ICE_SIZE / 2
+const ICE_SCALE    = Vector3.create(ICE_SIZE, ICE_SIZE, ICE_SIZE)
+
+type IceRig = {
+	block  : Entity
+	player?: Entity
+	anchor?: Entity
+}
+
+const remoteFrozen = new Map<string, { x: number, z: number }>()
+/** Seconds of torch contact already shown on a cube. 0 is full height. */
+const meltStep     = new Map<string, number>()
+
+let installed  = false
+/** Retry a thaw ask if the server never answered. */
+const RESCUE_RETRY_S = 2
+
+let heartbeat    = HEARTBEAT_S
+let thawTimer    = 0
+let pendingId    = ''
+let sentFor      = ''
+let sentAgo      = 0
+let meltSentId   = ''
+let meltSentStep = -1
+let meltPing     = 0
+
+/** How often a rescuer refreshes the melt hold so a dropped torch is noticed. */
+const MELT_PING_S = 0.35
+
+const iceByUser = new Map<string, IceRig>()
+
+
+// MARK: isRemotePlayerFrozen
+/** True when the server has told us this other player is in an ice cube. */
+export function isRemotePlayerFrozen(userId: string): boolean {
+	return remoteFrozen.has(userId.toLowerCase())
+}
+
+
+// MARK: localUserId
+function localUserId(): string {
+	const id = PlayerIdentityData.getOrNull(engine.PlayerEntity)
+	return id?.address?.toLowerCase() ?? ''
+}
+
+
+// MARK: ensureIce
+/**
+ * Glassy cube in world space, moved onto the avatar each frame.
+ * No collider, so a rescuer can walk up. Not a child of the player
+ * entity: mobile skips those meshes.
+ */
+function ensureIce(
+	userId: string,
+	player: Entity,
+): void {
+	if (iceByUser.has(userId)) return
+	const block = engine.addEntity()
+	Transform.create(block, {
+		position: Vector3.create(0, ICE_CENTER_Y, 0),
+		scale   : ICE_SCALE,
+	})
+	paintIce(block)
+	iceByUser.set(userId, { block, player })
+	applyMeltScale(userId)
+	console.log(`frost/rescue: ensureIce: cube on ${userId}`)
+}
+
+
+// MARK: paintIce
+function paintIce(block: Entity): void {
+	MeshRenderer.setBox(block)
+	if (isMobile()) {
+		Material.setBasicMaterial(block, {
+			texture     : Material.Texture.Common({ src: ICE_TEXTURE }),
+			alphaTexture: Material.Texture.Common({ src: ICE_TEXTURE }),
+			diffuseColor: ICE_DIFFUSE,
+			castShadows : false,
+		})
+		return
+	}
+	Material.setPbrMaterial(block, {
+		albedoColor      : ICE_ALBEDO,
+		emissiveColor    : ICE_EMISSIVE,
+		emissiveIntensity: 0.2,
+		roughness        : 0.08,
+		metallic         : 0.0,
+		transparencyMode : MaterialTransparencyMode.MTM_ALPHA_BLEND,
+		castShadows      : false,
+	})
+}
+
+
+// MARK: ensureRemoteIce
+/**
+ * Cube on another avatar. AvatarAttach is what both clients actually
+ * draw on someone else. The hips sit near the middle of a standing
+ * body, so a cube centered there covers them.
+ */
+function ensureRemoteIce(userId: string): void {
+	if (iceByUser.has(userId)) return
+	const anchor = engine.addEntity()
+	AvatarAttach.create(anchor, {
+		avatarId     : userId,
+		anchorPointId: AvatarAnchorPointType.AAPT_HIP,
+	})
+	Transform.create(anchor, { position: Vector3.Zero(), scale: Vector3.One() })
+
+	const block = engine.addEntity()
+	Transform.create(block, {
+		parent  : anchor,
+		position: Vector3.Zero(),
+		scale   : ICE_SCALE,
+	})
+	paintIce(block)
+	iceByUser.set(userId, { block, anchor })
+	applyMeltScale(userId)
+	console.log(`frost/rescue: ensureRemoteIce: cube on ${userId}`)
+}
+
+
+// MARK: applyMeltScale
+/** Drop the top of the cube. The footprint stays put and the bottom stays on the feet. */
+function applyMeltScale(userId: string): void {
+	const rig = iceByUser.get(userId)
+	if (rig === undefined) return
+	const step     = meltStep.get(userId) ?? 0
+	const fraction = Math.max(0, 1 - step / ICE_THAW_S)
+	const height   = ICE_SIZE * fraction
+	const blockT   = Transform.getMutable(rig.block)
+	blockT.scale = Vector3.create(ICE_SIZE, height, ICE_SIZE)
+	if (rig.player !== undefined) {
+		const src = Transform.getOrNull(rig.player)
+		if (src === null) return
+		blockT.position = Vector3.create(src.position.x, src.position.y + height / 2, src.position.z)
+		return
+	}
+	// Hips are the centre of the full cube. Shift down as the top melts
+	// so the bottom stays at the feet.
+	blockT.position = Vector3.create(0, (height - ICE_SIZE) / 2, 0)
+}
+
+
+// MARK: holdMelt
+function holdMelt(
+	userId: string,
+	step  : number,
+): void {
+	const same = meltSentId === userId && meltSentStep === step
+	if (same && meltPing < MELT_PING_S) return
+	const changed = !same
+	meltSentId   = userId
+	meltSentStep = step
+	meltPing     = 0
+	room.send('frostMeltRequest', { userId, step, live: 1 })
+	if (changed) console.log(`frost/rescue: holdMelt: ${userId} step ${step}`)
+}
+
+
+// MARK: releaseMelt
+function releaseMelt(): void {
+	if (!meltSentId) {
+		meltSentStep = -1
+		meltPing     = 0
+		return
+	}
+	const id   = meltSentId
+	meltSentId   = ''
+	meltSentStep = -1
+	meltPing     = 0
+	room.send('frostMeltRequest', { userId: id, step: 0, live: 0 })
+	console.log(`frost/rescue: releaseMelt: ${id}`)
+}
+
+
+// MARK: dropIce
+function dropIce(userId: string): void {
+	const rig = iceByUser.get(userId)
+	if (rig === undefined) return
+	engine.removeEntity(rig.block)
+	if (rig.anchor !== undefined) engine.removeEntity(rig.anchor)
+	iceByUser.delete(userId)
+	meltStep.delete(userId)
+	if (sentFor === userId) sentFor = ''
+}
+
+
+// MARK: syncIceBlocks
+function syncIceBlocks(me: string): void {
+	const live = new Set<string>()
+	if (me && remoteFrozen.has(me)) {
+		remoteFrozen.delete(me)
+		dropIce(me)
+	}
+	const self = FrostDeath.getOrNull(engine.PlayerEntity)
+	if (me && self !== null && !self.awake) {
+		live.add(me)
+		ensureIce(me, engine.PlayerEntity)
+		applyMeltScale(me)
+	}
+	for (const id of remoteFrozen.keys()) {
+		if (id === me) continue
+		live.add(id)
+		ensureRemoteIce(id)
+		applyMeltScale(id)
+	}
+	const gone: string[] = []
+	for (const id of iceByUser.keys()) {
+		if (!live.has(id)) gone.push(id)
+	}
+	for (const id of gone) dropIce(id)
+}
+
+
+// MARK: closestFrozenOther
+function closestFrozenOther(me: string): string {
+	const self = Transform.getOrNull(engine.PlayerEntity)
+	if (self === null) return ''
+	let bestId = ''
+	let bestD  = RESCUE_R_SQ
+	for (const [id, spot] of remoteFrozen) {
+		if (id === me) continue
+		const dx = self.position.x - spot.x
+		const dz = self.position.z - spot.z
+		const d  = dx * dx + dz * dz
+		if (d > bestD) continue
+		bestD  = d
+		bestId = id
+	}
+	return bestId
+}
+
+
+// MARK: tickHeartbeat
+function tickHeartbeat(dt: number): void {
+	if (!localUserId()) return
+	heartbeat += dt
+	if (heartbeat < HEARTBEAT_S) return
+	heartbeat = 0
+	room.send('frostPresence', {})
+}
+
+
+// MARK: tickThaw
+function tickThaw(dt: number, me: string): void {
+	const selfFrozen = FrostDeath.getOrNull(engine.PlayerEntity)
+	if (!isTorchLit() || (selfFrozen !== null && !selfFrozen.awake)) {
+		releaseMelt()
+		thawTimer = 0
+		pendingId = ''
+		return
+	}
+	const target = closestFrozenOther(me)
+	if (!target) {
+		releaseMelt()
+		thawTimer = 0
+		pendingId = ''
+		return
+	}
+	const partial = Math.floor(ICE_THAW_S) - 1
+	if (sentFor === target) {
+		meltPing += dt
+		holdMelt(target, partial)
+		sentAgo += dt
+		if (sentAgo < RESCUE_RETRY_S) return
+		sentFor   = ''
+		thawTimer = meltStep.get(target) ?? partial
+	}
+	if (pendingId !== target) {
+		releaseMelt()
+		pendingId = target
+		thawTimer = meltStep.get(target) ?? 0
+	}
+	thawTimer += dt
+	meltPing  += dt
+	const step = Math.min(partial, Math.max(0, Math.floor(thawTimer)))
+	holdMelt(target, step)
+	if (thawTimer < ICE_THAW_S) return
+	meltSentId   = ''
+	meltSentStep = -1
+	meltPing     = 0
+	sentFor      = target
+	sentAgo      = 0
+	thawTimer    = 0
+	room.send('frostRescue', { userId: target })
+	console.log(`frost/rescue: tickThaw: asked the server to thaw ${target}`)
+}
+
+
+// MARK: setupFrostRescue
+/**
+ * Draw ice for frozen players and run the torch thaw. Idempotent.
+ * Call once from client bootstrap, after setupFrostDeath.
+ */
+export function setupFrostRescue(): void {
+	if (installed) {
+		console.log('frost/rescue: setupFrostRescue: already installed, skipping')
+		return
+	}
+	installed = true
+
+	room.onMessage('frostFrozen', ({ userId, x, z, frozen }) => {
+		const id = userId.toLowerCase()
+		const me = localUserId()
+		if (me && id === me) return
+		if (frozen === 0) {
+			remoteFrozen.delete(id)
+			meltStep.delete(id)
+			dropIce(id)
+			console.log(`frost/rescue: frostFrozen: ${id} thawed`)
+			return
+		}
+		meltStep.delete(id)
+		remoteFrozen.set(id, { x, z })
+		console.log(`frost/rescue: frostFrozen: ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}`)
+	})
+
+	room.onMessage('frostMelt', ({ userId, step, live }) => {
+		const id = userId.toLowerCase()
+		if (step <= 0) meltStep.delete(id)
+		else meltStep.set(id, step)
+		applyMeltScale(id)
+		if (id === localUserId()) noteLocalMelt(Math.max(0, step), live === 1)
+		console.log(`frost/rescue: frostMelt: ${id} step ${step} live ${live}`)
+	})
+
+	room.onMessage('frostRescued', ({ userId }) => {
+		const id = userId.toLowerCase()
+		if (sentFor === id) sentFor = ''
+		if (id !== localUserId()) return
+		grantFrostRescue()
+	})
+
+	engine.addSystem((dt: number) => {
+		const me = localUserId()
+		tickHeartbeat(dt)
+		syncIceBlocks(me)
+		tickThaw(dt, me)
+	})
+
+	console.log('frost/rescue: setupFrostRescue: installed')
+}

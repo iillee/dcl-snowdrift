@@ -26,6 +26,9 @@ SeedHolder.create(seedHolder, { seed: 0 })
 export const PaintTile = engine.defineComponent('paint::tile', {
 	cells:   Schemas.Array(Schemas.Byte),
 	tileKey: Schemas.Int,
+	// Bumped on a joiner resync. Same cell bytes would not republish,
+	// so a late client kept the empty snapshot and the hearth stayed buried.
+	stamp:   Schemas.Int,
 })
 
 // MARK: PaintCoverage

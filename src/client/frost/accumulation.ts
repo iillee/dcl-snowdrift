@@ -15,14 +15,15 @@
  * Writes are debounced by FROST_WRITE_EPSILON so the CRDT doesn't
  * chatter every frame with sub-percent changes.
  *
- * No death handling here — this module only owns the number. The FSM
- * that plays the emote / fade / teleport lives in src/client/frost/death.ts.
+ * No death handling here — this module only owns the number. While
+ * FrostDeath is set the bar holds still. The FSM that locks, thaws,
+ * and wakes lives in src/client/frost/death.ts.
  */
 
 import { engine, Transform } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { FrostLevel } from 'src/shared/frost/components'
+import { FrostDeath, FrostLevel } from 'src/shared/frost/components'
 import {
 	FROST_MAX,
 	FROST_SAMPLE_INTERVAL_S,
@@ -110,6 +111,10 @@ export function initFrostAccumulation(): void {
 		if (sampleAccum < FROST_SAMPLE_INTERVAL_S) return
 		const step = sampleAccum
 		sampleAccum = 0
+
+		// Frozen in place: the bar holds until a thaw or a fire wake.
+		const held = FrostDeath.getOrNull(engine.PlayerEntity)
+		if (held !== null && !held.awake) return
 
 		const t = Transform.getOrNull(engine.PlayerEntity)
 		if (t === null) return
@@ -205,6 +210,25 @@ export function resetFrostLocal(): void {
 	lastColdSegments  = 0
 	warmingByFire     = false
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
+}
+
+
+// MARK: seedOneWarmSegment
+/**
+ * Leave exactly one gold segment on the heat bar. A fire wake uses
+ * this so the player has to stand in the heat before walking back out.
+ * The cold-segment count is primed so the seed itself does not chirp.
+ */
+export function seedOneWarmSegment(): void {
+	// Sit at the cold end of the one-segment bucket so a couple of
+	// seconds of fire during the fade-in does not tick a second block.
+	const value      = FROST_MAX - 1
+	frost            = value
+	lastWrittenFrost = value
+	lastColdSegments = visibleColdSegments(value)
+	warmingByFire    = false
+	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
+	console.log(`frost/accumulation: seedOneWarmSegment: bar at ${value}`)
 }
 
 

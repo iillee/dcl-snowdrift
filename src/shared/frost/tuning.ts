@@ -73,3 +73,14 @@ export const FROST_TIME_TO_THAW_S = 45
  * cost off the render loop.
  */
 export const FROST_SAMPLE_INTERVAL_S = 0.2
+
+
+// MARK: Freeze resolve
+/** How long a frozen player waits before the freeze resolves on its own. */
+export const ICE_RESOLVE_S = 15
+/** How long a lit torch must be held against a frozen player to thaw them. */
+export const ICE_THAW_S = 3
+/** Seconds to restore one third of a cube after the torch leaves. */
+export const ICE_REGROW_S = 1
+/** Meters from a frozen player at which a lit torch starts the thaw. */
+export const ICE_RESCUE_RADIUS_M = 3

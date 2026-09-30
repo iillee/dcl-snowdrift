@@ -1,38 +1,45 @@
 /**
  * death.ts — frost death sequence FSM.
  *
- * Fires when the local FrostLevel reaches FROST_MAX. Plays a sleep
- * emote in place, fades to black, teleports the player back to the
- * campfire, holds black while the "stuck emote" workaround runs
- * (double-teleport → clear InputModifier → re-apply → fire emote),
- * fades back in with the player collapsed at the dawn spawn, then
- * wakes on the first movement input.
+ * Fires when the local FrostLevel reaches FROST_MAX. The player drops
+ * their wood, the torch goes dark (fuel kept), and they stay locked
+ * on their feet where they fell. The ice cube is drawn in rescue.ts.
+ * Another player's lit torch can thaw them. While that torch is on
+ * the cube, or the cube is still growing back, the ICE_RESOLVE_S
+ * clock is paused. A partial melt grows back a third per second, and
+ * the clock starts over once the cube is full again. After
+ * ICE_RESOLVE_S, a lit fire fades them there with one segment of
+ * warmth left. If every fire is dark, they stay frozen and a torch
+ * can still thaw them.
  *
- * Emote + teleport ordering copied wholesale from flagtag's
- * cinematicSystem.ts + ghostSystem.ts. The stuck-emote workaround is
- * ugly but proven — see phases TELEPORT / SETTLE / CLEAR_MOD / EMOTE.
- *
- * Corpse sync (rendering slumped bodies for OTHER players who died) is
- * deliberately NOT in v1 — FrostDeath component is defined for it, but
- * we're getting the local sequence bulletproof first.
+ * World reset and the cold open still use beginCollapsedAtHome, which
+ * lays them on the dawn pad. Emote + teleport ordering copied from
+ * flagtag. The stuck-emote workaround is phases TELEPORT / SETTLE /
+ * CLEAR_MOD / EMOTE.
  */
 
 import {
+	engine,
 	InputAction,
 	InputModifier,
-	engine,
 	inputSystem,
+	Transform,
 } from '@dcl/sdk/ecs'
 import { triggerEmote } from '~system/RestrictedActions'
 
-import { FROST_MAX } from 'src/shared/frost/tuning'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { FrostDeath } from 'src/shared/frost/components'
+import { FROST_MAX, ICE_RESOLVE_S } from 'src/shared/frost/tuning'
+import { room } from 'src/shared/messages'
 
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isEmberFailing } from 'src/client/emberFail'
-import { getFrostLocal, resetFrostLocal } from 'src/client/frost/accumulation'
+import { getFrostLocal, resetFrostLocal, seedOneWarmSegment } from 'src/client/frost/accumulation'
+import { getMainFireFuel } from 'src/client/hearthFuel'
+import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { dropLogAtPlayer } from 'src/client/logsInput'
 import { clearCarriedWood } from 'src/client/logsInventory'
-import { teleportHome } from 'src/client/player'
+import { teleportHome, teleportNear } from 'src/client/player'
 import { emptyTorch, extinguishTorch } from 'src/client/torchEquip'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
@@ -41,8 +48,6 @@ import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 /** Sleep / death emote — same URN flagtag uses for ghost / lightning / water death. */
 const DEATH_EMOTE = 'urn:decentraland:matic:collections-v2:0x7bdc37ff3e8dca2d69f01a3dc34f3ad82e2e1870:0'
 
-/** Seconds the player lies collapsed at the death spot before the screen fades. */
-const COLLAPSE_HOLD_S = 2.0
 /** Fade-to-black duration. */
 const FADE_OUT_S = 0.6
 /** Fade-from-black duration. */
@@ -54,19 +59,21 @@ const BLACK_HOLD_MIN_S = 1.5
 const SETTLE_TIME_S     = 0.35
 /** Beat between clearing InputModifier and re-applying + firing the emote. */
 const CLEAR_MOD_BEAT_S  = 0.5
+/** Stand this far from a fire's centre so the wake is not inside the mesh. */
+const STAND_OFF_M = 2.5
 
 
 // MARK: FSM state
 enum Phase {
 	IDLE          = 0,
-	COLLAPSE      = 1,  // emote fired at death spot, waiting COLLAPSE_HOLD_S
 	FADE_OUT      = 2,  // screen fading to black
 	TELEPORT      = 3,  // first movePlayerTo → wait SETTLE_TIME_S
 	SETTLE        = 4,  // second (same-spot) movePlayerTo → wait SETTLE_TIME_S
 	CLEAR_MOD     = 5,  // InputModifier removed → wait CLEAR_MOD_BEAT_S
 	EMOTE         = 6,  // InputModifier re-applied + emote fired → hold black for BLACK_HOLD_MIN_S
-	FADE_IN       = 7,  // screen fading back in, player collapsed at spawn
+	FADE_IN       = 7,  // screen fading back in, player collapsed at the arrival spot
 	WAKE_WAIT     = 8,  // wait for first movement input, then release lock
+	FROZEN        = 9,  // locked at the freeze spot, waiting on a torch or a fire
 }
 
 let phase        = Phase.IDLE
@@ -77,6 +84,50 @@ let installed    = false
 let coverOwned   = false
 /** True once the arrival sequence has the player collapsed at the fire. */
 let laidDownAtHome = false
+/** True when the arrival spot is the dawn pad. False is a lit fire. */
+let arrivalHome = true
+let arrivalX    = 0
+let arrivalZ    = 0
+let lookX       = 0
+let lookZ       = 0
+/** Set by a server frostRescued for this player. Consumed in FROZEN. */
+let rescued = false
+/** Log the "no fire" hold once per freeze, not every frame. */
+let loggedNoFire = false
+/** Scene-relative seconds, written into FrostDeath.deathT. */
+let lifeSeconds = 0
+/** Torch is on this player, or the cube is still short of full. */
+let meltLiveLocal = false
+let meltStepLocal = 0
+/** The respawn clock was held by a melt. */
+let clockHeld = false
+/** A third of the cube actually came off, so a full cube restarts the clock. */
+let meltCut = false
+
+
+// MARK: noteLocalMelt
+/**
+ * The server's melt broadcast for this player. A live torch, or a
+ * cube that is still short, pauses the respawn clock. Called from
+ * rescue.ts so the two modules do not import each other in a loop.
+ */
+export function noteLocalMelt(
+	step: number,
+	live: boolean,
+): void {
+	if (phase !== Phase.FROZEN) return
+	meltStepLocal = Math.max(0, step)
+	meltLiveLocal = live
+}
+
+
+// MARK: resetMeltClock
+function resetMeltClock(): void {
+	meltLiveLocal = false
+	meltStepLocal = 0
+	clockHeld     = false
+	meltCut       = false
+}
 
 
 // MARK: getDeathFadeOpacity
@@ -105,6 +156,21 @@ export function isFrostDying(): boolean {
  */
 export function isPlayerLaidDownAtHome(): boolean {
 	return laidDownAtHome
+}
+
+
+// MARK: grantFrostRescue
+/**
+ * A lit torch thawed this player. They stand up on the next tick,
+ * still standing where they froze.
+ */
+export function grantFrostRescue(): void {
+	if (phase !== Phase.FROZEN) {
+		console.log('frost/death: grantFrostRescue: ignored, player is not frozen in place')
+		return
+	}
+	rescued = true
+	console.log('frost/death: grantFrostRescue: thaw queued')
 }
 
 
@@ -143,30 +209,139 @@ function fireDeathEmote(): void {
 }
 
 
+// MARK: clearLocalDeath
+function clearLocalDeath(tellServer: boolean): void {
+	if (!FrostDeath.has(engine.PlayerEntity)) return
+	FrostDeath.deleteFrom(engine.PlayerEntity)
+	if (!tellServer) return
+	room.send('frostThaw', {})
+	console.log('frost/death: clearLocalDeath: told the server this player is up')
+}
+
+
+// MARK: teleportArrival
+function teleportArrival(): void {
+	if (arrivalHome) {
+		teleportHome()
+		return
+	}
+	teleportNear(arrivalX, arrivalZ, lookX, lookZ)
+}
+
+
+// MARK: nearestLitFire
+function nearestLitFire(): { x: number, z: number } | null {
+	const t  = Transform.getOrNull(engine.PlayerEntity)
+	const px = t ? t.position.x : 0
+	const pz = t ? t.position.z : 0
+	let bestX = 0
+	let bestZ = 0
+	let bestD = Number.POSITIVE_INFINITY
+	let found = false
+
+	const consider = (x: number, z: number) => {
+		const dx = px - x
+		const dz = pz - z
+		const d  = dx * dx + dz * dz
+		if (d >= bestD) return
+		bestD = d
+		bestX = x
+		bestZ = z
+		found = true
+	}
+
+	if (getMainFireFuel() > 0) consider(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z)
+	for (const hp of getHiddenCampfireWarmthPositions()) {
+		if (hp.fuel <= 0) continue
+		consider(hp.x, hp.z)
+	}
+	if (!found) return null
+	return { x: bestX, z: bestZ }
+}
+
+
+// MARK: aimAtFire
+function aimAtFire(fireX: number, fireZ: number): void {
+	const t  = Transform.getOrNull(engine.PlayerEntity)
+	let dx   = (t ? t.position.x : fireX) - fireX
+	let dz   = (t ? t.position.z : fireZ) - fireZ
+	const len = Math.sqrt(dx * dx + dz * dz)
+	if (len < 0.5) {
+		dx = 0
+		dz = 1
+	} else {
+		dx /= len
+		dz /= len
+	}
+	arrivalHome = false
+	arrivalX    = fireX + dx * STAND_OFF_M
+	arrivalZ    = fireZ + dz * STAND_OFF_M
+	lookX       = fireX
+	lookZ       = fireZ
+}
+
+
+// MARK: publishFreeze
+function publishFreeze(): void {
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	const x = t ? t.position.x : 0
+	const z = t ? t.position.z : 0
+	FrostDeath.createOrReplace(engine.PlayerEntity, {
+		deathT: lifeSeconds,
+		deathX: x,
+		deathZ: z,
+		awake : false,
+	})
+	room.send('frostFreeze', { x, z })
+	console.log(`frost/death: publishFreeze: frozen at ${x.toFixed(1)}, ${z.toFixed(1)}`)
+}
+
+
+// MARK: thawInPlace
+function thawInPlace(): void {
+	console.log('frost/death: thawInPlace: standing back up')
+	clearLocalDeath(true)
+	resetFrostLocal()
+	resetMeltClock()
+	unlockPlayer()
+	rescued      = false
+	fadeOpacity  = 0
+	phase        = Phase.IDLE
+	phaseTimer   = 0
+}
+
+
 // MARK: enterDying
 /**
- * Kick off the death sequence. Idempotent — a second call while already
+ * Kick off the freeze. Idempotent — a second call while already
  * dying is ignored so a jittering frost value can't restart the FSM.
+ * A player still collapsed at a fire can freeze without standing up,
+ * so an idle body cannot hold the world open after that fire goes out.
  */
 function enterDying(): void {
-	if (phase !== Phase.IDLE) return
-	console.log('frost/death: enterDying: player frozen, starting sequence')
-	// Still standing where they froze. The pile stays there; the slot
-	// is empty when they wake at the hearth.
+	if (phase !== Phase.IDLE && phase !== Phase.WAKE_WAIT) return
+	console.log('frost/death: enterDying: player frozen, holding in place')
+	// Still standing where they froze. The pile stays there.
 	dropLogAtPlayer()
-	// Force the player back to first-person / follow camera before the
-	// death sequence plays — the emote + fade + teleport all read wrong
-	// from the top-down spectator view, and the wake beat wants the
-	// avatar filling the frame.
+	// Spectate hides the avatar the ice cube is meant to wrap.
 	if (isTopDownActive()) {
 		console.log('frost/death: enterDying: exiting spectate mode')
 		toggleTopDownCamera()
 	}
-	coverOwned = false
-	phase      = Phase.COLLAPSE
-	phaseTimer = 0
+	coverOwned   = false
+	rescued      = false
+	loggedNoFire = false
+	arrivalHome  = true
+	resetMeltClock()
+	phase        = Phase.FROZEN
+	phaseTimer   = 0
+	// Stay standing. The ice cube is the frozen state; the sleep emote
+	// is only for the dawn-pad arrival later in this FSM.
 	lockPlayer()
-	fireDeathEmote()
+	// Dark immediately, so a frozen player is not still a heat source.
+	// Fuel stays; relight at a fire after they wake.
+	extinguishTorch()
+	publishFreeze()
 }
 
 
@@ -184,12 +359,35 @@ export function beginCollapsedAtHome(
 		console.log('frost/death: beginCollapsedAtHome: exiting spectate mode')
 		toggleTopDownCamera()
 	}
+	clearLocalDeath(true)
+	rescued      = false
+	loggedNoFire = false
+	arrivalHome  = true
 	coverOwned   = opts.skipFade === true || isEmberFailing()
 	fadeOpacity  = coverOwned ? 0 : 1
 	phase        = Phase.TELEPORT
 	phaseTimer   = 0
 	lockPlayer()
-	teleportHome()
+	teleportArrival()
+}
+
+
+// MARK: resolveFreeze
+function resolveFreeze(): void {
+	const fire = nearestLitFire()
+	if (!fire) {
+		if (!loggedNoFire) {
+			loggedNoFire = true
+			console.log('frost/death: resolveFreeze: no lit fire — staying frozen')
+		}
+		return
+	}
+	console.log(
+		`frost/death: resolveFreeze: waking at ${fire.x.toFixed(1)}, ${fire.z.toFixed(1)}`,
+	)
+	aimAtFire(fire.x, fire.z)
+	phase      = Phase.FADE_OUT
+	phaseTimer = 0
 }
 
 
@@ -213,6 +411,8 @@ export function setupFrostDeath(): void {
 	})
 
 	engine.addSystem((dt: number) => {
+		lifeSeconds += dt
+
 		// ── IDLE: watch for freeze ─────────────────────────────
 		if (phase === Phase.IDLE) {
 			// Read the local accumulator, not the synced FrostLevel. The
@@ -226,12 +426,31 @@ export function setupFrostDeath(): void {
 
 		phaseTimer += dt
 
-		// ── COLLAPSE: hold death emote in place ─────────────────
-		if (phase === Phase.COLLAPSE) {
-			if (phaseTimer >= COLLAPSE_HOLD_S) {
-				phase      = Phase.FADE_OUT
-				phaseTimer = 0
+		// ── FROZEN: hold at the death spot ──────────────────────
+		if (phase === Phase.FROZEN) {
+			fadeOpacity = 0
+			lockPlayer()
+			const melting = meltLiveLocal || meltStepLocal > 0
+			if (melting) {
+				phaseTimer -= dt
+				clockHeld = true
+				if (meltStepLocal > 0) meltCut = true
+			} else if (clockHeld) {
+				clockHeld = false
+				if (meltCut) {
+					phaseTimer   = 0
+					meltCut      = false
+					loggedNoFire = false
+					console.log('frost/death: ice is full again, respawn timer restarted')
+				}
 			}
+			if (rescued) {
+				thawInPlace()
+				return
+			}
+			// The fail cards own the player until the new run lays them down.
+			if (isEmberFailing()) return
+			if (!melting && phaseTimer >= ICE_RESOLVE_S) resolveFreeze()
 			return
 		}
 
@@ -240,7 +459,7 @@ export function setupFrostDeath(): void {
 			fadeOpacity = Math.min(1, phaseTimer / FADE_OUT_S)
 			if (phaseTimer >= FADE_OUT_S) {
 				fadeOpacity = 1
-				teleportHome()
+				teleportArrival()
 				phase      = Phase.TELEPORT
 				phaseTimer = 0
 			}
@@ -251,7 +470,7 @@ export function setupFrostDeath(): void {
 		if (phase === Phase.TELEPORT) {
 			if (!coverOwned) fadeOpacity = 1
 			if (phaseTimer >= SETTLE_TIME_S) {
-				teleportHome()
+				teleportArrival()
 				phase      = Phase.SETTLE
 				phaseTimer = 0
 			}
@@ -281,9 +500,11 @@ export function setupFrostDeath(): void {
 				// Resetting just the component leaves accumulation.ts's
 				// internal float at ~100, which writes back next tick and
 				// re-freezes you instantly.
-				resetFrostLocal()
-				// Torch always extinguishes on death — you dropped it when
-				// you fell. Fuel is left alone; press E at the fire to relight.
+				clearLocalDeath(true)
+				if (arrivalHome) resetFrostLocal()
+				else seedOneWarmSegment()
+				// Torch already went dark at the freeze. This covers the
+				// dawn-pad arrival, which never passed through enterDying.
 				extinguishTorch()
 				phase      = Phase.EMOTE
 				phaseTimer = 0
@@ -324,6 +545,15 @@ export function setupFrostDeath(): void {
 		if (phase === Phase.WAKE_WAIT) {
 			fadeOpacity = 0
 			lockPlayer()
+			// Frost keeps climbing while they are down. Standing up is
+			// what used to notice a full bar, so an idle player at a
+			// dead fire never joined the frozen set and the world
+			// could not end.
+			if (!isEmberFailing() && getFrostLocal() >= FROST_MAX) {
+				console.log('frost/death: WAKE_WAIT: frost full while collapsed, freezing')
+				enterDying()
+				return
+			}
 			const woke =
 				inputSystem.isPressed(InputAction.IA_FORWARD)  ||
 				inputSystem.isPressed(InputAction.IA_BACKWARD) ||

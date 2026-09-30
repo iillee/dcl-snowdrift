@@ -51,15 +51,21 @@ export function getDaySplashText(): string {
 // MARK: beginDaySplash
 
 /**
- * Play the sunrise card for `day`. Restarts if a splash is already up.
- * No-op during ember-fail so game-over cards stay alone on black.
+ * Play the sunrise card for `day`. A second call for the same day
+ * while the card is up does not restart it. No-op during ember-fail
+ * so game-over cards stay alone on black.
  */
 export function beginDaySplash(day: number): void {
 	if (isEmberFailing()) {
 		console.log(`daySplash: beginDaySplash: skip day ${day}, ember-fail owns the screen`)
 		return
 	}
-	dayNumber  = day < 1 ? 1 : day
+	const next = day < 1 ? 1 : day
+	if (phase !== Phase.IDLE && dayNumber === next) {
+		console.log(`daySplash: beginDaySplash: Day ${next} already showing`)
+		return
+	}
+	dayNumber  = next
 	phase      = Phase.FADE_IN
 	phaseTimer = 0
 	opacity    = 0

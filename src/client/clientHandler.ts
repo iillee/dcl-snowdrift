@@ -101,6 +101,7 @@ function wireOutbound(): void {
 	let downWarned      = false
 	let joinRetryClock  = 0
 	let hadSync         = false
+	let resyncSent      = false
 
 	engine.addSystem((dt: number) => {
 		const synced = isStateSyncronized()
@@ -108,7 +109,15 @@ function wireOutbound(): void {
 			hadSync    = true
 			syncWaitMs = 0
 			downWarned = false
+			// joinRoster's tile republish often races ahead of this flag.
+			// Ask again now that we are listening, so the hearth ring arrives.
+			if (!resyncSent) {
+				resyncSent = true
+				console.log('[Client] CRDT synced — requesting snow resync')
+				room.send('snowResync', {})
+			}
 		} else {
+			resyncSent = false
 			// Preview rebuilds kill hammurabi. The client can still think
 			// it is rostered, skip paintTick, and never get pleaseRejoin.
 			if (hadSync && rostered) {

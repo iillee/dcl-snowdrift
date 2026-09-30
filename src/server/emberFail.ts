@@ -2,9 +2,8 @@
  * emberFail.ts — world-end cards and reseed.
  *
  * No longer started when the last fire goes out. The dev snuff still
- * broadcasts emberFail, holds so clients can fade to black, then rolls
- * the world onto a new seed. The spawn hearth is reset by hearthFuel's
- * onCycleRoll handler during that roll.
+ * broadcasts emberFail. So does every player frozen while every fire
+ * is dark. A lit fire lets those players wake beside it instead.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -48,18 +47,29 @@ export function checkEmberFail(): void {
 	if (failing) return
 	if (getMainFireFuel() > 0) return
 	if (isAnyHiddenFireLit()) return
-	beginFail()
+	beginFail('every fire is dark')
+}
+
+
+// MARK: beginExtinction
+/**
+ * End the run because every player still in the scene is frozen and
+ * no fire is left to wake them.
+ */
+export function beginExtinction(reason: string): void {
+	if (failing) return
+	beginFail(reason)
 }
 
 
 // MARK: beginFail
-function beginFail(): void {
+function beginFail(reason: string): void {
 	failing      = true
 	rebuildClock = EMBER_FAIL_REBUILD_DELAY_S
 	const nights = getNightsThisRun()
 	room.send('emberFail', { nights })
 	console.log(
-		`[Server] emberFail: last fire out after ${nights} night(s) — ` +
+		`[Server] emberFail: ${reason} after ${nights} night(s) — ` +
 		`rebuild in ${EMBER_FAIL_REBUILD_DELAY_S.toFixed(1)}s`,
 	)
 }

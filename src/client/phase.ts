@@ -37,6 +37,16 @@ let serverPhaseSeen  = false
 let dawnSplashArmed  = false
 /** False for the boot placeholder until the server confirms this dawn. */
 let dawnSplashLive   = false
+/** Day number of the card currently armed or on screen. */
+let dawnSplashDay    = 0
+/** Bumps once per world reset so a new Day 1 is not the boot Day 1. */
+let dawnRun          = 0
+/** Wall time of the last bump. The phase packet and the local dawn land together. */
+let dawnRunAtMs      = 0
+/** Run id whose sunrise card is already armed. */
+let splashArmedRun   = -1
+/** Run id whose sunrise card has already started. */
+let splashShownRun   = -1
 
 
 // MARK: isPhaseHydrated
@@ -184,21 +194,18 @@ function applyPhaseState(msg: {
 	// everyone who joins later.
 	const opening = !serverPhaseSeen
 	serverPhaseSeen = true
-	if (opening) {
-		dawnSplashArmed = true
-		dawnSplashLive  = true
-	}
+	if (opening) requestDawnSplash(true)
 	// A cycleId drop is a new run (ember-fail / world roll). The
 	// clock starts at DAWN; the title waits until that cover lifts.
+	// Bump the run before the request so this Day 1 is not the one
+	// already shown at boot.
 	if (!opening && msg.cycleId < prevCycle) {
 		console.log(
 			`phase: applyPhaseState: new run cycleId ${prevCycle} -> ${cycleId}, ` +
 			`${phaseName} remaining=${formatPhaseCountdown(getPhaseRemainingSec())}`
 		)
-		if (phaseName === 'DAWN') {
-			dawnSplashArmed = true
-			dawnSplashLive  = true
-		}
+		noteDawnRun()
+		if (phaseName === 'DAWN') requestDawnSplash(true)
 	} else if (!opening && changed && msg.cycleId >= prevCycle) {
 		maybeAnnounceDawn(prevName)
 	}
@@ -237,14 +244,48 @@ function catchUpLocal(): void {
 }
 
 
+// MARK: noteDawnRun
+
+/** Count a world reset once, whether the phase packet or the local dawn lands first. */
+function noteDawnRun(): void {
+	const now = Date.now()
+	if (now - dawnRunAtMs < 3000) return
+	dawnRunAtMs = now
+	dawnRun++
+}
+
+
+// MARK: requestDawnSplash
+
+/**
+ * Arm the sunrise card for the current day. A world reset sends both
+ * a phase snapshot and a local dawn reset; the second request for the
+ * same day does not start another card.
+ */
+function requestDawnSplash(live: boolean): void {
+	const day = getDayNumber()
+	if (splashShownRun === dawnRun && dawnSplashDay === day) return
+	if (
+		splashArmedRun === dawnRun &&
+		dawnSplashArmed &&
+		dawnSplashDay === day &&
+		(dawnSplashLive || !live)
+	) return
+	splashArmedRun  = dawnRun
+	dawnSplashDay   = day
+	dawnSplashArmed = true
+	if (live) dawnSplashLive = true
+	console.log(`phase: requestDawnSplash: Day ${day} run=${dawnRun} live=${dawnSplashLive}`)
+}
+
+
 // MARK: maybeAnnounceDawn
 
 /** Arm the sunrise title once per wrap into DAWN. */
 function maybeAnnounceDawn(prevName: string): void {
 	if (prevName === 'DAWN') return
 	if (phaseName !== 'DAWN') return
-	dawnSplashArmed = true
-	dawnSplashLive  = true
+	requestDawnSplash(true)
 }
 
 
@@ -257,9 +298,16 @@ function maybeAnnounceDawn(prevName: string): void {
 function tryDawnSplash(): void {
 	if (!dawnSplashArmed || !dawnSplashLive) return
 	if (isWorldCovered()) return
+	if (splashShownRun === dawnRun && dawnSplashDay === getDayNumber()) {
+		dawnSplashArmed = false
+		dawnSplashLive  = false
+		return
+	}
 	dawnSplashArmed = false
 	dawnSplashLive  = false
-	beginDaySplash(getDayNumber())
+	splashShownRun  = dawnRun
+	dawnSplashDay   = getDayNumber()
+	beginDaySplash(dawnSplashDay)
 }
 
 
@@ -303,9 +351,10 @@ export function resetPhaseToDawn(reason: string): void {
 	phaseStartedAtMs = Date.now()
 	cycleId          = 0
 	hydrated         = true
-	dawnSplashArmed  = true
 	// Boot is a placeholder until the server snapshot. A cycle roll
-	// is already the new run's sunrise.
-	dawnSplashLive   = reason !== 'boot'
+	// is already the new run's sunrise, but the phase packet may have
+	// armed that same Day 1 already.
+	if (reason !== 'boot') noteDawnRun()
+	requestDawnSplash(reason !== 'boot')
 	console.log(`phase: resetPhaseToDawn: ${cfg.name} ${cfg.durationSec}s (${reason})`)
 }

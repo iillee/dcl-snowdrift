@@ -7,9 +7,9 @@
  * when the value actually changes past a small epsilon.
  *
  * FrostDeath is populated when a player freezes. Owned by the frozen
- * client for v1 (client-authoritative death, matching the current
- * seed / paint model). Also synced so other players can render a
- * corpse at the death spot and, later, initiate a revive.
+ * client (client-authoritative, matching feed and spark). Synced so
+ * other players can draw an ice block at the death spot and thaw it
+ * with a lit torch.
  */
 
 import { engine, Schemas } from '@dcl/sdk/ecs'
@@ -29,13 +29,13 @@ export const FrostLevel = engine.defineComponent('snowdrift::frost-level', {
 // MARK: FrostDeath
 /**
  * Set on the frozen player's entity the frame they hit FROST_MAX.
- * Cleared when they wake up post-respawn. Includes world coords of
- * the death spot so other clients can render a corpse anchor without
- * needing to track the player's live transform.
+ * Deleted when they thaw or the run resets. Includes world coords of
+ * the death spot so other clients can draw an ice block without
+ * tracking the player's live transform.
  *
- * `awake` transitions false -> true when the player's first movement
- * input is detected after the fade-in completes; the corpse-render
- * system uses that flag to know when to stop drawing the slumped body.
+ * `awake` stays false while the block should show. The component is
+ * removed on thaw rather than flipped, so a missing component means
+ * the player is up.
  */
 export const FrostDeath = engine.defineComponent('snowdrift::frost-death', {
 	deathT : Schemas.Float,   // scene-relative seconds when they froze

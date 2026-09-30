@@ -28,6 +28,7 @@ import { snowGridCapacity } from 'src/shared/snowGrid'
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
+import { notePlayerPresent, sendFrostBodiesTo, setupFrostLifeServer } from 'src/server/frostLife'
 import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
@@ -114,6 +115,7 @@ export async function setupServer(): Promise<void> {
 	// joinRoster handler is invoked - hydration below needs it live.
 	setupHearthFuelServer()
 	setupEmberFailServer()
+	setupFrostLifeServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the
@@ -176,6 +178,7 @@ export async function setupServer(): Promise<void> {
 		// joiner-specific hydrations below cover everything else (weather,
 		// wood, cycle, torches, fuel, hidden campfire).
 		console.log(`[Server] joinRoster from ${from}`)
+		notePlayerPresent(from)
 		if (from !== userId) {
 			// Not an error — client may not have context.from's exact address casing.
 			// We ignore the payload and use context.from as authoritative.
@@ -225,12 +228,24 @@ export async function setupServer(): Promise<void> {
 		// Current main-hearth fuel snapshot so the joiner's fire visuals
 		// (radius, upcoming billboard) match the room from the first frame.
 		sendHearthFuelStateTo(from)
+		sendFrostBodiesTo(from)
 		sendEmberFailTo(from)
 		// Force a fresh PaintTile write so this joiner cannot hydrate
 		// from the empty create() snapshot that syncEntity may have
 		// captured before the seed flush.
 		const snowTiles = republishAllSnowTiles()
 		console.log(`[Server] joinRoster: republished ${snowTiles} snow tiles for ${from}`)
+	})
+
+	// Joiner often sends joinRoster before CRDT sync. That republish
+	// lands in the empty snapshot they then hydrate. Once they are
+	// actually listening they ask again, and the stamp bump forces a write.
+	room.onMessage('snowResync', (_payload, context) => {
+		const from = context?.from
+		if (!from) return
+		const n = republishAllSnowTiles()
+		sendHearthFuelStateTo(from)
+		console.log(`[Server] snowResync from ${from}: republished ${n} tiles`)
 	})
 
 	// Snow ingest — client-authored cell keys. Un-rostered senders (typically

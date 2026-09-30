@@ -285,9 +285,71 @@ export const Messages = {
 	// Client → Server (DEV only): jump to the next daily phase now.
 	devAdvancePhase: Schemas.Map({}),
 
-	// Server → Client: the last fire in the world just went out.
-	// Clients fade to black and hold a game-over title. The server
-	// then rollCycles with a fresh seed so a new winter starts.
+	// Client → Server: this player just froze at x,z. They stay in the
+	// living set until frostThaw, a rescue, or their presence heartbeat
+	// goes quiet.
+	frostFreeze: Schemas.Map({
+		x: Schemas.Float,
+		z: Schemas.Float,
+	}),
+
+	// Server → Client: draw or remove the ice cube on `userId`.
+	// frozen is 1 while they are locked, 0 once they are up. Sent to
+	// everyone, and again to a joiner so they see cubes already in the world.
+	frostFrozen: Schemas.Map({
+		userId: Schemas.String,
+		x     : Schemas.Float,
+		z     : Schemas.Float,
+		frozen: Schemas.Int,
+	}),
+
+	// Client → Server: CRDT sync just came up. Republish snow so the
+	// joiner does not keep the empty tile snapshot from before they
+	// were listening.
+	snowResync: Schemas.Map({}),
+
+	// Client → Server: this player is moving again (thawed in place, or
+	// woke at a fire). Clears them from the frozen set.
+	frostThaw: Schemas.Map({}),
+
+	// Client → Server: still in the scene. The server drops anyone who
+	// goes quiet, so a disconnect does not count as a living player.
+	frostPresence: Schemas.Map({}),
+
+	// Client → Server: a lit torch is on `userId`. `step` is how many
+	// thirds have melted (only ever raised). `live` 0 means the torch
+	// left; the server grows the cube back a third per second.
+	frostMeltRequest: Schemas.Map({
+		userId: Schemas.String,
+		step  : Schemas.Int,
+		live  : Schemas.Int,
+	}),
+
+	// Server → Client: the cube everyone should draw. step 0 is full
+	// height, each later step drops the top by a third. live 1 means a
+	// torch is on them right now, so their respawn clock is paused.
+	frostMelt: Schemas.Map({
+		userId: Schemas.String,
+		step  : Schemas.Int,
+		live  : Schemas.Int,
+	}),
+
+	// Client → Server: a lit torch held against `userId` long enough to
+	// thaw them. The server checks they are actually frozen.
+	frostRescue: Schemas.Map({
+		userId: Schemas.String,
+	}),
+
+	// Server → Client: `userId` was thawed by another player. The frozen
+	// client stands back up where they fell.
+	frostRescued: Schemas.Map({
+		userId: Schemas.String,
+	}),
+
+	// Server → Client: the run is over. Clients fade to black and hold
+	// a game-over title. The server then rollCycles with a fresh seed
+	// so a new winter starts. Fired by the dev snuff, and when every
+	// still-connected player is frozen with every fire dark.
 	emberFail: Schemas.Map({
 		nights: Schemas.Int,
 	}),

@@ -56,6 +56,7 @@ class DaySplashLayer extends Layer {
 						height        : 140,
 						alignItems    : 'center',
 						justifyContent: 'center',
+						margin        : { bottom: '14%' },
 						opacity       : textA,
 					}}
 				>

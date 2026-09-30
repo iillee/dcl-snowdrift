@@ -37,6 +37,7 @@ import { Vector3 } from '@dcl/sdk/math'
 import { room } from 'src/shared/messages'
 
 import { playSurgeSfxAt, playTorchSfxLocal }          from 'src/client/audio'
+import { isRemotePlayerFrozen }                        from 'src/client/frost/rescue'
 import { getRemoteTorchUserIds, isRemoteTorchLit }     from 'src/client/remoteTorches'
 import {
 	TORCH_FUEL_MAX_S,
@@ -129,6 +130,7 @@ function tryChainLightRemotes(): void {
 	for (const remoteId of getRemoteTorchUserIds()) {
 		if (remoteId === localId)          continue
 		if (isRemoteTorchLit(remoteId))    continue
+		if (isRemotePlayerFrozen(remoteId)) continue
 
 		const until = cooldownUntil.get(remoteId) ?? 0
 		if (nowMs < until)                 continue

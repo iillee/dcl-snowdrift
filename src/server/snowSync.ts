@@ -26,8 +26,10 @@ const tileBuffers  = new Map<number, number[]>()
 const dirtyTiles   = new Set<number>()
 
 let coverageEntity: Entity | null = null
-let nonZeroCells   = 0
+let nonZeroCells    = 0
 let profileWasReady = false
+/** Incremented on a full republish so late joiners receive a real CRDT write. */
+let tileStamp       = 1
 
 
 // MARK: trySync
@@ -54,7 +56,7 @@ function ensureTile(tileKey: number): number[] {
 	if (buf !== undefined) return buf
 	buf = new Array<number>(SNOW_TILE_CELL_COUNT).fill(0)
 	const entity = engine.addEntity()
-	PaintTile.create(entity, { cells: buf.slice(), tileKey })
+	PaintTile.create(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
 	tileBuffers.set(tileKey, buf)
 	tileEntities.set(tileKey, entity)
 	trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
@@ -110,7 +112,7 @@ export function flushDirtySnowTiles(): number {
 			console.error(`snowSync: flushDirtySnowTiles: tile ${tileKey} marked dirty but never allocated`)
 			continue
 		}
-		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
+		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
 		flushed++
 	}
@@ -155,6 +157,7 @@ export function publishSnowCoverage(meltedCells: number): void {
  * create() snapshot.
  */
 export function republishAllSnowTiles(): number {
+	tileStamp++
 	if (coverageEntity !== null) {
 		trySync(coverageEntity, [PaintCoverage.componentId], COVERAGE_NETWORK_ID)
 	}
@@ -165,10 +168,11 @@ export function republishAllSnowTiles(): number {
 			console.error(`snowSync: republishAllSnowTiles: tile ${tileKey} has an entity but no buffer`)
 			continue
 		}
-		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
+		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
 		n++
 	}
+	console.log(`snowSync: republishAllSnowTiles: ${n} tiles at stamp ${tileStamp}`)
 	return n
 }
 
@@ -188,7 +192,7 @@ export function relinkSnowSync(): void {
 		if (wasUnlinked && NetworkEntity.getOrNull(entity) !== null) {
 			const buf = tileBuffers.get(tileKey)
 			if (buf !== undefined) {
-				PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey })
+				PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
 			}
 			console.log(`snowSync: relinkSnowSync: linked tile ${tileKey} and republished`)
 		}
