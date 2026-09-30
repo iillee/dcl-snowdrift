@@ -16,7 +16,9 @@
  *   - Hidden fires  = no floor. Fuel -> 0 snuffs them; snow-cover
  *                     re-buries them via precipitation.
  *   - 5 tiers       = flame, smoke height, smoke density, light
- *                     range, crackle, and melt ring step together.
+ *                     range, crackle, melt ring, and warmth step
+ *                     together. Warmth is a rate, not a full cancel:
+ *                     a tier only clears frost when it beats the cold.
  *   - The fuel bar  = hidden. The fire itself is the health readout.
  *   - Multi-player  = decayRate = 1 + log2(playerCount). Doubling
  *                     players adds +1 log/min drain. Solo sustainable,
@@ -115,6 +117,23 @@ export const TIER_LIGHT_RANGE_M: readonly number[] = [3.5, 5.5, 8, 14, 20] as co
  */
 export const TIER_VOLUME: readonly number[] = [0.25, 0.45, 0.70, 0.90, 1.00] as const
 
+/**
+ * Frost points removed per second inside this tier's ring. The cold
+ * is still applied, so the bar only falls when this wins.
+ *
+ * Day bare cold is ~3.3/s. Dusk and night share one bare cold, ~4.8/s.
+ *
+ *   Ember    4    beats day (slow clear). Loses to dusk/night: a
+ *                 60s night on bare ground fills about half the bar
+ *                 from warm, instead of freezing you in ~21s outside.
+ *   Low      6    beats dusk/night. A full bar clears in ~80s.
+ *   Warm     7    the opening fire. Night recovery matches the old
+ *                 45s thaw.
+ *   Bright   9.5  night recovery ~21s.
+ *   Roaring  13   night recovery ~12s.
+ */
+export const TIER_WARMTH_PER_S: readonly number[] = [4, 6, 7, 9.5, 13] as const
+
 
 // MARK: fuelSecondsForKind
 /** Seconds a carried piece adds when fed to a fire. */
@@ -187,6 +206,17 @@ export function hearthLightRangeFromFuel(fuel: number): number {
 /** Crackle multiplier for the active tier. Dead fire = 0. */
 export function hearthVolumeFromFuel(fuel: number): number {
 	return tierAnchor(fuel, TIER_VOLUME)
+}
+
+
+// MARK: hearthWarmthPerSec
+/**
+ * Frost points per second this fire removes while you stand in its
+ * ring. Dead fire is 0. The cold around you is subtracted by the
+ * caller, so a weak tier can still lose.
+ */
+export function hearthWarmthPerSec(fuel: number): number {
+	return tierAnchor(fuel, TIER_WARMTH_PER_S)
 }
 
 

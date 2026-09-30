@@ -5,8 +5,11 @@
  * reads the snow depth beneath them via src/client/snow/snowQuery's
  * getSnowStageAtWorld(), and pushes FrostLevel up or down accordingly.
  * Heat is only a visible fire or YOUR lit torch. Standing near another
- * player does nothing. A campfire thaws everything. Your lit torch
- * blocks ambient during day and leaks at night. Snow always chills.
+ * player does nothing. A campfire removes frost at its tier's rate,
+ * and the cold still applies, so Ember loses from dusk onward while
+ * Warm and above still clear you. Your lit torch blocks ambient
+ * during day and leaks at night, but only outside a fire. Snow
+ * always chills.
  *
  * Writes are debounced by FROST_WRITE_EPSILON so the CRDT doesn't
  * chatter every frame with sub-percent changes.
@@ -17,19 +20,19 @@
 
 import { engine, Transform } from '@dcl/sdk/ecs'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, CAMPFIRE_MELT_RADIUS_SQ_M } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { FrostLevel } from 'src/shared/frost/components'
 import {
 	FROST_MAX,
 	FROST_SAMPLE_INTERVAL_S,
 	FROST_TIME_BASELINE_S,
 	FROST_TIME_SNOW_STAGE_S,
-	FROST_TIME_TO_THAW_S,
 } from 'src/shared/frost/tuning'
-import { ambientFreezeSec, torchLeakFreezeSec } from 'src/shared/phase'
+import { hearthWarmthPerSec } from 'src/shared/hearthFuel'
+import { ambientFreezeSec, torchLeakFreezeSec, type PhaseConfig } from 'src/shared/phase'
 
 import { playFrostChunkSfx } from 'src/client/audio'
-import { getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
+import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
@@ -57,6 +60,36 @@ let lastColdSegments = 0
 const FROST_WRITE_EPSILON = 0.5
 
 
+// MARK: ambientColdPerSec
+/**
+ * Frost points per second from the open air, with no torch. Day and
+ * dawn use the 30s baseline. Dusk and night share the night freeze
+ * time, about 21s to a full bar on bare ground.
+ */
+function ambientColdPerSec(phase: PhaseConfig): number {
+	const ttf = ambientFreezeSec(phase, phase.durationSec, FROST_TIME_BASELINE_S)
+	return FROST_MAX / ttf
+}
+
+
+// MARK: snowColdPerSec
+/**
+ * Frost points per second from the snow under (x, y, z). Melted
+ * ground adds nothing.
+ */
+function snowColdPerSec(
+	x    : number,
+	y    : number,
+	z    : number,
+	phase: PhaseConfig,
+): number {
+	const stage    = getSnowStageAtWorld(x, y, z) as 0 | 1 | 2 | 3
+	const stageTtf = FROST_TIME_SNOW_STAGE_S[stage]
+	if (stageTtf === Number.POSITIVE_INFINITY) return 0
+	return (FROST_MAX / stageTtf) * phase.snowFrostMul
+}
+
+
 // MARK: initFrostAccumulation
 /**
  * Register the per-player frost accumulation system. Idempotent — call
@@ -81,65 +114,50 @@ export function initFrostAccumulation(): void {
 		if (t === null) return
 		const { x, y, z } = t.position
 
-		// ── Warmth first: fire trumps snow every time ─────────────
-		const dx = x - CAMPFIRE_WORLD_X
-		const dz = z - CAMPFIRE_WORLD_Z
-		// Main hearth's warm ring now grows/shrinks with fuel (see
-		// hearthFuel.ts). getMainFireMeltRadiusSq() returns the current
-		// squared radius. A dead spawn hearth reports 0 so it no
-		// longer thaws. Fed above Warm it can reach ~17 m at Roaring.
+		// Strongest fire ring the player is standing in. A dead hearth
+		// reports radius 0. Overlapping rings keep the hotter tier.
+		const phase = getLivePhaseConfig()
+		const dx    = x - CAMPFIRE_WORLD_X
+		const dz    = z - CAMPFIRE_WORLD_Z
 		const mainMeltRSq = getMainFireMeltRadiusSq()
-		let insideFire = dx * dx + dz * dz <= mainMeltRSq
-		// Hidden second campfire also thaws once it's been lit. Same
-		// melt radius as the central bonfire so both fires feel like
-		// equivalent survival anchors.
-		if (!insideFire && isHiddenCampfireLit()) {
-			// Iterate every lit hidden bonfire — the player is warmed if
-			// they're inside ANY warm ring. Loop is cheap (<= 3 entries)
-			// and short-circuits on the first hit.
-			// Per-pit dynamic warmth radius (grows with fuel tier), matching
-			// the main hearth's behaviour. Was previously a static
-			// CAMPFIRE_MELT_RADIUS_SQ_M, which under-served maxed-out hidden
-			// pits (visible melt ring > warmth ring).
-			const hps = getHiddenCampfireWarmthPositions()
-			for (const hp of hps) {
+		let warmthPerSec = 0
+		if (mainMeltRSq > 0 && dx * dx + dz * dz <= mainMeltRSq) {
+			warmthPerSec = hearthWarmthPerSec(getMainFireFuel())
+		}
+		if (isHiddenCampfireLit()) {
+			for (const hp of getHiddenCampfireWarmthPositions()) {
+				if (hp.radiusSq <= 0) continue
 				const hdx = x - hp.x
 				const hdz = z - hp.z
-				if (hdx * hdx + hdz * hdz <= hp.radiusSq) {
-					insideFire = true
-					break
-				}
+				if (hdx * hdx + hdz * hdz > hp.radiusSq) continue
+				const pit = hearthWarmthPerSec(hp.fuel)
+				if (pit > warmthPerSec) warmthPerSec = pit
 			}
 		}
-		if (insideFire) {
-			// Inside the fire's warm ring: linear thaw. Fire trumps torch
-			// AND snow — nothing accumulates while you're being actively
-			// warmed by the campfire.
-			frost -= (FROST_MAX / FROST_TIME_TO_THAW_S) * step
+		if (warmthPerSec > 0) {
+			// Cold still applies. The tier only wins when its warmth
+			// is larger, so Ember loses from dusk onward and Warm
+			// still clears you. The torch does not add or cancel here.
+			const net = ambientColdPerSec(phase) + snowColdPerSec(x, y, z, phase) - warmthPerSec
+			frost += net * step
 			if (frost < 0) frost = 0
-			warmingByFire = frost > 0
+			if (frost > FROST_MAX) frost = FROST_MAX
+			warmingByFire = net < 0 && frost > 0
 		} else {
 			warmingByFire = false
-			// Ambient + snow. Fire is the only full cancel. A lit torch
-			// blocks ambient only when torchLeakPhases is null (day).
+			// Ambient + snow. A lit torch blocks ambient only when
+			// torchLeakPhases is null (day). At dusk and night it leaks.
 			let ratePerSec = 0
-			const phase    = getLivePhaseConfig()
-
 			const inTorchWarmth = isTorchProtecting()
 
 			if (!inTorchWarmth) {
-				const ttf = ambientFreezeSec(phase, phase.durationSec, FROST_TIME_BASELINE_S)
-				ratePerSec += FROST_MAX / ttf
+				ratePerSec += ambientColdPerSec(phase)
 			} else {
 				const leak = torchLeakFreezeSec(phase, phase.durationSec)
 				if (leak !== null) ratePerSec += FROST_MAX / leak
 			}
 
-			const stage    = getSnowStageAtWorld(x, y, z) as 0 | 1 | 2 | 3
-			const stageTtf = FROST_TIME_SNOW_STAGE_S[stage]
-			if (stageTtf !== Number.POSITIVE_INFINITY) {
-				ratePerSec += (FROST_MAX / stageTtf) * phase.snowFrostMul
-			}
+			ratePerSec += snowColdPerSec(x, y, z, phase)
 
 			if (ratePerSec > 0) {
 				frost += ratePerSec * step

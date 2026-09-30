@@ -58,10 +58,10 @@ export const FROST_TIME_SNOW_STAGE_S: Record<0 | 1 | 2 | 3, number> = {
 
 // MARK: Warmth recovery
 /**
- * Seconds to fully recover from 100% -> 0% while inside the campfire's
- * heat radius (defined in src/shared/campfire.ts as CAMPFIRE_MELT_RADIUS_M).
- * Chosen faster than the freeze rate so the fire always feels like a
- * relief, not a slow drip.
+ * Seconds the Warm tier takes to clear a full bar at night on bare
+ * ground. The live rate is TIER_WARMTH_PER_S in hearthFuel.ts, which
+ * nets against the cold instead of cancelling it. Kept so that 45s
+ * target stays next to the freeze times it was chosen against.
  */
 export const FROST_TIME_TO_THAW_S = 45
 

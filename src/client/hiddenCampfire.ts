@@ -18,8 +18,8 @@
  *
  * Downstream signals:
  *   - isHiddenCampfireLit() + getHiddenCampfireWarmthPositions() feed
- *     the frost accumulation system so standing near ANY lit fire
- *     thaws the player, just like the central bonfire.
+ *     the frost accumulation system so standing in ANY lit fire
+ *     warms the player at that fire's tier.
  *   - isInHiddenRelightRange() feeds the torch relight prompt.
  *   - isReadyToIgniteHidden() + requestHiddenIgnite() drive the
  *     ignition prompt + the E-key ignite path.
@@ -482,20 +482,22 @@ export function isHiddenCampfireLit(): boolean {
 // MARK: getHiddenCampfireWarmthPositions
 /**
  * World-space centres of every CURRENTLY LIT hidden bonfire, each
- * annotated with its live melt radius squared (m^2). Frost accumulation
- * iterates and treats any point within `radiusSq` of an entry as inside
- * that pit's warm ring. Radius grows/shrinks per fuel tier just like the
- * main hearth (see hearthFuel.getHiddenFireMeltRadius). Previously this
- * returned only positions and the caller compared against a static
- * CAMPFIRE_MELT_RADIUS_SQ_M, which meant maxed-out hidden pits still
- * chilled the player at the edges of their VISIBLE melt ring.
+ * annotated with its live melt radius squared (m^2) and fuel seconds.
+ * Frost accumulation treats any point within `radiusSq` as inside that
+ * pit's ring and warms at that fuel's tier. Radius grows and shrinks
+ * with the tier, same as the main hearth.
  */
-export function getHiddenCampfireWarmthPositions(): { x: number; z: number; radiusSq: number }[] {
-	const out: { x: number; z: number; radiusSq: number }[] = []
+export function getHiddenCampfireWarmthPositions(): { x: number; z: number; radiusSq: number; fuel: number }[] {
+	const out: { x: number; z: number; radiusSq: number; fuel: number }[] = []
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		if (!litLocal[i]) continue
 		const r = getHiddenFireMeltRadius(i)
-		out.push({ x: worldX[i], z: worldZ[i], radiusSq: r * r })
+		out.push({
+			x        : worldX[i],
+			z        : worldZ[i],
+			radiusSq : r * r,
+			fuel     : getHiddenFireFuel(i),
+		})
 	}
 	return out
 }
