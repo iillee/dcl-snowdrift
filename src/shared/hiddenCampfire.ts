@@ -1,26 +1,19 @@
 /**
- * hiddenCampfire.ts — shared placement + tuning for the hidden campfire.
+ * hiddenCampfire.ts — shared placement + tuning for the hidden campfires.
  *
- * A single "secondary" campfire is buried in the snow somewhere near
- * the central bonfire. The player has to carry a lit torch to it and
- * ignite it — the first cooperative objective of the core loop.
+ * Six pits per cycle, grown as generations. The first three branch
+ * off the hearth. Each later generation branches off the pits of the
+ * generation before it, so a larger world keeps walking outward.
+ * Every peer computes the same points from the cycle seed. A pit
+ * never lands on a cliff cell or on a tree trunk from that layout.
  *
- * Placement is deterministic per 24 h bucket so every peer that joins
- * inside the same bucket sees the same location without needing any
- * network sync yet. When we add a proper cycle system (server-driven
- * seed, world-state broadcast, multi-campfire network) the bucket
- * function below is the single seed source to replace.
- *
- * Reach math (see AGENTS handoff notes / chat with @luke):
- *   TORCH_FUEL_MAX_S             = 45 s
- *   fastest walk with torch      = 3.0 m/s (stage-1 snow; everywhere
- *                                  else is slower)
- *   straight-line theoretical    = 135 m ≈ 8.4 tiles
- *   realistic mixed-terrain avg  = ~90 m ≈ 5.6 tiles
- * We place the first hidden campfire well inside the realistic reach so
- * the trip is always comfortable, with fuel to spare on arrival.
+ * A step is 48–80 m. That is far enough that the heat rings stay
+ * apart, and close enough that one 30 s torch can jog the gap.
  */
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { trunkDiscs } from 'src/shared/props/scatter'
 import {
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
@@ -31,27 +24,35 @@ import {
 
 // MARK: Multi-fire count
 /**
- * How many hidden bonfires per cycle. All three are picked from the
- * same 24 h seed with mutual Chebyshev separation so they don't
- * overlap each other's melt rings. The player has to find + light
- * each one; server tracks lit[] indexed by 0..HIDDEN_CAMPFIRE_COUNT-1.
+ * How many hidden bonfires per cycle. Server tracks lit[] indexed
+ * by 0..HIDDEN_CAMPFIRE_COUNT-1.
  */
-export const HIDDEN_CAMPFIRE_COUNT = 3
+export const HIDDEN_CAMPFIRE_COUNT = 6
 
-/** Minimum Chebyshev tile separation between any two hidden bonfires. */
-export const HIDDEN_MIN_SEPARATION_TILES = 2
+/**
+ * How many pits grow straight off the hearth. Later pits grow off
+ * the generation before them, never back off the hearth.
+ */
+export const HIDDEN_HEARTH_BRANCHES = 3
 
 
 // MARK: Reach tuning
-/** Minimum Chebyshev tile distance from the central campfire tile. */
-export const HIDDEN_MIN_TILES = 2
 /**
- * Maximum Chebyshev tile distance. At 16 m tiles this is 64 m, which
- * a player at 3 m/s reaches in ~21 s (44 s buffer inside a 45 s fuel
- * budget) and at 2 m/s in ~32 s (13 s buffer). Bump this once we add
- * more hidden campfires or a longer torch.
+ * Shortest step from the hearth or from another pit. Keeps two heat
+ * rings from merging.
  */
-export const HIDDEN_MAX_TILES = 4
+export const HIDDEN_LINK_MIN_M = 48
+/**
+ * Longest step. One 30 s torch at the melted jog (8 m/s) covers 80 m
+ * with time left for a detour.
+ */
+export const HIDDEN_LINK_MAX_M = 80
+
+/**
+ * Log-pile radius. A pit is rejected when this disc touches a cliff
+ * cell or a tree trunk.
+ */
+const HIDDEN_PIT_RADIUS_M = 1.5
 
 
 // MARK: Ignition tuning
@@ -112,62 +113,59 @@ function mulberry32(seed: number): () => number {
 }
 
 
-// MARK: Central tile
-const CENTER_TX = Math.floor(MAZE_GRID_WIDTH  / 2)
-const CENTER_TZ = Math.floor(MAZE_GRID_HEIGHT / 2)
-
-
-// MARK: pickHiddenCampfireTiles
+// MARK: pickHiddenCampfires
 /**
- * Deterministic multi-tile pick inside the Chebyshev ring
- * [HIDDEN_MIN_TILES, HIDDEN_MAX_TILES] around the central bonfire tile.
+ * Grow HIDDEN_CAMPFIRE_COUNT pits in generations of
+ * HIDDEN_HEARTH_BRANCHES. Generation 0 steps off the hearth. Each
+ * later generation steps off the pits placed in the generation
+ * before it. A step is HIDDEN_LINK_MIN_M..HIDDEN_LINK_MAX_M, and a
+ * pit stays at least HIDDEN_LINK_MIN_M from every node already placed.
  *
- * Returns HIDDEN_CAMPFIRE_COUNT tiles with mutual Chebyshev separation
- * of at least HIDDEN_MIN_SEPARATION_TILES, so their melt rings never
- * overlap and the player can tell the fires apart from any beacon
- * sightline. Rejection samples the bounding box until each slot fits
- * (right ring, in-grid, separated); bounded iterations so a
- * pathological seed can never spin forever.
- *
- * Determinism: single mulberry32(seed) instance advances through the
- * whole draw, so every peer computes the same tuple in the same order.
+ * `cliffCells` is the measured cliff footprint for this cycle, keyed
+ * `tx,tz,0`. Tree trunks come from the same layout seed. Determinism:
+ * one mulberry32(seed) walks the whole draw.
  */
-export function pickHiddenCampfireTiles(seed: number): { tx: number; tz: number }[] {
-	const rand    = mulberry32(seed)
-	const span    = HIDDEN_MAX_TILES * 2 + 1
-	const picks   : { tx: number; tz: number }[] = []
-	const MAX_ITERS_PER_SLOT = 128
+export function pickHiddenCampfires(
+	seed      : number,
+	cliffCells: ReadonlySet<string>,
+): { x: number; z: number; tx: number; tz: number }[] {
+	const rand  = mulberry32(seed)
+	const trees = trunkDiscs(cycleMazeSeed(seed), cliffCells)
+	const hearth = { x: CAMPFIRE_WORLD_X, z: CAMPFIRE_WORLD_Z }
+	const nodes : { x: number; z: number }[] = [hearth]
+	const picks : { x: number; z: number; tx: number; tz: number }[] = []
+	const generations: { x: number; z: number }[][] = []
+	const children = new Map<{ x: number; z: number }, number>()
+	const TRIES = 96
 	for (let slot = 0; slot < HIDDEN_CAMPFIRE_COUNT; slot++) {
+		const gen     = Math.floor(slot / HIDDEN_HEARTH_BRANCHES)
+		const parents = gen === 0 ? [hearth] : (generations[gen - 1] ?? [])
+		if (parents.length === 0) {
+			console.log(
+				`hiddenCampfire: pickHiddenCampfires: slot ${slot} ` +
+				`has no parent in the generation before it`,
+			)
+			continue
+		}
 		let placed = false
-		for (let i = 0; i < MAX_ITERS_PER_SLOT; i++) {
-			const tx = CENTER_TX + Math.floor(rand() * span) - HIDDEN_MAX_TILES
-			const tz = CENTER_TZ + Math.floor(rand() * span) - HIDDEN_MAX_TILES
-			const cheb = Math.max(Math.abs(tx - CENTER_TX), Math.abs(tz - CENTER_TZ))
-			if (cheb < HIDDEN_MIN_TILES || cheb > HIDDEN_MAX_TILES) continue
-			if (tx < 0 || tx >= MAZE_GRID_WIDTH)  continue
-			if (tz < 0 || tz >= MAZE_GRID_HEIGHT) continue
-			// Separation check against already-placed picks.
-			let tooClose = false
-			for (const p of picks) {
-				const sep = Math.max(Math.abs(tx - p.tx), Math.abs(tz - p.tz))
-				if (sep < HIDDEN_MIN_SEPARATION_TILES) { tooClose = true; break }
-			}
-			if (tooClose) continue
-			picks.push({ tx, tz })
+		for (let i = 0; i < TRIES; i++) {
+			const parent = pickParent(rand, parents, children)
+			const spot   = stepFrom(rand, parent, i >= TRIES / 2)
+			if (spot === null) continue
+			if (!spotClear(spot.x, spot.z, nodes, cliffCells, trees)) continue
+			nodes.push(spot)
+			picks.push(spot)
+			if (!generations[gen]) generations[gen] = []
+			generations[gen].push(spot)
+			children.set(parent, (children.get(parent) ?? 0) + 1)
 			placed = true
 			break
 		}
 		if (!placed) {
-			// Deterministic fallback — walk around the ring at fixed angles.
-			// Should never trigger with the current ring/count/separation, but
-			// logs loudly if tuning ever collides so we notice in playtests.
-			console.log(`hiddenCampfire: pickHiddenCampfireTiles: WARN slot ${slot} exhausted — using deterministic fallback`)
-			const fallbackAngles = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3]
-			const a  = fallbackAngles[slot] ?? 0
-			const r  = HIDDEN_MAX_TILES
-			const tx = CENTER_TX + Math.round(Math.cos(a) * r)
-			const tz = CENTER_TZ + Math.round(Math.sin(a) * r)
-			picks.push({ tx, tz })
+			console.log(
+				`hiddenCampfire: pickHiddenCampfires: slot ${slot} ` +
+				`has no point within ${HIDDEN_LINK_MAX_M}m of its parents`,
+			)
 		}
 	}
 	return picks
@@ -187,16 +185,17 @@ export function tileToWorld(tx: number, tz: number): { x: number; z: number } {
 // MARK: getHiddenCampfireWorldPositions
 /**
  * Convenience — full world positions for every hidden bonfire in the
- * current cycle (as computed from local Date.now()). Y is fixed at
- * the same base as the central campfire (see CAMPFIRE_WORLD_Y).
- * Length is always HIDDEN_CAMPFIRE_COUNT.
+ * current cycle (as computed from local Date.now()). `cliffCells` is
+ * the cliff footprint for that same layout. Y is fixed at the same
+ * base as the central campfire (see CAMPFIRE_WORLD_Y).
  *
- * For a specific server-supplied seed (during a cycle rollover, before
- * local Date.now() has crossed the boundary), use
- * getHiddenCampfireWorldPositionsForSeed(seed) instead.
+ * For a specific server-supplied seed, use
+ * getHiddenCampfireWorldPositionsForSeed(seed, cliffCells) instead.
  */
-export function getHiddenCampfireWorldPositions(): { x: number; z: number; tx: number; tz: number }[] {
-	return getHiddenCampfireWorldPositionsForSeed(getHiddenCampfireSeed())
+export function getHiddenCampfireWorldPositions(
+	cliffCells: ReadonlySet<string>,
+): { x: number; z: number; tx: number; tz: number }[] {
+	return getHiddenCampfireWorldPositionsForSeed(getHiddenCampfireSeed(), cliffCells)
 }
 
 
@@ -207,10 +206,119 @@ export function getHiddenCampfireWorldPositions(): { x: number; z: number; tx: n
  * the new positions regardless of local clock skew.
  */
 export function getHiddenCampfireWorldPositionsForSeed(
-	seed: number,
+	seed      : number,
+	cliffCells: ReadonlySet<string>,
 ): { x: number; z: number; tx: number; tz: number }[] {
-	return pickHiddenCampfireTiles(seed).map(({ tx, tz }) => {
-		const { x, z } = tileToWorld(tx, tz)
-		return { x, z, tx, tz }
-	})
+	return pickHiddenCampfires(seed, cliffCells)
+}
+
+
+// MARK: pickParent
+/**
+ * A parent in this generation. A pit that already has children is
+ * less likely, so the branches spread across the generation.
+ */
+function pickParent(
+	rand    : () => number,
+	parents : ReadonlyArray<{ x: number; z: number }>,
+	children: ReadonlyMap<{ x: number; z: number }, number>,
+): { x: number; z: number } {
+	let sum = 0
+	const weights: number[] = []
+	for (const parent of parents) {
+		const w = 1 / (1 + (children.get(parent) ?? 0))
+		weights.push(w)
+		sum += w
+	}
+	let roll = rand() * sum
+	for (let i = 0; i < parents.length; i++) {
+		roll -= weights[i]
+		if (roll <= 0) return parents[i]
+	}
+	return parents[parents.length - 1]
+}
+
+
+// MARK: stepFrom
+/**
+ * A candidate point one link out from `parent`. The first half of the
+ * tries prefer the direction away from the hearth. The second half
+ * may step any way, so a cliff does not trap the branch.
+ */
+function stepFrom(
+	rand    : () => number,
+	parent  : { x: number; z: number },
+	anyAngle: boolean,
+): { x: number; z: number; tx: number; tz: number } | null {
+	const awayX = parent.x - CAMPFIRE_WORLD_X
+	const awayZ = parent.z - CAMPFIRE_WORLD_Z
+	const away  = Math.hypot(awayX, awayZ)
+	const base  = away < 1 ? rand() * Math.PI * 2 : Math.atan2(awayX, awayZ)
+	const spread = anyAngle || away < 1 ? Math.PI * 2 : Math.PI * 1.15
+	const ang  = base + (rand() - 0.5) * spread
+	const dist = HIDDEN_LINK_MIN_M + rand() * (HIDDEN_LINK_MAX_M - HIDDEN_LINK_MIN_M)
+	const x    = parent.x + Math.sin(ang) * dist
+	const z    = parent.z + Math.cos(ang) * dist
+	const cell = cellAt(x, z)
+	if (cell === null) return null
+	return { x, z, tx: cell.tx, tz: cell.tz }
+}
+
+
+// MARK: spotClear
+function spotClear(
+	x         : number,
+	z         : number,
+	nodes     : ReadonlyArray<{ x: number; z: number }>,
+	cliffCells: ReadonlySet<string>,
+	trees     : ReadonlyArray<{ x: number; z: number; radius: number }>,
+): boolean {
+	const minSq = HIDDEN_LINK_MIN_M * HIDDEN_LINK_MIN_M
+	for (const n of nodes) {
+		const dx = x - n.x
+		const dz = z - n.z
+		if (dx * dx + dz * dz < minSq) return false
+	}
+	return !pitOverlaps(x, z, cliffCells, trees)
+}
+
+
+// MARK: cellAt
+function cellAt(x: number, z: number): { tx: number; tz: number } | null {
+	const tx = Math.floor((x - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+	const tz = Math.floor((z - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+	if (tx < 0 || tz < 0 || tx >= MAZE_GRID_WIDTH || tz >= MAZE_GRID_HEIGHT) return null
+	return { tx, tz }
+}
+
+
+// MARK: pitOverlaps
+/** True when the log pile at (x, z) touches a cliff cell or a trunk. */
+function pitOverlaps(
+	x         : number,
+	z         : number,
+	cliffCells: ReadonlySet<string>,
+	trees     : ReadonlyArray<{ x: number; z: number; radius: number }>,
+): boolean {
+	const cell = cellAt(x, z)
+	if (cell === null) return true
+	if (cliffCells.has(`${cell.tx},${cell.tz},0`)) return true
+	const C = MAZE_TILE_WORLD_METERS
+	const O = MAZE_ORIGIN_OFFSET_METERS
+	const pitSq = HIDDEN_PIT_RADIUS_M * HIDDEN_PIT_RADIUS_M
+	for (const key of cliffCells) {
+		const [cx, cz] = key.split(',').map(Number)
+		const x0 = O + cx * C
+		const z0 = O + cz * C
+		const dx = Math.max(x0 - x, 0, x - (x0 + C))
+		const dz = Math.max(z0 - z, 0, z - (z0 + C))
+		if (dx * dx + dz * dz < pitSq) return true
+	}
+	for (const tree of trees) {
+		const reach = HIDDEN_PIT_RADIUS_M + tree.radius
+		const dx = x - tree.x
+		const dz = z - tree.z
+		if (dx * dx + dz * dz < reach * reach) return true
+	}
+	return false
 }

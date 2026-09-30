@@ -217,22 +217,27 @@ export function resetFrostLocal(): void {
 }
 
 
-// MARK: seedOneWarmSegment
+// Gold segments left after waking at a fire. Cold end of that bucket.
+const WAKE_WARM_SEGMENTS = 3
+
+
+// MARK: seedWakeWarmth
 /**
- * Leave exactly one gold segment on the heat bar. A fire wake uses
- * this so the player has to stand in the heat before walking back out.
- * The cold-segment count is primed so the seed itself does not chirp.
+ * Leave three gold segments on the heat bar. A fire wake uses this
+ * so there is time to stand and feed an ember at night. The
+ * cold-segment count is primed so the seed itself does not chirp.
  */
-export function seedOneWarmSegment(): void {
-	// Sit at the cold end of the one-segment bucket so a couple of
-	// seconds of fire during the fade-in does not tick a second block.
-	const value      = FROST_MAX - 1
+export function seedWakeWarmth(): void {
+	// Cold end of the bucket, one point inside the edge, so a moment
+	// of fire during the fade-in does not tick another block.
+	const edge       = FROST_MAX * (1 - (WAKE_WARM_SEGMENTS - 1) / FROST_BAR_SEGMENTS)
+	const value      = edge - 1
 	frost            = value
 	lastWrittenFrost = value
 	lastColdSegments = visibleColdSegments(value)
 	warmingByFire    = false
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
-	console.log(`frost/accumulation: seedOneWarmSegment: bar at ${value}`)
+	console.log(`frost/accumulation: seedWakeWarmth: bar at ${value}, ${WAKE_WARM_SEGMENTS} gold`)
 }
 
 

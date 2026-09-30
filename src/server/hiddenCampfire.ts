@@ -27,6 +27,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
@@ -40,12 +41,12 @@ import {
 import {
 	getHiddenCampfireSeed,
 	HIDDEN_CAMPFIRE_COUNT,
-	pickHiddenCampfireTiles,
-	tileToWorld,
+	pickHiddenCampfires,
 } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
+import { reservedCellsForMazeSeed } from 'src/client/perimeter'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
@@ -83,11 +84,18 @@ const BROADCAST_HEARTBEAT_S = 2
 
 // MARK: recomputePositions
 function recomputePositions(): void {
-	const tiles = pickHiddenCampfireTiles(currentSeed)
+	const spots = pickHiddenCampfires(
+		currentSeed,
+		reservedCellsForMazeSeed(cycleMazeSeed(currentSeed)),
+	)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		const { x, z } = tileToWorld(tiles[i].tx, tiles[i].tz)
-		worldX[i] = x
-		worldZ[i] = z
+		const spot = spots[i]
+		if (!spot) {
+			console.log(`[Server] hiddenCampfire: recomputePositions: slot ${i} has no clear point`)
+			continue
+		}
+		worldX[i] = spot.x
+		worldZ[i] = spot.z
 	}
 }
 

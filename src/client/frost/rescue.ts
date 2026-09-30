@@ -287,7 +287,7 @@ function tickHeartbeat(dt: number): void {
 	heartbeat += dt
 	if (heartbeat < HEARTBEAT_S) return
 	heartbeat = 0
-	room.send('frostPresence', {})
+	room.send('frostPresence', { userId: localUserId() })
 }
 
 

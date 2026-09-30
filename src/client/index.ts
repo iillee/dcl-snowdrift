@@ -57,9 +57,10 @@ import { setupHearthFuelClient } from 'src/client/hearthFuel'
 import { setupHearthBillboard }  from 'src/client/hearthBillboard'
 import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
+import { applyCliffSnowMask } from 'src/client/snow/snowRenderer'
 import { setupSnowfall } from 'src/client/snowfall'
 import {
-	getReservedPlayfieldCells,
+	getCliffSnowCells,
 	setPerimeterSeed,
 	setupPerimeter,
 } from 'src/client/perimeter'
@@ -92,14 +93,15 @@ engine.addSystem(() => {
   if (s !== 0 && s !== currentSeed) {
     currentSeed = s
     // Perimeter cliffs share the seed too, so every reroll produces a
-    // fresh skyline. Set the seed FIRST — getReservedPlayfieldCells and
+    // fresh skyline. Set the seed FIRST — getCliffSnowCells and
     // setupPerimeter() both read it. Spawn immediately so the splash can
     // wait on the cliff GLBs instead of dropping onto an empty horizon.
-    // Snow does not depend on the layout: it covers the whole playfield
-    // and the cliffs sit on top of it.
+    // Snow leaves a hole where each cliff base sits. The mask has to
+    // follow this seed or the old holes stay after a reroll.
     setPerimeterSeed(s)
     setupPerimeter()
-    const reservedTiles = getReservedPlayfieldCells()
+    applyCliffSnowMask()
+    const reservedTiles = getCliffSnowCells()
     // Props scatter avoids the cliff footprint so trees / huts / etc
     // never land on perimeter cliffs. They follow the seed like the
     // cliffs do, so clear them first: a world death or a late server

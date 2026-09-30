@@ -157,9 +157,62 @@ export function scatterProps(
 }
 
 
+// MARK: trunkDiscs
+/**
+ * Trunk discs for the scattered trees. Radius is the scaled shaft,
+ * the same keep-out the ring uses against cliffs.
+ */
+export function trunkDiscs(
+	seed    : number,
+	reserved: ReadonlySet<string>,
+): Array<{ x: number; z: number; radius: number }> {
+	return scatterProps(seed, reserved)
+		.filter(p => p.propId === 'tree_4')
+		.map(p => ({
+			x     : p.worldX,
+			z     : p.worldZ,
+			radius: p.scale * TREE_TRUNK_RADIUS_M,
+		}))
+}
+
+
 // MARK: Internal helpers
 
 const cellKey = (tx: number, tz: number): string => `${tx},${tz},0`
+
+// Unscaled tree_4 trunk, metres. The shaft stays under 0.4; the canopy
+// reaches ~2.9 and is allowed to cross a cliff. Max scale is
+// scale * (1 + scaleJitter), so the ring keeps that trunk off cliffs.
+const TREE_TRUNK_RADIUS_M = 0.4
+
+
+// MARK: reachesBlocked
+/**
+ * True when a disc at (worldX, worldZ) touches a blocked cell.
+ * Distance is to the cell rectangle, so a trunk just outside the
+ * cell still counts when the scaled trunk would intersect it.
+ */
+function reachesBlocked(
+	worldX : number,
+	worldZ : number,
+	blocked: ReadonlySet<string>,
+	reach  : number,
+): boolean {
+	const C    = MAZE_TILE_WORLD_METERS
+	const O    = MAZE_ORIGIN_OFFSET_METERS
+	const reachSq = reach * reach
+	for (const key of blocked) {
+		const [tx, tz] = key.split(',').map(Number)
+		const x0 = O + tx * C
+		const z0 = O + tz * C
+		const x1 = x0 + C
+		const z1 = z0 + C
+		const dx = Math.max(x0 - worldX, 0, worldX - x1)
+		const dz = Math.max(z0 - worldZ, 0, worldZ - z1)
+		if (dx * dx + dz * dz < reachSq) return true
+	}
+	return false
+}
 
 function mergeSets(a: ReadonlySet<string>, b: ReadonlySet<string>): Set<string> {
 	const out = new Set<string>(a)
@@ -170,30 +223,68 @@ function mergeSets(a: ReadonlySet<string>, b: ReadonlySet<string>): Set<string> 
 const CENTER_TX = Math.floor(MAZE_GRID_WIDTH  / 2)
 const CENTER_TZ = Math.floor(MAZE_GRID_HEIGHT / 2)
 
+// MARK: ringBearings
+
+/**
+ * Bearings around the hearth. Each tree keeps its catalog radius.
+ * The gaps are random weights around the circle, with a floor so two
+ * trunks do not share a spoke, then the whole set turns with the seed.
+ */
+function ringBearings(
+	rng  : () => number,
+	count: number,
+): number[] {
+	// Weight span [0.35, 1.75]. After normalising, a quiet seed stays
+	// near even, and a loud one clusters a pair or opens a wide gap.
+	const GAP_FLOOR = 0.35
+	const weights : number[] = []
+	let sum = 0
+	for (let i = 0; i < count; i++) {
+		const w = GAP_FLOOR + rng() * 1.4
+		weights.push(w)
+		sum += w
+	}
+	const out : number[] = []
+	let ang = rng() * Math.PI * 2
+	for (let i = 0; i < count; i++) {
+		out.push(ang)
+		ang += (weights[i] / sum) * Math.PI * 2
+	}
+	return out
+}
+
+
 // MARK: placeRing
 
 /**
- * Copies around the hearth on even bearings, each at its own radius.
- * One seed roll turns the whole set, so the close tree is not always
- * on the same side. A slot on a cliff walks forward a few degrees
- * and keeps its radius.
+ * Copies around the hearth, each at its own radius, on the bearings
+ * from ringBearings. A slot on a cliff, or close enough that the
+ * scaled trunk would intersect it, is refused. The tree then walks
+ * that same circle in small steps and takes the nearest angle where
+ * the trunk is clear. If the whole circle is blocked, the tree is
+ * skipped.
  */
 function placeRing(
 	rng    : () => number,
 	def    : PropDef,
 	blocked: ReadonlySet<string>,
 ): Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> {
-	const radii = def.radiiM ?? []
-	const count = Math.min(def.count, radii.length)
-	const base  = rng() * Math.PI * 2
-	const step  = (Math.PI * 2) / count
-	const out   : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
-	const claimed = new Set<string>()
+	const radii    = def.radiiM ?? []
+	const count    = Math.min(def.count, radii.length)
+	const bearings = ringBearings(rng, count)
+	const reach    = def.scale * (1 + (def.scaleJitter ?? 0)) * TREE_TRUNK_RADIUS_M
+	const out      : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
+	const claimed  = new Set<string>()
+	// 2° steps. Coarse steps on the outer rings jumped well past the
+	// first angle whose trunk cleared the cliff.
+	const NUDGES   = 180
+	const delta    = (Math.PI * 2) / NUDGES
 	for (let i = 0; i < count; i++) {
 		const radius = radii[i]
 		let placed = false
-		for (let n = 0; n < 12; n++) {
-			const ang    = base + i * step + n * (step / 12)
+		for (let n = 0; n < NUDGES; n++) {
+			const side   = n === 0 ? 0 : (n % 2 === 1 ? 1 : -1) * Math.ceil(n / 2)
+			const ang    = bearings[i] + side * delta
 			const worldX = CAMPFIRE_WORLD_X + Math.sin(ang) * radius
 			const worldZ = CAMPFIRE_WORLD_Z + Math.cos(ang) * radius
 			const tx     = Math.floor((worldX - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
@@ -201,6 +292,7 @@ function placeRing(
 			if (tx < 0 || tz < 0 || tx >= MAZE_GRID_WIDTH || tz >= MAZE_GRID_HEIGHT) continue
 			const key = cellKey(tx, tz)
 			if (blocked.has(key) || claimed.has(key)) continue
+			if (reachesBlocked(worldX, worldZ, blocked, reach)) continue
 			claimed.add(key)
 			out.push({ def, tx, tz, worldX, worldZ })
 			placed = true

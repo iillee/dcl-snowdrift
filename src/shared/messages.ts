@@ -287,10 +287,12 @@ export const Messages = {
 
 	// Client → Server: this player just froze at x,z. They stay in the
 	// living set until frostThaw, a rescue, or their presence heartbeat
-	// goes quiet.
+	// goes quiet. userId is the fallback when the transport omits the
+	// authenticated sender, which the preview does on some messages.
 	frostFreeze: Schemas.Map({
-		x: Schemas.Float,
-		z: Schemas.Float,
+		userId: Schemas.String,
+		x     : Schemas.Float,
+		z     : Schemas.Float,
 	}),
 
 	// Server → Client: draw or remove the ice cube on `userId`.
@@ -312,12 +314,18 @@ export const Messages = {
 	snowResync: Schemas.Map({}),
 
 	// Client → Server: this player is moving again (thawed in place, or
-	// woke at a fire). Clears them from the frozen set.
-	frostThaw: Schemas.Map({}),
+	// woke at a fire). Clears them from the frozen set. userId is the
+	// fallback when the transport omits the authenticated sender.
+	frostThaw: Schemas.Map({
+		userId: Schemas.String,
+	}),
 
 	// Client → Server: still in the scene. The server drops anyone who
 	// goes quiet, so a disconnect does not count as a living player.
-	frostPresence: Schemas.Map({}),
+	// userId is the same fallback as frostFreeze.
+	frostPresence: Schemas.Map({
+		userId: Schemas.String,
+	}),
 
 	// Client → Server: a lit torch is on `userId`. `step` is how many
 	// thirds have melted (only ever raised). `live` 0 means the torch
@@ -354,7 +362,7 @@ export const Messages = {
 	// so a new winter starts. Fired by the dev snuff, and when every
 	// still-connected player is frozen with every fire dark.
 	emberFail: Schemas.Map({
-		nights: Schemas.Int,
+		days: Schemas.Int,
 	}),
 
 	// Client → Server (DEV only): snuff every fire so we can playtest

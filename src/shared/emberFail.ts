@@ -1,10 +1,10 @@
 /**
  * emberFail.ts — shared timing for the world-end cards.
  *
- * Cards play on black (flame out → centuries → civilization). The
- * server reseeds as soon as black is up so the new winter builds
- * under the cards. Clients hold the last line until that load
- * finishes, then fade the world in.
+ * Cards play on black (the flame goes out → centuries → a new fire).
+ * The server reseeds as soon as black is up, on the fade-out clock,
+ * so the new dawn is not waiting on the longer cards. Clients hold
+ * the last line until that load finishes, then fade the world in.
  *
  * A fire burning out no longer starts this. The dev snuff still does,
  * until extinction moves to the last player freezing.
@@ -12,21 +12,30 @@
 
 
 // MARK: Timing
-// Whole sequence is ~7.9 s when the new world is ready in time:
-// fade out 0.9 + two full cards 2 × 2.0 + last card in/hold 1.55 + fade in 1.4.
+// When the new world is already ready, the cover is up ~12.3 s:
+// fade out 0.9 + card 4.0 + black 0.5 + card 4.0 + black 0.75
+// + card in 0.75 + fade in 1.4. Dawn is 12 s and starts at the
+// reseed (0.9 s in), so the sun is still rising as the cover lifts.
 
 /** Seconds to fade the world to black after the last fire dies. */
 export const EMBER_FAIL_FADE_OUT_S = 0.9
 
 /** Fade in / out for each title card. */
-export const EMBER_FAIL_LINE_FADE_S = 0.45
+export const EMBER_FAIL_LINE_FADE_S = 0.75
 
-/** How long a card sits fully visible. */
-export const EMBER_FAIL_LINE_HOLD_S = 1.1
+/** How long cards 1 and 2 sit fully visible. Card 3 waits on the load. */
+export const EMBER_FAIL_LINE_HOLD_S = 2.5
+
+/** Black between card 1 and card 2. */
+export const EMBER_FAIL_GAP_1_S = 0.5
+
+/** Black between card 2 and card 3. */
+export const EMBER_FAIL_GAP_2_S = 0.75
 
 /**
  * Reseed as soon as the fade-to-black has finished so the new seed
- * generates under the title cards.
+ * generates under the title cards. This stays tied to the fade, not
+ * the card holds, so a longer cinematic does not push dawn back.
  */
 export const EMBER_FAIL_REBUILD_DELAY_S = EMBER_FAIL_FADE_OUT_S
 
@@ -37,13 +46,13 @@ export const EMBER_FAIL_FADE_IN_S = 1.4
 // MARK: emberFailLine1
 
 /**
- * Opening card. `nights` is how many dusks this run survived
- * (0 = died before the first sunset).
+ * Opening card. `days` is the day counter for this run (Day 1 at
+ * the first dawn). Always a numeral, matching the HUD.
  */
-export function emberFailLine1(nights: number): string {
-	if (nights <= 0) return "The world's flame goes out."
-	if (nights === 1) return 'After one night, the flame dies.'
-	return `After ${nights} nights, the flame dies.`
+export function emberFailLine1(days: number): string {
+	const n    = days < 1 ? 1 : Math.floor(days)
+	const unit = n === 1 ? 'day' : 'days'
+	return `After ${n} ${unit}, the world's flame goes out.`
 }
 
 
@@ -51,7 +60,7 @@ export function emberFailLine1(nights: number): string {
 
 /** Time-skip card between the death and the new winter. */
 export function emberFailLine2(): string {
-	return 'Centuries pass in the dark.'
+	return 'Centuries pass in the cold.'
 }
 
 
@@ -59,5 +68,5 @@ export function emberFailLine2(): string {
 
 /** Closing card, held over the fade-in of the rebuilt world. */
 export function emberFailLine3(): string {
-	return 'A new civilization begins.'
+	return 'A new fire is kindled.'
 }

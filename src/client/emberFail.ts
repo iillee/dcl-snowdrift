@@ -1,8 +1,9 @@
 /**
  * emberFail.ts — client game-over cards when the last fire dies.
  *
- * Black first, then three title cards (flame out → centuries →
- * civilization). The last line and load bar fade out with the black.
+ * Black first, then three title cards (the flame goes out → centuries
+ * → a new fire), with a beat of black between them. The last line
+ * fades out with the black. Dawn has already started under the cards.
  */
 
 import { InputModifier, engine } from '@dcl/sdk/ecs'
@@ -10,6 +11,8 @@ import { InputModifier, engine } from '@dcl/sdk/ecs'
 import {
 	EMBER_FAIL_FADE_IN_S,
 	EMBER_FAIL_FADE_OUT_S,
+	EMBER_FAIL_GAP_1_S,
+	EMBER_FAIL_GAP_2_S,
 	EMBER_FAIL_LINE_FADE_S,
 	EMBER_FAIL_LINE_HOLD_S,
 	emberFailLine1,
@@ -31,19 +34,21 @@ enum Phase {
 	LINE1_IN   = 2,
 	LINE1_HOLD = 3,
 	LINE1_OUT  = 4,
-	LINE2_IN   = 5,
-	LINE2_HOLD = 6,
-	LINE2_OUT  = 7,
-	LINE3_IN   = 8,
-	LINE3_HOLD = 9,
-	WORLD_IN   = 10,
+	LINE1_GAP  = 5,
+	LINE2_IN   = 6,
+	LINE2_HOLD = 7,
+	LINE2_OUT  = 8,
+	LINE2_GAP  = 9,
+	LINE3_IN   = 10,
+	LINE3_HOLD = 11,
+	WORLD_IN   = 12,
 }
 
 let phase        = Phase.IDLE
 let phaseTimer   = 0
 let worldOpacity = 0
 let textOpacity  = 0
-let nightsLived     = 0
+let daysLived       = 0
 let rebuilt         = false
 let perimGenAtFail  = 0
 let installed       = false
@@ -70,7 +75,7 @@ export function getEmberFailTextOpacity(): number {
 /** Current title card, or empty when nothing should draw. */
 export function getEmberFailText(): string {
 	if (phase >= Phase.LINE1_IN && phase <= Phase.LINE1_OUT) {
-		return emberFailLine1(nightsLived)
+		return emberFailLine1(daysLived)
 	}
 	if (phase >= Phase.LINE2_IN && phase <= Phase.LINE2_OUT) {
 		return emberFailLine2()
@@ -124,7 +129,7 @@ function finishFail(): void {
 	phaseTimer     = 0
 	rebuilt        = false
 	unlockPlayer()
-	console.log('emberFail: cards complete — new civilization')
+	console.log('emberFail: cards complete — new fire')
 }
 
 
@@ -147,15 +152,15 @@ function unlockPlayer(): void {
 
 
 // MARK: beginFail
-function beginFail(nights: number): void {
+function beginFail(days: number): void {
 	if (phase !== Phase.IDLE) return
-	console.log(`emberFail: beginFail: last fire out after ${nights} night(s)`)
+	console.log(`emberFail: beginFail: last fire out on day ${days}`)
 	if (isTopDownActive()) toggleTopDownCamera()
 	phase        = Phase.FADE_OUT
 	phaseTimer   = 0
 	worldOpacity = 0
 	textOpacity  = 0
-	nightsLived    = nights
+	daysLived      = days
 	rebuilt        = false
 	perimGenAtFail = getPerimeterGeneration()
 	lockPlayer()
@@ -174,8 +179,8 @@ export function setupEmberFailClient(): void {
 	}
 	installed = true
 
-	room.onMessage('emberFail', ({ nights }) => {
-		beginFail(nights)
+	room.onMessage('emberFail', ({ days }) => {
+		beginFail(days)
 	})
 
 	onCycleSeedChange(() => {
@@ -217,9 +222,17 @@ export function setupEmberFailClient(): void {
 		if (phase === Phase.LINE1_OUT) {
 			textOpacity = Math.max(0, 1 - phaseTimer / EMBER_FAIL_LINE_FADE_S)
 			if (phaseTimer < EMBER_FAIL_LINE_FADE_S) return
-			phase       = Phase.LINE2_IN
+			phase       = Phase.LINE1_GAP
 			phaseTimer  = 0
 			textOpacity = 0
+			return
+		}
+
+		if (phase === Phase.LINE1_GAP) {
+			textOpacity = 0
+			if (phaseTimer < EMBER_FAIL_GAP_1_S) return
+			phase      = Phase.LINE2_IN
+			phaseTimer = 0
 			return
 		}
 
@@ -242,9 +255,17 @@ export function setupEmberFailClient(): void {
 		if (phase === Phase.LINE2_OUT) {
 			textOpacity = Math.max(0, 1 - phaseTimer / EMBER_FAIL_LINE_FADE_S)
 			if (phaseTimer < EMBER_FAIL_LINE_FADE_S) return
-			phase       = Phase.LINE3_IN
+			phase       = Phase.LINE2_GAP
 			phaseTimer  = 0
 			textOpacity = 0
+			return
+		}
+
+		if (phase === Phase.LINE2_GAP) {
+			textOpacity = 0
+			if (phaseTimer < EMBER_FAIL_GAP_2_S) return
+			phase      = Phase.LINE3_IN
+			phaseTimer = 0
 			return
 		}
 
@@ -259,9 +280,8 @@ export function setupEmberFailClient(): void {
 
 		if (phase === Phase.LINE3_HOLD) {
 			textOpacity = 1
-			if (phaseTimer < EMBER_FAIL_LINE_HOLD_S) return
 			const ready    = isNewWorldReady()
-			const fallback = rebuilt && phaseTimer >= EMBER_FAIL_LINE_HOLD_S + READY_FALLBACK_S
+			const fallback = rebuilt && phaseTimer >= READY_FALLBACK_S
 			if (!ready && !fallback) return
 			if (fallback && !ready) {
 				console.log('emberFail: LINE3_HOLD: load wait timed out, fading in')

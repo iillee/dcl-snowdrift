@@ -14,7 +14,7 @@ import { room } from 'src/shared/messages'
 import { rollCycle } from 'src/server/cycle'
 import { getMainFireFuel, snuffMainFire } from 'src/server/hearthFuel'
 import { isAnyHiddenFireLit, snuffAllHiddenFires } from 'src/server/hiddenCampfire'
-import { getNightsThisRun } from 'src/server/phase'
+import { getDayNumber } from 'src/server/phase'
 
 
 let failing       = false
@@ -33,7 +33,7 @@ export function isEmberFailing(): boolean {
 /** Hydrate a late joiner who arrived during the blackout. */
 export function sendEmberFailTo(userId: string): void {
 	if (!failing) return
-	room.send('emberFail', { nights: getNightsThisRun() }, { to: [userId] })
+	room.send('emberFail', { days: getDayNumber() }, { to: [userId] })
 	console.log(`[Server] emberFail: hydrated fail state to ${userId}`)
 }
 
@@ -66,10 +66,10 @@ export function beginExtinction(reason: string): void {
 function beginFail(reason: string): void {
 	failing      = true
 	rebuildClock = EMBER_FAIL_REBUILD_DELAY_S
-	const nights = getNightsThisRun()
-	room.send('emberFail', { nights })
+	const days   = getDayNumber()
+	room.send('emberFail', { days })
 	console.log(
-		`[Server] emberFail: ${reason} after ${nights} night(s) — ` +
+		`[Server] emberFail: ${reason} on day ${days} — ` +
 		`rebuild in ${EMBER_FAIL_REBUILD_DELAY_S.toFixed(1)}s`,
 	)
 }

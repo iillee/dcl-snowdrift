@@ -1,5 +1,5 @@
 /**
- * hiddenCampfire.ts — the three buried bonfires the player has to
+ * hiddenCampfire.ts — the buried bonfires the player has to
  * find and ignite with a lit torch.
  *
  * Network model (server-authoritative):
@@ -44,9 +44,11 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { playSurgeSfxAt } from 'src/client/audio'
 import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
+import { reservedCellsForMazeSeed } from 'src/client/perimeter'
 import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
@@ -543,16 +545,24 @@ function handleCycleSeedChange(newSeed: number): void {
 		return
 	}
 	currentSeed = newSeed
-	const positions = getHiddenCampfireWorldPositionsForSeed(newSeed)
+	const positions = getHiddenCampfireWorldPositionsForSeed(
+		newSeed,
+		reservedCellsForMazeSeed(cycleMazeSeed(newSeed)),
+	)
 	console.log(
 		`hiddenCampfire: cycle roll old=${oldSeed} → new=${newSeed} — ` +
 		`resetting ${HIDDEN_CAMPFIRE_COUNT} pits`,
 	)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		const spot = positions[i]
+		if (!spot) {
+			console.log(`hiddenCampfire: handleCycleSeedChange: slot ${i} has no clear tile`)
+			continue
+		}
 		removeLocatorBeacon(i)
 		applyUnlitVisuals(i)
-		worldX[i] = positions[i].x
-		worldZ[i] = positions[i].z
+		worldX[i] = spot.x
+		worldZ[i] = spot.z
 		relocatePit(i)
 	}
 }
@@ -564,14 +574,22 @@ function handleCycleSeedChange(newSeed: number): void {
  * to the server's authoritative state, and start the beacon pulse.
  */
 export function setupHiddenCampfire(): void {
-	const positions = getHiddenCampfireWorldPositions()
-	currentSeed = getHiddenCampfireSeed()
+	const bootSeed  = getHiddenCampfireSeed()
+	const positions = getHiddenCampfireWorldPositions(
+		reservedCellsForMazeSeed(cycleMazeSeed(bootSeed)),
+	)
+	currentSeed = bootSeed
 	console.log(`hiddenCampfire: setupHiddenCampfire: seed=${currentSeed} count=${HIDDEN_CAMPFIRE_COUNT}`)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		worldX[i] = positions[i].x
-		worldZ[i] = positions[i].z
+		const spot = positions[i]
+		if (!spot) {
+			console.log(`hiddenCampfire: setupHiddenCampfire: slot ${i} has no clear tile`)
+			continue
+		}
+		worldX[i] = spot.x
+		worldZ[i] = spot.z
 		console.log(
-			`hiddenCampfire[${i}]: tile=(${positions[i].tx},${positions[i].tz}) ` +
+			`hiddenCampfire[${i}]: tile=(${spot.tx},${spot.tz}) ` +
 			`world=(${worldX[i].toFixed(1)},${worldZ[i].toFixed(1)})`,
 		)
 		spawnUnlitPit(i)

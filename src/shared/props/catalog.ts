@@ -80,8 +80,9 @@ export const PROP_CATALOG: PropDef[] = [
 		scale                : 6,
 		yOffset              : 0,
 		reserves             : false,
-		// Six trees around the hearth, not on one circle. The set
-		// rotates with the seed. Lit torch is 30 s at the melted-path
+		// Six trees around the hearth, not on one circle. Distances
+		// stay put; the gaps between them vary, and the set still
+		// turns with the seed. Lit torch is 30 s at the melted-path
 		// jog (8 m/s): 2 s of fuel per metre of round trip.
 		//   64 m        close. 16 s there and back, time to take a log.
 		//   88–104 m    mid. A straight solo trip, little spare.

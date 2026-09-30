@@ -18,7 +18,7 @@
  *
  * Cycle roll (subscribed to onCycleRoll):
  *   - recompute scatter for the new seed
- *   - reactivate the near + far subsets and every tree cluster
+ *   - reactivate the near, far, and outer subsets and every tree cluster
  *   - broadcast fresh woodActiveSet
  */
 
@@ -31,9 +31,11 @@ import {
 	WoodChunk,
 	WOOD_BAND_FAR,
 	WOOD_BAND_NEAR,
+	WOOD_BAND_OUTER,
 	WOOD_BAND_TREE,
 	WOOD_FAR_ACTIVE,
 	WOOD_NEAR_ACTIVE,
+	WOOD_OUTER_ACTIVE,
 } from 'src/shared/woodScatter'
 
 import { reservedCellsForMazeSeed } from 'src/client/perimeter'
@@ -65,9 +67,8 @@ function shuffleTake(
 
 // MARK: rebuildScatter
 /**
- * Recompute the scatter for `seed` and activate a random near-ring
- * subset plus a random far-belt subset. Everything else stays unused
- * for this cycle.
+ * Recompute the scatter for `seed` and activate a random subset of
+ * each buried band. Everything else stays unused for this cycle.
  *
  * Called at boot and on cycle roll. Does NOT broadcast - callers do.
  */
@@ -77,14 +78,17 @@ function rebuildScatter(seed: number): void {
 	scatter     = computeWoodScatter(seed, reserved)
 	active.clear()
 
-	const near: number[] = []
-	const far : number[] = []
+	const near : number[] = []
+	const far  : number[] = []
+	const outer: number[] = []
 	for (const c of scatter) {
 		if (c.band === WOOD_BAND_NEAR) near.push(c.idx)
 		else if (c.band === WOOD_BAND_FAR) far.push(c.idx)
+		else if (c.band === WOOD_BAND_OUTER) outer.push(c.idx)
 	}
-	shuffleTake(near, WOOD_NEAR_ACTIVE, active)
-	shuffleTake(far,  WOOD_FAR_ACTIVE,  active)
+	shuffleTake(near,  WOOD_NEAR_ACTIVE,  active)
+	shuffleTake(far,   WOOD_FAR_ACTIVE,   active)
+	shuffleTake(outer, WOOD_OUTER_ACTIVE, active)
 	for (const c of scatter) {
 		if (c.band === WOOD_BAND_TREE) active.add(c.idx)
 	}
@@ -93,20 +97,22 @@ function rebuildScatter(seed: number): void {
 	let logs     = 0
 	let nearN    = 0
 	let farN     = 0
+	let outerN   = 0
 	let treeN    = 0
 	for (const idx of active) {
 		const c = scatter[idx]
 		if (c.band === WOOD_BAND_NEAR) nearN++
+		else if (c.band === WOOD_BAND_FAR) farN++
+		else if (c.band === WOOD_BAND_OUTER) outerN++
 		else if (c.band === WOOD_BAND_TREE) treeN++
-		else farN++
 		if (c.kind === WOOD_KIND_BRANCH) branches++
 		else logs++
 	}
 
 	console.log(
 		`[Server] wood: rebuilt scatter seed=${seed} pool=${scatter.length} ` +
-		`active=${active.size} (near=${nearN} far=${farN} tree=${treeN} ` +
-		`branches=${branches} logs=${logs})`
+		`active=${active.size} (near=${nearN} far=${farN} outer=${outerN} ` +
+		`tree=${treeN} branches=${branches} logs=${logs})`
 	)
 }
 

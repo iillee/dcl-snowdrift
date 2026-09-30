@@ -2,9 +2,10 @@
  * snowRenderer.ts — draws the snow layer from snowModel.
  *
  * Ground: one slab (top at SNOW_GROUND_TOP_Y, melt-blue, physics collider)
- * under the whole playfield. Snow covers every tile regardless of the
- * cliff layout; cliffs sit on top and hide what is under them, so a new
- * seed never forces a snow or ground rebuild. Building starts on the
+ * under the whole playfield. Snow tiles a cliff base covers are left
+ * empty. The seam where snow meets a cliff is left flush: up close
+ * that snow is already melted. The mask is applied when the cliff
+ * seed arrives, and again on every reroll. Building starts on the
  * first frame, before the seed or the CRDT snapshot arrive.
  *
  * Snow: one quadtree per 16 m root. A node renders as a single mesh when
@@ -51,6 +52,7 @@ import {
 	tileCoordsFromKey,
 } from 'src/shared/snowGrid'
 
+import { getCliffSnowCells } from 'src/client/perimeter'
 import {
 	drainDirtyRoots,
 	getDisplayedStages,
@@ -106,6 +108,7 @@ let waitMs            = 0
 let syncFallbackUsed  = false
 let coldOpenSettled   = false
 let liveNodeCount     = 0
+let cliffMask         = new Uint8Array(ROOT_COUNT)
 
 
 // MARK: initSnowRenderer
@@ -142,6 +145,36 @@ export function isSnowSettled(): boolean {
 /** True while the cold-open full pass is still in flight. */
 export function isSnowRebuilding(): boolean {
 	return fullPassRemaining.size > 0
+}
+
+
+// MARK: applyCliffSnowMask
+/**
+ * Drop snow on every 16 m cell a cliff base covers. Call after the
+ * perimeter seed is set. A repeat with the same layout rebuilds nothing.
+ */
+export function applyCliffSnowMask(): void {
+	const next  = new Uint8Array(ROOT_COUNT)
+	const cells = getCliffSnowCells()
+	let covered = 0
+	for (const c of cells) {
+		if (c.tx < 0 || c.tz < 0 || c.tx >= SNOW_TILES_X || c.tz >= SNOW_TILES_Z) continue
+		const k = c.tz * SNOW_TILES_X + c.tx
+		if (next[k] === 1) continue
+		next[k] = 1
+		covered++
+	}
+	let dirty = 0
+	for (let k = 0; k < ROOT_COUNT; k++) {
+		if (next[k] === cliffMask[k]) continue
+		pendingRoots.add(k)
+		fullPassRemaining.add(k)
+		dirty++
+	}
+	cliffMask = next
+	console.log(
+		`snowRenderer: applyCliffSnowMask: ${covered} cliff cells, ${dirty} roots rebuilding`,
+	)
 }
 
 
@@ -259,6 +292,7 @@ function buildDesired(
 	stages:  Uint8Array,
 ): Map<number, number> {
 	const out  = new Map<number, number>()
+	if (cliffMask[tileKey] === 1) return out
 	const base = tileKey * SNOW_TILE_CELL_COUNT
 
 	const uniform = (lx: number, lz: number, size: number): number => {

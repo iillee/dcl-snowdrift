@@ -91,6 +91,16 @@ export function isPhaseClockArmed(): boolean {
 }
 
 
+// MARK: getDayNumber
+/**
+ * 1-based day of this run. Day 1 at first dawn; increments each
+ * sunrise. Matches the client day counter.
+ */
+export function getDayNumber(): number {
+	return cycleId + 1
+}
+
+
 // MARK: getNightsThisRun
 /** Dusks entered this run. 0 if the fire died before the first sunset. */
 export function getNightsThisRun(): number {
@@ -171,9 +181,9 @@ export function sendPhaseStateTo(userId: string): void {
 
 /**
  * Count a dusk when the clock enters it. The live tick and enterPhase
- * both step the phase, and the fail cards read this counter. The tick
- * must not call enterPhase: that snaps the start time to now, while a
- * late frame has to keep the leftover time.
+ * both step the phase. The tick must not call enterPhase: that snaps
+ * the start time to now, while a late frame has to keep the leftover
+ * time.
  */
 function noteEnteredPhase(name: string): void {
 	if (name === 'DUSK') nightsThisRun++

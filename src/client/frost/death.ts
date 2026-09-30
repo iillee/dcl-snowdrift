@@ -11,7 +11,7 @@
  * ICE_RESOLVE_S, a lit fire fades the screen to black while they are
  * still in the cube. The cube comes off once the screen has been
  * black for a second, then the body waits a beat and wakes there
- * with one segment of warmth left. If every fire is dark, they stay
+ * with three segments of warmth left. If every fire is dark, they stay
  * frozen and a torch can still thaw them.
  *
  * World reset and the cold open still use beginCollapsedAtHome, which
@@ -25,6 +25,7 @@ import {
 	InputAction,
 	InputModifier,
 	inputSystem,
+	PlayerIdentityData,
 	Transform,
 } from '@dcl/sdk/ecs'
 import { triggerEmote } from '~system/RestrictedActions'
@@ -37,7 +38,7 @@ import { room } from 'src/shared/messages'
 import { playIceCubeSfx } from 'src/client/audio'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isEmberFailing } from 'src/client/emberFail'
-import { getFrostLocal, resetFrostLocal, seedOneWarmSegment } from 'src/client/frost/accumulation'
+import { getFrostLocal, resetFrostLocal, seedWakeWarmth } from 'src/client/frost/accumulation'
 import { getMainFireFuel } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { dropLogAtPlayer } from 'src/client/logsInput'
@@ -222,7 +223,7 @@ function clearLocalDeath(tellServer: boolean): void {
 	if (!FrostDeath.has(engine.PlayerEntity)) return
 	FrostDeath.deleteFrom(engine.PlayerEntity)
 	if (!tellServer) return
-	room.send('frostThaw', {})
+	room.send('frostThaw', { userId: localAddress() })
 	console.log('frost/death: clearLocalDeath: told the server this player is up')
 }
 
@@ -289,6 +290,13 @@ function aimAtFire(fireX: number, fireZ: number): void {
 }
 
 
+// MARK: localAddress
+function localAddress(): string {
+	const id = PlayerIdentityData.getOrNull(engine.PlayerEntity)
+	return id?.address ?? ''
+}
+
+
 // MARK: publishFreeze
 function publishFreeze(): void {
 	const t = Transform.getOrNull(engine.PlayerEntity)
@@ -300,7 +308,7 @@ function publishFreeze(): void {
 		deathZ: z,
 		awake : false,
 	})
-	room.send('frostFreeze', { x, z })
+	room.send('frostFreeze', { userId: localAddress(), x, z })
 	console.log(`frost/death: publishFreeze: frozen at ${x.toFixed(1)}, ${z.toFixed(1)}`)
 }
 
@@ -528,7 +536,7 @@ export function setupFrostDeath(): void {
 				// re-freezes you instantly.
 				clearLocalDeath(true)
 				if (arrivalHome) resetFrostLocal()
-				else seedOneWarmSegment()
+				else seedWakeWarmth()
 				// Torch already went dark at the freeze. This covers the
 				// dawn-pad arrival, which never passed through enterDying.
 				extinguishTorch()

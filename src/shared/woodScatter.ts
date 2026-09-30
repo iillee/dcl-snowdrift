@@ -6,12 +6,15 @@
  * only the active/inactive set does (owned server-side; see
  * src/server/wood.ts).
  *
- * Two bands:
- *   - Near (15-35 m): one-torch trip. Mostly branches, a few logs.
- *   - Far  (35-80 m): keep the old gather belt, peak density at 50 m.
+ * Three bands, all measured from the hearth:
+ *   - Near  (15-35 m): one-torch trip. Mostly branches, a few logs.
+ *   - Far   (35-80 m): gather belt, peak density at 50 m.
+ *   - Outer (80-160 m): thin field toward the far trees and the
+ *     second generation of hidden fires, peak density at 110 m.
  *
- * Kind is stamped at placement (stable per seed). Wilderness is
- * kindling. Each scattered tree_4 holds four logs at the trunk.
+ * A piece whose body would cross a cliff cell is skipped. Kind is
+ * stamped at placement (stable per seed). Wilderness is kindling.
+ * Each scattered tree_4 holds four logs at the trunk.
  * Those are not world meshes: the player chops the tree, and each
  * chop spends one of the four.
  *
@@ -31,8 +34,10 @@ import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
 export const WOOD_NEAR_POOL = 50
 /** Far-belt pool size. */
 export const WOOD_FAR_POOL = 150
+/** Outer-band pool size. Sparse, so the far trees stay worth the walk. */
+export const WOOD_OUTER_POOL = 50
 /** Full scatter list length. */
-export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL
+export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
 
 /**
  * Active near chunks at cycle start. One torch should be able to
@@ -41,8 +46,10 @@ export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL
 export const WOOD_NEAR_ACTIVE = 12
 /** Active far chunks. Leave the long walk in the field. */
 export const WOOD_FAR_ACTIVE = 28
-/** Total active at cycle start. No in-run refill. */
-export const WOOD_ACTIVE_TARGET = WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE
+/** Active outer chunks. A staging fire, not the hearth, covers these. */
+export const WOOD_OUTER_ACTIVE = 12
+/** Total active buried chunks at cycle start. No in-run refill. */
+export const WOOD_ACTIVE_TARGET = WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE
 
 /** Inner edge of the near ring (m). Outside the Warm melt ring. */
 export const WOOD_NEAR_MIN_M = 15
@@ -50,18 +57,28 @@ export const WOOD_NEAR_MIN_M = 15
 export const WOOD_NEAR_MAX_M = 35
 /** Radius (m) where far-belt density peaks. */
 export const WOOD_PEAK_RADIUS_M = 50
-/** Hard outer sampling radius (m). */
-export const WOOD_MAX_RADIUS_M = 80
+/** Outer edge of the far belt / inner edge of the outer band (m). */
+export const WOOD_FAR_MAX_M = 80
+/** Radius (m) where outer-band density peaks. */
+export const WOOD_OUTER_PEAK_M = 110
+/** Hard outer sampling radius (m). Just inside the furthest tree. */
+export const WOOD_OUTER_MAX_M = 160
+/**
+ * How far a buried piece can stick from its centre. Half the long
+ * axis of branch.glb, so a branch lying toward a cliff still misses it.
+ */
+const WOOD_CLIFF_REACH_M = 2.1
 
 /**
- * Chance a placed chunk is a full log instead of a branch. ~12 % of
- * 40 active pieces is about five logs in the snow.
+ * Chance a placed chunk is a full log instead of a branch. About
+ * 12 % of the live buried pieces.
  */
 export const WOOD_LOG_CHANCE = 0.12
 
-export const WOOD_BAND_NEAR = 0
-export const WOOD_BAND_FAR  = 1
-export const WOOD_BAND_TREE = 2
+export const WOOD_BAND_NEAR  = 0
+export const WOOD_BAND_FAR   = 1
+export const WOOD_BAND_TREE  = 2
+export const WOOD_BAND_OUTER = 3
 
 /** Chops each scattered tree still holds at cycle start. */
 export const WOOD_LOGS_PER_TREE = 4
@@ -80,7 +97,7 @@ export interface WoodChunk {
 	worldZ : number
 	/** WOOD_KIND_BRANCH or WOOD_KIND_LOG. */
 	kind   : number
-	/** WOOD_BAND_NEAR, WOOD_BAND_FAR, or WOOD_BAND_TREE. */
+	/** WOOD_BAND_NEAR, WOOD_BAND_FAR, WOOD_BAND_OUTER, or WOOD_BAND_TREE. */
 	band   : number
 	/** Which scattered tree this log belongs to. */
 	treeIndex?: number
@@ -124,26 +141,71 @@ function pickKind(rng: () => number): number {
 // MARK: farDensityWeight
 /**
  * Acceptance probability for a far-belt candidate at distance `r`.
- * Zero inside the near ring, ramps to 1.0 at PEAK_RADIUS_M, then
- * decays toward MAX_RADIUS_M.
+ * Zero inside the near ring, ramps to 1.0 at WOOD_PEAK_RADIUS_M, then
+ * decays toward WOOD_FAR_MAX_M.
  */
 function farDensityWeight(r: number): number {
-	if (r < WOOD_NEAR_MAX_M)   return 0
-	if (r > WOOD_MAX_RADIUS_M) return 0
+	if (r < WOOD_NEAR_MAX_M) return 0
+	if (r > WOOD_FAR_MAX_M)  return 0
 	if (r <= WOOD_PEAK_RADIUS_M) {
 		const span = WOOD_PEAK_RADIUS_M - WOOD_NEAR_MAX_M
 		return (r - WOOD_NEAR_MAX_M) / span
 	}
-	const span = WOOD_MAX_RADIUS_M - WOOD_PEAK_RADIUS_M
+	const span = WOOD_FAR_MAX_M - WOOD_PEAK_RADIUS_M
 	const t    = (r - WOOD_PEAK_RADIUS_M) / span
 	return 1 - 0.5 * t
 }
 
 
+// MARK: outerDensityWeight
+/**
+ * Acceptance probability for an outer-band candidate at distance `r`.
+ * Zero inside the far belt, ramps to 1.0 at WOOD_OUTER_PEAK_M, then
+ * decays toward WOOD_OUTER_MAX_M.
+ */
+function outerDensityWeight(r: number): number {
+	if (r < WOOD_FAR_MAX_M)   return 0
+	if (r > WOOD_OUTER_MAX_M) return 0
+	if (r <= WOOD_OUTER_PEAK_M) {
+		const span = WOOD_OUTER_PEAK_M - WOOD_FAR_MAX_M
+		return (r - WOOD_FAR_MAX_M) / span
+	}
+	const span = WOOD_OUTER_MAX_M - WOOD_OUTER_PEAK_M
+	const t    = (r - WOOD_OUTER_PEAK_M) / span
+	return 1 - 0.5 * t
+}
+
+
+// MARK: onCliff
+/**
+ * True when a piece centred at (x, z) would cross a cliff cell.
+ * `reserved` is keyed `tx,tz,0`, the same footprint the trees use.
+ */
+function onCliff(
+	x       : number,
+	z       : number,
+	reserved: ReadonlySet<string>,
+): boolean {
+	const tile   = MAZE_TILE_WORLD_METERS
+	const origin = MAZE_ORIGIN_OFFSET_METERS
+	const tx0 = Math.floor((x - WOOD_CLIFF_REACH_M - origin) / tile)
+	const tx1 = Math.floor((x + WOOD_CLIFF_REACH_M - origin) / tile)
+	const tz0 = Math.floor((z - WOOD_CLIFF_REACH_M - origin) / tile)
+	const tz1 = Math.floor((z + WOOD_CLIFF_REACH_M - origin) / tile)
+	for (let tx = tx0; tx <= tx1; tx++) {
+		for (let tz = tz0; tz <= tz1; tz++) {
+			if (reserved.has(`${tx},${tz},0`)) return true
+		}
+	}
+	return false
+}
+
+
 // MARK: placeNearBand
 function placeNearBand(
-	rng: () => number,
-	out: WoodChunk[],
+	rng     : () => number,
+	out     : WoodChunk[],
+	reserved: ReadonlySet<string>,
 ): void {
 	const min2 = WOOD_NEAR_MIN_M * WOOD_NEAR_MIN_M
 	const max2 = WOOD_NEAR_MAX_M * WOOD_NEAR_MAX_M
@@ -154,10 +216,13 @@ function placeNearBand(
 		attempts++
 		const r     = Math.sqrt(min2 + rng() * span)
 		const theta = 2 * Math.PI * rng()
+		const x     = CENTRE_X + r * Math.cos(theta)
+		const z     = CENTRE_Z + r * Math.sin(theta)
+		if (onCliff(x, z, reserved)) continue
 		out.push({
 			idx   : out.length,
-			worldX: CENTRE_X + r * Math.cos(theta),
-			worldZ: CENTRE_Z + r * Math.sin(theta),
+			worldX: x,
+			worldZ: z,
 			kind  : pickKind(rng),
 			band  : WOOD_BAND_NEAR,
 		})
@@ -167,25 +232,59 @@ function placeNearBand(
 
 // MARK: placeFarBand
 function placeFarBand(
-	rng: () => number,
-	out: WoodChunk[],
+	rng     : () => number,
+	out     : WoodChunk[],
+	reserved: ReadonlySet<string>,
 ): void {
-	const target = WOOD_POOL_SIZE
+	const target = WOOD_NEAR_POOL + WOOD_FAR_POOL
 	const MAX_ATTEMPTS = WOOD_FAR_POOL * 20
 	let attempts = 0
 	while (out.length < target && attempts < MAX_ATTEMPTS) {
 		attempts++
 		const u     = rng()
 		const v     = rng()
-		const r     = WOOD_MAX_RADIUS_M * Math.sqrt(u)
+		const r     = WOOD_FAR_MAX_M * Math.sqrt(u)
 		const theta = 2 * Math.PI * v
 		if (rng() > farDensityWeight(r)) continue
+		const x = CENTRE_X + r * Math.cos(theta)
+		const z = CENTRE_Z + r * Math.sin(theta)
+		if (onCliff(x, z, reserved)) continue
 		out.push({
 			idx   : out.length,
-			worldX: CENTRE_X + r * Math.cos(theta),
-			worldZ: CENTRE_Z + r * Math.sin(theta),
+			worldX: x,
+			worldZ: z,
 			kind  : pickKind(rng),
 			band  : WOOD_BAND_FAR,
+		})
+	}
+}
+
+
+// MARK: placeOuterBand
+function placeOuterBand(
+	rng     : () => number,
+	out     : WoodChunk[],
+	reserved: ReadonlySet<string>,
+): void {
+	const min2 = WOOD_FAR_MAX_M * WOOD_FAR_MAX_M
+	const max2 = WOOD_OUTER_MAX_M * WOOD_OUTER_MAX_M
+	const span = max2 - min2
+	const MAX_ATTEMPTS = WOOD_OUTER_POOL * 40
+	let attempts = 0
+	while (out.length < WOOD_POOL_SIZE && attempts < MAX_ATTEMPTS) {
+		attempts++
+		const r     = Math.sqrt(min2 + rng() * span)
+		const theta = 2 * Math.PI * rng()
+		if (rng() > outerDensityWeight(r)) continue
+		const x = CENTRE_X + r * Math.cos(theta)
+		const z = CENTRE_Z + r * Math.sin(theta)
+		if (onCliff(x, z, reserved)) continue
+		out.push({
+			idx   : out.length,
+			worldX: x,
+			worldZ: z,
+			kind  : pickKind(rng),
+			band  : WOOD_BAND_OUTER,
 		})
 	}
 }
@@ -242,8 +341,9 @@ function placeTreeLogs(
  * always produces the same list; server + client call this and get
  * identical (idx, worldX, worldZ, kind, band) tuples.
  *
- * `reserved` is the cliff cell set for cycleMazeSeed(seed). Tree logs
- * use it so they sit on the same trees the prop scatter spawned.
+ * `reserved` is the cliff cell set for cycleMazeSeed(seed). Buried
+ * pieces skip those cells. Tree logs use it so they sit on the same
+ * trees the prop scatter spawned.
  */
 export function computeWoodScatter(
 	seed    : number,
@@ -251,8 +351,9 @@ export function computeWoodScatter(
 ): WoodChunk[] {
 	const rng = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
 	const out: WoodChunk[] = []
-	placeNearBand(rng, out)
-	placeFarBand(rng, out)
+	placeNearBand(rng, out, reserved)
+	placeFarBand(rng, out, reserved)
+	placeOuterBand(rng, out, reserved)
 
 	if (out.length < WOOD_POOL_SIZE) {
 		console.log(

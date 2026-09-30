@@ -63,8 +63,8 @@ let PERIM_SEED = 0
 /**
  * Set the seed mixed into every deterministic hash in this module
  * (fork slot selection, canyon depth, mesa density). Call BEFORE
- * setupPerimeter() and BEFORE the maze generator's
- * getReservedPlayfieldCells() so both see the same layout.
+ * setupPerimeter() and BEFORE getCliffSnowCells() so both see
+ * the same layout.
  *
  * The reroll button in the top action bar flows through here so
  * every reroll produces a fresh cliff skyline.
@@ -79,14 +79,16 @@ export function setPerimeterSeed(seed: number): void {
 /**
  * Cliff cells the prop scatter must avoid, keyed `tx,tz,0`.
  *
- * Sets the perimeter seed first so the reservation matches the cliffs
- * and trees built for that same layout seed. Safe to call from the
- * wood scatter on both sides: client and server are separate processes.
+ * Uses the measured cliff-base footprint, the same cells the snow
+ * cuts out, so a tree cannot land on ground the mesh covers.
+ * Sets the perimeter seed first so the set matches the cliffs built
+ * for that layout seed. Safe to call from the wood scatter on both
+ * sides: client and server are separate processes.
  */
 export function reservedCellsForMazeSeed(mazeSeed: number): Set<string> {
 	setPerimeterSeed(mazeSeed)
 	const out = new Set<string>()
-	for (const c of getReservedPlayfieldCells()) {
+	for (const c of getCliffSnowCells()) {
 		out.add(`${c.tx},${c.tz},0`)
 	}
 	return out
@@ -821,6 +823,83 @@ export function getReservedPlayfieldCells(): ReservedTile[] {
 	for (const k of reserved) {
 		const [tx, tz] = k.split(',').map(Number)
 		out.push({ tx, tz })
+	}
+	return out
+}
+
+
+// MARK: getCliffSnowCells
+/**
+ * Playfield cells whose snow must not be drawn, because a cliff base
+ * covers them. Measured from the cliff GLBs at ground level: each
+ * shape is a set of 16 m blocks inside the 64 m tile, in the r=0
+ * orientation, then rotated with the placement.
+ *
+ * This is tighter than getReservedPlayfieldCells(). That set also
+ * blanks the open ground beside a turn or a fork so props stay clear.
+ * Snow should still cover that ground.
+ */
+const CLIFF_SNOW_FOOT: Record<TileType, FootRect[]> = {
+	straight: [{ x0: 16, z0: 0,  x1: 48, z1: 64 }],
+	end:      [{ x0: 16, z0: 16, x1: 48, z1: 64 }],
+	turn: [
+		{ x0: 16, z0: 16, x1: 48, z1: 64 },
+		{ x0: 48, z0: 16, x1: 64, z1: 48 },
+	],
+	fork: [
+		{ x0: 16, z0: 0,  x1: 48, z1: 64 },
+		{ x0: 0,  z0: 16, x1: 16, z1: 48 },
+	],
+	cross: [],
+	ramp:  [],
+}
+
+interface FootRect { x0: number; z0: number; x1: number; z1: number }
+
+function rotateFoot(rect: FootRect, turns: number): FootRect {
+	let x0 = rect.x0
+	let z0 = rect.z0
+	let x1 = rect.x1
+	let z1 = rect.z1
+	const t = ((turns % 4) + 4) % 4
+	for (let i = 0; i < t; i++) {
+		const nx0 = z0
+		const nz0 = PERIM_TILE_METERS - x1
+		const nx1 = z1
+		const nz1 = PERIM_TILE_METERS - x0
+		x0 = nx0
+		z0 = nz0
+		x1 = nx1
+		z1 = nz1
+	}
+	return { x0, z0, x1, z1 }
+}
+
+export function getCliffSnowCells(): ReservedTile[] {
+	const seen = new Set<string>()
+	const out: ReservedTile[] = []
+	const C = MAZE_TILE_WORLD_METERS
+	const O = MAZE_ORIGIN_OFFSET_METERS
+	for (const p of computeAllCliffPlacements()) {
+		for (const rect of CLIFF_SNOW_FOOT[p.type]) {
+			const rr  = rotateFoot(rect, p.r)
+			const wx0 = p.sx + rr.x0
+			const wz0 = p.sz + rr.z0
+			const wx1 = p.sx + rr.x1
+			const wz1 = p.sz + rr.z1
+			const tx0 = Math.max(0, Math.ceil((wx0 - O) / C - 1e-6))
+			const tz0 = Math.max(0, Math.ceil((wz0 - O) / C - 1e-6))
+			const tx1 = Math.min(MAZE_GRID_WIDTH  - 1, Math.floor((wx1 - O) / C - 1e-6))
+			const tz1 = Math.min(MAZE_GRID_HEIGHT - 1, Math.floor((wz1 - O) / C - 1e-6))
+			for (let tz = tz0; tz <= tz1; tz++) {
+				for (let tx = tx0; tx <= tx1; tx++) {
+					const key = `${tx},${tz}`
+					if (seen.has(key)) continue
+					seen.add(key)
+					out.push({ tx, tz })
+				}
+			}
+		}
 	}
 	return out
 }

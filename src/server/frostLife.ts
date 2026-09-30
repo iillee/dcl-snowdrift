@@ -7,7 +7,9 @@
  *
  * The last people still in the scene, all frozen, end the run only
  * when every fire is dark. A lit fire — main hearth or hidden pit —
- * lets them wake beside it on their own client.
+ * lets them wake beside it on their own client. That check is not
+ * only at the moment of the freeze: while anyone is still in a cube,
+ * a fire going dark is enough to end the run.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -43,8 +45,9 @@ type MeltHold = {
 
 const meltHold = new Map<string, MeltHold>()
 
-let installed = false
-let sweepAccum = 0
+let installed       = false
+let sweepAccum      = 0
+let loggedFireSaves = false
 
 
 // MARK: isPlayerFrozen
@@ -183,20 +186,52 @@ function livingIds(): string[] {
 }
 
 
+// MARK: senderId
+/**
+ * Authenticated sender when the transport provides one. The preview
+ * omits it on some messages, so the payload wallet is the fallback.
+ */
+function senderId(
+	contextFrom: string | undefined,
+	payloadId  : string | undefined,
+	label      : string,
+): string {
+	const from = contextFrom || payloadId || ''
+	if (!from) {
+		console.log(`[Server] frostLife: ${label} ignored, no sender`)
+		return ''
+	}
+	if (!contextFrom) {
+		console.log(`[Server] frostLife: ${label} has no context.from, using payload ${from}`)
+	}
+	return from.toLowerCase()
+}
+
+
 // MARK: maybeExtinct
 function maybeExtinct(trigger: string): void {
 	if (isEmberFailing()) return
 	const living = livingIds()
-	if (living.length === 0) return
-	for (const id of living) {
-		if (!frozen.has(id)) return
-	}
-	if (anyLivingFire()) {
-		console.log(
-			`[Server] frostLife: ${trigger} — every player is frozen and a fire still burns, they wake at the fire`,
-		)
+	if (living.length === 0) {
+		loggedFireSaves = false
 		return
 	}
+	for (const id of living) {
+		if (!frozen.has(id)) {
+			loggedFireSaves = false
+			return
+		}
+	}
+	if (anyLivingFire()) {
+		if (!loggedFireSaves) {
+			loggedFireSaves = true
+			console.log(
+				`[Server] frostLife: ${trigger} — every player is frozen and a fire still burns, they wake at the fire`,
+			)
+		}
+		return
+	}
+	loggedFireSaves = false
 	beginExtinction(`${trigger}: every connected player is frozen and every fire is dark`)
 }
 
@@ -226,21 +261,23 @@ export function setupFrostLifeServer(): void {
 		sweepAccum = 0
 		const before = lastSeen.size
 		livingIds()
-		if (lastSeen.size !== before) maybeExtinct('a player went quiet')
+		const someoneLeft = lastSeen.size !== before
+		// A fire can die after the freeze. Recheck while anyone is still
+		// in a cube so that death ends the run instead of leaving them locked.
+		if (someoneLeft || frozen.size > 0) {
+			maybeExtinct(someoneLeft ? 'a player went quiet' : 'a fire went dark')
+		}
 	})
 
-	room.onMessage('frostPresence', (_payload, context) => {
-		const from = context?.from
+	room.onMessage('frostPresence', ({ userId }, context) => {
+		const from = senderId(context?.from, userId, 'frostPresence')
 		if (!from) return
 		notePlayerPresent(from)
 	})
 
-	room.onMessage('frostFreeze', ({ x, z }, context) => {
-		const from = context?.from?.toLowerCase()
-		if (!from) {
-			console.log('[Server] frostLife: frostFreeze ignored, no sender')
-			return
-		}
+	room.onMessage('frostFreeze', ({ userId, x, z }, context) => {
+		const from = senderId(context?.from, userId, 'frostFreeze')
+		if (!from) return
 		notePlayerPresent(from)
 		frozenAt.set(from, { x, z })
 		if (frozen.has(from)) return
@@ -250,8 +287,8 @@ export function setupFrostLifeServer(): void {
 		maybeExtinct(`${from} froze`)
 	})
 
-	room.onMessage('frostThaw', (_payload, context) => {
-		const from = context?.from?.toLowerCase()
+	room.onMessage('frostThaw', ({ userId }, context) => {
+		const from = senderId(context?.from, userId, 'frostThaw')
 		if (!from) return
 		notePlayerPresent(from)
 		if (!frozen.has(from)) return
