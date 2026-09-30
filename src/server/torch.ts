@@ -1,11 +1,10 @@
 /**
  * torch.ts — authoritative relay for held-torch visuals.
  *
- * Clients broadcast their local torch lit-state via the `torchLit`
- * message whenever it changes (light, extinguish). The server caches
- * the latest value per authenticated userId (context.from) and
- * re-broadcasts as `torchLitFrom` to every OTHER client — the sender
- * already knows its own state and renders it locally via src/client/torch.ts.
+ * Clients broadcast lit + remaining fuel fraction via `torchLit`.
+ * The server caches the latest value per authenticated userId and
+ * re-broadcasts as `torchLitFrom` so remote torch lights can dim
+ * with the holder's remaining burn time.
  *
  * On joinRoster, server.ts calls sendTorchStatesTo(joiner) so the new
  * client immediately learns every existing player's current torch
@@ -18,24 +17,35 @@
 
 import { room } from 'src/shared/messages'
 
+import { onCycleRoll } from 'src/server/cycle'
+
+
+interface TorchCache {
+	lit     : number
+	fuelFrac: number
+}
+
 
 // MARK: State
-// userId (lowercased) -> lit (0 | 1). Lowercased so the joiner-hydration
-// path is address-case insensitive; context.from casing varies across
-// hammurabi builds and we don't want stale duplicate entries.
-const torchLitByUser = new Map<string, number>()
+// userId (lowercased) -> last known torch. Lowercased so the joiner
+// hydration path is address-case insensitive.
+const torchByUser = new Map<string, TorchCache>()
 
 
 // MARK: sendTorchStatesTo
 /**
- * Push the full cached torch-lit table to a specific client. Called
+ * Push the full cached torch table to a specific client. Called
  * from the joinRoster handler in server.ts so a new joiner sees every
  * existing player's held torch (lit or unlit) from the first frame.
  */
 export function sendTorchStatesTo(userId: string): void {
-	torchLitByUser.forEach((lit, id) => {
+	torchByUser.forEach((rec, id) => {
 		if (id === userId.toLowerCase()) return
-		room.send('torchLitFrom', { userId: id, lit }, { to: [userId] })
+		room.send('torchLitFrom', {
+			userId  : id,
+			lit     : rec.lit,
+			fuelFrac: rec.fuelFrac,
+		}, { to: [userId] })
 	})
 }
 
@@ -46,17 +56,24 @@ export function sendTorchStatesTo(userId: string): void {
  * Idempotent — call once from setupServer().
  */
 export function setupTorchServer(): void {
-	room.onMessage('torchLit', ({ lit }, context) => {
+	room.onMessage('torchLit', ({ lit, fuelFrac }, context) => {
 		const from = context?.from
 		if (!from) return
 		const id     = from.toLowerCase()
 		const litInt = lit === 1 ? 1 : 0
-		if (torchLitByUser.get(id) === litInt) return
-		torchLitByUser.set(id, litInt)
-		// Broadcast to everyone; the sender ignores its own echo in the
-		// client handler (see src/client/remoteTorches.ts) so we don't
-		// need a per-message `to:` allowlist here.
-		room.send('torchLitFrom', { userId: id, lit: litInt })
+		const frac   = litInt === 0
+			? 0
+			: (typeof fuelFrac === 'number' ? fuelFrac : 1)
+		const prev = torchByUser.get(id)
+		if (
+			prev !== undefined &&
+			prev.lit === litInt &&
+			Math.abs(prev.fuelFrac - frac) < 0.04
+		) {
+			return
+		}
+		torchByUser.set(id, { lit: litInt, fuelFrac: frac })
+		room.send('torchLitFrom', { userId: id, lit: litInt, fuelFrac: frac })
 	})
 
 	// MARK: chainLightRequest handler
@@ -77,15 +94,22 @@ export function setupTorchServer(): void {
 			console.log('torchServer: chainLightRequest: invalid target, dropping')
 			return
 		}
-		if (torchLitByUser.get(senderId) !== 1) {
+		if (torchByUser.get(senderId)?.lit !== 1) {
 			console.log(`torchServer: chainLightRequest: sender ${senderId} not lit, dropping`)
 			return
 		}
-		if (torchLitByUser.get(targetId) === 1) {
-			// Target already lit — no-op, not an error.
+		if (torchByUser.get(targetId)?.lit === 1) {
 			return
 		}
-		torchLitByUser.set(targetId, 1)
-		room.send('torchLitFrom', { userId: targetId, lit: 1 })
+		torchByUser.set(targetId, { lit: 1, fuelFrac: 1 })
+		room.send('torchLitFrom', { userId: targetId, lit: 1, fuelFrac: 1 })
+	})
+
+	onCycleRoll(() => {
+		for (const id of torchByUser.keys()) {
+			torchByUser.set(id, { lit: 0, fuelFrac: 0 })
+			room.send('torchLitFrom', { userId: id, lit: 0, fuelFrac: 0 })
+		}
+		console.log(`[Server] torch: emptied ${torchByUser.size} torch(es) on world reset`)
 	})
 }

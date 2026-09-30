@@ -6,8 +6,10 @@
  * rolls the world on last-fire-out; this one is the minutes-long day
  * players feel.
  *
- * Always starts at DAY. On cycle roll, resets to DAY with a fresh
- * start time so a new world begins at dawn.
+ * Parked at DAWN until the first player joins, then the 12 s
+ * pre-sunrise window starts so load-in still plays over the rise.
+ * On cycle roll, resets to DAWN with a fresh start time so ember-fail
+ * cover drops on the same sunrise.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -31,6 +33,7 @@ let cycleId          = 0
 let nightsThisRun    = 0
 let heartbeatClock   = 0
 let installed        = false
+let clockArmed       = false
 
 
 // MARK: currentConfig
@@ -42,7 +45,7 @@ function currentConfig() {
 
 // MARK: getPhaseDrainMul
 
-/** Fuel-drain multiplier for the active phase. DAY 0.5, DUSK 1, NIGHT 2. */
+/** Fuel-drain multiplier for the active phase. DAWN/DAY 0.5, DUSK/NIGHT 2. */
 export function getPhaseDrainMul(): number {
 	return currentConfig().drainMul
 }
@@ -74,9 +77,17 @@ export function getPhaseWeatherFloor(): number {
 
 // MARK: getPhaseWeatherEnterLevel
 
-/** Level to snap up to on phase enter, or null to leave weather alone. */
+/** Level to snap to on phase enter, or null to leave weather alone. */
 export function getPhaseWeatherEnterLevel(): number | null {
 	return currentConfig().weatherEnterLevel
+}
+
+
+// MARK: isPhaseClockArmed
+
+/** True after the first joiner starts DAWN. Parked preview does not count. */
+export function isPhaseClockArmed(): boolean {
+	return clockArmed
 }
 
 
@@ -101,7 +112,13 @@ export function onPhaseChange(handler: PhaseChangeHandler): void {
 // MARK: notifyPhaseChange
 
 function notifyPhaseChange(): void {
-	for (const handler of phaseChangeHandlers) handler()
+	for (const handler of phaseChangeHandlers) {
+		try {
+			handler()
+		} catch (err) {
+			console.log(`[Server] phase: notifyPhaseChange: handler threw: ${err}`)
+		}
+	}
 }
 
 
@@ -109,7 +126,10 @@ function notifyPhaseChange(): void {
 
 function payload() {
 	const cfg = currentConfig()
-	const age = Math.max(0, (Date.now() - phaseStartedAtMs) / 1000)
+	const raw = clockArmed
+		? Math.max(0, (Date.now() - phaseStartedAtMs) / 1000)
+		: 0
+	const age = Math.min(raw, cfg.durationSec)
 	return {
 		phaseName       : cfg.name,
 		phaseIndex,
@@ -193,6 +213,7 @@ export function advancePhase(reason: string = 'tick'): void {
 // MARK: resetToDay
 
 function resetToDay(reason: string): void {
+	clockArmed       = true
 	phaseIndex       = 0
 	phaseStartedAtMs = Date.now()
 	cycleId          = 0
@@ -203,10 +224,29 @@ function resetToDay(reason: string): void {
 }
 
 
+// MARK: armPhaseClock
+
+/**
+ * Start the DAWN window. First joinRoster of the server lifetime; later
+ * joiners hydrate into whatever time the room already has.
+ */
+export function armPhaseClock(reason: string): void {
+	if (clockArmed) return
+	clockArmed       = true
+	phaseIndex       = 0
+	phaseStartedAtMs = Date.now()
+	cycleId          = 0
+	nightsThisRun    = 0
+	console.log(`[Server] phase: armPhaseClock: DAWN ${currentConfig().durationSec}s (${reason})`)
+	broadcastPhaseState()
+	notifyPhaseChange()
+}
+
+
 // MARK: setupPhaseServer
 
 /**
- * Start the phase clock at DAY and register the cycle-roll reset.
+ * Park at DAWN (clock frozen) and register the cycle-roll reset.
  * Idempotent — call once from setupServer after setupCycleServer.
  */
 export function setupPhaseServer(): void {
@@ -215,15 +255,18 @@ export function setupPhaseServer(): void {
 		return
 	}
 	installed        = true
+	clockArmed       = false
 	phaseIndex       = 0
-	phaseStartedAtMs = Date.now()
+	phaseStartedAtMs = 0
 	cycleId          = 0
 	nightsThisRun    = 0
 	console.log(
-		`[Server] phase: installed DAY ${currentConfig().durationSec}s ` +
+		`[Server] phase: installed ${currentConfig().name} ${currentConfig().durationSec}s parked ` +
 		`table=${DAILY_PHASES.map((p) => p.name).join('→')}`
 	)
-	broadcastPhaseState()
+	// Do not broadcast while parked. A boot/heartbeat DAWN age=0 lets
+	// the client start its own 12 s dawn, then the 15 s heartbeat
+	// rewinds it after DAY has already begun.
 
 	onCycleRoll(() => {
 		resetToDay('cycle roll')
@@ -236,6 +279,7 @@ export function setupPhaseServer(): void {
 	})
 
 	engine.addSystem((dt: number) => {
+		if (!clockArmed) return
 		let stepped = 0
 		while (stepped < DAILY_PHASES.length + 1) {
 			const cfg = currentConfig()

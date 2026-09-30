@@ -5,8 +5,8 @@
  * emote in place, fades to black, teleports the player back to the
  * campfire, holds black while the "stuck emote" workaround runs
  * (double-teleport → clear InputModifier → re-apply → fire emote),
- * fades back in with the player collapsed, then wakes on the first
- * movement input.
+ * fades back in with the player collapsed at the dawn spawn, then
+ * wakes on the first movement input.
  *
  * Emote + teleport ordering copied wholesale from flagtag's
  * cinematicSystem.ts + ghostSystem.ts. The stuck-emote workaround is
@@ -23,15 +23,17 @@ import {
 	engine,
 	inputSystem,
 } from '@dcl/sdk/ecs'
-import { movePlayerTo, triggerEmote } from '~system/RestrictedActions'
+import { triggerEmote } from '~system/RestrictedActions'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { FROST_MAX }                                             from 'src/shared/frost/tuning'
+import { FROST_MAX } from 'src/shared/frost/tuning'
 
-import { isEmberFailing }                                        from 'src/client/emberFail'
-import { getFrostLocal, resetFrostLocal }                        from 'src/client/frost/accumulation'
-import { extinguishTorch }                                       from 'src/client/torchEquip'
-import { isTopDownActive, toggleTopDownCamera }                  from 'src/client/topDownCamera'
+import { onCycleSeedChange } from 'src/client/cycle'
+import { isEmberFailing } from 'src/client/emberFail'
+import { getFrostLocal, resetFrostLocal } from 'src/client/frost/accumulation'
+import { clearCarriedWood } from 'src/client/logsInventory'
+import { teleportHome } from 'src/client/player'
+import { emptyTorch, extinguishTorch } from 'src/client/torchEquip'
+import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
 // MARK: Tuning
@@ -52,14 +54,6 @@ const SETTLE_TIME_S     = 0.35
 /** Beat between clearing InputModifier and re-applying + firing the emote. */
 const CLEAR_MOD_BEAT_S  = 0.5
 
-/**
- * Spawn point after death — a couple of meters north of the fire so
- * the player wakes up looking at it rather than standing on it. Y kept
- * near ground level; movePlayerTo will settle the avatar onto whatever
- * geometry is beneath.
- */
-const RESPAWN_POS = { x: CAMPFIRE_WORLD_X, y: CAMPFIRE_WORLD_Y + 0.5, z: CAMPFIRE_WORLD_Z + 3 }
-
 
 // MARK: FSM state
 enum Phase {
@@ -70,7 +64,7 @@ enum Phase {
 	SETTLE        = 4,  // second (same-spot) movePlayerTo → wait SETTLE_TIME_S
 	CLEAR_MOD     = 5,  // InputModifier removed → wait CLEAR_MOD_BEAT_S
 	EMOTE         = 6,  // InputModifier re-applied + emote fired → hold black for BLACK_HOLD_MIN_S
-	FADE_IN       = 7,  // screen fading back in, player collapsed at fire
+	FADE_IN       = 7,  // screen fading back in, player collapsed at spawn
 	WAKE_WAIT     = 8,  // wait for first movement input, then release lock
 }
 
@@ -78,6 +72,10 @@ let phase        = Phase.IDLE
 let phaseTimer   = 0
 let fadeOpacity  = 0 // 0 = clear, 1 = fully black
 let installed    = false
+/** True when ember-fail already owns the black — skip this FSM's fade. */
+let coverOwned   = false
+/** True once the arrival sequence has the player collapsed at the fire. */
+let laidDownAtHome = false
 
 
 // MARK: getDeathFadeOpacity
@@ -95,6 +93,26 @@ export function getDeathFadeOpacity(): number {
 /** True whenever the death FSM is running (any non-IDLE phase). */
 export function isFrostDying(): boolean {
 	return phase !== Phase.IDLE
+}
+
+
+// MARK: isPlayerLaidDownAtHome
+
+/**
+ * True once the stuck-emote workaround has fired and the player is
+ * collapsed at the dawn spawn. The cold-open cover waits on this.
+ */
+export function isPlayerLaidDownAtHome(): boolean {
+	return laidDownAtHome
+}
+
+
+// MARK: markLaidDownAtHome
+
+function markLaidDownAtHome(): void {
+	if (laidDownAtHome) return
+	laidDownAtHome = true
+	console.log('frost/death: markLaidDownAtHome: player is down by the fire')
 }
 
 
@@ -140,10 +158,34 @@ function enterDying(): void {
 		console.log('frost/death: enterDying: exiting spectate mode')
 		toggleTopDownCamera()
 	}
+	coverOwned = false
 	phase      = Phase.COLLAPSE
 	phaseTimer = 0
 	lockPlayer()
 	fireDeathEmote()
+}
+
+
+// MARK: beginCollapsedAtHome
+/**
+ * Arrive on the dawn spawn already collapsed, same pose as frost death.
+ * First join and ember-fail skip this FSM's fade (splash / cards own
+ * the black). A mid-run dev roll still fades through the death overlay.
+ */
+export function beginCollapsedAtHome(
+	opts: { skipFade?: boolean } = {},
+): void {
+	console.log('frost/death: beginCollapsedAtHome: laying down for the new run')
+	if (isTopDownActive()) {
+		console.log('frost/death: beginCollapsedAtHome: exiting spectate mode')
+		toggleTopDownCamera()
+	}
+	coverOwned   = opts.skipFade === true || isEmberFailing()
+	fadeOpacity  = coverOwned ? 0 : 1
+	phase        = Phase.TELEPORT
+	phaseTimer   = 0
+	lockPlayer()
+	teleportHome()
 }
 
 
@@ -158,6 +200,13 @@ export function setupFrostDeath(): void {
 		return
 	}
 	installed = true
+
+	onCycleSeedChange(({ oldSeed }) => {
+		if (oldSeed === null) return
+		clearCarriedWood()
+		emptyTorch()
+		beginCollapsedAtHome()
+	})
 
 	engine.addSystem((dt: number) => {
 		// ── IDLE: watch for freeze ─────────────────────────────
@@ -187,8 +236,7 @@ export function setupFrostDeath(): void {
 			fadeOpacity = Math.min(1, phaseTimer / FADE_OUT_S)
 			if (phaseTimer >= FADE_OUT_S) {
 				fadeOpacity = 1
-				// Screen fully black — safe to teleport now.
-				void movePlayerTo({ newRelativePosition: RESPAWN_POS })
+				teleportHome()
 				phase      = Phase.TELEPORT
 				phaseTimer = 0
 			}
@@ -197,12 +245,9 @@ export function setupFrostDeath(): void {
 
 		// ── TELEPORT: wait for first teleport to settle ─────────
 		if (phase === Phase.TELEPORT) {
-			fadeOpacity = 1
+			if (!coverOwned) fadeOpacity = 1
 			if (phaseTimer >= SETTLE_TIME_S) {
-				// Second same-spot teleport clears the stuck-emote /
-				// mid-animation state that mid-emote teleports leave
-				// behind. Flagtag pattern.
-				void movePlayerTo({ newRelativePosition: RESPAWN_POS })
+				teleportHome()
 				phase      = Phase.SETTLE
 				phaseTimer = 0
 			}
@@ -211,7 +256,7 @@ export function setupFrostDeath(): void {
 
 		// ── SETTLE: after second teleport ──────────────────────
 		if (phase === Phase.SETTLE) {
-			fadeOpacity = 1
+			if (!coverOwned) fadeOpacity = 1
 			if (phaseTimer >= SETTLE_TIME_S) {
 				// Remove InputModifier to unstick the animation state,
 				// then re-apply after a short beat.
@@ -224,7 +269,7 @@ export function setupFrostDeath(): void {
 
 		// ── CLEAR_MOD: beat, then re-lock + fire emote ─────────
 		if (phase === Phase.CLEAR_MOD) {
-			fadeOpacity = 1
+			if (!coverOwned) fadeOpacity = 1
 			if (phaseTimer >= CLEAR_MOD_BEAT_S) {
 				lockPlayer()
 				fireDeathEmote()
@@ -244,10 +289,17 @@ export function setupFrostDeath(): void {
 
 		// ── EMOTE: hold black briefly so emote registers ───────
 		if (phase === Phase.EMOTE) {
-			fadeOpacity = 1
+			if (!coverOwned) fadeOpacity = 1
 			if (phaseTimer >= BLACK_HOLD_MIN_S) {
-				phase      = Phase.FADE_IN
-				phaseTimer = 0
+				if (coverOwned) {
+					fadeOpacity = 0
+					phase       = Phase.WAKE_WAIT
+					phaseTimer  = 0
+					markLaidDownAtHome()
+				} else {
+					phase      = Phase.FADE_IN
+					phaseTimer = 0
+				}
 			}
 			return
 		}
@@ -259,6 +311,7 @@ export function setupFrostDeath(): void {
 				fadeOpacity = 0
 				phase       = Phase.WAKE_WAIT
 				phaseTimer  = 0
+				markLaidDownAtHome()
 			}
 			return
 		}
@@ -266,8 +319,7 @@ export function setupFrostDeath(): void {
 		// ── WAKE_WAIT: first movement input wakes the player ────
 		if (phase === Phase.WAKE_WAIT) {
 			fadeOpacity = 0
-			// Any locomotion input counts. IA_JUMP included so the mobile
-			// jump button also works.
+			lockPlayer()
 			const woke =
 				inputSystem.isPressed(InputAction.IA_FORWARD)  ||
 				inputSystem.isPressed(InputAction.IA_BACKWARD) ||
@@ -278,6 +330,7 @@ export function setupFrostDeath(): void {
 				inputSystem.isPressed(InputAction.IA_SECONDARY)
 			if (woke) {
 				unlockPlayer()
+				coverOwned = false
 				console.log('frost/death: player woke')
 				phase      = Phase.IDLE
 				phaseTimer = 0

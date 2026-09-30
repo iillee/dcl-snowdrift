@@ -27,6 +27,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
+import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
 
@@ -104,6 +105,7 @@ let torchAnchor: Entity = 0 as Entity
 let torchTip:    Entity = 0 as Entity
 let flame:       Entity = 0 as Entity
 let smoke:       Entity = 0 as Entity
+let torchLight:  Entity = 0 as Entity
 
 // MARK: isTorchProtecting
 /**
@@ -174,6 +176,15 @@ export function setupTorch(): void {
 	// Hidden until the fuel-tracker system flips it on next frame.
 	VisibilityComponent.create(flame, { visible: false })
 
+	// Layer 3b: Point light at the flame, not parented to the shrinking
+	// orb so Transform.scale on the sphere does not shrink the pool.
+	torchLight = engine.addEntity()
+	Transform.create(torchLight, {
+		parent  : torchAnchor,
+		position: FLAME_LOCAL_POS,
+	})
+	syncPointLight(torchLight, torchLightParams(false, 0, 1))
+
 	// Layer 4: Smoke wisp — tiny upward cone parented to the ANCHOR so
 	// it tracks the right hand automatically. Starts stopped; the
 	// fuel-tracker system below toggles playbackState with lit state.
@@ -226,13 +237,19 @@ export function setupTorch(): void {
 	// the local lit-state edge-changes, so other clients can mirror the
 	// flame on our avatar's held torch (see src/client/remoteTorches.ts).
 	let lastBroadcastLit: boolean | null = null
+	let lastBroadcastFrac = -1
+	const FUEL_BROADCAST_STEP = 0.05
 	engine.addSystem(() => {
 		const lit  = isTorchLit()
 		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
 
-		if (lastBroadcastLit !== lit) {
-			lastBroadcastLit = lit
-			room.send('torchLit', { lit: lit ? 1 : 0 })
+		if (
+			lastBroadcastLit !== lit ||
+			(lit && Math.abs(frac - lastBroadcastFrac) >= FUEL_BROADCAST_STEP)
+		) {
+			lastBroadcastLit  = lit
+			lastBroadcastFrac = lit ? frac : 0
+			room.send('torchLit', { lit: lit ? 1 : 0, fuelFrac: lastBroadcastFrac })
 		}
 
 		const vis = VisibilityComponent.getMutableOrNull(flame)
@@ -265,6 +282,8 @@ export function setupTorch(): void {
 				mat.material.pbr.emissiveIntensity = want
 			}
 		}
+
+		syncPointLight(torchLight, torchLightParams(lit, frac, flameMul))
 	})
 
 	console.log('torch: setupTorch: attached to right hand, shrinking flame mounted')

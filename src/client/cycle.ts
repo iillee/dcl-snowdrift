@@ -28,11 +28,14 @@
  * doesn't render 00:00:00 in the joining frame.
  */
 
-import { HIDDEN_CYCLE_MS, getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { SeedHolder, seedHolder } from 'src/shared/components'
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { HIDDEN_CYCLE_MS, getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 
-import { teleportHome } from 'src/client/player'
+import { resetFrostLocal } from 'src/client/frost/accumulation'
+import { resetPhaseToDawn } from 'src/client/phase'
+import { flushSkybox } from 'src/client/skybox'
 import { resetSnowToPristine } from 'src/client/snow/snowModel'
 
 
@@ -79,25 +82,6 @@ export function onCycleSeedChange(handler: SeedChangeHandler): void {
 }
 
 
-// MARK: cycleMazeSeed
-/**
- * Deterministic maze/prop/cliff seed derived from the cycle seed. We
- * keep the two seed systems separate (cycle = 24 h bucket integer;
- * maze/prop seed = wider integer used by SeedHolder) so consumers
- * that only care about world regeneration don't have to think about
- * time buckets. Xorshift-style mix produces enough spread that
- * consecutive cycle buckets look visually unrelated.
- */
-export function cycleMazeSeed(cycleSeed: number): number {
-	let s = (cycleSeed ^ 0x9E3779B1) >>> 0
-	s = Math.imul(s ^ (s >>> 16), 0x85EBCA6B) >>> 0
-	s = Math.imul(s ^ (s >>> 13), 0xC2B2AE35) >>> 0
-	s = (s ^ (s >>> 16)) >>> 0
-	// SeedHolder rejects 0 (used as "unset"), so clamp.
-	return s === 0 ? 1 : s
-}
-
-
 // MARK: applyCycleSeedChange
 /**
  * Run the full seed-change reaction (teleport, SeedHolder publish,
@@ -124,7 +108,9 @@ export function applyCycleSeedChange(newSeed: number): void {
 		// Mid-game regen never uses the thumbnail splash. Ember-fail
 		// holds its own black cards; other rolls get a black cover
 		// from the splash layer until snow + cliffs settle.
-		teleportHome()
+		resetPhaseToDawn('cycle roll')
+		flushSkybox()
+		resetFrostLocal()
 		resetSnowToPristine()
 	}
 

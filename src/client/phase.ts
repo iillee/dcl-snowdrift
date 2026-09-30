@@ -11,7 +11,7 @@ import { engine } from '@dcl/sdk/ecs'
 import { room } from 'src/shared/messages'
 import {
 	DAILY_PHASES,
-	SKY_07,
+	SKY_0620,
 	PhaseConfig,
 	dailyPhaseAt,
 	formatPhaseCountdown,
@@ -109,11 +109,14 @@ export function getDayNumber(): number {
 
 /**
  * Skybox seconds (0..86400) for the current phase progress.
- * Before hydration, returns 07:00 so the lock has a stable park.
+ * Before hydration, returns 06:20 so the lock parks just before sunrise.
  */
 export function getPhaseSkyboxSeconds(): number {
-	if (!hydrated) return SKY_07
-	const cfg = dailyPhaseAt(phaseIndex)
+	if (!hydrated) return SKY_0620
+	// Follow the HUD name, not just the index, so a stale index cannot
+	// run the sun through the wrong sky range (that reads as speedup).
+	const byName = DAILY_PHASES.find((row) => row.name === phaseName)
+	const cfg    = byName ?? dailyPhaseAt(phaseIndex)
 	return phaseSkyboxSeconds(
 		cfg.skyFrom,
 		cfg.skyTo,
@@ -136,6 +139,26 @@ function applyPhaseState(msg: {
 	const prevName  = phaseName
 	const prevCycle = cycleId
 	const changed   = phaseName !== msg.phaseName || phaseIndex !== msg.phaseIndex
+	if (hydrated && msg.cycleId === cycleId) {
+		// Same run, older row: a parked/join DAWN packet after
+		// catchUpLocal already stepped to DAY. Applying it freezes
+		// the sun at 06:20 and the HUD on DAWN.
+		if (msg.phaseIndex < phaseIndex) {
+			console.log(
+				`phase: applyPhaseState: ignore rewind ${msg.phaseName} idx=${msg.phaseIndex} ` +
+				`(local ${phaseName} idx=${phaseIndex})`
+			)
+			return
+		}
+		// Same row, older age: joinRoster retries send age=0 and
+		// pin the rise at its first frame.
+		if (msg.phaseIndex === phaseIndex) {
+			const incomingStarted = Date.now() - Math.max(0, msg.phaseAgeSec) * 1000
+			if (incomingStarted > phaseStartedAtMs + 400) {
+				return
+			}
+		}
+	}
 	phaseName        = msg.phaseName
 	phaseIndex       = msg.phaseIndex
 	phaseDurationSec = msg.phaseDurationSec
@@ -149,8 +172,17 @@ function applyPhaseState(msg: {
 			`${first ? ' (hydration)' : ''}`
 		)
 	}
-	// A cycleId drop is a new run (ember-fail / 24 h roll), not a sunrise.
-	if (!first && changed && msg.cycleId >= prevCycle) maybeAnnounceDawn(prevName)
+	// A cycleId drop is a new run (ember-fail / world roll). Dawn
+	// splash stays off — ember-fail owns the screen — but the clock
+	// starts at DAWN so the sun is still rising when the cover drops.
+	if (!first && msg.cycleId < prevCycle) {
+		console.log(
+			`phase: applyPhaseState: new run cycleId ${prevCycle} -> ${cycleId}, ` +
+			`${phaseName} remaining=${formatPhaseCountdown(getPhaseRemainingSec())}`
+		)
+	} else if (!first && changed && msg.cycleId >= prevCycle) {
+		maybeAnnounceDawn(prevName)
+	}
 }
 
 
@@ -188,10 +220,10 @@ function catchUpLocal(): void {
 
 // MARK: maybeAnnounceDawn
 
-/** Sunrise title once per wrap into DAY. Skip the join-hydration snapshot. */
+/** Sunrise title once per wrap into DAWN. Skip the join-hydration snapshot. */
 function maybeAnnounceDawn(prevName: string): void {
-	if (prevName === 'DAY') return
-	if (phaseName !== 'DAY') return
+	if (prevName === 'DAWN') return
+	if (phaseName !== 'DAWN') return
 	beginDaySplash(getDayNumber())
 }
 
@@ -208,6 +240,9 @@ export function setupPhaseClient(): void {
 		return
 	}
 	installed = true
+	// Run the rise locally even if the first phaseState is late or
+	// the server is still parked. A later snapshot overwrites this.
+	resetPhaseToDawn('boot')
 	room.onMessage('phaseState', (msg) => {
 		applyPhaseState(msg)
 	})
@@ -215,4 +250,22 @@ export function setupPhaseClient(): void {
 		catchUpLocal()
 	})
 	console.log('phase: setupPhaseClient: listening for phaseState')
+}
+
+
+// MARK: resetPhaseToDawn
+/**
+ * Jump the local clock to the start of DAWN. Used on world reset so
+ * the HUD and skybox do not wait for the next phaseState packet.
+ * Server resetToDay is still authoritative and will overwrite this.
+ */
+export function resetPhaseToDawn(reason: string): void {
+	const cfg        = dailyPhaseAt(0)
+	phaseName        = cfg.name
+	phaseIndex       = 0
+	phaseDurationSec = cfg.durationSec
+	phaseStartedAtMs = Date.now()
+	cycleId          = 0
+	hydrated         = true
+	console.log(`phase: resetPhaseToDawn: ${cfg.name} ${cfg.durationSec}s (${reason})`)
 }

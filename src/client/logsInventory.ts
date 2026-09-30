@@ -1,24 +1,21 @@
 /**
- * logsInventory.ts - client-local state for the "carrying logs" hand slot.
+ * logsInventory.ts - client-local state for the F-slot wood carry.
  *
- * Second inventory slot alongside the torch (torchEquip.ts). Currently
- * boolean-only (you're carrying a log or you're not); when the fueling
- * loop gains a stack count or log types, this becomes the natural home
- * for that state.
- *
- * Local-only for now. Once feed-fire lands, pickup/drop will need to
- * be broadcast so other players see the log GLB attach to the hand and
- * disappear from the world in sync.
+ * Single item: a branch (kindling, 30 s) or a log (60 s). Pickup,
+ * drop, and feed all keep the kind so the matching GLB and fuel
+ * amount round-trip through the server.
  */
 
 
 import { Transform, engine } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { getLitHiddenFires, isInHiddenRelightRange }                        from 'src/client/hiddenCampfire'
-import { playDropSfx, playPickupSfx, playSurgeSfxLocal }                    from 'src/client/audio'
-import { spawnLogsBounce }                                                  from 'src/client/logsPickupFx'
-import { requestFeedFire }                                                  from 'src/client/hearthFuel'
+import { clampWoodKind, WOOD_KIND_LOG } from 'src/shared/woodKind'
+
+import { playDropSfx, playPickupSfx, playSurgeSfxLocal } from 'src/client/audio'
+import { requestFeedFire } from 'src/client/hearthFuel'
+import { getLitHiddenFires, isInHiddenRelightRange } from 'src/client/hiddenCampfire'
+import { spawnLogsBounce } from 'src/client/logsPickupFx'
 
 
 /**
@@ -30,46 +27,67 @@ import { requestFeedFire }                                                  from
 const FEED_RADIUS_SQ = CAMPFIRE_RELIGHT_RADIUS_SQ_M
 
 let _hasLogs = false
+let _kind    = WOOD_KIND_LOG
 
 
 // MARK: hasLogs
-/** True when the local player is carrying a log in the F-slot. */
+/** True when the local player is carrying wood in the F-slot. */
 export function hasLogs(): boolean {
 	return _hasLogs
 }
 
 
+// MARK: getCarriedKind
+/** WOOD_KIND_BRANCH or WOOD_KIND_LOG for the current (or last) carry. */
+export function getCarriedKind(): number {
+	return _kind
+}
+
+
 // MARK: pickupLogs
 /**
- * Mark the local player as carrying a log. No-op if already carrying;
+ * Mark the local player as carrying `kind`. No-op if already carrying;
  * the F slot is single-item for now.
  */
-export function pickupLogs(): void {
+export function pickupLogs(kind: number = WOOD_KIND_LOG): void {
 	if (_hasLogs) return
 	_hasLogs = true
+	_kind    = clampWoodKind(kind)
 	playPickupSfx()
-	// Cosmetic "+1 log" bounce over the local player's head. Head-bounce
-	// FX for OTHER players' pickups is triggered from the server-
-	// confirmed pickup message handlers (see wood.ts). Pass NO playerId
-	// so AvatarAttach auto-binds to the local avatar (passing an
-	// explicit avatarId here fails silently and orphans the rig at
-	// (0,0,0) - looks like a teleport).
-	spawnLogsBounce()
-	console.log('logsInventory: pickupLogs: F slot now holds a log')
+	// Cosmetic bounce over the local player's head. Head-bounce FX for
+	// OTHER players' pickups is triggered from the server-confirmed
+	// pickup message handlers (see wood.ts). Pass NO playerId so
+	// AvatarAttach auto-binds to the local avatar (passing an explicit
+	// avatarId here fails silently and orphans the rig at (0,0,0) -
+	// looks like a teleport).
+	spawnLogsBounce(undefined, _kind)
+	console.log(`logsInventory: pickupLogs: F slot now holds kind=${_kind}`)
 }
 
 
 // MARK: dropLogs
 /**
- * Clear the F slot. Called when the player drops the log on the ground
- * (future: spawn a log entity at the player's feet) or loses it on
- * death (future).
+ * Clear the F slot. Called when the player drops the piece on the
+ * ground or loses it on death (future).
  */
 export function dropLogs(): void {
 	if (!_hasLogs) return
 	_hasLogs = false
 	playDropSfx()
 	console.log('logsInventory: dropLogs: F slot cleared')
+}
+
+
+// MARK: clearCarriedWood
+
+/**
+ * Drop the F slot with no sound and no ground pile. Used when the
+ * world dies and the new run starts empty-handed.
+ */
+export function clearCarriedWood(): void {
+	if (!_hasLogs) return
+	_hasLogs = false
+	console.log('logsInventory: clearCarriedWood: F slot cleared on world reset')
 }
 
 
@@ -95,18 +113,19 @@ export function isInFeedRange(): boolean {
 
 // MARK: feedFire
 /**
- * Consume the carried log to feed the central campfire. Currently just
- * clears the F slot with a log line — the campfire fuel state system
- * (N1 per docs/PLAN.md) lands next and will add +fuel here.
+ * Consume the carried piece and ask the server to add its fuel to the
+ * nearest lit fire in range.
  */
 export function feedFire(): void {
 	if (!_hasLogs) return
-	_hasLogs = false
-	// Ignition surge is the whoosh on log placement. Replaces the earlier
-	// drop-sfx placeholder — stacking both createOrReplaces on the shared
-	// SFX entity in the same frame caused audible glitches on the fire's
-	// looping crackle. Local-global because the player is standing right
-	// at the fire, so the feedback should be loud + reliable.
+	const kind = _kind
+	_hasLogs   = false
+	// Ignition surge is the whoosh on placement. Replaces the earlier
+	// drop-sfx placeholder — stacking both createOrReplaces on the
+	// shared SFX entity in the same frame caused audible glitches on
+	// the fire's looping crackle. Local-global because the player is
+	// standing right at the fire, so the feedback should be loud +
+	// reliable.
 	playSurgeSfxLocal()
 	// Route to the nearest lit fire the player is standing at.
 	// Preference: hidden > main. Rationale: hidden fires require
@@ -114,8 +133,8 @@ export function feedFire(): void {
 	// almost certainly means to feed IT, not the distant central
 	// hearth. Falls back to -1 (main) when no hidden fire is in range.
 	const target = pickFeedTarget()
-	requestFeedFire(target)
-	console.log(`logsInventory: feedFire: log consumed, target=${target}`)
+	requestFeedFire(target, kind)
+	console.log(`logsInventory: feedFire: kind=${kind} consumed, target=${target}`)
 }
 
 

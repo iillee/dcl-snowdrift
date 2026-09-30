@@ -88,6 +88,19 @@ export function extinguishTorch(): void {
 }
 
 
+// MARK: emptyTorch
+
+/**
+ * Put the flame out and zero the tank. Relight at a fire fills it
+ * again. Used when the world dies so the new run starts cold.
+ */
+export function emptyTorch(): void {
+	lit  = false
+	fuel = 0
+	console.log('torchEquip: emptyTorch: flame out, fuel 0')
+}
+
+
 // MARK: relightTorchPartial
 /**
  * Ignite the torch and SET fuel to a specific amount (clamped to max).

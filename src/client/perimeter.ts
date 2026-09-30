@@ -74,6 +74,25 @@ export function setPerimeterSeed(seed: number): void {
 }
 
 
+// MARK: reservedCellsForMazeSeed
+
+/**
+ * Cliff cells the prop scatter must avoid, keyed `tx,tz,0`.
+ *
+ * Sets the perimeter seed first so the reservation matches the cliffs
+ * and trees built for that same layout seed. Safe to call from the
+ * wood scatter on both sides: client and server are separate processes.
+ */
+export function reservedCellsForMazeSeed(mazeSeed: number): Set<string> {
+	setPerimeterSeed(mazeSeed)
+	const out = new Set<string>()
+	for (const c of getReservedPlayfieldCells()) {
+		out.add(`${c.tx},${c.tz},0`)
+	}
+	return out
+}
+
+
 // MARK: Tuning
 // Perimeter tiles now use the dedicated `tile-cliff-*.glb` models,
 // authored at final size in SketchUp/Blender — 64 m footprint, correct

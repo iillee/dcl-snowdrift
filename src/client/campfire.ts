@@ -1,16 +1,23 @@
 /**
  * campfire.ts - placeholder campfire visual at scene center.
  *
- * Cosmetic only for now: a single GltfContainer entity, no state, no
- * fuel decay, no light. The real fire (flame scale from fuel, ember
- * drift, warmth radius) lands with system N1 per docs/PLAN.md.
+ * Cosmetic: split GLBs for base + flame, crackle audio, and a point
+ * light whose range tracks the melt ring.
  */
 
 import { AudioSource, GltfContainer, Transform, engine } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { getMainFireFlameScale, getMainFireTier, getMainFireVolume } from 'src/client/hearthFuel'
+
+import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
+import {
+	getMainFireFlameScale,
+	getMainFireFuel,
+	getMainFireMeltRadius,
+	getMainFireTier,
+	getMainFireVolume,
+} from 'src/client/hearthFuel'
 
 
 // Split GLBs (base logs + flame) so we can scale ONLY the flame on
@@ -24,6 +31,8 @@ const CAMPFIRE_SFX         = 'assets/sounds/campfire.mp3'
 // Now MULTIPLIED by hearthFuel's tier volume curve (0.3..1.0), so the
 // fire's audible presence grows/shrinks with fuel.
 const CAMPFIRE_VOLUME = 0.8
+/** Local Y of the hearth point light, above the log pile. */
+const HEARTH_LIGHT_Y  = 1.4
 
 
 // MARK: setupCampfire
@@ -58,6 +67,13 @@ export function setupCampfire(): void {
 		volume      : CAMPFIRE_VOLUME,
 	})
 
+	const light = engine.addEntity()
+	Transform.create(light, {
+		parent  : root,
+		position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
+	})
+	syncPointLight(light, hearthLightParams(getMainFireFuel(), getMainFireMeltRadius()))
+
 	// Relight is handled entirely by torchInput.ts: press E anywhere
 	// inside the campfire heat ring. Proximity-only — no pointer/aim
 	// required. The old pointerEventsSystem hook on this GLB was
@@ -91,5 +107,6 @@ export function setupCampfire(): void {
 			AudioSource.getMutable(root).volume = vol
 			lastWrittenVol = vol
 		}
+		syncPointLight(light, hearthLightParams(getMainFireFuel(), getMainFireMeltRadius()))
 	})
 }

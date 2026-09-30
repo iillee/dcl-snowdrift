@@ -28,11 +28,13 @@ import {
 	FUEL_MAX_BURST_RADIUS_M,
 	LOG_FUEL_SECONDS,
 	TIER_FUEL,
+	fuelSecondsForKind,
 	hearthDecayRate,
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
 } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
+import { clampWoodKind } from 'src/shared/woodKind'
 
 import { onCycleRoll } from 'src/server/cycle'
 import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
@@ -110,10 +112,13 @@ function rearmMaxBurstIfSafe(): void {
 function syncMeltRingToCurrentFuel(): void {
 	const r = hearthRadiusFromFuel(mainFuel)
 	console.log(`[Server] hearthFuel: sync melt ring to ${r.toFixed(1)}m`)
-	meltDisc(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r)
+	if (r > 0) {
+		meltDisc(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r)
+	}
 	// previousRadiusM = FUEL_MAX_BURST_RADIUS_M so any cell the main
 	// hearth ever melted (including at max-burst) is swept, while hidden
-	// fires far from the centre are left alone.
+	// fires far from the centre are left alone. r = 0 releases the
+	// whole disc, including the cell under the logs.
 	releaseDiscOutside(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, r, FUEL_MAX_BURST_RADIUS_M)
 }
 
@@ -193,7 +198,7 @@ export function setupHearthFuelServer(): void {
 	// Feed handler. Trust the client's has-log guard for now; server
 	// just clamps to the max. Immediate broadcast so the feeder sees
 	// their contribution land without waiting for the next threshold.
-	room.onMessage('feedFireRequest', ({ target }, context) => {
+	room.onMessage('feedFireRequest', ({ target, kind }, context) => {
 		// Main hearth handler - filter to target=-1 only. Hidden fire
 		// slots (0..N-1) are handled by src/server/hiddenCampfire.ts.
 		if (target !== -1) return
@@ -202,12 +207,13 @@ export function setupHearthFuelServer(): void {
 			return
 		}
 		const from     = context?.from ?? 'unknown'
+		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = mainFuel
 		const prevTier = hearthTierFromFuel(prev)
-		mainFuel       = Math.min(FUEL_MAX, mainFuel + LOG_FUEL_SECONDS)
+		mainFuel       = Math.min(FUEL_MAX, mainFuel + add)
 		const newTier  = hearthTierFromFuel(mainFuel)
 		console.log(
-			`[Server] hearthFuel: feed by ${from}  ` +
+			`[Server] hearthFuel: feed by ${from} kind=${clampWoodKind(kind)} ` +
 			`${prev.toFixed(1)}s -> ${mainFuel.toFixed(1)}s (tier ${newTier})`
 		)
 		if (newTier !== prevTier) syncMeltRingToCurrentFuel()
@@ -232,6 +238,7 @@ export function setupHearthFuelServer(): void {
 		rearmMaxBurstIfSafe()
 		if (prev > 0 && mainFuel <= 0) {
 			console.log('[Server] hearthFuel: spawn hearth burned out')
+			syncMeltRingToCurrentFuel()
 			checkEmberFail()
 		}
 

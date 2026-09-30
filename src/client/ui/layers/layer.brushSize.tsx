@@ -20,7 +20,7 @@ import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from '
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
-import { feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
+import { feedFire, getCarriedKind, hasLogs, isInFeedRange } from 'src/client/logsInventory'
 import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
 import { isHiddenCampfirePromptVisible } from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 import { isRelightPromptVisible }        from 'src/client/ui/layers/layer.relightPrompt'
@@ -31,6 +31,7 @@ import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { canZoomIn, canZoomOut, isTopDownActive, toggleTopDownCamera, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
+import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -884,16 +885,10 @@ export function TorchButton() {
 
 // MARK: LogsButton
 /**
- * Empty inventory slot placeholder for wood logs — sits to the LEFT of
- * the torch slot in the frost-bar row. Identical footprint, panel, and
- * border-radius to TorchButton so the two slots read as a matched pair
- * (torch + wood, the future N3 hand-slot exclusivity from PLAN.md).
- *
- * Intentionally empty: no icon, no fill, no click handler yet. When the
- * wood pickup + carry loop lands, this slot gets an icon + count badge
- * and (probably) a subtle border-on state when the player is carrying
- * a log. Kept as its own exported component so the frost-bar layout
- * can drop it in without importing wood state.
+ * Wood inventory slot to the LEFT of the torch slot. Identical
+ * footprint to TorchButton. Empty when not carrying; shows logs.png
+ * or branch.png when the F-slot is filled. Gold border while the
+ * Feed tooltip is up.
  */
 export function LogsButton() {
 	const carrying    = hasLogs()
@@ -939,7 +934,11 @@ export function LogsButton() {
 					uiTransform = {{ width: iconPx, height: iconPx }}
 					uiBackground = {{
 						textureMode: 'stretch',
-						texture    : { src: 'assets/images/logs.png' },
+						texture    : {
+							src: getCarriedKind() === WOOD_KIND_BRANCH
+								? 'assets/images/branch.png'
+								: 'assets/images/logs.png',
+						},
 						color      : WHITE,
 					}}
 				/>

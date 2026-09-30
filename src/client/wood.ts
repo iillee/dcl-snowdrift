@@ -15,16 +15,19 @@
  *     with woodChunkRemoved -> client despawns. Server also rejects
  *     pickups on unmelted cells.
  *
- * Local pickup effect: reuses pickupLogs() so the F slot fills the
- * same way it does for a hearth pile. Two systems (scatter chunks +
- * dropped piles) share one carry state; the player just carries "a
- * log".
+ * Local pickup effect: reuses pickupLogs(kind) so the F slot fills
+ * the same way it does for a dropped pile. Two systems (scatter
+ * chunks + dropped piles) share one carry state; the player carries
+ * either a branch or a log.
+ *
+ * Four logs sit at the foot of each scattered tree, toward the hearth.
  */
 
-import { Billboard, BillboardMode, GltfContainer, Material, MaterialTransparencyMode, MeshRenderer, Transform, engine, Entity } from '@dcl/sdk/ecs'
-import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+import { Billboard, BillboardMode, Material, MaterialTransparencyMode, MeshRenderer, Transform, engine, Entity } from '@dcl/sdk/ecs'
+import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
@@ -32,19 +35,10 @@ import { computeWoodScatter, WoodChunk } from 'src/shared/woodScatter'
 
 import { hasLogs, pickupLogs } from 'src/client/logsInventory'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
+import { reservedCellsForMazeSeed } from 'src/client/perimeter'
 import { getDisplayedStage } from 'src/client/snow/snowModel'
+import { attachWoodModel } from 'src/client/woodVisual'
 
-
-/**
- * Reuses the hearth-pile GLB as a placeholder for a single chunk. Feels
- * oversized for a chunk-in-the-snow but keeps the asset bill tiny; swap
- * to a dedicated single-log GLB when we have one.
- */
-const WOOD_CHUNK_MODEL = 'assets/models/logs_pickup.glb'
-/** Uniform scale applied to the chunk GLB. Currently 1.0 (full pile
- *  size) for tuning visibility - shrink once we know players can spot
- *  them across the field. */
-const WOOD_CHUNK_SCALE = 1.0
 
 // MARK: Dev beacon
 // Temporary locator marker over each wood chunk so testers can find them
@@ -73,6 +67,7 @@ interface ChunkRec {
 	beacon: Entity | null
 	x     : number
 	z     : number
+	kind  : number
 	/** False right after spawn; becomes true once the local player has
 	 *  been outside the pickup radius. Prevents instant re-grab after a
 	 *  trickle respawn near a stationary player. */
@@ -134,7 +129,7 @@ export function setupWoodClient(): void {
 		if (!me)                                    return
 		if (!pickerId)                              return
 		if (pickerId.toLowerCase() === me)          return
-		spawnLogsBounce(pickerId)
+		spawnLogsBounce(pickerId, scatter[idx]?.kind)
 	})
 
 	engine.addSystem(proximityPollSystem)
@@ -146,7 +141,8 @@ export function setupWoodClient(): void {
 function rebuildForSeed(seed: number): void {
 	if (seed === currentSeed && scatter.length > 0) return
 	currentSeed = seed
-	scatter     = computeWoodScatter(seed)
+	const reserved = reservedCellsForMazeSeed(cycleMazeSeed(seed))
+	scatter        = computeWoodScatter(seed, reserved)
 	console.log(`wood: rebuildForSeed seed=${seed} count=${scatter.length}`)
 }
 
@@ -160,23 +156,12 @@ function spawnChunk(idx: number, armed: boolean): void {
 		return
 	}
 	const entity = engine.addEntity()
-	Transform.create(entity, {
-		position: Vector3.create(c.worldX, LOGS_PILE_WORLD_Y, c.worldZ),
-		rotation: Quaternion.fromEulerDegrees(0, (idx * 37) % 360, 0),
-		scale   : Vector3.create(WOOD_CHUNK_SCALE, WOOD_CHUNK_SCALE, WOOD_CHUNK_SCALE),
-	})
-	// Colliders disabled: chunks should never block player movement or
-	// physics rays — players walk over them to pick them up.
-	GltfContainer.create(entity, {
-		src                          : WOOD_CHUNK_MODEL,
-		visibleMeshesCollisionMask   : 0,
-		invisibleMeshesCollisionMask : 0,
-	})
+	attachWoodModel(entity, c.kind, c.worldX, c.worldZ, (idx * 37) % 360)
 
 	let beacon: Entity | null = null
 	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldZ)
 
-	chunkEntities.set(idx, { entity, beacon, x: c.worldX, z: c.worldZ, armed })
+	chunkEntities.set(idx, { entity, beacon, x: c.worldX, z: c.worldZ, kind: c.kind, armed })
 }
 
 
@@ -285,10 +270,10 @@ function proximityPollSystem(dt: number): void {
 		// Optimistically fill the F slot + hide the entity, then ask the
 		// server to make it authoritative. Confirmation arrives as
 		// woodChunkRemoved, which destroys the entity.
-		pickupLogs()
+		pickupLogs(rec.kind)
 		despawnChunk(idx)
 		room.send('woodPickupRequest', { seed: currentSeed, idx })
-		console.log(`wood: pickup request sent idx=${idx}`)
+		console.log(`wood: pickup request sent idx=${idx} kind=${rec.kind}`)
 		break // one pickup per poll
 	}
 }
@@ -307,3 +292,4 @@ function armChunksOutOfRange(): void {
 		if (dx * dx + dz * dz > LOGS_PICKUP_RADIUS_SQ) rec.armed = true
 	}
 }
+

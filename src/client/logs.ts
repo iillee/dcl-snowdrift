@@ -24,15 +24,15 @@
  *     nothing to roll back local carrying. See design note above.
  */
 
-import { GltfContainer, Transform, VisibilityComponent, engine, Entity } from '@dcl/sdk/ecs'
-import { Quaternion, Vector3 } from '@dcl/sdk/math'
+import { Transform, VisibilityComponent, engine, Entity } from '@dcl/sdk/ecs'
 
-import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
-import { hasLogs, pickupLogs }                     from 'src/client/logsInventory'
-import { room }                                    from 'src/shared/messages'
+import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
+import { room } from 'src/shared/messages'
+import { clampWoodKind } from 'src/shared/woodKind'
 
+import { hasLogs, pickupLogs } from 'src/client/logsInventory'
+import { attachWoodModel } from 'src/client/woodVisual'
 
-const LOGS_PILE_MODEL = 'assets/models/logs_pickup.glb'
 
 /** Proximity poll cadence (s). Matches locomotion.ts (150 ms) so we
  *  amortise cost across the frame budget. */
@@ -43,6 +43,7 @@ interface PileRec {
 	entity: Entity
 	x     : number
 	z     : number
+	kind  : number
 	/** False right after a drop; becomes true once the local player has
 	 *  left the pickup radius at least once. Prevents instant re-grab. */
 	armed : boolean
@@ -52,25 +53,24 @@ const piles = new Map<number, PileRec>()
 
 
 // MARK: spawnPileEntity
-function spawnPileEntity(id: number, x: number, z: number, armed: boolean): void {
+function spawnPileEntity(
+	id   : number,
+	x    : number,
+	z    : number,
+	kind : number,
+	armed: boolean,
+): void {
 	if (piles.has(id)) {
 		console.log(`logs: spawnPileEntity: pile #${id} already spawned, ignoring dup add`)
 		return
 	}
 	const entity = engine.addEntity()
-	Transform.create(entity, {
-		position: Vector3.create(x, LOGS_PILE_WORLD_Y, z),
-		rotation: Quaternion.fromEulerDegrees(0, 0, 0),
-	})
-	// Colliders disabled: log piles should never block player movement
-	// (players walk right through to pick them up) or physics rays.
-	GltfContainer.create(entity, {
-		src                          : LOGS_PILE_MODEL,
-		visibleMeshesCollisionMask   : 0,
-		invisibleMeshesCollisionMask : 0,
-	})
-	piles.set(id, { entity, x, z, armed })
-	console.log(`logs: spawnPileEntity: pile #${id} spawned at (${x.toFixed(2)}, ${z.toFixed(2)}) armed=${armed}`)
+	attachWoodModel(entity, kind, x, z, (id * 37) % 360)
+	piles.set(id, { entity, x, z, kind, armed })
+	console.log(
+		`logs: spawnPileEntity: pile #${id} kind=${kind} spawned at ` +
+		`(${x.toFixed(2)}, ${z.toFixed(2)}) armed=${armed}`
+	)
 }
 
 
@@ -98,13 +98,13 @@ export function setupLogsClient(): void {
 	}
 	installed = true
 
-	room.onMessage('logPileAdded', ({ id, x, z }) => {
+	room.onMessage('logPileAdded', ({ id, x, z, kind }) => {
 		// New piles start un-armed for the local player so a just-dropped
 		// pile can't be re-picked on the same frame. If this pile was
-		// added by someone else (or is the boot-time initial pile), we're
+		// added by someone else, we're
 		// nowhere near it, so the arming check will pass on the next
 		// poll and it becomes pickup-able immediately.
-		spawnPileEntity(id, x, z, /* armed */ false)
+		spawnPileEntity(id, x, z, clampWoodKind(kind), /* armed */ false)
 	})
 
 	room.onMessage('logPileRemoved', ({ id }) => {
@@ -153,9 +153,9 @@ function proximityPollSystem(dt: number): void {
 		// then ask the server to make it authoritative. On confirmation
 		// we get a logPileRemoved and the entity is destroyed.
 		VisibilityComponent.createOrReplace(rec.entity, { visible: false })
-		pickupLogs()
+		pickupLogs(rec.kind)
 		room.send('logPickupRequest', { id })
-		console.log(`logs: proximityPollSystem: sent logPickupRequest #${id}`)
+		console.log(`logs: proximityPollSystem: sent logPickupRequest #${id} kind=${rec.kind}`)
 		// Only one pickup per poll - break so we don't try to grab
 		// multiple piles on the same tick.
 		break
@@ -182,3 +182,4 @@ function armPilesOutOfRange(): void {
 		if (dx * dx + dz * dz > LOGS_PICKUP_RADIUS_SQ) rec.armed = true
 	}
 }
+

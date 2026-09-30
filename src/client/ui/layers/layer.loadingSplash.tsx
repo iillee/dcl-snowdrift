@@ -1,8 +1,9 @@
 /**
- * layer.loadingSplash.tsx — cold-open thumbnail + mid-game black cover.
+ * layer.loadingSplash.tsx — cold-open black + mid-game black cover.
  *
- *   1. Cold-open — snowdrift.png until snow settles and cliff GLBs load.
- *   2. Mid-game regen — solid black, never the thumbnail. Ember-fail
+ *   1. Cold-open — solid black until the player is collapsed at the
+ *      fire and the snow and cliffs are up, then a short fade.
+ *   2. Mid-game regen — solid black, never a title card. Ember-fail
  *      owns its own black cards, so this cover stays off during that
  *      cinematic.
  */
@@ -13,36 +14,68 @@ import { Color4 } from '@dcl/sdk/math'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { isEmberFailing } from 'src/client/emberFail'
+import { isPlayerLaidDownAtHome } from 'src/client/frost/death'
 import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
 import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 
 
-const SPLASH_IMAGE = 'assets/images/snowdrift.png'
+/** Fade-out once the player is down and the world is ready to see. */
+const COLD_OPEN_FADE_MS = 800
 
-// Once the first winter has been shown, the thumbnail must never
-// return. Mid-game perimeter teardown used to look like a cold-open
-// (cliffs go to zero for a frame) and flashed snowdrift.png on OUT.
+// Once the first winter has been shown, the cold-open cover must
+// never return. Mid-game perimeter teardown used to look like a
+// cold-open (cliffs go to zero for a frame).
 let coldOpenReleased = false
+let fadeStartedAt: number | null = null
 
 
 // MARK: isColdOpenReleased
 
-/** True once the cold-open thumbnail has dropped for good. */
+/** True once the cold-open cover has faded out for good. */
 export function isColdOpenReleased(): boolean {
 	return coldOpenReleased
 }
 
 
-// MARK: isColdOpenActive
+// MARK: isColdOpenHolding
 
-/** True only for the first load-in. Never again after that. */
-function isColdOpenActive(): boolean {
+/**
+ * Solid black until the player is collapsed at the fire and the
+ * first winter is actually on screen.
+ */
+function isColdOpenHolding(): boolean {
 	if (coldOpenReleased) return false
 	if (isEmberFailing()) return false
+	if (!isPlayerLaidDownAtHome()) return true
 	if (!isSnowSettled()) return true
 	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
-	coldOpenReleased = true
 	return false
+}
+
+
+// MARK: coldOpenAlpha
+
+/**
+ * 1 while holding, then a fade to 0. Ember-fail hides this cover so
+ * its own cards can show.
+ */
+function coldOpenAlpha(): number {
+	if (coldOpenReleased || isEmberFailing()) return 0
+	if (isColdOpenHolding()) {
+		fadeStartedAt = null
+		return 1
+	}
+	if (fadeStartedAt === null) {
+		fadeStartedAt = Date.now()
+		console.log('loadingSplash: coldOpenAlpha: player is down, fading cover')
+	}
+	const t = (Date.now() - fadeStartedAt) / COLD_OPEN_FADE_MS
+	if (t >= 1) {
+		coldOpenReleased = true
+		console.log('loadingSplash: coldOpenAlpha: cover released')
+		return 0
+	}
+	return 1 - t
 }
 
 
@@ -54,7 +87,7 @@ function isColdOpenActive(): boolean {
  */
 function isMidGameCoverActive(): boolean {
 	if (isEmberFailing()) return false
-	if (isColdOpenActive()) return false
+	if (!coldOpenReleased) return false
 	if (isSnowRebuilding()) return true
 	if (hasPerimeterSpawned() && !arePerimeterModelsReady()) return true
 	return false
@@ -63,8 +96,8 @@ function isMidGameCoverActive(): boolean {
 
 // MARK: LoadingSplashLayer
 /**
- * Full-screen splash pinned above every other layer. Thumbnail on
- * cold-open only; mid-game regen is a black field.
+ * Full-screen splash pinned above every other layer. Cold-open and
+ * mid-game regen are both a black field.
  */
 class LoadingSplashLayer extends Layer {
 	constructor() {
@@ -77,7 +110,8 @@ class LoadingSplashLayer extends Layer {
 
 	// MARK: body
 	body() {
-		if (isColdOpenActive()) {
+		const alpha = coldOpenAlpha()
+		if (alpha > 0) {
 			return (
 				<UiEntity
 					key         = "ui_LoadingSplash_cold"
@@ -85,13 +119,8 @@ class LoadingSplashLayer extends Layer {
 						width         : '100%',
 						height        : '100%',
 						positionType  : 'absolute',
-						justifyContent: 'center',
-						alignItems    : 'center',
 					}}
-					uiBackground = {{
-						textureMode: 'stretch',
-						texture    : { src: SPLASH_IMAGE },
-					}}
+					uiBackground = {{ color: Color4.create(0, 0, 0, alpha) }}
 				/>
 			)
 		}

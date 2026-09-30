@@ -163,8 +163,8 @@ export function initFrostAccumulation(): void {
 // MARK: resetFrostLocal
 /**
  * Zero the local accumulator AND the synced component. Called by the
- * death FSM on wake so the player doesn't immediately re-freeze from
- * the same 100% value the accumulator still holds internally.
+ * death FSM on wake, and by world reset, so the heat bar starts full
+ * warmth instead of carrying frost into the new run.
  */
 export function resetFrostLocal(): void {
 	frost            = 0

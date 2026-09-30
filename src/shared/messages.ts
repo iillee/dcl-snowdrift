@@ -99,10 +99,15 @@ export const Messages = {
 		nextRebuildEpochMs: Schemas.Number,
 	}),
 
-	// Client → Server: broadcast the local player's torch lit state whenever
-	// it changes (relight, burn-out). Encoded 0/1 as Int for the same
+	// Client → Server: broadcast the local player's torch lit state and
+	// remaining fuel fraction (0..1). `lit` is 0/1 Int for the same
 	// Schemas.Boolean-over-the-wire caveat noted on hiddenCampfireState.
-	torchLit: Schemas.Map({ lit: Schemas.Int }),
+	// Sent on light/extinguish and on fuel steps so remote torch lights
+	// can dim with remaining burn time.
+	torchLit: Schemas.Map({
+		lit     : Schemas.Int,
+		fuelFrac: Schemas.Number,
+	}),
 
 	// Client → Server: request to light another player's torch by
 	// touching torches. Sender must currently have a lit torch (server
@@ -124,8 +129,9 @@ export const Messages = {
 	// the first frame. The receiver renders a torch model on that remote
 	// avatar's right hand and toggles the flame visibility to match.
 	torchLitFrom: Schemas.Map({
-		userId: Schemas.String,
-		lit   : Schemas.Int,
+		userId  : Schemas.String,
+		lit     : Schemas.Int,
+		fuelFrac: Schemas.Number,
 	}),
 
 	// Server → Client: a log pile has appeared in the world. Broadcast
@@ -133,12 +139,13 @@ export const Messages = {
 	// cycle roll), and rebroadcast to joiners as hydration. `id` is a
 	// server-owned autoincrementing int, unique for the server's lifetime.
 	logPileAdded: Schemas.Map({
-		id: Schemas.Int,
+		id  : Schemas.Int,
 		// Schemas.Number (not Float) — Float payloads were arriving empty on
 		// the client in this SDK build; Number rounds-trips reliably (same
 		// choice as cycleState.nextRebuildEpochMs).
-		x : Schemas.Number,
-		z : Schemas.Number,
+		x   : Schemas.Number,
+		z   : Schemas.Number,
+		kind: Schemas.Int,
 	}),
 
 	// Server → Client: a log pile is gone (someone picked it up, or the
@@ -153,12 +160,16 @@ export const Messages = {
 	// for the cozy tone; anti-cheat / strict serialisation is deferred.
 	logPickupRequest: Schemas.Map({ id: Schemas.Int }),
 
-	// Client → Server: I dropped my carried log at world position (x, z).
-	// Server unconditionally spawns a new pile at that position with a
-	// fresh id and broadcasts logPileAdded. Server does NOT track who is
-	// carrying (yet) — that state stays local; a client that lies about
-	// carrying could spawn free piles, tolerated for now.
-	logDropRequest: Schemas.Map({ x: Schemas.Number, z: Schemas.Number }),
+	// Client → Server: I dropped my carried wood at world position
+	// (x, z). `kind` is WOOD_KIND_BRANCH or WOOD_KIND_LOG so the pile
+	// GLB and a later pickup keep the same burn time. Server
+	// unconditionally spawns a new pile with a fresh id and broadcasts
+	// logPileAdded. Server does NOT track who is carrying (yet).
+	logDropRequest: Schemas.Map({
+		x   : Schemas.Number,
+		z   : Schemas.Number,
+		kind: Schemas.Int,
+	}),
 
 	// Server -> Client: full active-set snapshot for the current cycle.
 	// Sent on join hydration and on cycle roll. `indices` are the chunk
@@ -189,11 +200,15 @@ export const Messages = {
 	// after a cycle roll invalidated the client's scatter.
 	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
 
-	// Client -> Server: player fed a log to a fire. `target` selects
-	// which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 == the
-	// respective hidden bonfire. Server trusts the client's has-log
-	// guard for now and bumps the target's fuel by LOG_FUEL_SECONDS.
-	feedFireRequest: Schemas.Map({ target: Schemas.Int }),
+	// Client -> Server: player fed a carried piece to a fire. `target`
+	// selects which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1
+	// == the respective hidden bonfire. `kind` is WOOD_KIND_BRANCH or
+	// WOOD_KIND_LOG; fuel seconds come from fuelSecondsForKind. Server
+	// trusts the client's has-carry guard for now.
+	feedFireRequest: Schemas.Map({
+		target: Schemas.Int,
+		kind  : Schemas.Int,
+	}),
 
 	// Server -> Client: current main-hearth fuel in seconds. Broadcast
 	// on significant change (delta > threshold, or tier crossed, or on
@@ -242,7 +257,7 @@ export const Messages = {
 	// clock; clients rebuild a local start time from phaseAgeSec.
 	// Do NOT send Date.now() — Schemas.Number is too coarse at epoch-ms
 	// scale (≈2 min steps) and a 60 s phase looks already finished.
-	//   phaseName         — DAY / DUSK / NIGHT (solstice names later)
+	//   phaseName         — DAWN / DAY / DUSK / NIGHT (solstice names later)
 	//   phaseIndex        — index in the daily table
 	//   phaseAgeSec       — seconds already elapsed in this phase
 	//   phaseDurationSec  — real seconds this phase lasts

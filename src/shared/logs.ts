@@ -1,23 +1,18 @@
 /**
  * logs.ts - shared constants for the wood-log pile system.
  *
- * Position + radius knobs used by both server (initial pile spawn on
- * boot / cycle roll) and client (proximity poll for pickup). Kept in
- * shared/ so any drift between the two lives in one file.
+ * Position + radius knobs used by both server (drop-slot nudge) and
+ * client (proximity poll for pickup). Kept in shared/ so any drift
+ * between the two lives in one file. There is no starter pile.
  */
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 
-// MARK: Initial pile placement
+// MARK: Hearth drop slot
 /**
- * Position of the "hearth wood stack" that always spawns at server boot
- * and after every cycle roll. Metaphor: the villagers always leave a
- * few logs by the fire so a fresh player never lands in a cold world
- * with nothing to feed.
- *
- * A short walk south of the campfire so it reads as beside the fire
- * without occluding the flame from any approach angle.
+ * Spot south of the campfire used only to keep two dropped piles from
+ * stacking on each other at the fire. Nothing spawns here.
  */
 export const INITIAL_LOGS_PILE_X = CAMPFIRE_WORLD_X + 0
 export const INITIAL_LOGS_PILE_Z = CAMPFIRE_WORLD_Z + -2.5

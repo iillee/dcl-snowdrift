@@ -6,14 +6,18 @@
  * and the HUD share one table. Worlds may ignore SkyboxTime.fixedTime;
  * the component still locks the player's time slider.
  *
- * Daily loop is DAY → DUSK → NIGHT. SOLSTICE_WARN / SOLSTICE / GRACE
- * are scaffolded for the later seasonal clock and are not entered yet.
+ * Daily loop is DAWN → DAY → DUSK → NIGHT. SOLSTICE_WARN / SOLSTICE /
+ * GRACE are scaffolded for the later seasonal clock and are not
+ * entered yet. A run always starts at DAWN so load-in (cold open or
+ * ember-fail cards) plays over pre-sunrise, and the first visible
+ * frame is the sun coming over the horizon.
  */
 
 
 // MARK: Types
 
 export type PhaseName =
+	| 'DAWN'
 	| 'DAY'
 	| 'DUSK'
 	| 'NIGHT'
@@ -48,8 +52,8 @@ export interface PhaseConfig {
 	/** Lowest weather level this phase will sit at (0=CLEAR..3=HEAVY). */
 	weatherFloor        : number
 	/**
-	 * Level to snap up to when this phase begins. `null` leaves the
-	 * current weather alone. Night snaps to HEAVY, then may step down.
+	 * Level to snap to when this phase begins. `null` leaves the
+	 * current weather alone. Night snaps HEAVY.
 	 */
 	weatherEnterLevel   : number | null
 	/**
@@ -64,8 +68,12 @@ export interface PhaseConfig {
 
 /** Skybox seconds in a full day. 0 = midnight, 43200 = noon. */
 export const SKYBOX_DAY_SEC = 86400
-/** 07:00 — day start / night end. */
+/** 06:20 — DAWN start / night end. Sun still below the horizon. */
+export const SKY_0620 = 6 * 3600 + 20 * 60
+/** 07:00 — classic sunrise. */
 export const SKY_07 = 7 * 3600
+/** 07:15 — DAWN end / day start. Sun is up. */
+export const SKY_0715 = 7 * 3600 + 15 * 60
 /** 17:00 — dusk start. */
 export const SKY_17 = 17 * 3600
 /** 19:00 — night start. */
@@ -79,15 +87,15 @@ export const SKY_03 = 3 * 3600
 // MARK: Daily table
 
 /**
- * Playtest cadence: 1 min day, 1 min night. Dusk is a 10 s sky blend.
- * Night pressure (frost, torch pinch, drain, weather) starts at dusk
- * — sunset — so every debuff hits together. Freeze times still scale
- * off the NIGHT row length, not the 10 s blend.
+ * Playtest cadence: 12 s dawn, 2 min day, 15 s dusk, 1 min night.
+ * Dawn is longer than cold-open / ember-fail load so the sun is still
+ * rising when the cover drops. Night pressure starts at dusk.
+ * Freeze times still scale off the NIGHT row length, not dusk.
  */
 export const DAILY_PHASES: readonly PhaseConfig[] = [
 	{
-		name: 'DAY', durationSec: 60, drainMul: 0.5,
-		skyFrom: SKY_07, skyTo: SKY_17,
+		name: 'DAWN', durationSec: 12, drainMul: 0.5,
+		skyFrom: SKY_0620, skyTo: SKY_0715,
 		ambientFreezePhases: null, torchLeakPhases: null,
 		snowFrostMul: 1.0, torchDrainMul: 1.0,
 		weatherHeavyBias: 0.30, weatherSpeedMul: 1.0,
@@ -95,7 +103,16 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		meltBrushCap: null, torchFlameMul: 1.0,
 	},
 	{
-		name: 'DUSK', durationSec: 10, drainMul: 2.0,
+		name: 'DAY', durationSec: 120, drainMul: 0.5,
+		skyFrom: SKY_0715, skyTo: SKY_17,
+		ambientFreezePhases: null, torchLeakPhases: null,
+		snowFrostMul: 1.0, torchDrainMul: 1.0,
+		weatherHeavyBias: 0.30, weatherSpeedMul: 1.0,
+		weatherFloor: 0, weatherEnterLevel: null,
+		meltBrushCap: null, torchFlameMul: 1.0,
+	},
+	{
+		name: 'DUSK', durationSec: 15, drainMul: 2.0,
 		skyFrom: SKY_17, skyTo: SKY_19,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
 		snowFrostMul: 1.6, torchDrainMul: 1.0,
@@ -105,7 +122,7 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 	},
 	{
 		name: 'NIGHT', durationSec: 60, drainMul: 2.0,
-		skyFrom: SKY_19, skyTo: SKY_07,
+		skyFrom: SKY_19, skyTo: SKY_0620,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
 		snowFrostMul: 1.6, torchDrainMul: 1.0,
 		weatherHeavyBias: 0.40, weatherSpeedMul: 1.6,
@@ -221,7 +238,7 @@ export function phaseT01(
 
 /**
  * Interpolate skybox seconds from `from` to `to` by t01, always
- * travelling forward so night can wrap midnight (19:00 → 07:00).
+ * travelling forward so night can wrap midnight (19:00 → 06:20).
  */
 export function lerpSkyboxSeconds(
 	from: number,
@@ -302,7 +319,7 @@ export function phaseMeltBrushCells(
 /**
  * Duration used for freeze-time math. Dusk is a short sky blend but
  * night pressure starts there, so it borrows the NIGHT row length
- * (and solstice-warn borrows SOLSTICE) instead of its own 10 s.
+ * (and solstice-warn borrows SOLSTICE) instead of its own short blend.
  */
 export function phaseFreezeDurationSec(
 	cfg        : PhaseConfig,

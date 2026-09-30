@@ -18,7 +18,6 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { room } from 'src/shared/messages'
 import {
 	FUEL_MAIN_INITIAL,
 	hearthFlameScaleFromFuel,
@@ -29,6 +28,8 @@ import {
 	TIER_NAMES,
 } from 'src/shared/hearthFuel'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
+import { room } from 'src/shared/messages'
+import { WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
 /** Seconds it takes `currentFuel` to converge on a fresh `targetFuel`.
@@ -97,15 +98,18 @@ export function setupHearthFuelClient(): void {
 
 // MARK: requestFeedFire
 /**
- * Ask the server to add one log's worth of fuel to a fire. `target`
- * is -1 for the main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 for a hidden
- * fire slot. The local carry-slot clearing + SFX is still handled by
- * the caller (logsInventory.feedFire); this only owns the network
- * round-trip.
+ * Ask the server to add fuel for a carried piece. `target` is -1 for
+ * the main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 for a hidden fire slot.
+ * `kind` selects branch vs log burn time. The local carry-slot
+ * clearing + SFX is still handled by the caller (logsInventory.feedFire);
+ * this only owns the network round-trip.
  */
-export function requestFeedFire(target: number = -1): void {
-	room.send('feedFireRequest', { target })
-	console.log(`hearthFuel: requestFeedFire: target=${target}`)
+export function requestFeedFire(
+	target: number = -1,
+	kind  : number = WOOD_KIND_LOG,
+): void {
+	room.send('feedFireRequest', { target, kind })
+	console.log(`hearthFuel: requestFeedFire: target=${target} kind=${kind}`)
 }
 
 

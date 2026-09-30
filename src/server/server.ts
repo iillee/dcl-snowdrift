@@ -16,6 +16,7 @@ import { engine } from '@dcl/sdk/ecs'
 import { myProfile } from '@dcl/sdk/network'
 
 import { CAMPFIRE_MELT_RADIUS_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
 import {
 	IS_DEV,
@@ -27,10 +28,10 @@ import { snowGridCapacity } from 'src/shared/snowGrid'
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
-import { sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
+import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
-import { sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
+import { armPhaseClock, isPhaseClockArmed, sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
 import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
 import { initServerStats, startServerStatsTick } from 'src/server/serverStats'
 import {
@@ -102,7 +103,7 @@ export async function setupServer(): Promise<void> {
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
 	// Day/night clock after cycle so it can subscribe to onCycleRoll
-	// (reset to DAY when the 24 h world wipe fires).
+	// (reset to DAWN when the world wipe fires).
 	setupPhaseServer()
 	setupHiddenCampfireServer()
 	setupLogsServer()
@@ -154,10 +155,17 @@ export async function setupServer(): Promise<void> {
 	// NOT from the payload's userId field — payload is redundant but useful
 	// for logging early-connect diagnostics.
 	room.onMessage('joinRoster', ({ userId }, context) => {
-		const from = context?.from
+		// Bevy preview often omits context.from. The payload wallet is
+		// what the client is actually sending. Dropping the join here
+		// left paintTicks unsent (snow snapped back in 3s) and never
+		// delivered the wood active set.
+		const from = context?.from || userId
 		if (!from) {
-			console.log(`[Server] joinRoster rejected: no context.from (payload userId=${userId})`)
+			console.log(`[Server] joinRoster rejected: no sender (payload userId=${userId})`)
 			return
+		}
+		if (!context?.from) {
+			console.log(`[Server] joinRoster: no context.from, using payload ${from}`)
 		}
 		// NOTE: previously wiped + reseeded the canvas on every joinRoster
 		// as a "dev-friendly" browser-refresh reset. That leaked into
@@ -176,13 +184,22 @@ export async function setupServer(): Promise<void> {
 		const isNewJoiner = getTeam(from) === null
 		const team = assignTeam(from)
 		console.log(`[Server] joinRoster ${from} → team ${team === 1 ? 'RED' : 'BLUE'} (roster size ${rosterSize()})`)
+		// First living player starts the 12 s pre-sunrise window so
+		// their load-in still plays over the rise. Later joiners do not
+		// rewind the clock. Must run before sendPhaseStateTo.
+		if (!isPhaseClockArmed()) {
+			armPhaseClock(isNewJoiner ? 'first player' : 'rejoin while parked')
+		}
 		// Fire Discord webhook only on the FIRST join per server lifetime —
 		// idempotent joinRoster calls (browser refresh, reconnect) must not
 		// re-notify. assignTeam pushes into the roster only for unseen ids,
 		// so `getTeam(from) === null` immediately before it is the reliable
 		// "new joiner" signal.
 		if (isNewJoiner) notifyPlayerJoin(from)
-		room.send('teamAssigned', { team }, { to: [from] })
+		// Room-wide, same path as weatherState. An addressed send was
+		// not arriving in this preview, so the client retried join
+		// forever and never unlocked wood or melt.
+		room.send('teamAssigned', { team })
 		// Hydrate the joiner with the current weather so their sky matches
 		// everyone else's from the first frame.
 		sendCurrentWeatherTo(from)
@@ -220,8 +237,7 @@ export async function setupServer(): Promise<void> {
 	// after a server restart) are nudged to rejoin instead of applied.
 	room.onMessage('paintTick', ({ cells, targetStage }, context) => {
 		const from = context?.from
-		if (!from) return
-		if (getTeam(from) === null) {
+		if (from && getTeam(from) === null) {
 			paintDroppedTeam++
 			// Log this user at most once per minute so a mid-session
 			// server restart is visible in the log without flooding it.
@@ -269,10 +285,10 @@ export async function setupServer(): Promise<void> {
 		console.log(`[Server] devMeltBulk: requested ${n}, melted ${changed} (total melted ${meltedCellCount()})`)
 	})
 
-	// Campfire ring refresh: the seed area must never degrade. Re-run the
-	// circular fill a few times per second so any blue paint a player drops
-	// inside the ring snaps back to red. applyPaint short-circuits on
-	// already-red cells so the steady-state cost is a Map lookup per cell.
+	// Campfire ring refresh while the spawn hearth is lit. A dead
+	// hearth must not keep an 8 m clearing — snowfall can bury it
+	// and the world can still live on hidden fires. Radius follows
+	// live fuel so an ember does not get forced back to Warm.
 	const RING_REFRESH_HZ = 4
 	const RING_INTERVAL   = 1 / RING_REFRESH_HZ
 	let   ringClock       = 0
@@ -280,7 +296,9 @@ export async function setupServer(): Promise<void> {
 		ringClock += dt
 		if (ringClock < RING_INTERVAL) return
 		ringClock = 0
-		seedStartingArea()
+		const fuel = getMainFireFuel()
+		if (fuel <= 0) return
+		seedStartingArea(hearthRadiusFromFuel(fuel))
 	})
 
 	// Snow regrowth tick — server-authoritative. Cadence matches the

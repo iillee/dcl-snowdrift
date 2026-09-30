@@ -15,8 +15,9 @@
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { dropLogs, feedFire, hasLogs, isInFeedRange } from 'src/client/logsInventory'
-import { room }                                       from 'src/shared/messages'
+import { room } from 'src/shared/messages'
+
+import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange } from 'src/client/logsInventory'
 
 
 let installed = false
@@ -32,11 +33,15 @@ let fHeldPrev = false
  */
 export function dropLogAtPlayer(): void {
 	if (!hasLogs()) return
-	const t = Transform.getOrNull(engine.PlayerEntity)
+	const kind = getCarriedKind()
+	const t    = Transform.getOrNull(engine.PlayerEntity)
 	dropLogs()
 	if (t !== null) {
-		room.send('logDropRequest', { x: t.position.x, z: t.position.z })
-		console.log(`logsInput: dropLogAtPlayer: logDropRequest at (${t.position.x.toFixed(2)}, ${t.position.z.toFixed(2)})`)
+		room.send('logDropRequest', { x: t.position.x, z: t.position.z, kind })
+		console.log(
+			`logsInput: dropLogAtPlayer: logDropRequest kind=${kind} ` +
+			`at (${t.position.x.toFixed(2)}, ${t.position.z.toFixed(2)})`
+		)
 	} else {
 		console.log('logsInput: dropLogAtPlayer: no player transform, no pile spawned')
 	}

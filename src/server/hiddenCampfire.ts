@@ -31,7 +31,7 @@ import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
 	FUEL_MAX,
-	LOG_FUEL_SECONDS,
+	fuelSecondsForKind,
 	hearthDecayRate,
 	hearthRadiusFromFuel,
 	hearthTierFromFuel,
@@ -43,6 +43,7 @@ import {
 	tileToWorld,
 } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
+import { clampWoodKind } from 'src/shared/woodKind'
 
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { checkEmberFail, isEmberFailing } from 'src/server/emberFail'
@@ -336,7 +337,7 @@ export function setupHiddenCampfireServer(): void {
 	// Feed handler - filter by target index. -1 means main hearth
 	// (handled by src/server/hearthFuel.ts); anything in [0, N) is a
 	// hidden fire slot. Ignites nothing - fire must already be lit.
-	room.onMessage('feedFireRequest', ({ target }, context) => {
+	room.onMessage('feedFireRequest', ({ target, kind }, context) => {
 		if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
 		if (isEmberFailing()) {
 			console.log(`[Server] hiddenCampfire[${target}]: feed ignored — ember fail in progress`)
@@ -347,12 +348,13 @@ export function setupHiddenCampfireServer(): void {
 			console.log(`[Server] hiddenCampfire[${target}]: feed from ${from} ignored - not lit`)
 			return
 		}
+		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = fuel[target]
 		const prevTier = hearthTierFromFuel(prev)
-		fuel[target]   = Math.min(FUEL_MAX, prev + LOG_FUEL_SECONDS)
+		fuel[target]   = Math.min(FUEL_MAX, prev + add)
 		const newTier  = hearthTierFromFuel(fuel[target])
 		console.log(
-			`[Server] hiddenCampfire[${target}]: feed by ${from} ` +
+			`[Server] hiddenCampfire[${target}]: feed by ${from} kind=${clampWoodKind(kind)} ` +
 			`${prev.toFixed(1)}s -> ${fuel[target].toFixed(1)}s (tier ${newTier})`
 		)
 		// Upward tier crossing -> repaint ring at the wider radius. The

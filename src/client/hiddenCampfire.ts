@@ -43,6 +43,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { playSurgeSfxAt } from 'src/client/audio'
 import { onCycleSeedChange } from 'src/client/cycle'
+import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
 import { hearthFlameScaleFromFuel, hearthTierFromFuel } from 'src/shared/hearthFuel'
@@ -66,6 +67,8 @@ const CAMPFIRE_BASE_MODEL  = 'assets/asset-packs/campfire/Fireplace_01/Fireplace
 const CAMPFIRE_FLAME_MODEL = 'assets/asset-packs/campfire/Fireplace_01/Fireplace_flame.glb'
 const CAMPFIRE_SFX         = 'assets/sounds/campfire.mp3'
 const CAMPFIRE_VOLUME      = 0.8
+/** Local Y of the pit point light, above the log pile. */
+const HEARTH_LIGHT_Y       = 1.4
 
 
 // MARK: Smoke tuning (see campfireSmoke.ts for the source of these values)
@@ -105,6 +108,7 @@ const BEACON_COLOR         = { r: 1.0, g: 0.84, b: 0.0 }
 // MARK: Per-fire state (all arrays length HIDDEN_CAMPFIRE_COUNT)
 const firePitEntity     : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const flameEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
+const lightEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const smokeEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const beaconInnerEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const beaconOuterEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
@@ -220,6 +224,11 @@ function applyUnlitVisuals(index: number): void {
 		engine.removeEntity(flame)
 		flameEntity[index] = null
 	}
+	const light = lightEntity[index]
+	if (light !== null) {
+		engine.removeEntity(light)
+		lightEntity[index] = null
+	}
 	const smoke = smokeEntity[index]
 	if (smoke !== null) {
 		engine.removeEntity(smoke)
@@ -288,6 +297,19 @@ function applyLitVisuals(index: number): void {
 			parent  : pit,
 		})
 		GltfContainer.create(flame, { src: CAMPFIRE_FLAME_MODEL })
+	}
+
+	if (lightEntity[index] === null) {
+		const light = engine.addEntity()
+		lightEntity[index] = light
+		Transform.create(light, {
+			position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
+			parent  : pit,
+		})
+		syncPointLight(light, hearthLightParams(
+			getHiddenFireFuel(index),
+			getHiddenFireMeltRadius(index),
+		))
 	}
 
 	// Match src/client/campfire.ts's proven `create` (not `createOrReplace`)
@@ -614,11 +636,15 @@ export function setupHiddenCampfire(): void {
 	engine.addSystem(() => {
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 			const flame = flameEntity[i]
+			const fuel  = getHiddenFireFuel(i)
+			const light = lightEntity[i]
+			if (light !== null) {
+				syncPointLight(light, hearthLightParams(fuel, getHiddenFireMeltRadius(i)))
+			}
 			if (flame === null) {
 				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1
 				continue
 			}
-			const fuel = getHiddenFireFuel(i)
 			const tier = hearthTierFromFuel(fuel)
 			if (tier === lastFlameTier[i]) continue
 			lastFlameTier[i] = tier

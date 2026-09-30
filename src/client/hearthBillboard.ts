@@ -20,6 +20,8 @@
  * A per-frame system reads the rig's fuelGetter + playerCountGetter
  * and mutates the fill scale + multiplier text. Colour is constant
  * (frost-bar match) - tier is communicated by fill height + ticks.
+ * Fuel at or below zero hides the bar (scale 0) so a dead fire has
+ * no empty gauge.
  */
 
 import {
@@ -371,6 +373,19 @@ function updateAllBillboards(dt: number): void {
 	for (const rig of rigs) {
 		const fuel    = rig.fuelGetter()
 		const players = rig.playerCountGetter()
+		const alive   = fuel > 0
+
+		// Dead fire: hide the whole bar. Feeding or a hidden-pit snuff
+		// that hasn't torn the rig down yet should not leave an empty
+		// white slab floating over cold logs.
+		const rootT = Transform.getMutable(rig.root)
+		const s     = alive ? 1 : 0
+		if (rootT.scale.x !== s) {
+			rootT.scale.x = s
+			rootT.scale.y = s
+			rootT.scale.z = s
+		}
+		if (!alive) continue
 
 		// Fill height.
 		const frac = Math.max(0, Math.min(1, fuel / FUEL_MAX))

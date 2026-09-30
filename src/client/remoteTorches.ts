@@ -10,10 +10,8 @@
  *     every remote avatar we see and destroy it when they leave. A
  *     periodic reconcile against PlayerIdentityData catches join/leave
  *     even when we miss the initial event.
- *   * The only piece of state we sync per-player is a single lit bit
- *     (`torchLitFrom`, relayed by the auth server) which toggles the
- *     flame sphere's visibility on that remote's torch. Fuel level and
- *     smoke are not synced — the flame is either on or off.
+ *   * Lit state and remaining fuel fraction travel on `torchLitFrom`
+ *     so the remote flame and point light can dim with burn time.
  *
  * Pattern mirrors src/client/torch.ts's two-layer AvatarAttach setup:
  *   Anchor (AvatarAttach, right hand)   <-- Bevy propagates bone
@@ -41,6 +39,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
+import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
 
 
@@ -71,12 +70,14 @@ interface RemoteTorch {
 	anchor: Entity
 	model : Entity
 	flame : Entity
+	light : Entity
 }
 
 const remoteTorches       = new Map<string, RemoteTorch>()
 // Mirror of the server's known-lit set for remote players. Read by
 // torchChain.ts to skip already-lit targets before sending a request.
 const remoteLitByUser     = new Map<string, boolean>()
+const remoteFuelFrac      = new Map<string, number>()
 let   installed           = false
 let   reconClock          = 0
 let   localUserIdLower    = ''
@@ -159,21 +160,30 @@ function createRemoteTorch(userIdLower: string): void {
 	// pushes another update through the same channel.
 	VisibilityComponent.create(flame, { visible: false })
 
-	remoteTorches.set(userIdLower, { anchor, model, flame })
+	const light = engine.addEntity()
+	Transform.create(light, {
+		parent  : anchor,
+		position: FLAME_LOCAL_POS,
+	})
+	syncPointLight(light, torchLightParams(false, 0, 1))
+
+	remoteTorches.set(userIdLower, { anchor, model, flame, light })
 	console.log(`remoteTorches: attached torch to ${userIdLower}`)
 }
 
 
 // MARK: setupRemoteFlameScaler
-// Night pinches remote flames to match the local torch (torchFlameMul).
-// Fuel isn't synced, so remotes stay at a constant FLAME_SIZE.
+// Night pinches remote flames (torchFlameMul). Fuel fraction dims
+// both the orb and the point light.
 function setupRemoteFlameScaler(): void {
 	engine.addSystem(() => {
-		remoteTorches.forEach((rt) => {
-			const flameMul = getLivePhaseConfig().torchFlameMul
+		const flameMul = getLivePhaseConfig().torchFlameMul
+		remoteTorches.forEach((rt, id) => {
+			const lit  = remoteLitByUser.get(id) === true
+			const frac = remoteFuelFrac.get(id) ?? (lit ? 1 : 0)
 			const t = Transform.getMutableOrNull(rt.flame)
 			if (t !== null) {
-				const s = FLAME_SIZE * flameMul
+				const s = FLAME_SIZE * flameMul * (lit ? Math.max(0.35, frac) : 1)
 				if (t.scale.x !== s) {
 					t.scale.x = s
 					t.scale.y = s
@@ -188,6 +198,8 @@ function setupRemoteFlameScaler(): void {
 					mat.material.pbr.emissiveIntensity = want
 				}
 			}
+
+			syncPointLight(rt.light, torchLightParams(lit, frac, flameMul))
 		})
 	})
 }
@@ -197,16 +209,22 @@ function setupRemoteFlameScaler(): void {
 function removeRemoteTorch(userIdLower: string): void {
 	const rt = remoteTorches.get(userIdLower)
 	if (!rt) return
+	engine.removeEntity(rt.light)
 	engine.removeEntity(rt.flame)
 	engine.removeEntity(rt.model)
 	engine.removeEntity(rt.anchor)
 	remoteTorches.delete(userIdLower)
+	remoteFuelFrac.delete(userIdLower)
 	console.log(`remoteTorches: removed torch for ${userIdLower}`)
 }
 
 
 // MARK: setRemoteLit
-function setRemoteLit(userIdLower: string, lit: boolean): void {
+function setRemoteLit(
+	userIdLower: string,
+	lit        : boolean,
+	fuelFrac   : number,
+): void {
 	const rt = remoteTorches.get(userIdLower)
 	if (!rt) {
 		// Message arrived before reconcile spotted them (rare — hydration
@@ -219,6 +237,7 @@ function setRemoteLit(userIdLower: string, lit: boolean): void {
 	const vis = VisibilityComponent.getMutableOrNull(target.flame)
 	if (vis !== null && vis.visible !== lit) vis.visible = lit
 	remoteLitByUser.set(userIdLower, lit)
+	remoteFuelFrac.set(userIdLower, lit ? fuelFrac : 0)
 }
 
 
@@ -243,6 +262,7 @@ function reconcileRemoteTorches(): void {
 		if (!seen.has(id)) {
 			removeRemoteTorch(id)
 			remoteLitByUser.delete(id)
+			remoteFuelFrac.delete(id)
 		}
 	})
 }
@@ -262,11 +282,12 @@ export function setupRemoteTorches(): void {
 	}
 	installed = true
 
-	room.onMessage('torchLitFrom', ({ userId, lit }) => {
+	room.onMessage('torchLitFrom', ({ userId, lit, fuelFrac }) => {
 		if (!userId) return
 		const id = userId.toLowerCase()
 		if (id === resolveLocalUserId()) return  // ignore our own echo
-		setRemoteLit(id, lit === 1)
+		const frac = typeof fuelFrac === 'number' ? fuelFrac : (lit === 1 ? 1 : 0)
+		setRemoteLit(id, lit === 1, frac)
 	})
 
 	engine.addSystem((dt: number) => {

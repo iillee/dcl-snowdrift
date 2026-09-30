@@ -33,8 +33,8 @@ import { initAudio } from 'src/client/audio'
 import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
 import { initClientHandler } from 'src/client/clientHandler'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
+import { beginCollapsedAtHome, setupFrostDeath } from 'src/client/frost/death'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
-import { setupFrostDeath }       from 'src/client/frost/death'
 import { setupLoadTimeline } from 'src/client/loadTimeline'
 import { initLocomotionGate } from 'src/client/locomotion'
 import { initPlayerNet } from 'src/client/player'
@@ -171,16 +171,19 @@ export async function setupClient(): Promise<void> {
 	setupDaySplash()
 	setupSkybox()
 
-	initPlayerNet()
 	initLocomotionGate()
 	initFrostAccumulation()
 	initFrostFlash()
 	setupFrostDeath()
+	// First join: same collapsed dawn pose as world reset. Loading
+	// splash owns the black, so this FSM does not fade.
+	initPlayerNet(() => {
+		beginCollapsedAtHome({ skipFade: true })
+	})
 
 	// Wood-log network handlers must register BEFORE initClientHandler
-	// so the initial logPileAdded broadcast (sent by the server as part
-	// of joinRoster hydration) is caught. Same rule as setupCycleClient
-	// above.
+	// so joinRoster hydration (any dropped piles still in the world)
+	// is caught. Same rule as setupCycleClient above.
 	setupLogsClient()
 	setupWoodClient()
 	// Head-bounce FX pool for wood pickups. Set up here (alongside the

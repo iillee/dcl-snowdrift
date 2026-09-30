@@ -9,6 +9,7 @@
  *
  * Design (see PLAN.md v2.14 / this session's design chat):
  *   - 1 log         = LOG_FUEL_SECONDS (+60 s)
+ *   - 1 branch      = BRANCH_FUEL_SECONDS (+30 s)
  *   - Hard cap      = FUEL_MAX (600 s -> 10 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
  *                     and can burn to 0. Last fire out is game over.
@@ -26,10 +27,14 @@
  * lets it grow past that OR (for hidden fires) shrink below it.
  */
 
+import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
+
 
 // MARK: Tuning constants
 /** Total seconds one log adds to a fire's fuel tank. */
-export const LOG_FUEL_SECONDS  = 60
+export const LOG_FUEL_SECONDS    = 60
+/** Kindling. Half a log so a near-ring trip still matters. */
+export const BRANCH_FUEL_SECONDS = 30
 
 /** Hard ceiling. 10 logs = one full tank. Prevents infinite hoarding
  *  from making the UI unreadable and gives Roaring a defined peak. */
@@ -84,6 +89,13 @@ export const TIER_SMOKE_HEIGHT: readonly number[] = [0.4, 0.7, 1.0, 1.4, 1.9] as
 
 /** Fire ambient volume 0..1 per tier (interpolated). */
 export const TIER_VOLUME: readonly number[] = [0.30, 0.50, 0.70, 0.85, 1.00] as const
+
+
+// MARK: fuelSecondsForKind
+/** Seconds a carried piece adds when fed to a fire. */
+export function fuelSecondsForKind(kind: number): number {
+	return kind === WOOD_KIND_BRANCH ? BRANCH_FUEL_SECONDS : LOG_FUEL_SECONDS
+}
 
 
 // MARK: hearthIsLit

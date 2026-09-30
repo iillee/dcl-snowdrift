@@ -12,50 +12,79 @@
 import { engine } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
-// Player spawn is bound to the campfire so it always lands players on
-// the rally point regardless of scene size. Stand a couple of meters SW
-// of the fire and look at it — that way you always see the fire on
-// first frame instead of your back to it.
-const SPAWN_OFFSET  = 2   // meters SW of campfire centre
-const PLAYER_STAND_Y = 2  // avatar feet clearance above the walkable slab
+
+// Dawn pad. Look stays on the playtest sunrise heading.
+const SPAWN_X = 258.1
+const SPAWN_Y = 0.5
+const SPAWN_Z = 258.1
+/** Compass degrees from +Z (north), clockwise. 232.5 = SW of WSW. */
+const LOOK_SUNRISE_DEG = 232.5
+const LOOK_DIST_M      = 80
+const LOOK_UP_M        = 8
+const LOOK_RAD         = (LOOK_SUNRISE_DEG * Math.PI) / 180
+const LOOK_DX          = Math.sin(LOOK_RAD) * LOOK_DIST_M
+const LOOK_DZ          = Math.cos(LOOK_RAD) * LOOK_DIST_M
+
+
+// MARK: getHomePosition
+/** Feet on the dawn spawn pad. */
+export function getHomePosition(): { x: number, y: number, z: number } {
+	return {
+		x: SPAWN_X,
+		y: SPAWN_Y,
+		z: SPAWN_Z,
+	}
+}
+
+
+// MARK: getHomeLookAt
+/** Horizon point the camera and avatar face at load-in / dawn. */
+export function getHomeLookAt(): { x: number, y: number, z: number } {
+	const p = getHomePosition()
+	return {
+		x: p.x + LOOK_DX,
+		y: p.y + LOOK_UP_M,
+		z: p.z + LOOK_DZ,
+	}
+}
+
 
 // MARK: teleportHome
 /**
- * Teleport the local player to the spawn pad next to the central
- * campfire. Exported so cycle rollover can reuse it — when the world
- * regenerates around a player they should always land on solid
- * ground next to the fire, not wherever they were standing when the
- * maze reshuffled.
+ * Teleport the local player to the spawn pad, facing the sunrise.
+ * Used by first join, frost-death arrival, and world reset.
  */
 export function teleportHome(): void {
-	const target = {
-		x: CAMPFIRE_WORLD_X - SPAWN_OFFSET,
-		y: PLAYER_STAND_Y,
-		z: CAMPFIRE_WORLD_Z - SPAWN_OFFSET,
+	if (isTopDownActive()) {
+		console.log('player: teleportHome: leaving spectator so the dawn look can land')
+		toggleTopDownCamera()
 	}
-	// Fire-and-forget: movePlayerTo can reject if the player has moved
-	// to another scene, and there's nothing useful to do about it.
+	const target = getHomePosition()
+	const look   = getHomeLookAt()
 	movePlayerTo({
 		newRelativePosition: target,
-		cameraTarget:        { x: CAMPFIRE_WORLD_X, y: PLAYER_STAND_Y, z: CAMPFIRE_WORLD_Z },
+		cameraTarget       : look,
+		avatarTarget       : look,
 	}).catch(() => {})
 }
 
-export function initPlayerNet(): void {
-  // Initial spawn-in: give the maze ~2s to grow in, then plant the player
-  // on the center cross. Without this, players land wherever scene.json's
-  // spawn range dropped them, which may or may not be on solid ground
-  // depending on maze layout.
-  let elapsed = 0
-  let done = false
-  const INIT_DELAY = 2
-  engine.addSystem((dt: number) => {
-    if (done) return
-    elapsed += dt
-    if (elapsed < INIT_DELAY) return
-    done = true
-    teleportHome()
-  })
+
+// MARK: initPlayerNet
+/**
+ * After a short load beat, run `onReady` (first-join collapse).
+ * Delay lets PlayerEntity exist before movePlayerTo.
+ */
+export function initPlayerNet(onReady: () => void): void {
+	let elapsed = 0
+	let done = false
+	const INIT_DELAY = 2
+	engine.addSystem((dt: number) => {
+		if (done) return
+		elapsed += dt
+		if (elapsed < INIT_DELAY) return
+		done = true
+		onReady()
+	})
 }
