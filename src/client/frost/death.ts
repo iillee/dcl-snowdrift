@@ -48,6 +48,8 @@ import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 /** Sleep / death emote — same URN flagtag uses for ghost / lightning / water death. */
 const DEATH_EMOTE = 'urn:decentraland:matic:collections-v2:0x7bdc37ff3e8dca2d69f01a3dc34f3ad82e2e1870:0'
 
+/** Beat after the cube is gone, before the body fades out. */
+const CUBE_GONE_S = 0.4
 /** Fade-to-black duration. */
 const FADE_OUT_S = 0.6
 /** Fade-from-black duration. */
@@ -74,6 +76,7 @@ enum Phase {
 	FADE_IN       = 7,  // screen fading back in, player collapsed at the arrival spot
 	WAKE_WAIT     = 8,  // wait for first movement input, then release lock
 	FROZEN        = 9,  // locked at the freeze spot, waiting on a torch or a fire
+	DROP_ICE      = 10, // cube is gone, body still here, then the fade starts
 }
 
 let phase        = Phase.IDLE
@@ -386,7 +389,11 @@ function resolveFreeze(): void {
 		`frost/death: resolveFreeze: waking at ${fire.x.toFixed(1)}, ${fire.z.toFixed(1)}`,
 	)
 	aimAtFire(fire.x, fire.z)
-	phase      = Phase.FADE_OUT
+	// Drop the cube while they are still standing here. The fade
+	// waits a beat so other clients see the ice go before the body.
+	clearLocalDeath(true)
+	resetMeltClock()
+	phase      = Phase.DROP_ICE
 	phaseTimer = 0
 }
 
@@ -451,6 +458,17 @@ export function setupFrostDeath(): void {
 			// The fail cards own the player until the new run lays them down.
 			if (isEmberFailing()) return
 			if (!melting && phaseTimer >= ICE_RESOLVE_S) resolveFreeze()
+			return
+		}
+
+		// ── DROP_ICE: cube off, body still at the freeze spot ──
+		if (phase === Phase.DROP_ICE) {
+			fadeOpacity = 0
+			lockPlayer()
+			if (phaseTimer >= CUBE_GONE_S) {
+				phase      = Phase.FADE_OUT
+				phaseTimer = 0
+			}
 			return
 		}
 
