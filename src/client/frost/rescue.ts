@@ -33,6 +33,7 @@ import { FrostDeath } from 'src/shared/frost/components'
 import { ICE_RESCUE_RADIUS_M, ICE_THAW_S } from 'src/shared/frost/tuning'
 import { room } from 'src/shared/messages'
 
+import { playIceCubeSfxAt } from 'src/client/audio'
 import { grantFrostRescue, noteLocalMelt } from 'src/client/frost/death'
 import { isTorchLit } from 'src/client/torchEquip'
 
@@ -348,7 +349,7 @@ export function setupFrostRescue(): void {
 	}
 	installed = true
 
-	room.onMessage('frostFrozen', ({ userId, x, z, frozen }) => {
+	room.onMessage('frostFrozen', ({ userId, x, z, frozen, cue }) => {
 		const id = userId.toLowerCase()
 		const me = localUserId()
 		if (me && id === me) return
@@ -361,6 +362,9 @@ export function setupFrostRescue(): void {
 		}
 		meltStep.delete(id)
 		remoteFrozen.set(id, { x, z })
+		// cue is 1 only on a fresh freeze. A joiner's hydration of cubes
+		// already in the world must not replay the crack.
+		if (cue === 1) playIceCubeSfxAt(Vector3.create(x, 1.2, z))
 		console.log(`frost/rescue: frostFrozen: ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}`)
 	})
 

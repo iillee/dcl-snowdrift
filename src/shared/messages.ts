@@ -296,11 +296,14 @@ export const Messages = {
 	// Server → Client: draw or remove the ice cube on `userId`.
 	// frozen is 1 while they are locked, 0 once they are up. Sent to
 	// everyone, and again to a joiner so they see cubes already in the world.
+	// cue is 1 only on a fresh freeze, so a joiner does not hear the crack
+	// for cubes that were already there.
 	frostFrozen: Schemas.Map({
 		userId: Schemas.String,
 		x     : Schemas.Float,
 		z     : Schemas.Float,
 		frozen: Schemas.Int,
+		cue   : Schemas.Int,
 	}),
 
 	// Client → Server: CRDT sync just came up. Republish snow so the

@@ -73,8 +73,9 @@ function tellFrozen(
 	z     : number,
 	on    : boolean,
 	toUser?: string,
+	cue    = false,
 ): void {
-	const msg = { userId: id, x, z, frozen: on ? 1 : 0 }
+	const msg = { userId: id, x, z, frozen: on ? 1 : 0, cue: cue ? 1 : 0 }
 	if (toUser) room.send('frostFrozen', msg, { to: [toUser] })
 	else room.send('frostFrozen', msg)
 }
@@ -244,7 +245,7 @@ export function setupFrostLifeServer(): void {
 		frozenAt.set(from, { x, z })
 		if (frozen.has(from)) return
 		frozen.add(from)
-		tellFrozen(from, x, z, true)
+		tellFrozen(from, x, z, true, undefined, true)
 		console.log(`[Server] frostLife: ${from} froze at ${x.toFixed(1)}, ${z.toFixed(1)} (${frozen.size} frozen)`)
 		maybeExtinct(`${from} froze`)
 	})

@@ -8,9 +8,11 @@
  * the cube, or the cube is still growing back, the ICE_RESOLVE_S
  * clock is paused. A partial melt grows back a third per second, and
  * the clock starts over once the cube is full again. After
- * ICE_RESOLVE_S, a lit fire fades them there with one segment of
- * warmth left. If every fire is dark, they stay frozen and a torch
- * can still thaw them.
+ * ICE_RESOLVE_S, a lit fire fades the screen to black while they are
+ * still in the cube. The cube comes off once the screen has been
+ * black for a second, then the body waits a beat and wakes there
+ * with one segment of warmth left. If every fire is dark, they stay
+ * frozen and a torch can still thaw them.
  *
  * World reset and the cold open still use beginCollapsedAtHome, which
  * lays them on the dawn pad. Emote + teleport ordering copied from
@@ -32,6 +34,7 @@ import { FrostDeath } from 'src/shared/frost/components'
 import { FROST_MAX, ICE_RESOLVE_S } from 'src/shared/frost/tuning'
 import { room } from 'src/shared/messages'
 
+import { playIceCubeSfx } from 'src/client/audio'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isEmberFailing } from 'src/client/emberFail'
 import { getFrostLocal, resetFrostLocal, seedOneWarmSegment } from 'src/client/frost/accumulation'
@@ -48,10 +51,12 @@ import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 /** Sleep / death emote — same URN flagtag uses for ghost / lightning / water death. */
 const DEATH_EMOTE = 'urn:decentraland:matic:collections-v2:0x7bdc37ff3e8dca2d69f01a3dc34f3ad82e2e1870:0'
 
-/** Beat after the cube is gone, before the body fades out. */
-const CUBE_GONE_S = 0.4
-/** Fade-to-black duration. */
+/** Fade-to-black duration. The cube stays on through this. */
 const FADE_OUT_S = 0.6
+/** Extra time fully black, still inside the cube, before it drops. */
+const BLACK_IN_CUBE_S = 1.0
+/** Beat after the cube is gone, before the body teleports. Screen stays black. */
+const CUBE_GONE_S = 0.4
 /** Fade-from-black duration. */
 const FADE_IN_S  = 1.0
 /** Hold fully black while the teleport + stuck-emote workaround completes. */
@@ -68,7 +73,7 @@ const STAND_OFF_M = 2.5
 // MARK: FSM state
 enum Phase {
 	IDLE          = 0,
-	FADE_OUT      = 2,  // screen fading to black
+	FADE_OUT      = 2,  // screen fading to black, then a beat still inside the cube
 	TELEPORT      = 3,  // first movePlayerTo → wait SETTLE_TIME_S
 	SETTLE        = 4,  // second (same-spot) movePlayerTo → wait SETTLE_TIME_S
 	CLEAR_MOD     = 5,  // InputModifier removed → wait CLEAR_MOD_BEAT_S
@@ -76,7 +81,7 @@ enum Phase {
 	FADE_IN       = 7,  // screen fading back in, player collapsed at the arrival spot
 	WAKE_WAIT     = 8,  // wait for first movement input, then release lock
 	FROZEN        = 9,  // locked at the freeze spot, waiting on a torch or a fire
-	DROP_ICE      = 10, // cube is gone, body still here, then the fade starts
+	DROP_ICE      = 10, // screen is black and the cube is gone; body still here, then the teleport
 }
 
 let phase        = Phase.IDLE
@@ -324,6 +329,7 @@ function thawInPlace(): void {
 function enterDying(): void {
 	if (phase !== Phase.IDLE && phase !== Phase.WAKE_WAIT) return
 	console.log('frost/death: enterDying: player frozen, holding in place')
+	playIceCubeSfx()
 	// Still standing where they froze. The pile stays there.
 	dropLogAtPlayer()
 	// Spectate hides the avatar the ice cube is meant to wrap.
@@ -389,11 +395,11 @@ function resolveFreeze(): void {
 		`frost/death: resolveFreeze: waking at ${fire.x.toFixed(1)}, ${fire.z.toFixed(1)}`,
 	)
 	aimAtFire(fire.x, fire.z)
-	// Drop the cube while they are still standing here. The fade
-	// waits a beat so other clients see the ice go before the body.
-	clearLocalDeath(true)
+	// Leave the cube up. It comes off once the screen is black, and
+	// the body waits a beat so other clients see the ice go before
+	// the teleport.
 	resetMeltClock()
-	phase      = Phase.DROP_ICE
+	phase      = Phase.FADE_OUT
 	phaseTimer = 0
 }
 
@@ -461,22 +467,24 @@ export function setupFrostDeath(): void {
 			return
 		}
 
-		// ── DROP_ICE: cube off, body still at the freeze spot ──
-		if (phase === Phase.DROP_ICE) {
-			fadeOpacity = 0
+		// ── FADE_OUT: cube stays up until the screen has been black ─
+		if (phase === Phase.FADE_OUT) {
+			fadeOpacity = Math.min(1, phaseTimer / FADE_OUT_S)
 			lockPlayer()
-			if (phaseTimer >= CUBE_GONE_S) {
-				phase      = Phase.FADE_OUT
+			if (phaseTimer >= FADE_OUT_S + BLACK_IN_CUBE_S) {
+				fadeOpacity = 1
+				clearLocalDeath(true)
+				phase      = Phase.DROP_ICE
 				phaseTimer = 0
 			}
 			return
 		}
 
-		// ── FADE_OUT: 0 → 1 opacity ─────────────────────────────
-		if (phase === Phase.FADE_OUT) {
-			fadeOpacity = Math.min(1, phaseTimer / FADE_OUT_S)
-			if (phaseTimer >= FADE_OUT_S) {
-				fadeOpacity = 1
+		// ── DROP_ICE: screen is black, cube is gone, body still here ──
+		if (phase === Phase.DROP_ICE) {
+			fadeOpacity = 1
+			lockPlayer()
+			if (phaseTimer >= CUBE_GONE_S) {
 				teleportArrival()
 				phase      = Phase.TELEPORT
 				phaseTimer = 0

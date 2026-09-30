@@ -33,7 +33,7 @@ import {
 import { hearthTierFromFuel, hearthWarmthPerSec } from 'src/shared/hearthFuel'
 import { ambientFreezeSec, torchLeakFreezeSec, type PhaseConfig } from 'src/shared/phase'
 
-import { playFrostChunkSfx } from 'src/client/audio'
+import { playHealChunkSfx, playFrostChunkSfx } from 'src/client/audio'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
@@ -128,6 +128,7 @@ export function initFrostAccumulation(): void {
 		const mainMeltRSq = getMainFireMeltRadiusSq()
 		let warmthPerSec = 0
 		let warmthFuel   = 0
+		let thawedByFire = false
 		if (mainMeltRSq > 0 && dx * dx + dz * dz <= mainMeltRSq) {
 			warmthFuel   = getMainFireFuel()
 			warmthPerSec = hearthWarmthPerSec(warmthFuel)
@@ -154,11 +155,13 @@ export function initFrostAccumulation(): void {
 			if (dayEmber) {
 				warmingByFire = false
 			} else {
+				const before = frost
 				const net = ambientColdPerSec(phase) + snowColdPerSec(x, y, z, phase) - warmthPerSec
 				frost += net * step
 				if (frost < 0) frost = 0
 				if (frost > FROST_MAX) frost = FROST_MAX
 				warmingByFire = net < 0 && frost > 0
+				thawedByFire  = net < 0 && frost < before
 			}
 		} else {
 			warmingByFire = false
@@ -187,6 +190,7 @@ export function initFrostAccumulation(): void {
 		// shrinks the count; we only fire on the upward edge.
 		const coldSegments = visibleColdSegments(frost)
 		if (coldSegments > lastColdSegments) playFrostChunkSfx()
+		else if (thawedByFire && coldSegments < lastColdSegments) playHealChunkSfx()
 		lastColdSegments = coldSegments
 
 		// Debounced CRDT write.

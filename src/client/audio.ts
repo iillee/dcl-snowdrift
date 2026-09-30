@@ -25,6 +25,8 @@ const CLAIM_SRC = 'assets/sounds/snowstepsingle.mp3'
 const SURGE_SRC = 'assets/sounds/surge.mp3'
 const TORCH_SRC = 'assets/sounds/torch.mp3'
 const FROST_SRC = 'assets/sounds/frost.mp3'
+const HEAL_SRC    = 'assets/sounds/heal2.wav'
+const ICECUBE_SRC = 'assets/sounds/icecube.mp3'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -37,6 +39,8 @@ let muteClickEnt: Entity = 0 as Entity
 let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
+let healSfxEnt:  Entity = 0 as Entity
+let iceSfxEnt:   Entity = 0 as Entity
 
 // Frost SFX driver state. playFrostChunkSfx() only stops the voice and
 // raises frostSfxPending. The system below starts it on the next frame
@@ -68,6 +72,18 @@ export function initAudio(): void {
   AudioSource.create(frostSfxEnt, {
 	  audioClipUrl: FROST_SRC,
 	  playing: false, loop: false, volume: 0.28, global: true, currentTime: 0,
+  })
+  healSfxEnt = engine.addEntity()
+  Transform.create(healSfxEnt, { parent: engine.CameraEntity })
+  AudioSource.create(healSfxEnt, {
+	  audioClipUrl: HEAL_SRC,
+	  playing: false, loop: false, volume: 0.2, global: true, currentTime: 0,
+  })
+  iceSfxEnt = engine.addEntity()
+  Transform.create(iceSfxEnt, { parent: engine.CameraEntity })
+  AudioSource.create(iceSfxEnt, {
+	  audioClipUrl: ICECUBE_SRC,
+	  playing: false, loop: false, volume: 0.7, global: true, currentTime: 0,
   })
   // Starts a pending frost cue, then cuts the clip after the useful
   // head (~3 s) so the trailing hiss of the 8 s source never plays.
@@ -207,6 +223,53 @@ export function playFrostChunkSfx(): void {
 	frostSfxPlaying  = false
 	frostSfxElapsedS = 0
 	frostSfxPending  = true
+}
+
+
+// MARK: playHealChunkSfx
+/**
+ * Fire heal2.wav once when a fire puts a gold segment back on the
+ * heat bar. Restarts from the top if the last cue is still playing,
+ * so each regained chunk is its own hit.
+ */
+export function playHealChunkSfx(): void {
+	if (!healSfxEnt) return
+	AudioSource.playSound(healSfxEnt, HEAL_SRC, true)
+}
+
+
+// MARK: playIceCubeSfx
+/**
+ * Play the freeze crack for the local player. Camera-parented and
+ * global so they hear it from inside their own cube.
+ */
+export function playIceCubeSfx(): void {
+	if (!iceSfxEnt) return
+	AudioSource.playSound(iceSfxEnt, ICECUBE_SRC, true)
+}
+
+
+// MARK: playIceCubeSfxAt
+/**
+ * Play the freeze crack at a world position so nearby players hear
+ * someone else lock into a cube. Throwaway entity, removed once the
+ * trimmed clip has finished.
+ */
+export function playIceCubeSfxAt(position: Vector3): void {
+	const ent = engine.addEntity()
+	Transform.create(ent, { position })
+	AudioSource.create(ent, {
+		audioClipUrl: ICECUBE_SRC,
+		playing: true, loop: false, volume: 0.9, global: false,
+	})
+	const ICE_CLEANUP_MS = 2500
+	const spawnedAt = Date.now()
+	const cleanup = (): void => {
+		if (Date.now() - spawnedAt < ICE_CLEANUP_MS) return
+		engine.removeEntity(ent)
+		engine.removeSystem(cleanup)
+	}
+	engine.addSystem(cleanup)
 }
 
 
