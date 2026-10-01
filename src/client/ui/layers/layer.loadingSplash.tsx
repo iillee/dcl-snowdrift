@@ -1,7 +1,7 @@
 /**
  * layer.loadingSplash.tsx — cold-open black + mid-game black cover.
  *
- *   1. Cold-open — solid black, with the fire line, until the player
+ *   1. Cold-open — solid black, with the two-line hearth card, until the player
  *      is collapsed at the fire and the snow and cliffs are up, then
  *      a short fade.
  *   2. Mid-game regen — solid black, never a title card. Ember-fail
@@ -130,6 +130,8 @@ class LoadingSplashLayer extends Layer {
 	// MARK: body
 	body() {
 		const alpha = coldOpenAlpha()
+		const lines = COLD_OPEN_LINE.split('\n')
+		const lineH = 56
 		if (alpha > 0) {
 			return (
 				<UiEntity
@@ -148,21 +150,24 @@ class LoadingSplashLayer extends Layer {
 						key         = "ui_LoadingSplash_lineWrap"
 						uiTransform = {{
 							width          : '84%',
-							height         : 80,
+							height         : lineH * lines.length,
 							alignItems     : 'center',
 							justifyContent : 'center',
+							flexDirection  : 'column',
 							opacity        : alpha,
 						}}
 					>
-						<Label
-							key         = "ui_LoadingSplash_line"
-							value       = {COLD_OPEN_LINE}
-							fontSize    = {fontSizes.display}
-							color       = {Color4.White()}
-							font        = "sans-serif"
-							textAlign   = "middle-center"
-							uiTransform = {{ width: '100%', height: 80 }}
-						/>
+						{lines.map((text, i) => (
+							<Label
+								key         = {`ui_LoadingSplash_line_${i}`}
+								value       = {text}
+								fontSize    = {fontSizes.display}
+								color       = {Color4.White()}
+								font        = "sans-serif"
+								textAlign   = "middle-center"
+								uiTransform = {{ width: '100%', height: lineH }}
+							/>
+						))}
 					</UiEntity>
 				</UiEntity>
 			)

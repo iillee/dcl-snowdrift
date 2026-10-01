@@ -38,6 +38,8 @@ class EmberFailLayer extends Layer {
 		const worldA = getEmberFailWorldOpacity()
 		const textA  = getEmberFailTextOpacity()
 		const line   = getEmberFailText()
+		const lines  = line === '' ? [] : line.split('\n')
+		const lineH  = 56
 		if (worldA <= 0 && textA <= 0) {
 			return <UiEntity key="ui_EmberFail_hidden" uiTransform={{ display: 'none' }} />
 		}
@@ -55,26 +57,29 @@ class EmberFailLayer extends Layer {
 				}}
 				uiBackground = {{ color: Color4.create(0, 0, 0, worldA) }}
 			>
-				{textA > 0 && line !== '' && (
+				{textA > 0 && lines.length > 0 && (
 					<UiEntity
 						key         = "ui_EmberFail_lineWrap"
 						uiTransform = {{
-							width         : '84%',
-							height        : 80,
-							alignItems    : 'center',
-							justifyContent: 'center',
-							opacity       : textA,
+							width          : '84%',
+							height         : lineH * lines.length,
+							alignItems     : 'center',
+							justifyContent : 'center',
+							flexDirection  : 'column',
+							opacity        : textA,
 						}}
 					>
-						<Label
-							key      = "ui_EmberFail_line"
-							value    = {line}
-							fontSize = {fontSizes.display}
-							color    = {Color4.White()}
-							font     = "sans-serif"
-							textAlign= "middle-center"
-							uiTransform = {{ width: '100%', height: 80 }}
-						/>
+						{lines.map((text, i) => (
+							<Label
+								key      = {`ui_EmberFail_line_${i}`}
+								value    = {text}
+								fontSize = {fontSizes.display}
+								color    = {Color4.White()}
+								font     = "sans-serif"
+								textAlign= "middle-center"
+								uiTransform = {{ width: '100%', height: lineH }}
+							/>
+						))}
 					</UiEntity>
 				)}
 			</UiEntity>

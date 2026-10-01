@@ -31,7 +31,7 @@
 
 **Current status.** v1 Systems is in the playtest build (2026-09-30). Detail: [`session-2026-09-30.md`](./session-2026-09-30.md).
 
-**Shipped:** torch; melt; branch 30 s and log 60 s; one carry slot; six choppable trees (four logs each) clear of cliffs, gaps varying by seed; buried wood in three bands out to 160 m, about 12% logs, no in-run respawn; Dawn 12 s / Day 2:00 / Dusk 0:15 / Night 1:00; night pressure from dusk; mortal hearth; six hidden fires in generations (first three off the hearth, the next three off those, steps 48–80 m); five fuel tiers, Ember through Roaring, where flame size, melt ring, light, and warmth move together — the smallest flame still heats, and from dusk it loses to the cold; frost; freeze in ice; a first-pass thaw by another player's lit torch; a lit fire wakes the frozen; the run ends only when every connected player is frozen and no fire is left; four regen cards (After N day/days… / Centuries pass in the cold. / A new fire is kindled. / Don't let the fire die); a fresh seed on each server start and each regen, while a live server keeps the world in progress; Day N; black cold open; the ? panel is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute and overhead zoom.
+**Shipped:** torch; melt; branch 30 s and log 60 s; one carry slot; six choppable trees (four logs each) clear of cliffs, gaps varying by seed; buried wood in three bands out to 160 m, about 12% logs, no in-run respawn; Dawn 12 s / Day 2:00 / Dusk 0:15 / Night 1:00; night pressure from dusk; mortal hearth; six hidden fires in generations (first three off the hearth, the next three off those, steps 48–80 m); five fuel tiers, Ember through Roaring, where flame size, melt ring, light, and warmth move together — the smallest flame still heats, and from dusk it loses to the cold; frost; freeze in ice; a first-pass thaw by another player's lit torch; a lit fire wakes the frozen; the run ends only when every connected player is frozen and no fire is left; three regen cards (After N day/days… / Centuries pass in the cold. / A new hearth is kindled. Don't let the fire die); a fresh seed on each server start and each regen, while a live server keeps the world in progress; Day N; black cold open; the ? panel is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute and overhead zoom.
 
 **Not in this build:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return screens, pine, kiln, communal pile, hold-torch-to-fell.
 
@@ -122,7 +122,7 @@ Players who want **PvP, competitive leaderboards, personal levelling, wallet-gat
 
 ### First 0–10 minutes (you)
 
-**0–5 sec.** The screen is black: "Don't let the fire die." You wake laid down by the fire as that cover fades. The sky is at sunrise. A gold **Day N** title shows — Day 1 if you started the world, otherwise the day the world is already on. The same title returns at every later sunrise. The ? panel is three lines: **Day N**, the phase and its countdown (`Dawn: 0:12`), and **Don't let the fire die**. No explore line, no wood line, no fires-lit count, no version chip, no always-on day chip.
+**0–5 sec.** The screen is black: "A new hearth is kindled." / "Don't let the fire die." You wake laid down by the fire as that cover fades. The sky is at sunrise. A gold **Day N** title shows — Day 1 if you started the world, otherwise the day the world is already on. The same title returns at every later sunrise. The ? panel is three lines: **Day N**, the phase and its countdown (`Dawn: 0:12`), and **Don't let the fire die**. No explore line, no wood line, no fires-lit count, no version chip, no always-on day chip.
 
 **5–10 sec.** You stand. A chill cue plays and the heat bar is there. Your torch starts unlit and full. Light it at the fire. Wood is not visible until snow is melted.
 
@@ -531,7 +531,7 @@ Each horizon corresponds to one of the three nested loops:
 
 **Success condition (loose):** any player alive AND any fire still lit at solstice end. Not a strict fail-check — a lone survivor with one dying fire counts. This is a story-generator, not a scoring system.
 
-**Failure (playtest):** every connected player frozen and no fire left → the four cards, then a fresh seed. **Planned:** an empty world sitting dead until the next arrival. The "winter reclaimed the village" witness splash is not built.
+**Failure (playtest):** every connected player frozen and no fire left → the three cards, then a fresh seed. **Planned:** an empty world sitting dead until the next arrival. The "winter reclaimed the village" witness splash is not built.
 
 **Two-tier meaning (direction locked, form deferred):** survival alone counts as *making it*; survival with territory intact may carry meta-progression forward. See [`docs/v1-4week-plan.md`](../docs/v1-4week-plan.md) §3.4.
 

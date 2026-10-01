@@ -22,9 +22,11 @@
  *                     together. Warmth is a rate, not a full cancel:
  *                     a tier only clears frost when it beats the cold.
  *   - The fuel bar  = hidden. The fire itself is the health readout.
- *   - Multi-player  = decayRate = 1 + log2(playerCount). Doubling
- *                     players adds +1 log/min drain. Solo sustainable,
- *                     20-player spikes still fun (~5.3x).
+ *   - Multi-player  = decayRate = 1 + 0.5 * log2(playerCount).
+ *                     Solo stays 1x. Twenty players are ~3.2x, and
+ *                     night still doubles that on top. The full log2
+ *                     was halved for the 2026-10-01 test, because the
+ *                     xN chip that explained it is hidden.
  *
  * Warm is the opening fire: flame 1, smoke 1, melt ring 8 m, light
  * 8 m. The other tiers step off that. A full tank still bursts the
@@ -247,20 +249,21 @@ export function hearthFlameScaleFromFuel(fuel: number): number {
 
 // MARK: hearthDecayRate
 /**
- * Fuel-seconds burned per real second, given how many players are
- * currently in the scene. Formula: 1 + log2(max(1, playerCount)).
+ * Fuel-seconds burned per real second from the crowd alone, before
+ * the phase multiplier. Formula: 1 + 0.5 * log2(max(1, playerCount)).
  *
- *   1p ->  1.0x   (1 log/min holds Warm)
- *   2p ->  2.0x
- *   4p ->  3.0x
- *   8p ->  4.0x
- *  16p ->  5.0x
- *  20p -> ~5.3x
+ *   1p ->  1.0x
+ *   2p ->  1.5x
+ *   4p ->  2.0x
+ *   8p ->  2.5x
+ *  16p ->  3.0x
+ *  20p -> ~3.2x
  *
- * Doubling the crowd adds exactly +1 log/min of drain, which is easy
- * to teach in-game via the "xN" chip on the fuel bar.
+ * Halved from 1 + log2 for the 2026-10-01 test. The xN chip is hidden,
+ * so a 20-player night at ~10.6x was a tax nobody could read. Extra
+ * fires are the stronger drain. Night still applies its own 2x.
  */
 export function hearthDecayRate(playerCount: number): number {
 	const n = Math.max(1, playerCount | 0)
-	return 1 + Math.log2(n)
+	return 1 + 0.5 * Math.log2(n)
 }

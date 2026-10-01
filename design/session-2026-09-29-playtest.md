@@ -8,7 +8,7 @@ v1 systems that are still unbuilt stay unbuilt: seasons, solstice, pine, kiln, c
 
 ## Load and the day
 
-- Cold open is solid black, centered white line **Don't let the fire die**. It holds until the player is laid down at the fire and the snow and cliffs are up, then fades. Mid-game rebuild covers stay black with no line.
+- Cold open is solid black. As of 2026-09-30 it is two lines: **A new hearth is kindled.** / **Don't let the fire die**. It holds until the player is laid down at the fire and the snow and cliffs are up, then fades. Mid-game rebuild covers stay black with no line.
 - Gold **Day N** shows on every sunrise, and on join for the day the world is already on. The first player starts dawn, so they see Day 1. A later joiner sees the world's current day even if it is not sunrise. A new run is Day 1 again. The ? panel later dropped everything but the day, the clock, and one line. Day number is `cycleId + 1`. "After the last fire dies" as the trigger was superseded on 2026-09-30.
 - Playtest clock: Dawn **0:12**, Day **2:00**, Dusk **0:15**, Night **1:00**. Night pressure still starts at dusk (faster drain, heavier weather, weaker flame). A lit torch stays 3 cells wide. The night melt pinch is unused.
 

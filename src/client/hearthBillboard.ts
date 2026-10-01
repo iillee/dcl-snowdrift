@@ -34,7 +34,7 @@ import {
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { FUEL_MAX, TIER_FUEL } from 'src/shared/hearthFuel'
+import { FUEL_MAX, TIER_FUEL, hearthDecayRate } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
 import {
 	getHearthPlayerCount, getMainFireFuel,
@@ -431,7 +431,7 @@ function updateAllBillboards(dt: number): void {
 			const show = players > 1
 			VisibilityComponent.getMutable(rig.multiplier).visible = show
 			if (show) {
-				const rate = 1 + Math.log2(Math.max(1, players))
+				const rate = hearthDecayRate(players)
 				TextShape.getMutable(rig.multiplier).text = `x${rate.toFixed(1)}`
 			}
 			rig.lastPlayers = players

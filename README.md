@@ -18,7 +18,7 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 **v1 Systems in progress** (2026-09-30). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
 
-**In the current build:** torch, melt, branch/log pickup out to the far trees, choppable trees, six hidden fires, fuel tiers (the flame you see is the warmth you get; the smallest flame still heats), frost that freezes you in ice, a first-pass torch thaw, chain-light, weather, **Dawn / Day / Dusk / Night**, a run that ends only when everyone connected is frozen and no fire is left, then four cards and a fresh seed, Day N on join and at sunrise, black cold open, ? menu (Day N, the phase and its countdown, "Don't let the fire die"), phone mute and overhead zoom, snow LOD planes.
+**In the current build:** torch, melt, branch/log pickup out to the far trees, choppable trees, six hidden fires, fuel tiers (the flame you see is the warmth you get; the smallest flame still heats), frost that freezes you in ice, a first-pass torch thaw, chain-light, weather, **Dawn / Day / Dusk / Night**, a run that ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed, Day N on join and at sunrise, black cold open, ? menu (Day N, the phase and its countdown, "Don't let the fire die"), phone mute and overhead zoom, snow LOD planes.
 
 **Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine, kiln, a communal wood pile.
 
@@ -46,11 +46,11 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 
 **Playable now**
 
-- Spawn laid down by the hearth under a black screen ("Don't let the fire die"). The day title shows the world's current day. The ? panel is **Day N**, then the phase and its countdown (`Dawn: 0:12`), then **Don't let the fire die**. Every sunrise shows the day again.
+- Spawn laid down by the hearth under a black screen: **A new hearth is kindled.** / **Don't let the fire die.** The day title shows the world's current day. The ? panel is **Day N**, then the phase and its countdown (`Dawn: 0:12`), then **Don't let the fire die**. Every sunrise shows the day again.
 - Light a torch at the fire. Heat comes from *your* lit torch or a campfire. Standing near another player does not warm you.
 - The fire's size is its health. A smaller flame warms a smaller circle, more slowly. Ember still heats. From dusk it loses to the cold. Wood is what makes a fire safe.
 - Melt snow, pick up a branch or a log, or chop a tree. One thing in the F slot. Feed the fire. Night starts at dusk: heavier weather, weaker flame, faster drain. The torch still melts 3-wide.
-- A full frost bar freezes you in the ice where you stand. Another player's lit torch can thaw you. If a fire is still lit, frozen players wake at it. The run ends only when everyone still connected is frozen and no fire is left. The cards are: **After N day/days, the world's flame goes out.** **Centuries pass in the cold.** **A new fire is kindled.** **Don't let the fire die.** Then a fresh seed, and dawn under the last card.
+- A full frost bar freezes you in the ice where you stand. Another player's lit torch can thaw you. If a fire is still lit, frozen players wake at it. The run ends only when everyone still connected is frozen and no fire is left. The cards are: **After N day/days, the world's flame goes out.** **Centuries pass in the cold.** **A new hearth is kindled.** / **Don't let the fire die.** Then a fresh seed, and dawn under that last card.
 
 **Still the v1 target, not in this build**
 
