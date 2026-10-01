@@ -80,12 +80,14 @@ export const Messages = {
 	}),
 
 	// Server → Client: authoritative cycle state.
-	//   seed                 — current 24 h bucket id (same value as
-	//                          hiddenCampfireState.seed). Clients should
-	//                          treat THIS as canonical instead of computing
-	//                          from local Date.now(), so a peer with a
-	//                          skewed system clock never disagrees about
-	//                          which cycle is active.
+	//   seed                 — current run id (Schemas.Int, so generators
+	//                          clamp to 1..0x7FFFFFFF; compare with
+	//                          cycleSeedsEqual so a wrapped live id still
+	//                          matches). Clients should treat THIS as
+	//                          canonical instead of computing from local
+	//                          Date.now(), so a peer with a skewed system
+	//                          clock never disagrees about which cycle is
+	//                          active.
 	//   nextRebuildEpochMs   — wall-clock ms (server's Date.now()) of the
 	//                          next midnight-UTC rollover. Clients render
 	//                          the countdown as `nextRebuildEpochMs -

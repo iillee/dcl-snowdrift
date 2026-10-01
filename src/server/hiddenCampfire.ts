@@ -27,7 +27,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
@@ -254,7 +254,7 @@ export function setupHiddenCampfireServer(): void {
 			`[Server] hiddenCampfire: RX ignite seed=${seed} index=${index} from=${from} ` +
 			`(currentSeed=${currentSeed} lit[${index}]=${lit[index] ?? '?'})`
 		)
-		if (seed !== currentSeed) {
+		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(
 				`[Server] hiddenCampfire: ignite rejected from ${from} ` +
 				`— stale seed (got ${seed}, want ${currentSeed})`

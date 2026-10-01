@@ -4,14 +4,18 @@
  * Opacity comes from daySplash.ts. Uses uiTransform.opacity because
  * Explorer ignores Label color alpha. Hidden when idle so clicks
  * pass through to the world.
+ *
+ * Weight is two overlapping labels, not `<b>`: Explorer draws digits
+ * from a gray fallback font inside bold markup.
  */
 
-import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
+import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getDaySplashOpacity, getDaySplashText } from 'src/client/daySplash'
+import { FakeBoldLabel } from 'src/client/ui/components/fakeBoldLabel'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -60,14 +64,13 @@ class DaySplashLayer extends Layer {
 						opacity       : textA,
 					}}
 				>
-					<Label
-						key      = "ui_DaySplash_line"
-						value    = {`<b>${line}</b>`}
+					<FakeBoldLabel
+						id       = "ui_DaySplash_line"
+						value    = {line}
 						fontSize = {fontSizes.hero}
 						color    = {GOLD}
-						font     = "sans-serif"
-						textAlign= "middle-center"
-						uiTransform = {{ width: '100%', height: 140 }}
+						height   = {140}
+						offsetPx = {2}
 					/>
 				</UiEntity>
 			</UiEntity>

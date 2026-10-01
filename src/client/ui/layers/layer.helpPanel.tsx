@@ -10,6 +10,9 @@
  *
  * Copy is the day, the time of day and its countdown on one line,
  * and one line: don't let the fire die.
+ *
+ * Day / countdown weight is two overlapping labels, not `<b>`:
+ * Explorer draws digits from a gray fallback font inside bold markup.
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
@@ -23,6 +26,7 @@ import { formatPhaseCountdown } from 'src/shared/phase'
 
 import { playUiClick } from 'src/client/audio'
 import { getDayNumber, getPhaseName, getPhaseRemainingSec, isPhaseHydrated } from 'src/client/phase'
+import { FakeBoldLabel } from 'src/client/ui/components/fakeBoldLabel'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -111,25 +115,25 @@ class HelpPanelLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
-				<Label
+				<FakeBoldLabel
+					id       = "ui_HelpPanel_day"
 					value    = {isPhaseHydrated()
-						? `<b>Day ${getDayNumber()}</b>`
-						: '<b>Day —</b>'}
+						? `Day ${getDayNumber()}`
+						: 'Day —'}
 					fontSize = {DAY_FONT}
 					color    = {GOLD}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: DAY_LINE_H, margin: { bottom: LINE_GAP } }}
+					height   = {DAY_LINE_H}
+					uiTransform = {{ margin: { bottom: LINE_GAP } }}
 				/>
-				<Label
+				<FakeBoldLabel
+					id       = "ui_HelpPanel_phase"
 					value    = {isPhaseHydrated()
-						? `<b>${phaseTitle(getPhaseName())}: ${formatPhaseCountdown(getPhaseRemainingSec())}</b>`
+						? `${phaseTitle(getPhaseName())}: ${formatPhaseCountdown(getPhaseRemainingSec())}`
 						: '—'}
 					fontSize = {PHASE_FONT}
 					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: PHASE_LINE_H, margin: { bottom: LINE_GAP * 2 } }}
+					height   = {PHASE_LINE_H}
+					uiTransform = {{ margin: { bottom: LINE_GAP * 2 } }}
 				/>
 				<Label
 					value    = "Don't let the fire die"

@@ -29,7 +29,7 @@
  */
 
 import { SeedHolder, seedHolder } from 'src/shared/components'
-import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { HIDDEN_CYCLE_MS, getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 
@@ -94,7 +94,7 @@ export function onCycleSeedChange(handler: SeedChangeHandler): void {
  */
 export function applyCycleSeedChange(newSeed: number): void {
 	const oldSeed = serverSeed
-	if (oldSeed === newSeed) return
+	if (oldSeed !== null && cycleSeedsEqual(oldSeed, newSeed)) return
 	const hadSeed = oldSeed !== null
 	serverSeed = newSeed
 	console.log(

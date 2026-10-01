@@ -48,7 +48,7 @@ import { reservedCellsForMazeSeed } from 'src/client/perimeter'
 import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
-import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
@@ -537,7 +537,7 @@ function handleCycleSeedChange(newSeed: number): void {
 	// audio, smoke) and respawn the beacons, leaving the player looking
 	// at unlit pits with permanent melted-frost rings and no re-broadcast
 	// coming from the server (nothing changed on its end).
-	if (newSeed === oldSeed) {
+	if (cycleSeedsEqual(newSeed, oldSeed)) {
 		console.log(
 			`hiddenCampfire: cycle hydration confirmed seed=${newSeed} — ` +
 			`preserving existing lit state (${HIDDEN_CAMPFIRE_COUNT} pits)`,
@@ -605,7 +605,7 @@ export function setupHiddenCampfire(): void {
 			`hiddenCampfire: onMessage hiddenCampfireState ` +
 			`seed=${seed} index=${index} lit=${lit} (currentSeed=${currentSeed})`,
 		)
-		if (seed !== currentSeed) {
+		if (!cycleSeedsEqual(seed, currentSeed)) {
 			// Cycle rolled while we were running. Not yet handled — no
 			// regen logic in this pass. Ignore stale state.
 			return

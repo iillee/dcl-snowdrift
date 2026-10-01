@@ -26,6 +26,7 @@
  * register the paint clear BEFORE ring reseeds if you add a new one.
  */
 
+import { clampCycleSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 
@@ -101,11 +102,14 @@ export function sendCycleStateTo(userId: string): void {
  * A layout id that is not the UTC-day bucket. A new server start and
  * every regen each get their own value, so leaving and coming back
  * does not restore the first world of the day.
+ *
+ * Clamped to Schemas.Int's positive range. The full unsigned 32-bit
+ * mix wrapped on the wire and the server then rejected pickup / ignite
+ * as a stale seed.
  */
 function freshSeed(prev: number): number {
-	let s = (Date.now() ^ 0x9E3779B1 ^ Math.imul(rollCount + 1, 0x85EBCA6B)) >>> 0
-	if (s === 0)    s = 1
-	if (s === prev) s = (prev + 1) >>> 0 || 1
+	let s = clampCycleSeed(Date.now() ^ 0x9E3779B1 ^ Math.imul(rollCount + 1, 0x85EBCA6B))
+	if (cycleSeedsEqual(s, prev)) s = clampCycleSeed(s + 1)
 	return s
 }
 
@@ -122,11 +126,11 @@ function freshSeed(prev: number): number {
 export function rollCycle(opts?: { newSeed?: number }): void {
 	const oldSeed = currentSeed
 	if (opts?.newSeed !== undefined && opts.newSeed !== 0) {
-		currentSeed = opts.newSeed
+		currentSeed = clampCycleSeed(opts.newSeed)
 	} else {
 		currentSeed = freshSeed(oldSeed)
 	}
-	if (currentSeed === oldSeed) currentSeed = freshSeed(oldSeed)
+	if (cycleSeedsEqual(currentSeed, oldSeed)) currentSeed = freshSeed(oldSeed)
 	currentNextRebuild = nextRebuildEpochMs()
 	rollCount++
 	console.log(

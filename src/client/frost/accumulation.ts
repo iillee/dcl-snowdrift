@@ -147,7 +147,7 @@ export function initFrostAccumulation(): void {
 		}
 		if (warmthPerSec > 0) {
 			// Ember holds the bar through dawn and day: no thaw, no
-			// frost gain, no gold wash. From dusk it loses, same as night.
+			// frost gain. From dusk it loses, same as night.
 			// Every stronger tier still nets against the cold. The torch
 			// does not add or cancel inside a ring.
 			const dayEmber = hearthTierFromFuel(warmthFuel) === 1
@@ -238,16 +238,6 @@ export function seedWakeWarmth(): void {
 	warmingByFire    = false
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
 	console.log(`frost/accumulation: seedWakeWarmth: bar at ${value}, ${WAKE_WARM_SEGMENTS} gold`)
-}
-
-
-// MARK: isPlayerWarming
-/**
- * True while the player is standing in a lit fire and still has frost
- * left to thaw. Fully warm, or outside every fire, reads false.
- */
-export function isPlayerWarming(): boolean {
-	return warmingByFire
 }
 
 

@@ -8,11 +8,15 @@
  * player entity is invisible on mobile. FrostDeath itself does not
  * replicate; the server broadcast says who is frozen.
  * Standing inside ICE_RESCUE_RADIUS_M with a lit torch melts the cube
- * from the top, one third per second. Everyone draws that height from
- * the server. If the torch leaves early, the cube grows back a third
- * per second. At ICE_THAW_S the cube is gone, the player can move,
- * and their torch can be lit again. A presence heartbeat keeps a
- * disconnect from counting as someone still alive.
+ * from the top, one third per second. The remaining slab sits on the
+ * feet: local cubes follow PlayerEntity, remote cubes attach to
+ * AAPT_POSITION (the avatar root), and the centre is always
+ * feet + half remaining height. Hip attach made shorter avatars and
+ * sit poses look like the ice melted upward. Everyone draws that
+ * height from the server. If the torch leaves early, the cube grows
+ * back a third per second. At ICE_THAW_S the cube is gone, the player
+ * can move, and their torch can be lit again. A presence heartbeat
+ * keeps a disconnect from counting as someone still alive.
  */
 
 import {
@@ -55,6 +59,10 @@ type IceRig = {
 	block  : Entity
 	player?: Entity
 	anchor?: Entity
+	/** Last known feet. Local cubes skip a melt until this exists. */
+	feetX? : number
+	feetY? : number
+	feetZ? : number
 }
 
 const remoteFrozen = new Map<string, { x: number, z: number }>()
@@ -144,22 +152,22 @@ function paintIce(block: Entity): void {
 // MARK: ensureRemoteIce
 /**
  * Cube on another avatar. AvatarAttach is what both clients actually
- * draw on someone else. The hips sit near the middle of a standing
- * body, so a cube centered there covers them.
+ * draw on someone else. The root (feet) is the melt pivot: shrinking
+ * around the hips made the bottom rise on short avatars and sit poses.
  */
 function ensureRemoteIce(userId: string): void {
 	if (iceByUser.has(userId)) return
 	const anchor = engine.addEntity()
 	AvatarAttach.create(anchor, {
 		avatarId     : userId,
-		anchorPointId: AvatarAnchorPointType.AAPT_HIP,
+		anchorPointId: AvatarAnchorPointType.AAPT_POSITION,
 	})
 	Transform.create(anchor, { position: Vector3.Zero(), scale: Vector3.One() })
 
 	const block = engine.addEntity()
 	Transform.create(block, {
 		parent  : anchor,
-		position: Vector3.Zero(),
+		position: Vector3.create(0, ICE_CENTER_Y, 0),
 		scale   : ICE_SCALE,
 	})
 	paintIce(block)
@@ -170,24 +178,36 @@ function ensureRemoteIce(userId: string): void {
 
 
 // MARK: applyMeltScale
-/** Drop the top of the cube. The footprint stays put and the bottom stays on the feet. */
+/**
+ * Drop the top of the cube. Scale and position are applied together so
+ * a missing pose cannot shrink the slab around its old centre (that
+ * is the bottom-up melt). Bottom stays on the feet.
+ */
 function applyMeltScale(userId: string): void {
 	const rig = iceByUser.get(userId)
 	if (rig === undefined) return
 	const step     = meltStep.get(userId) ?? 0
 	const fraction = Math.max(0, 1 - step / ICE_THAW_S)
 	const height   = ICE_SIZE * fraction
-	const blockT   = Transform.getMutable(rig.block)
-	blockT.scale = Vector3.create(ICE_SIZE, height, ICE_SIZE)
 	if (rig.player !== undefined) {
 		const src = Transform.getOrNull(rig.player)
-		if (src === null) return
-		blockT.position = Vector3.create(src.position.x, src.position.y + height / 2, src.position.z)
+		if (src !== null) {
+			rig.feetX = src.position.x
+			rig.feetY = src.position.y
+			rig.feetZ = src.position.z
+		}
+		if (rig.feetX === undefined || rig.feetY === undefined || rig.feetZ === undefined) {
+			console.log(`frost/rescue: applyMeltScale: no pose yet for ${userId}`)
+			return
+		}
+		const blockT = Transform.getMutable(rig.block)
+		blockT.scale    = Vector3.create(ICE_SIZE, height, ICE_SIZE)
+		blockT.position = Vector3.create(rig.feetX, rig.feetY + height / 2, rig.feetZ)
 		return
 	}
-	// Hips are the centre of the full cube. Shift down as the top melts
-	// so the bottom stays at the feet.
-	blockT.position = Vector3.create(0, (height - ICE_SIZE) / 2, 0)
+	const blockT = Transform.getMutable(rig.block)
+	blockT.scale    = Vector3.create(ICE_SIZE, height, ICE_SIZE)
+	blockT.position = Vector3.create(0, height / 2, 0)
 }
 
 

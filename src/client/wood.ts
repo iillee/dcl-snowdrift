@@ -29,7 +29,7 @@ import { Billboard, BillboardMode, Material, MaterialTransparencyMode, MeshRende
 import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
-import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
@@ -131,7 +131,7 @@ export function setupWoodClient(): void {
 	})
 
 	room.onMessage('woodChunkActive', ({ seed, idx }) => {
-		if (seed !== currentSeed) {
+		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(`wood: chunkActive stale seed ${seed} vs ${currentSeed}, ignoring`)
 			return
 		}
@@ -141,7 +141,7 @@ export function setupWoodClient(): void {
 	})
 
 	room.onMessage('woodChunkRemoved', ({ seed, idx, pickerId }) => {
-		if (seed !== currentSeed) return
+		if (!cycleSeedsEqual(seed, currentSeed)) return
 		pendingPickup.delete(idx)
 		activeIdx.delete(idx)
 		despawnChunk(idx)
@@ -181,7 +181,7 @@ function syncTreeWoodScale(): void {
 
 // MARK: rebuildForSeed
 function rebuildForSeed(seed: number): void {
-	if (seed === currentSeed && scatter.length > 0) return
+	if (cycleSeedsEqual(seed, currentSeed) && scatter.length > 0) return
 	currentSeed = seed
 	const reserved = reservedCellsForMazeSeed(cycleMazeSeed(seed))
 	scatter        = computeWoodScatter(seed, reserved)

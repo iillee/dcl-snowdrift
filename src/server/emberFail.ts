@@ -8,6 +8,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
+import { clampCycleSeed } from 'src/shared/cycleMazeSeed'
 import { EMBER_FAIL_REBUILD_DELAY_S } from 'src/shared/emberFail'
 import { room } from 'src/shared/messages'
 
@@ -77,7 +78,7 @@ function beginFail(reason: string): void {
 
 // MARK: finishFail
 function finishFail(): void {
-	const nextSeed = ((Date.now() ^ 0xA5A5A5A5) >>> 0) || 1
+	const nextSeed = clampCycleSeed(Date.now() ^ 0xA5A5A5A5)
 	console.log(`[Server] emberFail: reseeding world seed=${nextSeed}`)
 	rollCycle({ newSeed: nextSeed })
 	failing      = false

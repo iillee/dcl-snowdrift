@@ -22,7 +22,7 @@
  *   - broadcast fresh woodActiveSet
  */
 
-import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED } from 'src/shared/snowGrid'
 import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
@@ -150,7 +150,7 @@ export function setupWoodServer(): void {
 
 	room.onMessage('woodPickupRequest', ({ seed, idx }, context) => {
 		const from = context?.from ?? 'unknown'
-		if (seed !== currentSeed) {
+		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(`[Server] wood: pickup rejected from ${from} - stale seed (${seed} vs ${currentSeed})`)
 			return
 		}
