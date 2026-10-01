@@ -6,9 +6,7 @@
  * only the active/inactive set does (owned server-side; see
  * src/server/wood.ts).
  *
- * Four bands, all measured from the hearth:
- *   - Close (11-18 m): a random teaching scatter just past the bare
- *     hearth melt. Not a ring. Not on the first snow tile.
+ * Three bands, all measured from the hearth:
  *   - Near  (15-35 m): one-torch trip. Mostly branches, a few logs.
  *   - Far   (35-80 m): gather belt, peak density at 50 m.
  *   - Outer (80-160 m): thin field toward the far trees and the
@@ -32,8 +30,6 @@ import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
 // MARK: Tuning constants
-/** Close teaching scatter. Every one is live. */
-export const WOOD_CLOSE_POOL = 8
 /** Near-ring pool size. */
 export const WOOD_NEAR_POOL = 50
 /** Far-belt pool size. */
@@ -41,10 +37,8 @@ export const WOOD_FAR_POOL = 150
 /** Outer-band pool size. Sparse, so the far trees stay worth the walk. */
 export const WOOD_OUTER_POOL = 50
 /** Full scatter list length. */
-export const WOOD_POOL_SIZE = WOOD_CLOSE_POOL + WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
+export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
 
-/** All of the close scatter is live. The lesson is the find, not a subset. */
-export const WOOD_CLOSE_ACTIVE = WOOD_CLOSE_POOL
 /**
  * Active near chunks at cycle start. One torch should be able to
  * finish a trip into this ring.
@@ -55,20 +49,7 @@ export const WOOD_FAR_ACTIVE = 28
 /** Active outer chunks. A staging fire, not the hearth, covers these. */
 export const WOOD_OUTER_ACTIVE = 12
 /** Total active buried chunks at cycle start. No in-run refill. */
-export const WOOD_ACTIVE_TARGET = WOOD_CLOSE_ACTIVE + WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE
-
-/**
- * Inner edge of the close scatter (m). The hearth melt is 8 m, so
- * the first few meters of snow can still be empty.
- */
-export const WOOD_CLOSE_MIN_M = 11
-/** Outer edge of the close scatter (m). Overlaps the near band's inner edge. */
-export const WOOD_CLOSE_MAX_M = 18
-/**
- * Minimum centre gap inside the close scatter (m). Stops two pieces
- * sharing one melt. It is not a radial spacing rule.
- */
-export const WOOD_CLOSE_GAP_M = 3.5
+export const WOOD_ACTIVE_TARGET = WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE
 
 /** Inner edge of the near ring (m). Outside the Warm melt ring. */
 export const WOOD_NEAR_MIN_M = 15
@@ -98,7 +79,6 @@ export const WOOD_BAND_NEAR  = 0
 export const WOOD_BAND_FAR   = 1
 export const WOOD_BAND_TREE  = 2
 export const WOOD_BAND_OUTER = 3
-export const WOOD_BAND_CLOSE = 4
 
 /** Chops each scattered tree still holds at cycle start. */
 export const WOOD_LOGS_PER_TREE = 4
@@ -117,7 +97,7 @@ export interface WoodChunk {
 	worldZ : number
 	/** WOOD_KIND_BRANCH or WOOD_KIND_LOG. */
 	kind   : number
-	/** WOOD_BAND_CLOSE, WOOD_BAND_NEAR, WOOD_BAND_FAR, WOOD_BAND_OUTER, or WOOD_BAND_TREE. */
+	/** WOOD_BAND_NEAR, WOOD_BAND_FAR, WOOD_BAND_OUTER, or WOOD_BAND_TREE. */
 	band   : number
 	/** Which scattered tree this log belongs to. */
 	treeIndex?: number
@@ -221,51 +201,6 @@ function onCliff(
 }
 
 
-// MARK: placeCloseBand
-/**
- * Random points in the close annulus. Angle and radius are both
- * draws, so a seed can clump or leave a gap. The gap test only
- * refuses a pile-up.
- */
-function placeCloseBand(
-	rng     : () => number,
-	out     : WoodChunk[],
-	reserved: ReadonlySet<string>,
-): void {
-	const min2 = WOOD_CLOSE_MIN_M * WOOD_CLOSE_MIN_M
-	const max2 = WOOD_CLOSE_MAX_M * WOOD_CLOSE_MAX_M
-	const span = max2 - min2
-	const gap2 = WOOD_CLOSE_GAP_M * WOOD_CLOSE_GAP_M
-	const MAX_ATTEMPTS = WOOD_CLOSE_POOL * 40
-	let attempts = 0
-	while (out.length < WOOD_CLOSE_POOL && attempts < MAX_ATTEMPTS) {
-		attempts++
-		const r     = Math.sqrt(min2 + rng() * span)
-		const theta = 2 * Math.PI * rng()
-		const x     = CENTRE_X + r * Math.cos(theta)
-		const z     = CENTRE_Z + r * Math.sin(theta)
-		if (onCliff(x, z, reserved)) continue
-		let piled = false
-		for (let i = 0; i < out.length; i++) {
-			const dx = out[i].worldX - x
-			const dz = out[i].worldZ - z
-			if (dx * dx + dz * dz < gap2) {
-				piled = true
-				break
-			}
-		}
-		if (piled) continue
-		out.push({
-			idx   : out.length,
-			worldX: x,
-			worldZ: z,
-			kind  : pickKind(rng),
-			band  : WOOD_BAND_CLOSE,
-		})
-	}
-}
-
-
 // MARK: placeNearBand
 function placeNearBand(
 	rng     : () => number,
@@ -275,10 +210,9 @@ function placeNearBand(
 	const min2 = WOOD_NEAR_MIN_M * WOOD_NEAR_MIN_M
 	const max2 = WOOD_NEAR_MAX_M * WOOD_NEAR_MAX_M
 	const span = max2 - min2
-	const end  = WOOD_CLOSE_POOL + WOOD_NEAR_POOL
 	const MAX_ATTEMPTS = WOOD_NEAR_POOL * 20
 	let attempts = 0
-	while (out.length < end && attempts < MAX_ATTEMPTS) {
+	while (out.length < WOOD_NEAR_POOL && attempts < MAX_ATTEMPTS) {
 		attempts++
 		const r     = Math.sqrt(min2 + rng() * span)
 		const theta = 2 * Math.PI * rng()
@@ -302,7 +236,7 @@ function placeFarBand(
 	out     : WoodChunk[],
 	reserved: ReadonlySet<string>,
 ): void {
-	const target = WOOD_CLOSE_POOL + WOOD_NEAR_POOL + WOOD_FAR_POOL
+	const target = WOOD_NEAR_POOL + WOOD_FAR_POOL
 	const MAX_ATTEMPTS = WOOD_FAR_POOL * 20
 	let attempts = 0
 	while (out.length < target && attempts < MAX_ATTEMPTS) {
@@ -417,7 +351,6 @@ export function computeWoodScatter(
 ): WoodChunk[] {
 	const rng = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
 	const out: WoodChunk[] = []
-	placeCloseBand(rng, out, reserved)
 	placeNearBand(rng, out, reserved)
 	placeFarBand(rng, out, reserved)
 	placeOuterBand(rng, out, reserved)

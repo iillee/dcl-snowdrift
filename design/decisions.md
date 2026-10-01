@@ -6,10 +6,6 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
-## 2026-10-01 — close teaching scatter
-
-- **2026-10-01 · More buried wood just past the hearth, placed at random · owner-directed** — Eight live pieces at 11–18 m, on top of the existing bands. Random radius and angle, with a small gap so two pieces do not share a melt. Not a ring, and not on the first snow outside the 8 m hearth melt. Same branch/log mix. The farther belts are unchanged.
-
 ## 2026-09-30 session — layout, phone HUD, fresh seeds
 
 Shipped state: [`session-2026-09-30.md`](./session-2026-09-30.md).
