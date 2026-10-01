@@ -18,7 +18,7 @@
  *
  * Cycle roll (subscribed to onCycleRoll):
  *   - recompute scatter for the new seed
- *   - reactivate the near, far, and outer subsets and every tree cluster
+ *   - reactivate the close, near, far, and outer subsets and every tree cluster
  *   - broadcast fresh woodActiveSet
  */
 
@@ -29,10 +29,12 @@ import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 import {
 	computeWoodScatter,
 	WoodChunk,
+	WOOD_BAND_CLOSE,
 	WOOD_BAND_FAR,
 	WOOD_BAND_NEAR,
 	WOOD_BAND_OUTER,
 	WOOD_BAND_TREE,
+	WOOD_CLOSE_ACTIVE,
 	WOOD_FAR_ACTIVE,
 	WOOD_NEAR_ACTIVE,
 	WOOD_OUTER_ACTIVE,
@@ -78,14 +80,17 @@ function rebuildScatter(seed: number): void {
 	scatter     = computeWoodScatter(seed, reserved)
 	active.clear()
 
+	const close: number[] = []
 	const near : number[] = []
 	const far  : number[] = []
 	const outer: number[] = []
 	for (const c of scatter) {
-		if (c.band === WOOD_BAND_NEAR) near.push(c.idx)
+		if (c.band === WOOD_BAND_CLOSE) close.push(c.idx)
+		else if (c.band === WOOD_BAND_NEAR) near.push(c.idx)
 		else if (c.band === WOOD_BAND_FAR) far.push(c.idx)
 		else if (c.band === WOOD_BAND_OUTER) outer.push(c.idx)
 	}
+	shuffleTake(close, WOOD_CLOSE_ACTIVE, active)
 	shuffleTake(near,  WOOD_NEAR_ACTIVE,  active)
 	shuffleTake(far,   WOOD_FAR_ACTIVE,   active)
 	shuffleTake(outer, WOOD_OUTER_ACTIVE, active)
@@ -95,13 +100,15 @@ function rebuildScatter(seed: number): void {
 
 	let branches = 0
 	let logs     = 0
+	let closeN   = 0
 	let nearN    = 0
 	let farN     = 0
 	let outerN   = 0
 	let treeN    = 0
 	for (const idx of active) {
 		const c = scatter[idx]
-		if (c.band === WOOD_BAND_NEAR) nearN++
+		if (c.band === WOOD_BAND_CLOSE) closeN++
+		else if (c.band === WOOD_BAND_NEAR) nearN++
 		else if (c.band === WOOD_BAND_FAR) farN++
 		else if (c.band === WOOD_BAND_OUTER) outerN++
 		else if (c.band === WOOD_BAND_TREE) treeN++
@@ -111,7 +118,7 @@ function rebuildScatter(seed: number): void {
 
 	console.log(
 		`[Server] wood: rebuilt scatter seed=${seed} pool=${scatter.length} ` +
-		`active=${active.size} (near=${nearN} far=${farN} outer=${outerN} ` +
+		`active=${active.size} (close=${closeN} near=${nearN} far=${farN} outer=${outerN} ` +
 		`tree=${treeN} branches=${branches} logs=${logs})`
 	)
 }
