@@ -8,9 +8,8 @@
  * immediately BELOW the HUD button row (BAR_TOP + BTN_SIZE + gap)
  * instead of overlapping the buttons themselves.
  *
- * Content is placeholder text for now — the panel's plumbing (open
- * from HelpButton, close by clicking again, kit-driven slide) is the
- * point of this pass.
+ * Copy is the day, the time of day and its countdown on one line,
+ * and one line: don't let the fire die.
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
@@ -20,24 +19,17 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { VERSION } from 'src/shared/data/version'
-import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
+import { formatPhaseCountdown } from 'src/shared/phase'
 
 import { playUiClick } from 'src/client/audio'
-import { getMainFireFuel } from 'src/client/hearthFuel'
-import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
-import { getDayNumber, getPhaseLabel, isPhaseHydrated } from 'src/client/phase'
+import { getDayNumber, getPhaseName, getPhaseRemainingSec, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
 
 const WHITE = Color4.White()
-
-// Version chip styling — mirrors layer.version.tsx (retired) so the
-// same visual language lands inside the help panel footer.
-const VERSION_BG = colors.versionBg
-const VERSION_FG = colors.versionFg
+const GOLD  = Color4.create(1, 0.8, 0.3, 1)
 
 // Layout: land the panel just below the top HUD button row.
 // Mirrors BAR_TOP_DT (32) / BAR_TOP_MB (4) + BTN_SIZE (72) from
@@ -53,28 +45,33 @@ const BTN_SIZE         = 72
 // bar reads as the same rhythm as the row itself.
 const GAP_BELOW_BAR_PX = 16
 
-const DAY_LINE_H    = 40
-const DAY_GAP       = 8
-const BODY_LINE_H   = 26
-const BODY_GAP      = 4
-const BODY_COUNT    = 4
-const VERSION_H     = 24
-const VERSION_GAP   = 8
-const PANEL_PAD     = spacing.lg
-const PANEL_BORDER  = 4
+const DAY_FONT     = fontSizes.subhead
+const PHASE_FONT   = 24
+const TAG_FONT     = 20
+const DAY_LINE_H   = DAY_FONT + 4
+const PHASE_LINE_H = PHASE_FONT + 2
+const TAG_LINE_H   = TAG_FONT + 4
+const LINE_GAP     = 2
+const PANEL_PAD    = spacing.md
+const PANEL_BORDER = 4
 
-// Hug the copy: short lines no longer need the old 440 x rebuild-timer box.
-const PANEL_W = 340
+// Wide enough for "Don't let the fire die" at TAG_FONT, plus the pad.
+const PANEL_W = 280
 const PANEL_H =
 	PANEL_PAD * 2 +
 	PANEL_BORDER * 2 +
-	DAY_LINE_H + DAY_GAP +
-	BODY_COUNT * BODY_LINE_H + (BODY_COUNT - 1) * BODY_GAP +
-	VERSION_GAP + VERSION_H
+	DAY_LINE_H + LINE_GAP +
+	PHASE_LINE_H + LINE_GAP * 2 +
+	TAG_LINE_H
 
 
-// Spawn hearth + hidden pits. Spawn can go out; the count is live.
-const TOTAL_CAMPFIRES = 1 + HIDDEN_CAMPFIRE_COUNT
+// MARK: phaseTitle
+/** Dawn, Day, Dusk, Night. The clock stores those names in capitals. */
+function phaseTitle(name: string): string {
+	const word = name.toLowerCase().replace(/_/g, ' ')
+	if (!word) return '—'
+	return word.charAt(0).toUpperCase() + word.slice(1)
+}
 
 
 // MARK: HelpPanelLayer
@@ -114,94 +111,34 @@ class HelpPanelLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
-				{/* Day header — calendar day of this run. Larger than the
-				   body copy so it reads first when the panel drops. */}
 				<Label
 					value    = {isPhaseHydrated()
-						? `<b><color=#ffcc4d>Day ${getDayNumber()}</color></b>`
+						? `<b>Day ${getDayNumber()}</b>`
 						: '<b>Day —</b>'}
-					fontSize = {fontSizes.subhead}
-					color    = {WHITE}
+					fontSize = {DAY_FONT}
+					color    = {GOLD}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: DAY_LINE_H, margin: { bottom: DAY_GAP } }}
+					uiTransform = {{ width: '100%', height: DAY_LINE_H, margin: { bottom: LINE_GAP } }}
 				/>
-				{/* Line 1 — top-level directive. Deliberately terse so it
-				   frames the two mechanic lines below as HOW to do it. */}
-				<Label
-					value    = {'Explore the world'}
-					fontSize = {20}
-					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
-				/>
-				{/* Line 2 — core loop. "wood" is bold + yellow to mirror the
-				   warm-gold fuel bar so the language + colour align. */}
-				<Label
-					value    = {'Fuel the fire with <b><color=#ffcc4d>wood</color></b>'}
-					fontSize = {20}
-					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
-				/>
-				{/* Line 3 — objective + progress. Central bonfire counts as 1
-				   (always lit at cycle start); hidden ones tick up as they're
-				   ignited. Reads from getHiddenCampfireWarmthPositions().length
-				   so it stays in lockstep with the frost-warmth signal. */}
-				<Label
-					value    = {`Fires lit: <b><color=#ffcc4d>${(getMainFireFuel() > 0 ? 1 : 0) + getHiddenCampfireWarmthPositions().length}/${TOTAL_CAMPFIRES}</color></b>`}
-					fontSize = {20}
-					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: BODY_LINE_H, margin: { bottom: BODY_GAP } }}
-				/>
-				{/* Line 4 — live phase + countdown from the server clock. */}
 				<Label
 					value    = {isPhaseHydrated()
-						? `Now: <b><color=#ffcc4d>${getPhaseLabel()}</color></b>`
-						: 'Now: waiting for day clock'}
-					fontSize = {20}
+						? `<b>${phaseTitle(getPhaseName())}: ${formatPhaseCountdown(getPhaseRemainingSec())}</b>`
+						: '—'}
+					fontSize = {PHASE_FONT}
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: BODY_LINE_H }}
+					uiTransform = {{ width: '100%', height: PHASE_LINE_H, margin: { bottom: LINE_GAP * 2 } }}
 				/>
-				{/* Version chip — dedicated row at the bottom of the panel.
-				   Wrapper row is flex-centred so the auto-width chip sits in
-				   the middle of the panel, matching the other centered lines
-				   above. Small top margin separates it from the last info
-				   line. Same size + colours as the retired standalone chip. */}
-				<UiEntity
-					key         = "ui_HelpPanel_versionRow"
-					uiTransform = {{
-						width         : '100%',
-						height        : VERSION_H,
-						margin        : { top: VERSION_GAP },
-						flexDirection : 'row',
-						justifyContent: 'center',
-						alignItems    : 'center',
-					}}
-				>
-					<UiEntity
-						key         = "ui_HelpPanel_version"
-						uiTransform = {{
-							width       : 'auto',
-							height      : VERSION_H,
-							borderRadius: borderRadius.sm,
-							padding     : { right: 4, left: 4 },
-						}}
-						uiText = {{
-							value    : VERSION,
-							fontSize : fontSizes.md,
-							color    : VERSION_FG,
-							textAlign: 'middle-center',
-						}}
-						uiBackground = {{ color: VERSION_BG }}
-					/>
-				</UiEntity>
+				<Label
+					value    = "Don't let the fire die"
+					fontSize = {TAG_FONT}
+					color    = {WHITE}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: TAG_LINE_H }}
+				/>
 			</UiEntity>
 		)
 	}

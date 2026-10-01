@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-29.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-30.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -25,7 +25,7 @@ The pitch:
 ## How a session actually plays
 
 - **First 30 seconds (playtest build).** Black screen: "Don't let the fire die." You wake by the hearth. Day 1 if you started the world; otherwise the world's current day. Light the torch at the fire.
-- **First few minutes (playtest build).** Melt snow to reveal a branch (30 s) or a log (60 s). Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The far trees are a second trip.
+- **First few minutes (playtest build).** Melt snow to reveal a branch (30 s) or a log (60 s). Wood sits out to the far trees, and never on a cliff. Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The flame shrinks as the fuel does, and the warmth shrinks with it. Six hidden fires grow outward from the hearth in steps of 48–80 m, so the far trees have a place to rest. A full frost bar freezes you in the ice. Another player's lit torch can thaw you.
 - **v1 target, not in this build.** Kindling everywhere, deadwood and pine around groves, fell a tree by holding torch heat, charcoal at a kiln.
 - **Session shape.** Gather → tend → hold territory → decide which fires matter → make it to the next solstice.
 
@@ -33,21 +33,31 @@ The pitch:
 
 Cryocene runs on three interlocking cycles, each with its own pressure and payoff:
 
-- **Day / night cycle (micro, minutes).** The heartbeat of the game. Dawn resets frost; day is for gathering and expanding; dusk is the regroup beat; night is when fires drain fastest, cold bites, and players huddle for warmth. Every session lives inside this rhythm — it is what makes *"one more day"* the natural stopping point.
-- **Seasonal / yearly cycle (meso, in-game days).** Autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring. Each season plays as a distinct strategic phase (Expand → Prepare → Consolidate → Hold → Survive → Reclaim → Expand). The solstice is the peak.
-- **Civilization cycle (macro, hours to days of real time).** One shared run per world, persistent across sessions, ends when the last fire dies. Whoever witnesses extinction sees the reset; the next seed rerolls geography.
+- **Day / night cycle (micro, minutes). Shipped.** Dawn, day, dusk, night. Day is for gathering. Dusk is the regroup. Night is when fires drain fastest and the cold bites. Players gather at the fires. Warmth comes from a lit torch or a campfire, not from standing near each other.
+- **Seasonal / yearly cycle (meso). Planned, not in this build.** Autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring.
+- **The run (macro). The end condition is shipped. The empty-server half is not.** One shared run per world. It ends when every player still connected is frozen and no fire is left. A fresh seed follows. Persistence across an empty server, and a "while you were gone" screen, are still planned.
 
-Same verb at three scales: tend the torch through the night, tend the network through the winter, tend the civilization across many winters.
+Same verb at three scales: tend the torch through the night, tend the network through the winter, tend the run across many winters. The winter and the many-winter scales are the v1 target.
 
-## The world model — persistent civilizations, finite worlds
+## The world model
 
-- **One shared civilization per world.** Every player in the scene is part of the same run.
-- **World state persists between logins.** Log off Day 17, come back to Day 28. Every session start shows a personal *"while you were gone"* summary of what changed.
-- **Offline continues at full rate.** If nobody is online, fires keep draining. Most civilizations don't last forever — that's the point.
-- **Civilization ends when the last fire dies.** Not when the hearth dies — if the hearth falls but a satellite anchor is still lit, the community migrates there, and the oldest surviving fire becomes the new home. Only extinction (last fire out) triggers a new-world seed.
-- **The new seed rerolls geography.** Biomes, discoveries, fire placements, hazards — all different. Rediscovery is the reward for the loss.
+**Shipped now**
+
+- **One shared run.** Every player in the scene is in the same winter.
+- **A live server keeps that winter.** Leave and come back to the same seed, the same day, the same fires. A new server start draws a fresh seed. So does every regen. That is not the UTC-day layout, and it is not the unbuilt empty-server save.
+- **Freeze is personal. Extinction is the run.** You freeze in the ice where you stand. A lit torch can thaw you. A lit fire wakes the frozen. No fire, and no one left standing, and the run ends. Someone still moving can relight a dark fire and recover the group.
+- **The fire you see is the fire you get.** Fuel sets the flame size, the melt ring, and the warmth rate together. The smallest flame still heats. From dusk it loses to the cold. Wood is what makes it safe.
+- **Wood is finite inside a run.** Nothing grows back until the world regenerates.
+
+**Planned, not in this build**
+
+- **World state survives an empty server.** Log off Day 17, come back to a later day. A personal "while you were gone" summary. Offline advance at full rate.
+- **Oldest surviving fire becomes the new home** if the hearth falls and another fire is still lit. That migration is not built. What is built is simpler: any lit fire is a way back for the frozen.
+- **A new seed rerolls the long-term geography** (biomes, discoveries, hazards). The playtest already rerolls trees, buried wood, and the six hidden fires.
 
 ## Geography is the tech tree
+
+*Planned v1 layout. The playtest world is the shorter map in [Where the build is](#where-the-build-is-2026-09-30).*
 
 The v1 world contains, arranged procedurally per seed:
 
@@ -61,10 +71,10 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 ## The rules that make it hard
 
-- **The world's fuel is finite.** Every tree has a fixed budget (~3–5 logs). No respawn within a run. Depleted trees leave permanent stumps. Long civilizations play out against a visibly depleted map.
-- **Fires drain. Cold accumulates.** Winter compounds every axis: nights lengthen, snow deepens, fire drain accelerates.
-- **The solstice is the boss beat.** Whiteout, doubled night, cold at peak. Communities that lose territory beforehand face it with fewer fires.
-- **Territory = redundancy.** Every satellite fire is a potential last home. Territorial expansion isn't just capability; it's insurance.
+- **The world's fuel is finite. Shipped in the playtest as four logs a tree, and buried wood that does not grow back.** The longer form is a budget of about 3–5 logs and a stump left standing. That stump is not in this build. The tree hides when it is empty.
+- **Fires drain. Cold accumulates. Shipped.** A weaker flame warms less. Winter lengthening the nights is still planned.
+- **The solstice is the boss beat. Planned.** Whiteout, doubled night, cold at peak.
+- **Territory = redundancy. Partly shipped.** A lit fire is a way back for anyone frozen. The older "oldest fire becomes the new home" migration is still planned. Expansion is insurance either way. Standing near each other is not warmth.
 
 ## What's *not* in the game
 
@@ -82,15 +92,15 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-09-29)
+## Where the build is (2026-09-30)
 
-Phase 1 **Systems** is underway. The playtest slice is the day/night loop plus a wood trip.
+Phase 1 **Systems** is underway. The playtest slice is the day/night loop plus a wood trip out to the far trees.
 
-**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; melt-to-reveal branches and logs; six choppable trees; one carry slot; last-fire fade + reseed (wood lost, torch emptied); Day N on join and at sunrise; black cold open; gold warmth pulse while the bar refills; snow LOD planes.
+**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; Ember still heats and loses to the night); melt-to-reveal branches and logs out to 160 m, clear of cliffs; six choppable trees with uneven gaps; six hidden fires grown in generations off the hearth; one carry slot; freeze in ice, with a first-pass torch thaw; a lit fire wakes the frozen; the run ends only when everyone connected is frozen and no fire is left, then four cards and a fresh seed (wood lost, torch emptied); a new server start is also a fresh seed, and a live server keeps the world in progress; Day N on join and at sunrise; three gold segments when you wake at a fire; black cold open; ? menu is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute in the old + slot, and overhead zoom under the pan pad; gold warmth pulse while the bar refills; snow LOD planes.
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, empty-server persistence, return-screens, pine, kiln, hold-torch-to-fell.
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell.
 
-**Handoff:** [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
+**Handoff:** [`session-2026-09-30.md`](./session-2026-09-30.md). Earlier playtest notes: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 ## v1 build plan — at a glance
 
@@ -136,7 +146,7 @@ The v1 build has **two scope tiers**: a **Reach** target (full ambition, ~175–
 
 ## Where this is going
 
-- **v1** (this build) — prove the gameplay. Persistent civilization model, seasonal reversal, tree-mining, fuel tiering, Kiln, solstice, extinction reset. Core scope: one biome + Kiln; Reach scope: two biomes + Kiln + Ancient Station foreshadow.
+- **v1** (the target, not all of it in the playtest) — prove the gameplay. Shared mortal run, seasonal reversal, tree-mining, fuel tiering, Kiln, solstice, extinction when no one can bring the fire back. Core scope: one biome + Kiln; Reach scope: two biomes + Kiln + Ancient Station foreshadow.
 - **v1.5** — expand the discovery pool. **Coal mine** biome (rarer, longer-burning). **Ancient fuel cache** discovery (pre-processed premium fuel, ties into ignition-manual lore). More mystery discoveries. Named graves. Longer lore prose.
 - **v2** — the volcano ignition network. The v1 loop scaled up: tending fires becomes waking volcanoes. Successful civilizations physically transform geography — snow retreats, ice fractures, new terrain opens. The final answer to *"why is it winter?"* — and the win condition: **break the cycle. End the ice age.**
 

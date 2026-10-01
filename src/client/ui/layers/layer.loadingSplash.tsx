@@ -14,6 +14,8 @@ import { Color4 } from '@dcl/sdk/math'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { COLD_OPEN_LINE } from 'src/shared/emberFail'
+
 import { isEmberFailing } from 'src/client/emberFail'
 import { isPlayerLaidDownAtHome } from 'src/client/frost/death'
 import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
@@ -23,9 +25,6 @@ import { UI_THEME } from 'src/client/ui/theme/settings'
 
 /** Fade-out once the player is down and the world is ready to see. */
 const COLD_OPEN_FADE_MS = 800
-/** Line held on the cold-open black. Mid-game covers stay blank. */
-const COLD_OPEN_LINE = "Don't let the fire die"
-
 const { fontSizes } = UI_THEME
 
 // Once the first winter has been shown, the cold-open cover must

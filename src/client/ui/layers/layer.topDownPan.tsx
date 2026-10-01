@@ -11,9 +11,8 @@
  *     with a fullscreen release-catcher (only mounted while a button is
  *     held) so lifting the finger outside the button still ends the pan.
  *   - Recenter button: top-center, snaps camera back to follow-the-player.
- *   Zoom +/- dock to the left of the eye while spectator is on — see
- *   SpectatorButton in layer.brushSize.tsx. They are absolutely
- *   positioned so the rest of the top HUD does not shift.
+ *   - Mobile zoom: + / - in a row under the d-pad, same spot as
+ *     dcl-place. Desktop zoom stays beside the eye in the top HUD.
  *
  * Desktop and mobile controls are both rendered on both platforms — the
  * SDK's own input model gates them (screenDelta is desktop-only, and the
@@ -27,8 +26,9 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
+import { playUiClick } from 'src/client/audio'
+import { applyPanDelta, beginDrag, beginPan, canZoomIn, canZoomOut, endDrag, endPan, getDpadSpeed, isTopDownActive, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { applyPanDelta, beginDrag, beginPan, endDrag, endPan, getDpadSpeed, isTopDownActive } from 'src/client/topDownCamera'
 
 
 const { colors, borderRadius } = UI_THEME
@@ -46,6 +46,17 @@ const DPAD_GAP         = 8
 // mobile jump/interaction cluster in the bottom-right corner.
 const DPAD_MARGIN_RIGHT = 96
 const DPAD_MARGIN_BOTTOM = 440  // above the native mobile action buttons
+
+// Zoom cluster. Smaller than the d-pad so it reads as a secondary control.
+// Horizontal under the pad: the pad occupies right 96..328, so a 144-wide
+// row centered on it sits at right 140. Bottom 340 clears the native
+// help / eye / jump row.
+const ZOOM_BTN           = 60
+const ZOOM_GAP           = 24
+const ZOOM_MARGIN_RIGHT  = 140
+const ZOOM_MARGIN_BOTTOM = 340
+const ZOOM_GLYPH_BAR     = 4
+const ZOOM_GLYPH_LEN     = 24
 
 // Vertical inset at the top of the drag catcher so it never covers the
 // top-center action bar (see layer.brushSize.tsx: top margin 32 + 72 px
@@ -201,6 +212,99 @@ function Dpad() {
 }
 
 
+// MARK: ZoomButton
+/**
+ * One overhead zoom step. Grayed at the altitude limit so the button
+ * stays put and a dead tap does nothing.
+ */
+function ZoomButton(props: {
+	kind   : 'in' | 'out'
+	enabled: boolean
+	keyId  : string
+}) {
+	const bg = props.enabled
+		? PANEL_BG
+		: Color4.create(PANEL_BG.r, PANEL_BG.g, PANEL_BG.b, PANEL_BG.a * 0.4)
+	const tint = props.enabled ? WHITE : Color4.create(1, 1, 1, 0.4)
+	return (
+		<UiEntity
+			key = {props.keyId}
+			uiTransform = {{
+				width         : ZOOM_BTN,
+				height        : ZOOM_BTN,
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+			}}
+			uiBackground = {{ color: bg }}
+			onMouseDown = {() => {
+				if (!props.enabled) return
+				playUiClick()
+				if (props.kind === 'in') zoomIn()
+				else                     zoomOut()
+			}}
+		>
+			<ZoomGlyph kind = {props.kind} color = {tint} />
+		</UiEntity>
+	)
+}
+
+
+// MARK: ZoomGlyph
+/** Chunky + or - built from two bars. */
+function ZoomGlyph(props: { kind: 'in' | 'out'; color: Color4 }) {
+	return (
+		<UiEntity
+			uiTransform = {{
+				width         : ZOOM_GLYPH_LEN,
+				height        : ZOOM_GLYPH_LEN,
+				justifyContent: 'center',
+				alignItems    : 'center',
+			}}
+		>
+			<UiEntity
+				uiTransform = {{
+					positionType: 'absolute',
+					width       : ZOOM_GLYPH_LEN,
+					height      : ZOOM_GLYPH_BAR,
+				}}
+				uiBackground = {{ color: props.color }}
+			/>
+			{props.kind === 'in' && (
+				<UiEntity
+					uiTransform = {{
+						positionType: 'absolute',
+						width       : ZOOM_GLYPH_BAR,
+						height      : ZOOM_GLYPH_LEN,
+					}}
+					uiBackground = {{ color: props.color }}
+				/>
+			)}
+		</UiEntity>
+	)
+}
+
+
+// MARK: ZoomCluster
+/** + then - , centered under the mobile pan pad. */
+function ZoomCluster() {
+	return (
+		<UiEntity
+			uiTransform = {{
+				positionType : 'absolute',
+				position     : { right: ZOOM_MARGIN_RIGHT, bottom: ZOOM_MARGIN_BOTTOM },
+				flexDirection: 'row',
+				alignItems   : 'center',
+			}}
+		>
+			<ZoomButton kind = "in"  enabled = {canZoomIn()}  keyId = "zoom_in" />
+			<UiEntity uiTransform = {{ width: ZOOM_GAP }} />
+			<ZoomButton kind = "out" enabled = {canZoomOut()} keyId = "zoom_out" />
+		</UiEntity>
+	)
+}
+
+
 // MARK: DesktopDragCatcher
 /**
  * Full-screen invisible layer that starts / ends desktop drag pans.
@@ -265,6 +369,7 @@ class TopDownPanLayer extends Layer {
 				{/* D-pad is mobile-only — desktop uses click-drag panning via
 				    the catcher above, so the d-pad would only clutter the HUD. */}
 				{isMobile() && <Dpad />}
+				{isMobile() && <ZoomCluster />}
 			</UiEntity>
 		)
 	}

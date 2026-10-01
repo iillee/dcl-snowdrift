@@ -1,9 +1,10 @@
 /**
  * emberFail.ts — client game-over cards when the last fire dies.
  *
- * Black first, then three title cards (the flame goes out → centuries
- * → a new fire), with a beat of black between them. The last line
- * fades out with the black. Dawn has already started under the cards.
+ * Black first, then four title cards (the flame goes out → centuries
+ * → a new fire → don't let the fire die), with a beat of black
+ * between them. The last line fades out with the black. Dawn has
+ * already started under the cards.
  */
 
 import { InputModifier, engine } from '@dcl/sdk/ecs'
@@ -13,11 +14,13 @@ import {
 	EMBER_FAIL_FADE_OUT_S,
 	EMBER_FAIL_GAP_1_S,
 	EMBER_FAIL_GAP_2_S,
+	EMBER_FAIL_GAP_3_S,
 	EMBER_FAIL_LINE_FADE_S,
 	EMBER_FAIL_LINE_HOLD_S,
 	emberFailLine1,
 	emberFailLine2,
 	emberFailLine3,
+	emberFailLine4,
 } from 'src/shared/emberFail'
 import { room } from 'src/shared/messages'
 
@@ -41,7 +44,11 @@ enum Phase {
 	LINE2_GAP  = 9,
 	LINE3_IN   = 10,
 	LINE3_HOLD = 11,
-	WORLD_IN   = 12,
+	LINE3_OUT  = 12,
+	LINE3_GAP  = 13,
+	LINE4_IN   = 14,
+	LINE4_HOLD = 15,
+	WORLD_IN   = 16,
 }
 
 let phase        = Phase.IDLE
@@ -80,8 +87,11 @@ export function getEmberFailText(): string {
 	if (phase >= Phase.LINE2_IN && phase <= Phase.LINE2_OUT) {
 		return emberFailLine2()
 	}
-	if (phase >= Phase.LINE3_IN && phase <= Phase.WORLD_IN) {
+	if (phase >= Phase.LINE3_IN && phase <= Phase.LINE3_OUT) {
 		return emberFailLine3()
+	}
+	if (phase >= Phase.LINE4_IN && phase <= Phase.WORLD_IN) {
+		return emberFailLine4()
 	}
 	return ''
 }
@@ -279,12 +289,45 @@ export function setupEmberFailClient(): void {
 		}
 
 		if (phase === Phase.LINE3_HOLD) {
+			if (phaseTimer < EMBER_FAIL_LINE_HOLD_S) return
+			phase      = Phase.LINE3_OUT
+			phaseTimer = 0
+			return
+		}
+
+		if (phase === Phase.LINE3_OUT) {
+			textOpacity = Math.max(0, 1 - phaseTimer / EMBER_FAIL_LINE_FADE_S)
+			if (phaseTimer < EMBER_FAIL_LINE_FADE_S) return
+			phase       = Phase.LINE3_GAP
+			phaseTimer  = 0
+			textOpacity = 0
+			return
+		}
+
+		if (phase === Phase.LINE3_GAP) {
+			textOpacity = 0
+			if (phaseTimer < EMBER_FAIL_GAP_3_S) return
+			phase      = Phase.LINE4_IN
+			phaseTimer = 0
+			return
+		}
+
+		if (phase === Phase.LINE4_IN) {
+			textOpacity = Math.min(1, phaseTimer / EMBER_FAIL_LINE_FADE_S)
+			if (phaseTimer < EMBER_FAIL_LINE_FADE_S) return
+			phase       = Phase.LINE4_HOLD
+			phaseTimer  = 0
+			textOpacity = 1
+			return
+		}
+
+		if (phase === Phase.LINE4_HOLD) {
 			textOpacity = 1
 			const ready    = isNewWorldReady()
 			const fallback = rebuilt && phaseTimer >= READY_FALLBACK_S
 			if (!ready && !fallback) return
 			if (fallback && !ready) {
-				console.log('emberFail: LINE3_HOLD: load wait timed out, fading in')
+				console.log('emberFail: LINE4_HOLD: load wait timed out, fading in')
 			}
 			phase      = Phase.WORLD_IN
 			phaseTimer = 0

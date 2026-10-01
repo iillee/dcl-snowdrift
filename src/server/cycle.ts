@@ -12,7 +12,8 @@
  *
  * Rollover:
  *   rollCycle() fires:
- *     1. Samples fresh currentSeed + nextRebuildEpochMs.
+ *     1. Samples a fresh currentSeed, not the UTC-day bucket, plus
+ *        the legacy nextRebuildEpochMs.
  *     2. Invokes every registered onCycleRoll subscriber (hidden
  *        campfire reset, paint clear + reseed, central-fire ring
  *        reseed, etc.).
@@ -25,7 +26,7 @@
  * register the paint clear BEFORE ring reseeds if you add a new one.
  */
 
-import { getHiddenCampfireSeed, nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
+import { nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 
 
@@ -94,11 +95,15 @@ export function sendCycleStateTo(userId: string): void {
 }
 
 
-// MARK: mixSeed
+// MARK: freshSeed
 
-/** Nudge a seed so two rolls in the same UTC day still differ. */
-function mixSeed(prev: number): number {
-	let s = (prev ^ (Date.now() & 0x7fffffff) ^ 0x9E3779B1) >>> 0
+/**
+ * A layout id that is not the UTC-day bucket. A new server start and
+ * every regen each get their own value, so leaving and coming back
+ * does not restore the first world of the day.
+ */
+function freshSeed(prev: number): number {
+	let s = (Date.now() ^ 0x9E3779B1 ^ Math.imul(rollCount + 1, 0x85EBCA6B)) >>> 0
 	if (s === 0)    s = 1
 	if (s === prev) s = (prev + 1) >>> 0 || 1
 	return s
@@ -110,18 +115,18 @@ function mixSeed(prev: number): number {
  * Advance the cycle: sample fresh seed + next boundary, fire every
  * subscribed handler in order, then broadcast the new cycleState.
  *
- * `newSeed` forces a layout even when the 24 h bucket has not moved
- * (ember-fail mid-day). If omitted, uses the UTC bucket; if that
- * matches the live seed, mixes so clients still rebuild.
+ * `newSeed` is an explicit layout id (ember fail passes one). If
+ * omitted, or if it matches the world that just ended, a fresh id
+ * is drawn so the rebuild cannot repeat.
  */
 export function rollCycle(opts?: { newSeed?: number }): void {
 	const oldSeed = currentSeed
 	if (opts?.newSeed !== undefined && opts.newSeed !== 0) {
 		currentSeed = opts.newSeed
 	} else {
-		currentSeed = getHiddenCampfireSeed()
+		currentSeed = freshSeed(oldSeed)
 	}
-	if (currentSeed === oldSeed) currentSeed = mixSeed(oldSeed)
+	if (currentSeed === oldSeed) currentSeed = freshSeed(oldSeed)
 	currentNextRebuild = nextRebuildEpochMs()
 	rollCount++
 	console.log(
@@ -148,7 +153,7 @@ export function rollCycle(opts?: { newSeed?: number }): void {
  * server subsystems.
  */
 export function setupCycleServer(): void {
-	currentSeed        = getHiddenCampfireSeed()
+	currentSeed        = freshSeed(0)
 	currentNextRebuild = nextRebuildEpochMs()
 	console.log(
 		`[Server] cycle: seed=${currentSeed} ` +

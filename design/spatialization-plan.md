@@ -2,8 +2,9 @@
 
 *Working doc for the Spatialize + Fun phase of v1. When the design converges here, it folds back into GDD §3 (Pillars 5–6, Core Loop, Reveal table, Seasonal cadence, Scale and traversal).*
 
-**Status:** draft v2 · 2026-09-22 · converging via owner review
+**Status:** draft v2 · 2026-09-22 · planned layout, not the playtest map
 **Related:** [`gdd.md`](gdd.md) §3, [`decisions.md`](decisions.md)
+**Extinction line below is superseded (2026-09-30).** The run ends when everyone still connected is frozen and no fire is left. See [`session-2026-09-30.md`](./session-2026-09-30.md). This file is still the planned biome layout. It is not what the playtest world generates.
 **Supersedes:** the 2026-09-22 v1 draft of this doc (which proposed torch tiers, meadow/scrub as biomes, and a mixed density/biome model — all replaced).
 
 ---
@@ -18,7 +19,7 @@
 - **v1 discoveries** (up to 2): **Cabin / Charcoal Kiln** (functional — portability logistics) + **Ancient Station foreshadow** (mystery — hints at v2). Kiln always present; Ancient Station appears in ~50% of seeds (proves per-seed presence/absence architecture).
 - **Three-tier fuel system** (kindling / deadwood / pinewood) fed into the existing burn-time model; **charcoal** produced at the Kiln adds a 4th type optimized for portability, not tier.
 - **Three fire archetypes** (spawn hearth / biome anchor / rest stop) with uniform decay. Every anchor fire attaches to either a biome (Deadwood/Pine) or a discovery (Kiln).
-- **Fire-survives extinction rule** (GDD Pillar 6): civilization ends only when the last fire dies; oldest continuously-burning surviving fire becomes new home if hearth falls.
+- **Fire-survives extinction rule** (GDD Pillar 6): **superseded 2026-09-30.** The run ends when everyone still connected is frozen and no fire is left, not when the last fire dies. Oldest-fire-becomes-home is still planned and is not in the build.
 - **Persistent civilization model** (GDD Pillar 7): lightweight external persistence backend (Cloudflare Workers / Firebase / equivalent) + DCL CRDT for in-scene real-time sync; world state persists between logins, offline advancement computed deterministically on next arrival, per-player return-screens on session start.
 - **Procedural generation per new seed**; only the central spawn hearth is spatially constant.
 - **Data-driven content pool architecture** (GDD Pillar 10): biomes, discoveries, fuel types, hazards all declared as data; generator reads pools. Adding v1.5+ content = authoring data, not rewriting systems.
@@ -300,7 +301,7 @@ The GDD §3 seasonal cadence claims "winter reverses the tech tree." Here's the 
 **Procgen:**
 - [ ] Per-seed placement of biome regions, anchors, rest stops, hazard belts
 - [ ] Reachability check: hearth → rest stop → anchor on fresh deadwood torch
-- [ ] Reset behavior: world regens on extinction (last fire dies) + first-return trigger; migration to oldest surviving fire if hearth falls with satellites lit
+- [ ] Reset behavior: world regens when everyone connected is frozen and no fire is left. First-return witness and migration to the oldest surviving fire are still planned, not in the playtest. The "last fire dies" trigger is retired.
 
 **Game balancing (Phase 2 pass, playtest-refined through Phase 4):**
 

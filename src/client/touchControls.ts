@@ -11,10 +11,12 @@
  *   \u2022 IA_SECONDARY (`F`) \u2014 hidden. Reserved / unused in Cryocene.
  *   \u2022 IA_ACTION_3  (`1`) \u2014 icon swapped to the eye glyph; dispatches
  *                            toggleTopDownCamera on rising edge.
- *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the mute/unmute glyph;
- *                            dispatches toggleMusic on rising edge.
- *                            Icon re-applied after each toggle so the
- *                            mute state stays visible.
+ *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the help glyph.
+ *   \u2022 IA_ACTION_5  (`3`) \u2014 icon swapped to the mute/unmute glyph.
+ *                            Sits in the last slot. The unused `4` key
+ *                            is hidden so the client does not replace
+ *                            that slot with the "+" overflow.
+ *   \u2022 IA_ACTION_6  (`4`) \u2014 hidden.
  *
  * TouchScreenControls only affects native on-screen buttons, so all of
  * this is a no-op on desktop.
@@ -73,9 +75,7 @@ function applyLayout(): void {
 			// has its own mobile UI for the underlying actions.
 			{ inputAction: InputAction.IA_PRIMARY,   hide: true },
 			{ inputAction: InputAction.IA_SECONDARY, hide: true },
-			// Repurpose ACTION_3 / ACTION_4 as our eye + mute buttons.
-			// Only the glyph changes here \u2014 the actual toggle happens in
-			// the polling system below when the button reports pressed.
+			// Eye, help, and mute. The toggle itself is polled below.
 			{
 				inputAction: InputAction.IA_ACTION_3,
 				hide       : false,
@@ -91,6 +91,11 @@ function applyLayout(): void {
 				hide       : false,
 				icon       : { tex: { $case: 'texture', texture: { src: muteSrc } } },
 			},
+			// The unused "4" key is what pushes the cluster past five
+			// buttons, which is when the client swaps the last slot for
+			// a "+" that hides mute. Hiding it leaves exactly five, so
+			// mute sits in that slot.
+			{ inputAction: InputAction.IA_ACTION_6,   hide: true },
 		],
 		hideJoystick : false,
 		hideCrosshair: false,
@@ -143,5 +148,5 @@ export function setupTouchControls(): void {
 		// now owns mobile relight via its onMouseDown → tryRelightAtFire().
 	})
 
-	console.log('touchControls: setupTouchControls: mobile layout applied (E/F hidden, 1=eye, 2=mute)')
+	console.log('touchControls: setupTouchControls: mobile layout applied (E/F/4 hidden, mute in the last slot)')
 }
