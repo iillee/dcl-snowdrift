@@ -1,23 +1,13 @@
 /**
- * flameBillboards.ts — five-plane campfire, now breathing.
+ * flameBillboards.ts — low-poly orange fire cards.
  *
- * Rest pose is the A–E layout. Motion is per tongue. Extra
- * rising copies of the vertical tongues climb above the bed,
- * shrink, and fade out. Which tongues are on follows the
- * fuel-tier flame scale: Ember is a bed and one curve, Roaring
- * is the full set. The whole cluster also uniform-scales with
- * that tier (Warm = 1). The cluster Y-billboards as one piece
- * so the hero face (A's bed plus B's curve) stays toward the
- * camera. Three outward spots jitter on Bence's clock and cast
- * the flicker shadows. Fuel, warmth, radius, and drain are not
- * decided here.
- *
- * Drop-in sheets (tip at the top of the file):
- *   assets/images/flame-base.png
- *   assets/images/flame-curve-l.png
- *   assets/images/flame-tall.png
- *   assets/images/flame-curve-r.png
- *   assets/images/flame-flicker.png
+ * Solid emissive planes instead of flame sprites: a planted bed
+ * of crossed cards, plus smaller ember cards that climb and
+ * shrink out. Roster and uniform scale follow fuel-tier flame
+ * scale (Warm = 1). The cluster Y-billboards so the hero face
+ * stays toward the camera. Three outward spots jitter on
+ * Bence's clock and cast the flicker shadows. Fuel, warmth,
+ * radius, and drain are not decided here.
  */
 
 import {
@@ -33,48 +23,52 @@ import {
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 
-const TEX_BASE    = 'assets/images/flame-base.png'
-const TEX_CURVE_L = 'assets/images/flame-curve-l.png'
-const TEX_TALL    = 'assets/images/flame-tall.png'
-const TEX_CURVE_R = 'assets/images/flame-curve-r.png'
-const TEX_FLICKER = 'assets/images/flame-flicker.png'
-
-/** Local Y of every tongue root, inside the log pile. */
+/** Local Y of every planted card root, inside the log pile. */
 const BED_Y = 0.08
 /**
- * Hero face of the cluster. 30° sits between A (0°) and B (55°)
- * so the wide bed and the left curve read together. The visual
- * parent Y-billboards; this offset is on the child so the
- * Billboard can own the parent's yaw.
+ * Hero face of the cluster. Offset on the child so Billboard
+ * can own the parent's yaw.
  */
-const FACE_YAW = 30
+const FACE_YAW = 0
+
+/** Yellow (heat 0) toward a mild orange (heat 1). Keep the range short. */
+const COL_YELLOW_ALBEDO = Color4.create(1.00, 0.72, 0.18, 1)
+const COL_YELLOW_EMIT   = Color3.create(1.00, 0.55, 0.08)
+const COL_ORANGE_ALBEDO = Color4.create(1.00, 0.55, 0.10, 1)
+const COL_ORANGE_EMIT   = Color3.create(1.00, 0.42, 0.05)
+const EMIT_BASE         = 2.10
 
 /**
- * A–E rest pose. Spec `y` is depth on the pile (our Z).
- * `minScale` is the fuel-tier flame scale that turns this tongue on:
- *   Ember 0.45, Low 0.70, Warm 1.00, Bright 1.50, Roaring 2.00.
+ * Planted cards. Laid out as a 2D flame silhouette on the hero
+ * face: wide short bed in front, taller skinny peaks behind it.
+ * `heat` 0 = yellow, 1 = mild orange. `minScale` is the fuel-tier
+ * flame scale that turns this card on.
  */
 const TONGUES: readonly TongueSpec[] = [
-	{ id: 'A', kind: 'base',    tex: TEX_BASE,    yaw: 0,   x:  0.00, z:  0.00, width: 0.82, height: 0.55, cross: true,  period: 2.40, phase: 0.00, minScale: 0.00 },
-	{ id: 'B', kind: 'medium',  tex: TEX_CURVE_L, yaw: 55,  x: -0.18, z:  0.05, width: 0.32, height: 0.85, cross: false, period: 1.35, phase: 0.22, minScale: 0.45 },
-	{ id: 'C', kind: 'tall',    tex: TEX_TALL,    yaw: 110, x:  0.03, z: -0.05, width: 0.24, height: 1.05, cross: true,  period: 1.75, phase: 0.61, minScale: 1.50 },
-	{ id: 'D', kind: 'medium',  tex: TEX_CURVE_R, yaw: 165, x:  0.20, z:  0.02, width: 0.34, height: 0.80, cross: false, period: 1.50, phase: 0.41, minScale: 0.70 },
-	{ id: 'E', kind: 'flicker', tex: TEX_FLICKER, yaw: 220, x:  0.27, z: -0.10, width: 0.18, height: 0.38, cross: false, period: 0.70, phase: 0.18, minScale: 1.00 },
+	{ id: 'A', kind: 'base',    heat: 0.05, yaw: 0,   x:  0.00, z:  0.00, width: 0.90, height: 0.34, cross: false, period: 2.40, phase: 0.00, minScale: 0.00 },
+	{ id: 'B', kind: 'medium',  heat: 0.25, yaw: 8,   x: -0.06, z: -0.02, width: 0.28, height: 0.95, cross: false, period: 1.35, phase: 0.22, minScale: 0.45 },
+	{ id: 'D', kind: 'medium',  heat: 0.35, yaw: -10, x:  0.08, z: -0.03, width: 0.24, height: 0.82, cross: false, period: 1.50, phase: 0.41, minScale: 0.70 },
+	{ id: 'E', kind: 'flicker', heat: 0.20, yaw: 4,   x:  0.02, z: -0.05, width: 0.14, height: 1.15, cross: false, period: 0.90, phase: 0.18, minScale: 1.00 },
+	{ id: 'C', kind: 'tall',    heat: 0.40, yaw: -4,  x: -0.02, z: -0.06, width: 0.16, height: 1.40, cross: false, period: 1.75, phase: 0.61, minScale: 1.50 },
 ]
 
 /**
- * Extra rising copies of the vertical tongues. They climb above
- * the bed and shrink out — separate from the planted cluster.
+ * Small rising ember cards. Climb above the bed and shrink out.
  */
-const RISERS: readonly RiserSpec[] = [
-	{ id: 'R1', tex: TEX_CURVE_L, yaw: 55,  x: -0.12, z:  0.04, width: 0.22, height: 0.70, period: 1.40, phase: 0.00, minScale: 0.45 },
-	{ id: 'R2', tex: TEX_CURVE_R, yaw: 165, x:  0.14, z:  0.02, width: 0.24, height: 0.65, period: 1.65, phase: 0.48, minScale: 0.70 },
-	{ id: 'R3', tex: TEX_TALL,    yaw: 110, x:  0.02, z: -0.04, width: 0.18, height: 0.90, period: 1.90, phase: 0.22, minScale: 1.00 },
-	{ id: 'R4', tex: TEX_FLICKER, yaw: 220, x:  0.18, z: -0.08, width: 0.14, height: 0.42, period: 0.95, phase: 0.70, minScale: 1.00 },
+const EMBERS: readonly EmberSpec[] = [
+	{ id: 'E1',  yaw: 40,  x: -0.10, z:  0.04, width: 0.12, height: 0.20, period: 1.80, phase: 0.00, riseY: 2.80, heat: 0.15, minScale: 0.45 },
+	{ id: 'E2',  yaw: 120, x:  0.08, z: -0.02, width: 0.06, height: 0.10, period: 0.70, phase: 0.35, riseY: 1.40, heat: 0.35, minScale: 0.70 },
+	{ id: 'E3',  yaw: 200, x:  0.12, z:  0.06, width: 0.09, height: 0.16, period: 1.25, phase: 0.62, riseY: 2.20, heat: 0.25, minScale: 1.00 },
+	{ id: 'E4',  yaw: 280, x: -0.04, z: -0.08, width: 0.05, height: 0.08, period: 0.55, phase: 0.18, riseY: 1.10, heat: 0.45, minScale: 1.00 },
+	{ id: 'E5',  yaw: 330, x:  0.02, z:  0.10, width: 0.14, height: 0.22, period: 2.10, phase: 0.80, riseY: 3.20, heat: 0.10, minScale: 1.50 },
+	{ id: 'E6',  yaw: 80,  x: -0.14, z: -0.04, width: 0.07, height: 0.13, period: 0.95, phase: 0.50, riseY: 1.80, heat: 0.30, minScale: 1.50 },
+	{ id: 'E7',  yaw: 160, x:  0.06, z:  0.08, width: 0.04, height: 0.07, period: 0.48, phase: 0.12, riseY: 0.90, heat: 0.50, minScale: 0.45 },
+	{ id: 'E8',  yaw: 240, x: -0.08, z:  0.02, width: 0.11, height: 0.18, period: 1.55, phase: 0.42, riseY: 2.50, heat: 0.20, minScale: 0.70 },
+	{ id: 'E9',  yaw: 300, x:  0.14, z: -0.06, width: 0.06, height: 0.11, period: 0.82, phase: 0.70, riseY: 1.60, heat: 0.40, minScale: 1.00 },
+	{ id: 'E10', yaw: 20,  x: -0.02, z: -0.10, width: 0.08, height: 0.14, period: 1.35, phase: 0.28, riseY: 2.00, heat: 0.15, minScale: 1.00 },
+	{ id: 'E11', yaw: 100, x:  0.10, z:  0.00, width: 0.15, height: 0.24, period: 2.40, phase: 0.55, riseY: 3.40, heat: 0.05, minScale: 1.50 },
+	{ id: 'E12', yaw: 220, x: -0.12, z:  0.06, width: 0.05, height: 0.09, period: 0.60, phase: 0.88, riseY: 1.20, heat: 0.45, minScale: 1.50 },
 ]
-
-/** How high a rising tongue climbs above BED_Y at full rise. */
-const RISE_Y_M = 0.95
 
 /** Bence's three outward spots. Jitter is on the lights, not the cards. */
 const SPOT_Y         = 1.50
@@ -91,14 +85,14 @@ const SPOT_JITTER_M  = 0.10
 type TongueKind = 'base' | 'medium' | 'tall' | 'flicker'
 
 interface TongueSpec {
-	id     : string
-	kind   : TongueKind
-	tex    : string
-	yaw    : number
-	x      : number
-	z      : number
-	width  : number
-	height : number
+	id       : string
+	kind     : TongueKind
+	heat     : number
+	yaw      : number
+	x        : number
+	z        : number
+	width    : number
+	height   : number
 	cross    : boolean
 	period   : number
 	phase    : number
@@ -106,13 +100,13 @@ interface TongueSpec {
 }
 
 interface Tongue {
-	spec : TongueSpec
-	root : Entity
+	spec  : TongueSpec
+	root  : Entity
+	faces : Entity[]
 }
 
-interface RiserSpec {
+interface EmberSpec {
 	id       : string
-	tex      : string
 	yaw      : number
 	x        : number
 	z        : number
@@ -120,11 +114,13 @@ interface RiserSpec {
 	height   : number
 	period   : number
 	phase    : number
+	riseY    : number
+	heat     : number
 	minScale : number
 }
 
-interface Riser {
-	spec : RiserSpec
+interface Ember {
+	spec : EmberSpec
 	root : Entity
 	face : Entity
 }
@@ -140,69 +136,70 @@ interface Spot {
 
 interface Rig {
 	tongues : Tongue[]
-	risers  : Riser[]
+	embers  : Ember[]
 	spots   : Spot[]
 	facing  : Entity
+	visual  : Entity
 	scale   : number
+	alive   : boolean
 }
 
 export interface FlameRig {
 	setScale(scale: number): void
+	dispose(): void
 }
 
 
-const texCache = new Map<string, ReturnType<typeof Material.Texture.Common>>()
-const rigs    : Rig[] = []
+const rigs: Rig[] = []
 let ticking = false
 let timeSec = 0
 
 
-// MARK: textureOf
-
-function textureOf(src: string): ReturnType<typeof Material.Texture.Common> {
-	let tex = texCache.get(src)
-	if (tex === undefined) {
-		tex = Material.Texture.Common({ src })
-		texCache.set(src, tex)
+// MARK: mixHeat
+/** Lerp yellow → deep orange. `heat` 0..1. */
+function mixHeat(heat: number): { albedo: Color4, emit: Color3 } {
+	const t = heat < 0 ? 0 : heat > 1 ? 1 : heat
+	const u = 1 - t
+	return {
+		albedo: Color4.create(
+			COL_YELLOW_ALBEDO.r * u + COL_ORANGE_ALBEDO.r * t,
+			COL_YELLOW_ALBEDO.g * u + COL_ORANGE_ALBEDO.g * t,
+			COL_YELLOW_ALBEDO.b * u + COL_ORANGE_ALBEDO.b * t,
+			1,
+		),
+		emit: Color3.create(
+			COL_YELLOW_EMIT.r * u + COL_ORANGE_EMIT.r * t,
+			COL_YELLOW_EMIT.g * u + COL_ORANGE_EMIT.g * t,
+			COL_YELLOW_EMIT.b * u + COL_ORANGE_EMIT.b * t,
+		),
 	}
-	return tex
 }
 
 
-// MARK: applyTongueMaterial
-
-function applyTongueMaterial(
-	entity: Entity,
-	src   : string,
-): void {
-	const tex = textureOf(src)
-	Material.setBasicMaterial(entity, {
-		texture     : tex,
-		alphaTexture: tex,
-		diffuseColor: Color4.create(1, 1, 1, 1),
-		alphaTest   : 0.04,
-		castShadows : false,
-	})
-}
-
-
-// MARK: writeRiserMaterial
+// MARK: writeCardMaterial
 /**
- * Same hard cutout as the planted tongues. Soft diffuse alpha
- * on these sheets draws as grey cards in Explorer, so height
- * fade is scale-only.
+ * Solid fire card. `heat` tints yellow toward orange; `emitMul`
+ * dims the glow as rising sparks fade.
  */
-function writeRiserMaterial(
-	entity: Entity,
-	src   : string,
+function writeCardMaterial(
+	entity : Entity,
+	heat   : number,
+	emitMul: number = 1,
 ): void {
-	const tex = textureOf(src)
-	Material.setBasicMaterial(entity, {
-		texture     : tex,
-		alphaTexture: tex,
-		diffuseColor: Color4.create(1, 1, 1, 1),
-		alphaTest   : 0.04,
-		castShadows : false,
+	const colors = mixHeat(heat)
+	const k      = emitMul < 0 ? 0 : emitMul > 1 ? 1 : emitMul
+	Material.setPbrMaterial(entity, {
+		albedoColor      : Color4.create(
+			colors.albedo.r,
+			colors.albedo.g,
+			colors.albedo.b,
+			colors.albedo.a * (0.35 + 0.65 * k),
+		),
+		emissiveColor    : colors.emit,
+		emissiveIntensity: EMIT_BASE * k,
+		metallic         : 0,
+		roughness        : 1,
+		castShadows      : false,
 	})
 }
 
@@ -221,10 +218,9 @@ function spawnTongue(
 		scale   : Vector3.create(0.001, 0.001, 1),
 	})
 
-	// Cross only the symmetric sheets. A second copy of a lean
-	// reads as an S from the side.
-	const faces = spec.cross ? 2 : 1
-	for (let i = 0; i < faces; i++) {
+	const faces: Entity[] = []
+	const count = spec.cross ? 2 : 1
+	for (let i = 0; i < count; i++) {
 		const face = engine.addEntity()
 		Transform.create(face, {
 			parent  : root,
@@ -232,10 +228,11 @@ function spawnTongue(
 			rotation: Quaternion.fromEulerDegrees(0, i * 80, 0),
 		})
 		MeshRenderer.setPlane(face)
-		applyTongueMaterial(face, spec.tex)
+		writeCardMaterial(face, spec.heat, 1)
+		faces.push(face)
 	}
 
-	return { spec, root }
+	return { spec, root, faces }
 }
 
 
@@ -262,12 +259,10 @@ function motionFor(
 	const a     = wave(time, period, phase)
 	const b     = wave(time, period * 1.41, phase + 0.33)
 	const flick = wave(time, period * 0.28, phase + 0.17)
-	// Height is biased tall so the tip rises and occasionally drops.
-	// The root stays on the bed — no Y translation, that reads as a bounce.
 	if (kind === 'base') {
 		return {
-			sx  : 0.98 + 0.03 * a + 0.02 * flick,
-			sy  : 0.96 + 0.05 * Math.pow(b, 0.55) + 0.03 * flick,
+			sx  : 0.98 + 0.04 * a + 0.02 * flick,
+			sy  : 0.94 + 0.04 * b + 0.02 * flick,
 			dx  : 0.006 * (a - 0.5),
 			show: true,
 		}
@@ -312,9 +307,8 @@ function countLit(scale: number): number {
 
 // MARK: writeClusterScale
 /**
- * Uniform grow/shrink for the whole planted + rising cluster.
- * Warm is 1. Ember is small, Roaring is large. Spots stay on
- * the campfire root so their world reach is not doubled.
+ * Uniform grow/shrink for the whole planted + ember cluster.
+ * Warm is 1. Spots stay on the campfire root.
  */
 function writeClusterScale(
 	facing: Entity,
@@ -358,12 +352,12 @@ function placeTongue(
 }
 
 
-// MARK: spawnRiser
+// MARK: spawnEmber
 
-function spawnRiser(
+function spawnEmber(
 	visual: Entity,
-	spec  : RiserSpec,
-): Riser {
+	spec  : EmberSpec,
+): Ember {
 	const root = engine.addEntity()
 	Transform.create(root, {
 		parent  : visual,
@@ -377,29 +371,28 @@ function spawnRiser(
 		position: Vector3.create(0, 0.5, 0),
 	})
 	MeshRenderer.setPlane(face)
-	writeRiserMaterial(face, spec.tex)
+	writeCardMaterial(face, spec.heat, 1)
 	return { spec, root, face }
 }
 
 
-// MARK: placeRiser
+// MARK: placeEmber
 /**
- * Climb above the bed, then shrink out. Y translation is only
- * for these risers — the planted tongues stay on the pile.
+ * Climb above the bed as a small ember card, then shrink and
+ * dim out. Only these cards translate on Y.
  */
-function placeRiser(
-	riser: Riser,
+function placeEmber(
+	ember: Ember,
 	time : number,
 	scale: number,
 ): void {
-	const spec = riser.spec
-	const tr   = Transform.getMutable(riser.root)
+	const spec = ember.spec
+	const tr   = Transform.getMutable(ember.root)
 	if (scale < spec.minScale || scale <= 0.01) {
 		tr.scale = Vector3.create(0.001, 0.001, 1)
 		return
 	}
 	const u = (time / spec.period + spec.phase) % 1
-	// Rise through the first 55%, then fade. Soft in, soft out.
 	const rise = u < 0.55 ? u / 0.55 : 1
 	const fade = u < 0.55
 		? Math.pow(rise, 0.55)
@@ -410,18 +403,18 @@ function placeRiser(
 	}
 	const lean = Math.sin((time / (spec.period * 0.7) + spec.phase) * Math.PI * 2)
 	tr.position = Vector3.create(
-		spec.x + 0.012 * lean,
-		BED_Y + RISE_Y_M * rise,
-		spec.z,
+		spec.x + 0.020 * lean,
+		BED_Y + spec.riseY * rise,
+		spec.z + 0.010 * lean,
 	)
-	// Shrink harder as it climbs so the tip dissolves without soft alpha.
-	const shrink = fade * (1 - 0.55 * rise)
+	const shrink = fade * (1 - 0.40 * rise)
 	tr.scale = Vector3.create(
-		spec.width  * (0.85 + 0.15 * fade) * shrink,
-		Math.max(spec.height * (0.70 + 0.45 * (1 - rise)) * shrink, 0.02),
+		spec.width  * shrink,
+		Math.max(spec.height * shrink, 0.02),
 		1,
 	)
-	tr.rotation = Quaternion.fromEulerDegrees(0, spec.yaw + lean * 8, 0)
+	tr.rotation = Quaternion.fromEulerDegrees(0, spec.yaw + lean * 12, 0)
+	writeCardMaterial(ember.face, spec.heat, fade * (1 - 0.70 * rise))
 }
 
 
@@ -529,12 +522,13 @@ function ensureSystem(): void {
 		timeSec += dt
 		for (let i = 0; i < rigs.length; i++) {
 			const rig = rigs[i]
+			if (!rig.alive) continue
 			for (let t = 0; t < rig.tongues.length; t++) {
 				placeTongue(rig.tongues[t], timeSec, rig.scale)
 			}
-			if (rig.risers !== undefined) {
-				for (let r = 0; r < rig.risers.length; r++) {
-					placeRiser(rig.risers[r], timeSec, rig.scale)
+			if (rig.embers !== undefined) {
+				for (let e = 0; e < rig.embers.length; e++) {
+					placeEmber(rig.embers[e], timeSec, rig.scale)
 				}
 			}
 			if (rig.spots !== undefined) {
@@ -549,10 +543,10 @@ function ensureSystem(): void {
 
 // MARK: createFlameRig
 /**
- * Hang the A–E cluster on `parent`. The cluster Y-billboards
- * so the hero face stays toward the camera. `setScale(0)` hides
- * it. Scale is the fuel tier's flame scale: it chooses the
- * roster and uniform-scales the whole cluster (Warm = 1).
+ * Hang the orange card cluster on `parent`. The cluster
+ * Y-billboards so the hero face stays toward the camera.
+ * `setScale(0)` hides it. Scale chooses the roster and
+ * uniform-scales the whole cluster (Warm = 1).
  */
 export function createFlameRig(parent: Entity): FlameRig {
 	const visual = engine.addEntity()
@@ -575,9 +569,9 @@ export function createFlameRig(parent: Entity): FlameRig {
 		tongues.push(spawnTongue(facing, TONGUES[i]))
 	}
 
-	const risers: Riser[] = []
-	for (let i = 0; i < RISERS.length; i++) {
-		risers.push(spawnRiser(facing, RISERS[i]))
+	const embers: Ember[] = []
+	for (let i = 0; i < EMBERS.length; i++) {
+		embers.push(spawnEmber(facing, EMBERS[i]))
 	}
 
 	const spots: Spot[] = []
@@ -587,19 +581,22 @@ export function createFlameRig(parent: Entity): FlameRig {
 
 	const rig: Rig = {
 		tongues,
-		risers,
+		embers,
 		spots,
 		facing,
+		visual,
 		scale: 0,
+		alive: true,
 	}
 	rigs.push(rig)
 	ensureSystem()
 	console.log(
-		`flameBillboards: createFlameRig: ${tongues.length} planes, ${risers.length} risers, ${spots.length} spots`,
+		`flameBillboards: createFlameRig: ${tongues.length} cards, ${embers.length} embers, ${spots.length} spots`,
 	)
 
 	return {
 		setScale(scale: number): void {
+			if (!rig.alive) return
 			const next = scale > 0 ? scale : 0
 			if (next === rig.scale) return
 			rig.scale = next
@@ -608,15 +605,39 @@ export function createFlameRig(parent: Entity): FlameRig {
 			for (let i = 0; i < rig.tongues.length; i++) {
 				placeTongue(rig.tongues[i], timeSec, next)
 			}
-			for (let i = 0; i < rig.risers.length; i++) {
-				placeRiser(rig.risers[i], timeSec, next)
+			for (let i = 0; i < rig.embers.length; i++) {
+				placeEmber(rig.embers[i], timeSec, next)
 			}
 			for (let i = 0; i < rig.spots.length; i++) {
 				writeSpotLight(rig.spots[i].entity, lit, next)
 			}
 			console.log(
-				`flameBillboards: setScale ${next.toFixed(2)} tongues ${countLit(next)}`,
+				`flameBillboards: setScale ${next.toFixed(2)} cards ${countLit(next)}`,
 			)
+		},
+		dispose(): void {
+			if (!rig.alive) return
+			rig.alive = false
+			rig.scale = 0
+			for (let i = 0; i < rig.tongues.length; i++) {
+				const tongue = rig.tongues[i]
+				for (let f = 0; f < tongue.faces.length; f++) {
+					engine.removeEntity(tongue.faces[f])
+				}
+				engine.removeEntity(tongue.root)
+			}
+			for (let i = 0; i < rig.embers.length; i++) {
+				engine.removeEntity(rig.embers[i].face)
+				engine.removeEntity(rig.embers[i].root)
+			}
+			for (let i = 0; i < rig.spots.length; i++) {
+				engine.removeEntity(rig.spots[i].entity)
+			}
+			engine.removeEntity(rig.facing)
+			engine.removeEntity(rig.visual)
+			const idx = rigs.indexOf(rig)
+			if (idx >= 0) rigs.splice(idx, 1)
+			console.log('flameBillboards: dispose: rig removed')
 		},
 	}
 }

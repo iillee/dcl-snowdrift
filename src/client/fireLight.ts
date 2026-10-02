@@ -6,10 +6,11 @@
  * than the melt ring when the fire is strong and tighter when it is
  * weak. Intensity scales with that range.
  *
- * No shadows on these point lights — the snow sun already uses the
- * scene's shadow budget. The hearth's three spots (flameBillboards)
- * are the shadow casters. Active lights flicker so they read as
- * fire, not bulbs.
+ * No shadows on these point lights — the hearth's three spots
+ * (flameBillboards) cast the flicker shadows. The hearth point
+ * light is a soft fill only; keep it dim so it does not wash
+ * out the spots. Active lights flicker so they read as fire,
+ * not bulbs.
  */
 
 import { Entity, LightSource } from '@dcl/sdk/ecs'
@@ -35,8 +36,11 @@ const TORCH_INTENSITY_MAX = 9000
 
 
 // MARK: Hearth pool
-/** Candela per metre of light range. Warm (8 m) lands near the SDK default. */
-const HEARTH_INTENSITY_PER_M = 2000
+/**
+ * Soft fill only. Spots do the dramatic light and shadows — this
+ * used to be 2000 and washed them out into a flat ground disc.
+ */
+const HEARTH_INTENSITY_PER_M = 350
 
 
 // MARK: Write epsilons

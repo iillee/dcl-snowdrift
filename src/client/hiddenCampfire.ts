@@ -44,16 +44,17 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { playSurgeSfxAt } from 'src/client/audio'
 import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
-import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { createFlameRig, FlameRig } from 'src/client/flameBillboards'
 import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
-import { isTorchLit }                    from 'src/client/torchEquip'
-import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
-import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
-import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
 } from 'src/client/hearthBillboard'
 import { getHearthPlayerCount, getHiddenFireFuel, getHiddenFireMeltRadius } from 'src/client/hearthFuel'
+import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { isTorchLit }                    from 'src/client/torchEquip'
+import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
+import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
+import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
 import {
 	getHiddenCampfireSeed,
 	getHiddenCampfireWorldPositions,
@@ -66,9 +67,8 @@ import { room } from 'src/shared/messages'
 
 
 // MARK: Assets
-const CAMPFIRE_BASE_MODEL  = 'assets/asset-packs/campfire/Fireplace_01/Fireplace_base.glb'
-const CAMPFIRE_FLAME_MODEL = 'assets/asset-packs/campfire/Fireplace_01/Fireplace_flame.glb'
-const CAMPFIRE_SFX         = 'assets/sounds/campfire.mp3'
+const CAMPFIRE_BASE_MODEL = 'assets/asset-packs/campfire/Fireplace_01/Fireplace_base.glb'
+const CAMPFIRE_SFX        = 'assets/sounds/campfire.mp3'
 const CAMPFIRE_VOLUME      = 0.8
 /** Local Y of the pit point light, above the log pile. */
 const HEARTH_LIGHT_Y       = 1.4
@@ -110,7 +110,7 @@ const BEACON_COLOR         = { r: 1.0, g: 0.84, b: 0.0 }
 
 // MARK: Per-fire state (all arrays length HIDDEN_CAMPFIRE_COUNT)
 const firePitEntity     : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
-const flameEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
+const flameRig          : (FlameRig | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const lightEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const smokeEntity       : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const beaconInnerEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
@@ -211,7 +211,7 @@ function removeLocatorBeacon(index: number): void {
 
 // MARK: applyUnlitVisuals
 /**
- * Tear down the lit visuals for pit `index` — flame model, smoke
+ * Tear down the lit visuals for pit `index` — flame cards, smoke
  * plume, crackle audio — and respawn its locator beacon. Called on
  * cycle rollover so previously-lit pits return to their unlit state
  * before we relocate them to the new cycle's positions.
@@ -220,12 +220,10 @@ function applyUnlitVisuals(index: number): void {
 	litLocal[index]          = false
 	ignitionRequested[index] = false
 
-	// Tear the flame child down first — removing the parent pit later
-	// would orphan the child on the engine's next tick.
-	const flame = flameEntity[index]
+	const flame = flameRig[index]
 	if (flame !== null) {
-		engine.removeEntity(flame)
-		flameEntity[index] = null
+		flame.dispose()
+		flameRig[index] = null
 	}
 	const light = lightEntity[index]
 	if (light !== null) {
@@ -274,7 +272,7 @@ function relocatePit(index: number): void {
 
 // MARK: applyLitVisuals
 /**
- * Add the flame model, crackle audio + smoke plume for `index`, and
+ * Add the flame cards, crackle audio + smoke plume for `index`, and
  * tear down its locator beacon. Idempotent — safe to call from every
  * broadcast.
  */
@@ -289,17 +287,12 @@ function applyLitVisuals(index: number): void {
 	if (firePitEntity[index] === null) spawnUnlitPit(index)
 	const pit = firePitEntity[index]!
 
-	// Flame is a separate GLB parented to the pit so it only appears
-	// once the server has confirmed ignition. Parenting keeps it
-	// colocated even if we ever move the pit.
-	if (flameEntity[index] === null) {
-		const flame = engine.addEntity()
-		flameEntity[index] = flame
-		Transform.create(flame, {
-			position: Vector3.Zero(),
-			parent  : pit,
-		})
-		GltfContainer.create(flame, { src: CAMPFIRE_FLAME_MODEL })
+	// Same orange card rig as the main hearth. Parenting keeps it on
+	// the pit; dispose() tears cards + spots when the fire snuffs.
+	if (flameRig[index] === null) {
+		const flame = createFlameRig(pit)
+		flameRig[index] = flame
+		flame.setScale(hearthFlameScaleFromFuel(getHiddenFireFuel(index)))
 	}
 
 	if (lightEntity[index] === null) {
@@ -651,14 +644,12 @@ export function setupHiddenCampfire(): void {
 		}
 	})
 
-	// Flame scale per hidden pit. Mirrors the main campfire's tier-snap
-	// pattern (src/client/campfire.ts): only mutate the Transform on tier
-	// change so a growing GLB reads as morphing, not a continuous
-	// squishing lerp. Per-pit tier cache avoids scanning fuel every frame.
+	// Flame scale per hidden pit. Same tier snap as the main hearth
+	// card rig. Per-pit tier cache avoids scanning fuel every frame.
 	const lastFlameTier: number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
 	engine.addSystem(() => {
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-			const flame = flameEntity[i]
+			const flame = flameRig[i]
 			const fuel  = getHiddenFireFuel(i)
 			const light = lightEntity[i]
 			if (light !== null) {
@@ -672,8 +663,7 @@ export function setupHiddenCampfire(): void {
 			if (tier === lastFlameTier[i]) continue
 			lastFlameTier[i] = tier
 			const s = hearthFlameScaleFromFuel(fuel)
-			const t = Transform.getMutableOrNull(flame)
-			if (t !== null) t.scale = Vector3.create(s, s, s)
+			flame.setScale(s)
 			const smoke = smokeEntity[i]
 			if (smoke !== null) {
 				applyHearthSmoke(
