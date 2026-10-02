@@ -7,7 +7,8 @@
  * weak. Intensity scales with that range.
  *
  * No shadows on these point lights — the snow sun already uses the
- * scene's shadow budget. Active lights flicker so they read as
+ * scene's shadow budget. The hearth's three spots (flameBillboards)
+ * are the shadow casters. Active lights flicker so they read as
  * fire, not bulbs.
  */
 
