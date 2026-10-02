@@ -6,8 +6,9 @@
  * than the melt ring when the fire is strong and tighter when it is
  * weak. Intensity scales with that range.
  *
- * No shadows — the snow sun already uses the scene's shadow budget.
- * Active lights flicker so they read as fire, not bulbs.
+ * No shadows on these point lights — the snow sun already uses the
+ * scene's shadow budget. Active lights flicker so they read as
+ * fire, not bulbs.
  */
 
 import { Entity, LightSource } from '@dcl/sdk/ecs'
