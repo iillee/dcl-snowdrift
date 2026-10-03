@@ -377,13 +377,15 @@ export function beginCollapsedAtHome(
 		toggleTopDownCamera()
 	}
 	clearLocalDeath(true)
-	rescued      = false
-	loggedNoFire = false
-	arrivalHome  = true
-	coverOwned   = opts.skipFade === true || isEmberFailing()
-	fadeOpacity  = coverOwned ? 0 : 1
-	phase        = Phase.TELEPORT
-	phaseTimer   = 0
+	rescued         = false
+	loggedNoFire    = false
+	laidDownAtHome  = false
+	arrivalHome     = true
+	resetMeltClock()
+	coverOwned      = opts.skipFade === true || isEmberFailing()
+	fadeOpacity     = coverOwned ? 0 : 1
+	phase           = Phase.TELEPORT
+	phaseTimer      = 0
 	lockPlayer()
 	teleportArrival()
 }
@@ -426,9 +428,14 @@ export function setupFrostDeath(): void {
 
 	onCycleSeedChange(({ oldSeed }) => {
 		if (oldSeed === null) return
+		console.log('frost/death: onCycleSeedChange: clearing freeze and laying down for the new run')
 		clearCarriedWood()
 		emptyTorch()
-		beginCollapsedAtHome()
+		rescued      = false
+		loggedNoFire = false
+		resetMeltClock()
+		// Ember-fail already owns the black cards; skip a second fade.
+		beginCollapsedAtHome({ skipFade: isEmberFailing() })
 	})
 
 	engine.addSystem((dt: number) => {

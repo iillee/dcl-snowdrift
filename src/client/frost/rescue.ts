@@ -54,6 +54,12 @@ const ICE_TEXTURE  = 'assets/images/ice-alpha.png'
 const ICE_SIZE     = 2.1
 const ICE_CENTER_Y = ICE_SIZE / 2
 const ICE_SCALE    = Vector3.create(ICE_SIZE, ICE_SIZE, ICE_SIZE)
+/**
+ * Desktop AvatarAttach AAPT_POSITION sits lower than local PlayerEntity
+ * feet, so a remote cube at ICE_CENTER_Y leaves the head uncovered.
+ * Local cubes do not use this.
+ */
+const ICE_REMOTE_OFFSET_Y = 0.4
 
 type IceRig = {
 	block  : Entity
@@ -167,7 +173,7 @@ function ensureRemoteIce(userId: string): void {
 	const block = engine.addEntity()
 	Transform.create(block, {
 		parent  : anchor,
-		position: Vector3.create(0, ICE_CENTER_Y, 0),
+		position: Vector3.create(0, ICE_CENTER_Y + ICE_REMOTE_OFFSET_Y, 0),
 		scale   : ICE_SCALE,
 	})
 	paintIce(block)
@@ -207,7 +213,7 @@ function applyMeltScale(userId: string): void {
 	}
 	const blockT = Transform.getMutable(rig.block)
 	blockT.scale    = Vector3.create(ICE_SIZE, height, ICE_SIZE)
-	blockT.position = Vector3.create(0, height / 2, 0)
+	blockT.position = Vector3.create(0, height / 2 + ICE_REMOTE_OFFSET_Y, 0)
 }
 
 

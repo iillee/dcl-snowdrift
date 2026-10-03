@@ -3,24 +3,26 @@
  *
  * Uses the AvatarAttach two-layer pattern proven in flagtag:
  *
- *   Anchor (AvatarAttach on right hand)   \u2190 engine tracks bone
- *     \u2514\u2500 Model / flame / smoke (STATIC children, offsets set once)
+ *   Anchor (AvatarAttach on right hand)   ← engine tracks bone
+ *     ├─ Model (STATIC child, offsets set once)
+ *     ├─ Tip cube + world-up sparks + shadow spots
+ *     ├─ Soft fill point light
+ *     └─ Smoke (world-space particles)
  *
  * The anchor's Transform must not be mutated after AvatarAttach is
- * created \u2014 Bevy's attach-propagation races with per-frame Transform
+ * created — Bevy's attach-propagation races with per-frame Transform
  * writes on the anchor and will detach the model. Do not parent the
  * torch to CameraEntity: a Gltf + particle child on the camera kills
  * the React-ECS HUD.
  *
  * Model: Log_Large_01 from the large_log asset pack, scaled way down
  * (~7 % of its authored size) so the log reads as a torch shaft in the
- * avatar's grip. Future fire / smoke FX should parent to `torchTip` so
- * they inherit the hand transform automatically.
+ * avatar's grip. Flame is a tip cube + rising spark cubes (torchFlame).
  */
 
 import {
 	AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer,
-	Material, MeshRenderer, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState,
+	PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState,
 	PBParticleSystem_SimulationSpace, ParticleSystem, Transform, VisibilityComponent, engine,
 } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
@@ -30,6 +32,7 @@ import { room } from 'src/shared/messages'
 import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
+import { mountTorchFlame, TORCH_FLAME_LOCAL_POS, TorchFlame } from 'src/client/torchFlame'
 
 
 // MARK: Tuning
@@ -53,37 +56,12 @@ const TORCH_ROTATION    = Quaternion.fromEulerDegrees(90, -30, 90)
 const TORCH_MODEL_SCALE = Vector3.create(TORCH_SCALE, TORCH_SCALE * 2, TORCH_SCALE * 2)
 
 
-// MARK: Flame + fuel-bar tuning
-// Both entities are parented to the AvatarAttach ANCHOR (the right
-// hand) — clean, un-rotated local axes so nudging positions is
-// intuitive: +X = out from the palm, +Y = up along the arm, +Z = forward
-// past the fingers. The torch base sits at TORCH_OFFSET; the visible
-// tip is somewhere above/forward of it after the shaft rotation.
-// Adjust FLAME_LOCAL_POS by watching the preview and reporting where
-// the sphere lands relative to the visible torch tip.
-const FLAME_LOCAL_POS  = Vector3.create(-0.11, 0.10, 0.28)
-// Flame-shrink tuning. The flame orb starts at FLAME_SIZE_MAX (full
-// fuel) and lerps down to FLAME_SIZE_MIN (empty). The shaft itself
-// stays a constant size — only the flame reads fuel remaining.
-const FLAME_SIZE_MAX   = 0.20
-const FLAME_SIZE_MIN   = 0.06
-// Base scale — replaced per-frame by the fuel-driven interpolation.
-const FLAME_SIZE       = Vector3.create(FLAME_SIZE_MAX, FLAME_SIZE_MAX, FLAME_SIZE_MAX)
-// Matches the frost bar's warm (heat) fill colour so the world flame
-// and the HUD's heat readout speak the same visual language.
-// See COL_WARM in src/client/ui/layers/layer.frostBar.tsx.
-const FLAME_COLOR_HOT  = Color4.create(1.00, 0.80, 0.30, 1)
-// Kept moderate so the flame reads AS its colour, not as a white
-// blowout. At intensities >~2.5 the tone-mapper crushes any hue and
-// the sphere renders near-white regardless of emissiveColor.
-const FLAME_EMISSIVE   = 1.6
-
 // MARK: Smoke tuning
 // Tiny smoke plume rising from the torch tip. Sized well below the
 // campfire's plume — a wisp, not a column — and parented to the same
 // right-hand anchor as the flame so it tracks the hand for free.
 // Toggled on/off via ParticleSystem.playbackState in the fuel system.
-const SMOKE_LOCAL_POS         = Vector3.create(-0.11, 0.20, 0.28)
+const SMOKE_ABOVE_TIP_M       = 0.08
 const SMOKE_CONE_ANGLE_DEG    = 16
 const SMOKE_CONE_RADIUS_M     = 0.05
 const SMOKE_RATE_PER_S        = 40
@@ -103,9 +81,10 @@ const SMOKE_SIZE_END_MAX      = 0.72
 let installed    = false
 let torchAnchor: Entity = 0 as Entity
 let torchTip:    Entity = 0 as Entity
-let flame:       Entity = 0 as Entity
+let torchFlame:  TorchFlame | null = null
 let smoke:       Entity = 0 as Entity
 let torchLight:  Entity = 0 as Entity
+
 
 // MARK: isTorchProtecting
 /**
@@ -120,7 +99,7 @@ export function isTorchProtecting(): boolean {
 
 // MARK: setupTorch
 /**
- * Create the hand-attached torch on the local player. Idempotent \u2014
+ * Create the hand-attached torch on the local player. Idempotent —
  * safe to call once from client bootstrap after the player entity
  * exists. AvatarAttach on the local player automatically resolves to
  * the current avatar without needing an explicit avatarId.
@@ -132,7 +111,7 @@ export function setupTorch(): void {
 	}
 	installed = true
 
-	// Layer 1: Anchor \u2014 rides the right hand bone. Transform is a stub;
+	// Layer 1: Anchor — rides the right hand bone. Transform is a stub;
 	// AvatarAttach overrides it every frame. Never write to it again.
 	torchAnchor = engine.addEntity()
 	AvatarAttach.create(torchAnchor, {
@@ -157,41 +136,26 @@ export function setupTorch(): void {
 	})
 	VisibilityComponent.create(torchTip, { visible: true })
 
-	// Layer 3: Flame — small emissive sphere at the torch tip. Parented
-	// to the ANCHOR (right hand) so its local axes are un-rotated and
-	// nudging offsets is straightforward.
-	flame = engine.addEntity()
-	Transform.create(flame, {
-		parent  : torchAnchor,
-		position: FLAME_LOCAL_POS,
-		scale   : FLAME_SIZE,
-	})
-	MeshRenderer.setSphere(flame)
-	Material.setPbrMaterial(flame, {
-		albedoColor       : FLAME_COLOR_HOT,
-		emissiveColor     : FLAME_COLOR_HOT,
-		emissiveIntensity : FLAME_EMISSIVE,
-		roughness         : 1.0,
-	})
-	// Hidden until the fuel-tracker system flips it on next frame.
-	VisibilityComponent.create(flame, { visible: false })
+	// Layer 3: Flame — tip cube + world-up spark cubes (torchFlame).
+	const flame = mountTorchFlame(torchAnchor)
+	torchFlame = flame
 
-	// Layer 3b: Point light at the flame, not parented to the shrinking
-	// orb so Transform.scale on the sphere does not shrink the pool.
+	// Layer 3b: Soft fill point light at the tip. Spots on the flame
+	// lift cast the flicker shadows (same split as the hearth).
 	torchLight = engine.addEntity()
 	Transform.create(torchLight, {
 		parent  : torchAnchor,
-		position: FLAME_LOCAL_POS,
+		position: TORCH_FLAME_LOCAL_POS,
 	})
 	syncPointLight(torchLight, torchLightParams(false, 0, 1))
 
-	// Layer 4: Smoke wisp — tiny upward cone parented to the ANCHOR so
-	// it tracks the right hand automatically. Starts stopped; the
-	// fuel-tracker system below toggles playbackState with lit state.
+	// Layer 4: Smoke wisp — parented to the flame lift so the cone sits
+	// just above the tip in WORLD up (not hand-local Z, which was slamming
+	// the emitter into the floor). World-space particles still trail.
 	smoke = engine.addEntity()
 	Transform.create(smoke, {
-		parent  : torchAnchor,
-		position: SMOKE_LOCAL_POS,
+		parent  : flame.lift,
+		position: Vector3.create(0, SMOKE_ABOVE_TIP_M, 0),
 		rotation: Quaternion.Identity(),
 	})
 	ParticleSystem.create(smoke, {
@@ -231,11 +195,10 @@ export function setupTorch(): void {
 		playbackState        : PBParticleSystem_PlaybackState.PS_PLAYING,
 	})
 
-	// Per-frame updater: toggle flame visibility + smoke playback on
-	// lit, shrink the flame orb in proportion to remaining fuel. Shaft
-	// stays constant. Also emits `torchLit` to the auth server whenever
-	// the local lit-state edge-changes, so other clients can mirror the
-	// flame on our avatar's held torch (see src/client/remoteTorches.ts).
+	// Per-frame updater: toggle flame + smoke on lit, shrink cards with
+	// fuel. Shaft stays constant. Also emits `torchLit` to the auth
+	// server whenever the local lit-state edge-changes, so other
+	// clients can mirror the flame on our avatar's held torch.
 	let lastBroadcastLit: boolean | null = null
 	let lastBroadcastFrac = -1
 	const FUEL_BROADCAST_STEP = 0.05
@@ -252,9 +215,6 @@ export function setupTorch(): void {
 			room.send('torchLit', { lit: lit ? 1 : 0, fuelFrac: lastBroadcastFrac })
 		}
 
-		const vis = VisibilityComponent.getMutableOrNull(flame)
-		if (vis !== null && vis.visible !== lit) vis.visible = lit
-
 		const ps = ParticleSystem.getMutableOrNull(smoke)
 		if (ps !== null) {
 			const desired = lit
@@ -263,30 +223,15 @@ export function setupTorch(): void {
 			if (ps.playbackState !== desired) ps.playbackState = desired
 		}
 
-		// Fuel shrinks the flame. Night pinches it further (torchFlameMul).
 		const flameMul = getLivePhaseConfig().torchFlameMul
-
-		const flameT = Transform.getMutableOrNull(flame)
-		if (flameT !== null) {
-			const base = FLAME_SIZE_MIN + (FLAME_SIZE_MAX - FLAME_SIZE_MIN) * frac
-			const s    = base * flameMul
-			flameT.scale.x = s
-			flameT.scale.y = s
-			flameT.scale.z = s
-		}
-
-		const mat = Material.getMutableOrNull(flame)
-		if (mat !== null && mat.material?.$case === 'pbr') {
-			const want = FLAME_EMISSIVE * flameMul
-			if (mat.material.pbr.emissiveIntensity !== want) {
-				mat.material.pbr.emissiveIntensity = want
-			}
+		if (torchFlame !== null) {
+			torchFlame.setFuel(lit, frac, flameMul)
 		}
 
 		syncPointLight(torchLight, torchLightParams(lit, frac, flameMul))
 	})
 
-	console.log('torch: setupTorch: attached to right hand, shrinking flame mounted')
+	console.log('torch: setupTorch: attached to right hand, tip cube + sparks mounted')
 }
 
 

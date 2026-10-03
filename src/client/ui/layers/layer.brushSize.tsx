@@ -323,44 +323,18 @@ export function HelpButton() {
 			uiBackground = {{ color: PANEL_BG }}
 			onMouseDown  = {() => { playUiClick(); toggleHelpPanel() }}
 		>
-			{/* Bold "?" faked by stacking two labels with a 1 px offset —
-			   same trick used on the countdown text (SDK7 Label has no
-			   fontWeight prop). */}
-			<UiEntity
-				key         = "ui_HelpBtn_glyph_wrap"
+			<Label
+				value     = "?"
+				fontSize  = {48}
+				color     = {WHITE}
+				font      = "sans-serif"
+				textAlign = "middle-center"
 				uiTransform = {{
-					width       : BTN_SIZE,
-					height      : BTN_SIZE,
-					positionType: 'relative',
+					width : '100%',
+					height: '100%',
+					margin: { top: isMobile() ? -8 : 0 },
 				}}
-			>
-				<Label
-					value    = "?"
-					fontSize = {48}
-					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{
-						width       : '100%',
-						height      : '100%',
-						positionType: 'absolute',
-						position    : { top: isMobile() ? -8 : 0, left: 0 },
-					}}
-				/>
-				<Label
-					value    = "?"
-					fontSize = {48}
-					color    = {WHITE}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{
-						width       : '100%',
-						height      : '100%',
-						positionType: 'absolute',
-						position    : { top: isMobile() ? -7 : 1, left: 1 },
-					}}
-				/>
-			</UiEntity>
+			/>
 		</UiEntity>
 	)
 }

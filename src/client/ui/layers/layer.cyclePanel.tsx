@@ -98,39 +98,14 @@ export function CyclePanelPopover() {
 			}}
 			uiBackground = {{ color: colors.statsBg }}
 		>
-			{/* Countdown — rendered as two overlapping labels offset by 1 px
-			   to fake a bold weight (SDK7 Label has no fontWeight prop). */}
-			<UiEntity
-				key         = "ui_CyclePanel_countdown_wrap"
-				uiTransform = {{ width: '100%', height: 44, positionType: 'relative' }}
-			>
-				<Label
-					value    = {text}
-					fontSize = {38}
-					color    = {GOLD}
-					font     = "monospace"
-					textAlign= "middle-center"
-					uiTransform = {{
-						width       : '100%',
-						height      : 44,
-						positionType: 'absolute',
-						position    : { top: 0, left: 0 },
-					}}
-				/>
-				<Label
-					value    = {text}
-					fontSize = {38}
-					color    = {GOLD}
-					font     = "monospace"
-					textAlign= "middle-center"
-					uiTransform = {{
-						width       : '100%',
-						height      : 44,
-						positionType: 'absolute',
-						position    : { top: 1, left: 1 },
-					}}
-				/>
-			</UiEntity>
+			<Label
+				value     = {text}
+				fontSize  = {38}
+				color     = {GOLD}
+				font      = "monospace"
+				textAlign = "middle-center"
+				uiTransform = {{ width: '100%', height: 44 }}
+			/>
 		</UiEntity>
 	)
 }

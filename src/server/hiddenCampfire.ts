@@ -81,6 +81,18 @@ const heartbeatClock    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const BROADCAST_FUEL_DELTA  = 3
 const BROADCAST_HEARTBEAT_S = 2
 
+let fireRelitHandler: (() => void) | null = null
+
+
+// MARK: onHiddenFireRelit
+/**
+ * Register a callback for a dead→lit hidden-fire ignite. Used by
+ * frostLife to cancel a pending extinction without a circular import.
+ */
+export function onHiddenFireRelit(handler: () => void): void {
+	fireRelitHandler = handler
+}
+
 
 // MARK: recomputePositions
 function recomputePositions(): void {
@@ -279,6 +291,7 @@ export function setupHiddenCampfireServer(): void {
 			`[Server] hiddenCampfire[${index}]: ignited by ${from} ` +
 			`(seed=${currentSeed}, fuel=${FUEL_HIDDEN_INITIAL}s tier ${hearthTierFromFuel(FUEL_HIDDEN_INITIAL)})`
 		)
+		if (fireRelitHandler) fireRelitHandler()
 		// Broadcast BEFORE the paint pass so a ring-seeding failure can't
 		// silently swallow the state flip. Clients need the lit=true message
 		// to spawn smoke / crackle / warmth even if the melt ring lags. The

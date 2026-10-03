@@ -1,13 +1,16 @@
 /**
  * flameBillboards.ts — low-poly orange fire cards.
  *
- * Solid emissive planes instead of flame sprites: a planted bed
- * of crossed cards, plus smaller ember cards that climb and
- * shrink out. Roster and uniform scale follow fuel-tier flame
- * scale (Warm = 1). The cluster Y-billboards so the hero face
- * stays toward the camera. Three outward spots jitter on
- * Bence's clock and cast the flicker shadows. Fuel, warmth,
- * radius, and drain are not decided here.
+ * Solid emissive planes instead of flame sprites: a planted bed of
+ * cards (the flame silhouette), then a copy of that bed rotated 90°
+ * as a whole with slight height and bob-timing variants so plan view
+ * reads as a living X. A glow cube sits in the bed and scales with
+ * fuel. Smaller ember cards climb and shrink out. Roster and scale
+ * follow fuel-tier flame scale (Warm = 1). Above Warm, the cluster
+ * grows taller faster than it grows wide. The cluster Y-billboards
+ * so the hero face stays toward the camera. Three outward spots
+ * jitter on Bence's clock and cast the flicker shadows. Fuel,
+ * warmth, radius, and drain are not decided here.
  */
 
 import {
@@ -25,49 +28,53 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 /** Local Y of every planted card root, inside the log pile. */
 const BED_Y = 0.08
-/**
- * Hero face of the cluster. Offset on the child so Billboard
- * can own the parent's yaw.
- */
-const FACE_YAW = 0
 
-/** Yellow (heat 0) toward a mild orange (heat 1). Keep the range short. */
-const COL_YELLOW_ALBEDO = Color4.create(1.00, 0.72, 0.18, 1)
-const COL_YELLOW_EMIT   = Color3.create(1.00, 0.55, 0.08)
-const COL_ORANGE_ALBEDO = Color4.create(1.00, 0.55, 0.10, 1)
-const COL_ORANGE_EMIT   = Color3.create(1.00, 0.42, 0.05)
-const EMIT_BASE         = 2.10
+/** Base glow cube at the bed. Size at Warm (scale 1). */
+const CORE_SIZE_AT_WARM = 0.42
+/** Warm yellow-orange, matches the lower silhouette cards. */
+const CORE_HEAT         = 0.15
+/** Soft breath on the bed cube (± fraction of size). */
+const CORE_PULSE_AMT    = 0.08
+const CORE_PULSE_PERIOD = 1.35
+
+/** Yellow (heat 0) toward a deeper orange (heat 1). Wider span than before. */
+const COL_YELLOW_ALBEDO = Color4.create(1.00, 0.78, 0.22, 1)
+const COL_YELLOW_EMIT   = Color3.create(1.00, 0.62, 0.12)
+const COL_ORANGE_ALBEDO = Color4.create(1.00, 0.42, 0.06, 1)
+const COL_ORANGE_EMIT   = Color3.create(1.00, 0.30, 0.04)
+const EMIT_BASE         = 1.75
 
 /**
- * Planted cards. Laid out as a 2D flame silhouette on the hero
- * face: wide short bed in front, taller skinny peaks behind it.
- * `heat` 0 = yellow, 1 = mild orange. `minScale` is the fuel-tier
- * flame scale that turns this card on.
+ * Planted cards — one silhouette arm. A second arm is the same
+ * specs parented under a 90° root (see createFlameRig). Split wide
+ * bed, taller peaks. `heat` 0 = yellow, 1 = deep orange. `minScale`
+ * is the fuel-tier flame scale that turns this card on.
  */
 const TONGUES: readonly TongueSpec[] = [
-	{ id: 'A', kind: 'base',    heat: 0.05, yaw: 0,   x:  0.00, z:  0.00, width: 0.90, height: 0.34, cross: false, period: 2.40, phase: 0.00, minScale: 0.00 },
-	{ id: 'B', kind: 'medium',  heat: 0.25, yaw: 8,   x: -0.06, z: -0.02, width: 0.28, height: 0.95, cross: false, period: 1.35, phase: 0.22, minScale: 0.45 },
-	{ id: 'D', kind: 'medium',  heat: 0.35, yaw: -10, x:  0.08, z: -0.03, width: 0.24, height: 0.82, cross: false, period: 1.50, phase: 0.41, minScale: 0.70 },
-	{ id: 'E', kind: 'flicker', heat: 0.20, yaw: 4,   x:  0.02, z: -0.05, width: 0.14, height: 1.15, cross: false, period: 0.90, phase: 0.18, minScale: 1.00 },
-	{ id: 'C', kind: 'tall',    heat: 0.40, yaw: -4,  x: -0.02, z: -0.06, width: 0.16, height: 1.40, cross: false, period: 1.75, phase: 0.61, minScale: 1.50 },
+	{ id: 'A1', kind: 'base',    heat: 0.00, yaw: -8,  x: -0.20, z:  0.00, width: 0.52, height: 0.38, period: 2.15, phase: 0.00, minScale: 0.00 },
+	{ id: 'A2', kind: 'base',    heat: 0.18, yaw:  10, x:  0.20, z:  0.01, width: 0.50, height: 0.34, period: 2.85, phase: 0.48, minScale: 0.00 },
+	{ id: 'B',  kind: 'medium',  heat: 0.35, yaw:  8,  x: -0.06, z: -0.02, width: 0.28, height: 0.95, period: 1.35, phase: 0.22, minScale: 0.45 },
+	{ id: 'D',  kind: 'medium',  heat: 0.55, yaw: -10, x:  0.08, z: -0.03, width: 0.24, height: 0.82, period: 1.50, phase: 0.41, minScale: 0.70 },
+	{ id: 'E',  kind: 'flicker', heat: 0.28, yaw:  4,  x:  0.02, z: -0.05, width: 0.14, height: 1.15, period: 0.90, phase: 0.18, minScale: 1.00 },
+	{ id: 'C',  kind: 'tall',    heat: 0.70, yaw: -4,  x: -0.02, z: -0.06, width: 0.16, height: 1.40, period: 1.75, phase: 0.61, minScale: 1.50 },
 ]
 
 /**
  * Small rising ember cards. Climb above the bed and shrink out.
  */
 const EMBERS: readonly EmberSpec[] = [
-	{ id: 'E1',  yaw: 40,  x: -0.10, z:  0.04, width: 0.12, height: 0.20, period: 1.80, phase: 0.00, riseY: 2.80, heat: 0.15, minScale: 0.45 },
-	{ id: 'E2',  yaw: 120, x:  0.08, z: -0.02, width: 0.06, height: 0.10, period: 0.70, phase: 0.35, riseY: 1.40, heat: 0.35, minScale: 0.70 },
-	{ id: 'E3',  yaw: 200, x:  0.12, z:  0.06, width: 0.09, height: 0.16, period: 1.25, phase: 0.62, riseY: 2.20, heat: 0.25, minScale: 1.00 },
-	{ id: 'E4',  yaw: 280, x: -0.04, z: -0.08, width: 0.05, height: 0.08, period: 0.55, phase: 0.18, riseY: 1.10, heat: 0.45, minScale: 1.00 },
-	{ id: 'E5',  yaw: 330, x:  0.02, z:  0.10, width: 0.14, height: 0.22, period: 2.10, phase: 0.80, riseY: 3.20, heat: 0.10, minScale: 1.50 },
-	{ id: 'E6',  yaw: 80,  x: -0.14, z: -0.04, width: 0.07, height: 0.13, period: 0.95, phase: 0.50, riseY: 1.80, heat: 0.30, minScale: 1.50 },
-	{ id: 'E7',  yaw: 160, x:  0.06, z:  0.08, width: 0.04, height: 0.07, period: 0.48, phase: 0.12, riseY: 0.90, heat: 0.50, minScale: 0.45 },
+	{ id: 'E1',  yaw: 40,  x: -0.10, z:  0.04, width: 0.12, height: 0.20, period: 1.80, phase: 0.00, riseY: 2.80, heat: 0.10, minScale: 0.45 },
+	{ id: 'E2',  yaw: 120, x:  0.08, z: -0.02, width: 0.06, height: 0.10, period: 0.70, phase: 0.35, riseY: 1.40, heat: 0.50, minScale: 0.70 },
+	{ id: 'E3',  yaw: 200, x:  0.12, z:  0.06, width: 0.09, height: 0.16, period: 1.25, phase: 0.62, riseY: 2.20, heat: 0.30, minScale: 1.00 },
+	{ id: 'E4',  yaw: 280, x: -0.04, z: -0.08, width: 0.05, height: 0.08, period: 0.55, phase: 0.18, riseY: 1.10, heat: 0.65, minScale: 1.00 },
+	{ id: 'E5',  yaw: 330, x:  0.02, z:  0.10, width: 0.14, height: 0.22, period: 2.10, phase: 0.80, riseY: 3.20, heat: 0.05, minScale: 1.50 },
+	{ id: 'E6',  yaw: 80,  x: -0.14, z: -0.04, width: 0.07, height: 0.13, period: 0.95, phase: 0.50, riseY: 1.80, heat: 0.40, minScale: 1.50 },
+	{ id: 'E7',  yaw: 160, x:  0.06, z:  0.08, width: 0.04, height: 0.07, period: 0.48, phase: 0.12, riseY: 0.90, heat: 0.75, minScale: 0.45 },
 	{ id: 'E8',  yaw: 240, x: -0.08, z:  0.02, width: 0.11, height: 0.18, period: 1.55, phase: 0.42, riseY: 2.50, heat: 0.20, minScale: 0.70 },
-	{ id: 'E9',  yaw: 300, x:  0.14, z: -0.06, width: 0.06, height: 0.11, period: 0.82, phase: 0.70, riseY: 1.60, heat: 0.40, minScale: 1.00 },
+	{ id: 'E9',  yaw: 300, x:  0.14, z: -0.06, width: 0.06, height: 0.11, period: 0.82, phase: 0.70, riseY: 1.60, heat: 0.55, minScale: 1.00 },
 	{ id: 'E10', yaw: 20,  x: -0.02, z: -0.10, width: 0.08, height: 0.14, period: 1.35, phase: 0.28, riseY: 2.00, heat: 0.15, minScale: 1.00 },
-	{ id: 'E11', yaw: 100, x:  0.10, z:  0.00, width: 0.15, height: 0.24, period: 2.40, phase: 0.55, riseY: 3.40, heat: 0.05, minScale: 1.50 },
-	{ id: 'E12', yaw: 220, x: -0.12, z:  0.06, width: 0.05, height: 0.09, period: 0.60, phase: 0.88, riseY: 1.20, heat: 0.45, minScale: 1.50 },
+	{ id: 'E11', yaw: 100, x:  0.10, z:  0.00, width: 0.15, height: 0.24, period: 2.40, phase: 0.55, riseY: 3.40, heat: 0.00, minScale: 1.50 },
+	{ id: 'E12', yaw: 220, x: -0.12, z:  0.06, width: 0.05, height: 0.09, period: 0.60, phase: 0.88, riseY: 1.20, heat: 0.60, minScale: 1.50 },
 ]
 
 /** Bence's three outward spots. Jitter is on the lights, not the cards. */
@@ -93,16 +100,15 @@ interface TongueSpec {
 	z        : number
 	width    : number
 	height   : number
-	cross    : boolean
 	period   : number
 	phase    : number
 	minScale : number
 }
 
 interface Tongue {
-	spec  : TongueSpec
-	root  : Entity
-	faces : Entity[]
+	spec : TongueSpec
+	root : Entity
+	face : Entity
 }
 
 interface EmberSpec {
@@ -138,10 +144,17 @@ interface Rig {
 	tongues : Tongue[]
 	embers  : Ember[]
 	spots   : Spot[]
+	arms    : Entity[]
 	facing  : Entity
 	visual  : Entity
+	core    : Entity
 	scale   : number
 	alive   : boolean
+}
+
+export interface FlameRigOptions {
+	/** Hearth flicker spots. Off for tiny handheld flames. Default true. */
+	spots?: boolean
 }
 
 export interface FlameRig {
@@ -176,12 +189,12 @@ function mixHeat(heat: number): { albedo: Color4, emit: Color3 } {
 }
 
 
-// MARK: writeCardMaterial
+// MARK: writeFlameHeatMaterial
 /**
- * Solid fire card. `heat` tints yellow toward orange; `emitMul`
- * dims the glow as rising sparks fade.
+ * Solid fire material shared by hearth cards and torch cubes. `heat`
+ * tints yellow toward orange; `emitMul` dims the glow as sparks fade.
  */
-function writeCardMaterial(
+export function writeFlameHeatMaterial(
 	entity : Entity,
 	heat   : number,
 	emitMul: number = 1,
@@ -205,34 +218,54 @@ function writeCardMaterial(
 
 
 // MARK: spawnTongue
-
+/**
+ * One card of the silhouette, parented under an arm root. Arm yaw
+ * (0° or 90°) is on the parent — this card only keeps its own lean.
+ */
 function spawnTongue(
-	visual: Entity,
-	spec  : TongueSpec,
+	arm : Entity,
+	spec: TongueSpec,
 ): Tongue {
 	const root = engine.addEntity()
 	Transform.create(root, {
-		parent  : visual,
+		parent  : arm,
 		position: Vector3.create(spec.x, BED_Y, spec.z),
 		rotation: Quaternion.fromEulerDegrees(0, spec.yaw, 0),
 		scale   : Vector3.create(0.001, 0.001, 1),
 	})
+	const face = engine.addEntity()
+	Transform.create(face, {
+		parent  : root,
+		position: Vector3.create(0, 0.5, 0),
+	})
+	MeshRenderer.setPlane(face)
+	writeFlameHeatMaterial(face, spec.heat, 1)
+	return { spec, root, face }
+}
 
-	const faces: Entity[] = []
-	const count = spec.cross ? 2 : 1
-	for (let i = 0; i < count; i++) {
-		const face = engine.addEntity()
-		Transform.create(face, {
-			parent  : root,
-			position: Vector3.create(0, 0.5, 0),
-			rotation: Quaternion.fromEulerDegrees(0, i * 80, 0),
-		})
-		MeshRenderer.setPlane(face)
-		writeCardMaterial(face, spec.heat, 1)
-		faces.push(face)
+
+// MARK: variantForCrossArm
+/**
+ * Slight height + bob timing offset for the 90° arm so it is not a
+ * perfect mirror of the original silhouette. `index` picks a stable
+ * per-card nudge (no RNG — both clients stay in sync).
+ */
+function variantForCrossArm(
+	spec : TongueSpec,
+	index: number,
+): TongueSpec {
+	// Alternate a little shorter / a little taller, and push the phase
+	// about a quarter-cycle so peaks land between the originals.
+	const heightMul = index % 2 === 0 ? 0.88 : 1.12
+	const periodMul = index % 2 === 0 ? 1.08 : 0.92
+	const phasePush = 0.28 + index * 0.07
+	return {
+		...spec,
+		id    : `${spec.id}_x`,
+		height: spec.height * heightMul,
+		period: spec.period * periodMul,
+		phase : (spec.phase + phasePush) % 1,
 	}
-
-	return { spec, root, faces }
 }
 
 
@@ -261,9 +294,9 @@ function motionFor(
 	const flick = wave(time, period * 0.28, phase + 0.17)
 	if (kind === 'base') {
 		return {
-			sx  : 0.98 + 0.04 * a + 0.02 * flick,
-			sy  : 0.94 + 0.04 * b + 0.02 * flick,
-			dx  : 0.006 * (a - 0.5),
+			sx  : 0.94 + 0.08 * a + 0.02 * flick,
+			sy  : 0.42 + 0.62 * Math.pow(a, 0.40) + 0.04 * flick,
+			dx  : 0.010 * (a - 0.5),
 			show: true,
 		}
 	}
@@ -307,15 +340,44 @@ function countLit(scale: number): number {
 
 // MARK: writeClusterScale
 /**
- * Uniform grow/shrink for the whole planted + ember cluster.
- * Warm is 1. Spots stay on the campfire root.
+ * Grow/shrink the planted + ember cluster. Warm is 1. Above Warm,
+ * height keeps the tier scale while width grows slower so a roaring
+ * fire rises instead of becoming a flat yellow wall. Spots stay on
+ * the campfire root.
  */
 function writeClusterScale(
 	facing: Entity,
 	scale : number,
 ): void {
-	const s = scale > 0.01 ? scale : 0.001
-	Transform.getMutable(facing).scale = Vector3.create(s, s, s)
+	if (scale <= 0.01) {
+		Transform.getMutable(facing).scale = Vector3.create(0.001, 0.001, 0.001)
+		return
+	}
+	const sy = scale
+	const sx = scale <= 1 ? scale : Math.pow(scale, 0.70)
+	Transform.getMutable(facing).scale = Vector3.create(sx, sy, sx)
+}
+
+
+// MARK: writeCoreScale
+/**
+ * Uniform bed cube. Tracks flame scale; above Warm it follows the
+ * width curve. A soft cosine pulse keeps it breathing while lit.
+ */
+function writeCoreScale(
+	core : Entity,
+	scale: number,
+	time : number,
+): void {
+	const tr = Transform.getMutable(core)
+	if (scale <= 0.01) {
+		tr.scale = Vector3.create(0.001, 0.001, 0.001)
+		return
+	}
+	const mul   = scale <= 1 ? scale : Math.pow(scale, 0.70)
+	const pulse = 1 + CORE_PULSE_AMT * (wave(time, CORE_PULSE_PERIOD, 0) * 2 - 1)
+	const s     = CORE_SIZE_AT_WARM * mul * pulse
+	tr.scale = Vector3.create(s, s, s)
 }
 
 
@@ -371,7 +433,7 @@ function spawnEmber(
 		position: Vector3.create(0, 0.5, 0),
 	})
 	MeshRenderer.setPlane(face)
-	writeCardMaterial(face, spec.heat, 1)
+	writeFlameHeatMaterial(face, spec.heat, 1)
 	return { spec, root, face }
 }
 
@@ -414,7 +476,7 @@ function placeEmber(
 		1,
 	)
 	tr.rotation = Quaternion.fromEulerDegrees(0, spec.yaw + lean * 12, 0)
-	writeCardMaterial(ember.face, spec.heat, fade * (1 - 0.70 * rise))
+	writeFlameHeatMaterial(ember.face, spec.heat, fade * (1 - 0.70 * rise))
 }
 
 
@@ -523,18 +585,15 @@ function ensureSystem(): void {
 		for (let i = 0; i < rigs.length; i++) {
 			const rig = rigs[i]
 			if (!rig.alive) continue
+			writeCoreScale(rig.core, rig.scale, timeSec)
 			for (let t = 0; t < rig.tongues.length; t++) {
 				placeTongue(rig.tongues[t], timeSec, rig.scale)
 			}
-			if (rig.embers !== undefined) {
-				for (let e = 0; e < rig.embers.length; e++) {
-					placeEmber(rig.embers[e], timeSec, rig.scale)
-				}
+			for (let e = 0; e < rig.embers.length; e++) {
+				placeEmber(rig.embers[e], timeSec, rig.scale)
 			}
-			if (rig.spots !== undefined) {
-				for (let s = 0; s < rig.spots.length; s++) {
-					tickSpot(rig.spots[s], dt)
-				}
+			for (let s = 0; s < rig.spots.length; s++) {
+				tickSpot(rig.spots[s], dt)
 			}
 		}
 	})
@@ -543,30 +602,67 @@ function ensureSystem(): void {
 
 // MARK: createFlameRig
 /**
- * Hang the orange card cluster on `parent`. The cluster
- * Y-billboards so the hero face stays toward the camera.
- * `setScale(0)` hides it. Scale chooses the roster and
- * uniform-scales the whole cluster (Warm = 1).
+ * Hang the orange card cluster on `parent`. Builds the silhouette,
+ * then parents a height/timing-variant copy under a 90° arm so plan
+ * view is an X. `setScale(0)` hides it. Scale chooses the roster and
+ * grows the cluster (Warm = 1; above Warm, taller than wide).
+ *
+ * The visual root Y-billboards, so cards stay world-upright even when
+ * `parent` rides a tilted hand bone (held torch). Pass `{ spots: false }`
+ * for handheld flames — hearth spots are sized for a planted fire.
  */
-export function createFlameRig(parent: Entity): FlameRig {
+export function createFlameRig(
+	parent : Entity,
+	options: FlameRigOptions = {},
+): FlameRig {
+	const withSpots = options.spots !== false
+
 	const visual = engine.addEntity()
 	Transform.create(visual, {
 		parent,
 		position: Vector3.Zero(),
 		scale   : Vector3.One(),
 	})
+	// BM_Y owns world rotation: local Y stays world-up while yaw follows
+	// the camera. Position still inherits from `parent` (hand tip).
 	Billboard.create(visual, { billboardMode: BillboardMode.BM_Y })
 
 	const facing = engine.addEntity()
 	Transform.create(facing, {
+		parent: visual,
+		scale : Vector3.create(0.001, 0.001, 0.001),
+	})
+
+	// Bed cube under the silhouette — scales with fuel like the cards.
+	const core = engine.addEntity()
+	Transform.create(core, {
 		parent  : visual,
-		rotation: Quaternion.fromEulerDegrees(0, FACE_YAW, 0),
+		position: Vector3.create(0, BED_Y + CORE_SIZE_AT_WARM * 0.35, 0),
 		scale   : Vector3.create(0.001, 0.001, 0.001),
 	})
+	MeshRenderer.setBox(core)
+	writeFlameHeatMaterial(core, CORE_HEAT, 1)
+
+	// Arm 0° = original silhouette. Arm 90° = same layout, rotated as a
+	// whole, with slight height + timing variants so the X is alive.
+	const arm0 = engine.addEntity()
+	Transform.create(arm0, {
+		parent  : facing,
+		rotation: Quaternion.Identity(),
+	})
+	const arm90 = engine.addEntity()
+	Transform.create(arm90, {
+		parent  : facing,
+		rotation: Quaternion.fromEulerDegrees(0, 90, 0),
+	})
+	const arms = [arm0, arm90]
 
 	const tongues: Tongue[] = []
 	for (let i = 0; i < TONGUES.length; i++) {
-		tongues.push(spawnTongue(facing, TONGUES[i]))
+		tongues.push(spawnTongue(arm0, TONGUES[i]))
+	}
+	for (let i = 0; i < TONGUES.length; i++) {
+		tongues.push(spawnTongue(arm90, variantForCrossArm(TONGUES[i], i)))
 	}
 
 	const embers: Ember[] = []
@@ -575,23 +671,28 @@ export function createFlameRig(parent: Entity): FlameRig {
 	}
 
 	const spots: Spot[] = []
-	for (let i = 0; i < SPOT_COUNT; i++) {
-		spots.push(spawnSpot(parent, i))
+	if (withSpots) {
+		for (let i = 0; i < SPOT_COUNT; i++) {
+			spots.push(spawnSpot(parent, i))
+		}
 	}
 
 	const rig: Rig = {
 		tongues,
 		embers,
 		spots,
+		arms,
 		facing,
 		visual,
+		core,
 		scale: 0,
 		alive: true,
 	}
 	rigs.push(rig)
 	ensureSystem()
 	console.log(
-		`flameBillboards: createFlameRig: ${tongues.length} cards, ${embers.length} embers, ${spots.length} spots`,
+		`flameBillboards: createFlameRig: ${TONGUES.length} cards x2 arms, ` +
+		`${embers.length} embers, ${spots.length} spots, bed cube`,
 	)
 
 	return {
@@ -602,6 +703,7 @@ export function createFlameRig(parent: Entity): FlameRig {
 			rig.scale = next
 			const lit = next > 0.01
 			writeClusterScale(rig.facing, next)
+			writeCoreScale(rig.core, next, timeSec)
 			for (let i = 0; i < rig.tongues.length; i++) {
 				placeTongue(rig.tongues[i], timeSec, next)
 			}
@@ -620,11 +722,8 @@ export function createFlameRig(parent: Entity): FlameRig {
 			rig.alive = false
 			rig.scale = 0
 			for (let i = 0; i < rig.tongues.length; i++) {
-				const tongue = rig.tongues[i]
-				for (let f = 0; f < tongue.faces.length; f++) {
-					engine.removeEntity(tongue.faces[f])
-				}
-				engine.removeEntity(tongue.root)
+				engine.removeEntity(rig.tongues[i].face)
+				engine.removeEntity(rig.tongues[i].root)
 			}
 			for (let i = 0; i < rig.embers.length; i++) {
 				engine.removeEntity(rig.embers[i].face)
@@ -633,6 +732,10 @@ export function createFlameRig(parent: Entity): FlameRig {
 			for (let i = 0; i < rig.spots.length; i++) {
 				engine.removeEntity(rig.spots[i].entity)
 			}
+			for (let i = 0; i < rig.arms.length; i++) {
+				engine.removeEntity(rig.arms[i])
+			}
+			engine.removeEntity(rig.core)
 			engine.removeEntity(rig.facing)
 			engine.removeEntity(rig.visual)
 			const idx = rigs.indexOf(rig)

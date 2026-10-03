@@ -13,10 +13,11 @@
  *   * Lit state and remaining fuel fraction travel on `torchLitFrom`
  *     so the remote flame and point light can dim with burn time.
  *
- * Pattern mirrors src/client/torch.ts's two-layer AvatarAttach setup:
- *   Anchor (AvatarAttach, right hand)   <-- Bevy propagates bone
+ * Pattern mirrors src/client/torch.ts's AvatarAttach setup:
+ *   Anchor (AvatarAttach, right hand)   ← Bevy propagates bone
  *     Model (STATIC child, offsets set once)
- *     Flame (STATIC child, VisibilityComponent toggled)
+ *     Tip cube + world-up sparks + shadow spots (mountTorchFlame)
+ *     Soft fill point light
  *
  * The anchor's Transform is written once and never mutated after
  * AvatarAttach.create — same race caveat as torch.ts.
@@ -27,20 +28,18 @@ import {
 	AvatarAttach,
 	Entity,
 	GltfContainer,
-	Material,
-	MeshRenderer,
 	PlayerIdentityData,
 	Transform,
-	VisibilityComponent,
 	engine,
 } from '@dcl/sdk/ecs'
 import { getPlayer } from '@dcl/sdk/players'
-import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { room } from 'src/shared/messages'
 
 import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
+import { mountTorchFlame, TORCH_FLAME_LOCAL_POS, TorchFlame } from 'src/client/torchFlame'
 
 
 // MARK: Tuning
@@ -53,11 +52,6 @@ const TORCH_OFFSET      = Vector3.create(0.04, 0.12, 0.10)
 const TORCH_ROTATION    = Quaternion.fromEulerDegrees(90, -30, 90)
 const TORCH_MODEL_SCALE = Vector3.create(TORCH_SCALE, TORCH_SCALE * 2, TORCH_SCALE * 2)
 
-const FLAME_LOCAL_POS   = Vector3.create(-0.11, 0.10, 0.28)
-const FLAME_SIZE        = 0.16
-const FLAME_COLOR_HOT   = Color4.create(1.00, 0.80, 0.30, 1)
-const FLAME_EMISSIVE    = 1.6
-
 // Reconcile-against-PlayerIdentityData cadence. Fast enough that a
 // join/leave feels instant, cheap enough that the query itself is a
 // non-event: PlayerIdentityData is a small set (typical rooms <20
@@ -69,7 +63,7 @@ const RECON_INTERVAL_S  = 1.0
 interface RemoteTorch {
 	anchor: Entity
 	model : Entity
-	flame : Entity
+	flame : TorchFlame
 	light : Entity
 }
 
@@ -142,28 +136,12 @@ function createRemoteTorch(userIdLower: string): void {
 		invisibleMeshesCollisionMask: 0,
 	})
 
-	const flame = engine.addEntity()
-	Transform.create(flame, {
-		parent  : anchor,
-		position: FLAME_LOCAL_POS,
-		scale   : Vector3.create(FLAME_SIZE, FLAME_SIZE, FLAME_SIZE),
-	})
-	MeshRenderer.setSphere(flame)
-	Material.setPbrMaterial(flame, {
-		albedoColor      : FLAME_COLOR_HOT,
-		emissiveColor    : FLAME_COLOR_HOT,
-		emissiveIntensity: FLAME_EMISSIVE,
-		roughness        : 1.0,
-	})
-	// Start hidden. Server hydrates lit state via `torchLitFrom` on
-	// join, and every subsequent change edge on that remote's client
-	// pushes another update through the same channel.
-	VisibilityComponent.create(flame, { visible: false })
+	const flame = mountTorchFlame(anchor)
 
 	const light = engine.addEntity()
 	Transform.create(light, {
 		parent  : anchor,
-		position: FLAME_LOCAL_POS,
+		position: TORCH_FLAME_LOCAL_POS,
 	})
 	syncPointLight(light, torchLightParams(false, 0, 1))
 
@@ -174,31 +152,14 @@ function createRemoteTorch(userIdLower: string): void {
 
 // MARK: setupRemoteFlameScaler
 // Night pinches remote flames (torchFlameMul). Fuel fraction dims
-// both the orb and the point light.
+// tip cube / sparks / spots and the soft fill point light.
 function setupRemoteFlameScaler(): void {
 	engine.addSystem(() => {
 		const flameMul = getLivePhaseConfig().torchFlameMul
 		remoteTorches.forEach((rt, id) => {
 			const lit  = remoteLitByUser.get(id) === true
 			const frac = remoteFuelFrac.get(id) ?? (lit ? 1 : 0)
-			const t = Transform.getMutableOrNull(rt.flame)
-			if (t !== null) {
-				const s = FLAME_SIZE * flameMul * (lit ? Math.max(0.35, frac) : 1)
-				if (t.scale.x !== s) {
-					t.scale.x = s
-					t.scale.y = s
-					t.scale.z = s
-				}
-			}
-
-			const mat = Material.getMutableOrNull(rt.flame)
-			if (mat !== null && mat.material?.$case === 'pbr') {
-				const want = FLAME_EMISSIVE * flameMul
-				if (mat.material.pbr.emissiveIntensity !== want) {
-					mat.material.pbr.emissiveIntensity = want
-				}
-			}
-
+			rt.flame.setFuel(lit, lit ? Math.max(0.35, frac) : 0, flameMul)
 			syncPointLight(rt.light, torchLightParams(lit, frac, flameMul))
 		})
 	})
@@ -210,7 +171,7 @@ function removeRemoteTorch(userIdLower: string): void {
 	const rt = remoteTorches.get(userIdLower)
 	if (!rt) return
 	engine.removeEntity(rt.light)
-	engine.removeEntity(rt.flame)
+	rt.flame.dispose()
 	engine.removeEntity(rt.model)
 	engine.removeEntity(rt.anchor)
 	remoteTorches.delete(userIdLower)
@@ -234,10 +195,11 @@ function setRemoteLit(
 	}
 	const target = remoteTorches.get(userIdLower)
 	if (!target) return
-	const vis = VisibilityComponent.getMutableOrNull(target.flame)
-	if (vis !== null && vis.visible !== lit) vis.visible = lit
 	remoteLitByUser.set(userIdLower, lit)
 	remoteFuelFrac.set(userIdLower, lit ? fuelFrac : 0)
+	const flameMul = getLivePhaseConfig().torchFlameMul
+	target.flame.setFuel(lit, lit ? Math.max(0.35, fuelFrac) : 0, flameMul)
+	syncPointLight(target.light, torchLightParams(lit, fuelFrac, flameMul))
 }
 
 

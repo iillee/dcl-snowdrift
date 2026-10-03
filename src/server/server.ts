@@ -28,7 +28,7 @@ import { snowGridCapacity } from 'src/shared/snowGrid'
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
-import { notePlayerPresent, sendFrostBodiesTo, setupFrostLifeServer } from 'src/server/frostLife'
+import { notePlayerJoined, sendFrostBodiesTo, setupFrostLifeServer } from 'src/server/frostLife'
 import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
 import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
@@ -178,7 +178,7 @@ export async function setupServer(): Promise<void> {
 		// joiner-specific hydrations below cover everything else (weather,
 		// wood, cycle, torches, fuel, hidden campfire).
 		console.log(`[Server] joinRoster from ${from}`)
-		notePlayerPresent(from)
+		notePlayerJoined(from)
 		if (from !== userId) {
 			// Not an error — client may not have context.from's exact address casing.
 			// We ignore the payload and use context.from as authoritative.

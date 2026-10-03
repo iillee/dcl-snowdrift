@@ -307,6 +307,21 @@ export function setupPhaseServer(): void {
 				`cycleId=${cycleId} nights=${nightsThisRun}`
 			)
 			stepped++
+			// Never eat DAWN in the same hitch that ended night. The Day
+			// card plays during dawn; a multi-step jump straight to DAY
+			// left clients with nothing to show for Day 2+.
+			if (wrapped) {
+				const dawnMs  = Math.max(1, currentConfig().durationSec) * 1000
+				const minLeft = Math.min(dawnMs, 5000)
+				const age     = Date.now() - phaseStartedAtMs
+				if (age > dawnMs - minLeft) {
+					phaseStartedAtMs = Date.now() - (dawnMs - minLeft)
+					console.log(
+						`[Server] phase: tick preserved ${ (minLeft / 1000).toFixed(1) }s of DAWN for Day ${cycleId + 1}`
+					)
+				}
+				break
+			}
 		}
 		if (stepped > 0) {
 			broadcastPhaseState()

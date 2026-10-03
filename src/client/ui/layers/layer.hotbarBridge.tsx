@@ -35,9 +35,9 @@ const BG_WHITE = Color4.create(1, 1, 1, 1)
 
 // Geometry — matches TOOLTIP_H / HOTBAR_HALF from the prompt layers.
 // Kept as local constants; if the button size ever changes, sync all
-// three files (relightPrompt, feedPrompt, hotbarBridge).
-// Kept in sync with prompt layers: mobile matches slot height exactly
-// (112). Desktop uses 71 (see rationale in layer.relightPrompt).
+// prompt layers + this bridge.
+// Desktop height matches BTN_SIZE (72). Bottom matches the prompt
+// chips (+4 over the hotbar margin) so the gold strip shares the row.
 const HEIGHT_MB          = 112
 const HEIGHT_DT          = 71
 // Distance from screen centre to the INNER edge of the bridge (how
@@ -50,7 +50,6 @@ const INNER_OFFSET_DT    = 56
 // button/tooltip seam and into the tooltip footprint.
 const WIDTH_MB           = 80
 const WIDTH_DT           = 50
-// Bottom offset matches the hotbar's own bottom margin per platform.
 // Bottom anchor matches the hotbar row's own bottom margin.
 const BOTTOM_MB          = 0
 const BOTTOM_DT          = 30

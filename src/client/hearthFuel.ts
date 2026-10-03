@@ -61,6 +61,10 @@ export function setupHearthFuelClient(): void {
 
 	room.onMessage('hearthFuelUpdate', ({ fuel, players }) => {
 		const prevTier = hearthTierFromFuel(currentFuel)
+		// Dead↔lit must be immediate: freeze wake and spark prompts
+		// read currentFuel, and a 250 ms lerp leaves them dark.
+		if (currentFuel <= 0 && fuel > 0) currentFuel = fuel
+		if (fuel <= 0) currentFuel = 0
 		targetFuel     = fuel
 		playerCount    = players
 		const newTier  = hearthTierFromFuel(targetFuel)
@@ -73,6 +77,8 @@ export function setupHearthFuelClient(): void {
 
 	room.onMessage('hiddenHearthFuelUpdate', ({ index, fuel, players }) => {
 		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		if (hiddenCurrent[index] <= 0 && fuel > 0) hiddenCurrent[index] = fuel
+		if (fuel <= 0) hiddenCurrent[index] = 0
 		hiddenTarget[index] = fuel
 		playerCount         = players
 	})

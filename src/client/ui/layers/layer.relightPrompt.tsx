@@ -55,19 +55,9 @@ const BORDER_GOLD = Color4.create(1.00, 0.80, 0.30, 0.95)
 
 // Per-platform sizing derived from the hotbar button geometry so the
 // tooltip always sits at the same row height as the button it emerges
-// from. Mobile: slotSize() = 112. Desktop: BTN_SIZE = 72. Both use
-// (BTN_SIZE/2 + BTN_MARGIN_X) as the half-row offset so the tooltip's
-// inner edge kisses the button's outer edge.
-// Mobile height matches slotSize() = 112 exactly — the mobile layout
-// was flush before the desktop-tooltip work; leaving it at 112 keeps
-// it that way.
-// Desktop uses 71 (not BTN_SIZE = 72) as the least-bad compromise:
-// Yoga rounds absolute-positioned boxes on a different sub-pixel grid
-// than the in-flow hotbar row, so no integer pair for (height, bottom)
-// lines both edges up exactly. At h72/b30 the tooltip's top is 1 px
-// above the button top; at h71/b30 the top is ~0.5 px shy of the
-// button top and the bottom is flush. Sub-pixel-shy on the top is
-// invisible in practice; a 1-px overshoot is not.
+// from. Mobile: slotSize() = 112 / bottom 0. Desktop: height 71 /
+// bottom 30 (matches the hotbar margin). Half-row offsets kiss the
+// slot outer edge.
 const TOOLTIP_H_MB    = 112
 const TOOLTIP_H_DT    = 71
 const HOTBAR_HALF_MB  = 128  // 112/2 + 8 margin + 8 breathing

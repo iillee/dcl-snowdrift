@@ -47,10 +47,8 @@ const BORDER_GOLD  = Color4.create(1.00, 0.80, 0.30, 0.95)
 const BORDER_WHITE = Color4.create(1, 1, 1, 0.95)
 
 // Per-platform sizing keyed off the underlying hotbar button. See
-// layer.relightPrompt for the derivation of these numbers — kept in
-// sync so the two tooltips stay symmetric around screen centre.
-// Kept in sync with layer.relightPrompt — see comments there for why
-// desktop uses 71 (not 72) and mobile is left alone at 112.
+// layer.relightPrompt for the derivation — kept in sync so every
+// hotbar-flush tooltip shares one row.
 const TOOLTIP_H_MB    = 112
 const TOOLTIP_H_DT    = 71
 const HOTBAR_HALF_MB  = 128

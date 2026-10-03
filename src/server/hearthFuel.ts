@@ -67,6 +67,17 @@ let installed             = false
  *  tier entry (TIER_FUEL[4] = 450 s), so a group refilling from Warm
  *  gets a fresh celebration each time they push to full. */
 let maxBurstArmed         = true
+let fireRelitHandler      : (() => void) | null = null
+
+
+// MARK: onMainFireRelit
+/**
+ * Register a callback for a dead→lit main-hearth spark. Used by
+ * frostLife to cancel a pending extinction without a circular import.
+ */
+export function onMainFireRelit(handler: () => void): void {
+	fireRelitHandler = handler
+}
 
 
 // MARK: maybeFireMaxBurst
@@ -171,6 +182,7 @@ function sparkMainFire(from: string): void {
 	mainFuel = FUEL_HIDDEN_INITIAL
 	syncMeltRingToCurrentFuel()
 	broadcastFuel()
+	if (fireRelitHandler) fireRelitHandler()
 	console.log(`[Server] hearthFuel: sparked by ${from} to ${FUEL_HIDDEN_INITIAL}s (Ember)`)
 }
 

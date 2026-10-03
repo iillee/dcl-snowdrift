@@ -37,16 +37,25 @@ let serverPhaseSeen  = false
 let dawnSplashArmed  = false
 /** False for the boot placeholder until the server confirms this dawn. */
 let dawnSplashLive   = false
-/** Day number of the card currently armed or on screen. */
+/** Day number the armed card should show. */
 let dawnSplashDay    = 0
+/**
+ * True when this card is a sunrise (wait for DAWN). False for a mid-day
+ * join that should show as soon as the cover lifts.
+ */
+let dawnSplashSunrise = false
 /** Bumps once per world reset so a new Day 1 is not the boot Day 1. */
 let dawnRun          = 0
 /** Wall time of the last bump. The phase packet and the local dawn land together. */
 let dawnRunAtMs      = 0
-/** Run id whose sunrise card is already armed. */
-let splashArmedRun   = -1
-/** Run id whose sunrise card has already started. */
+/** Day number already played for the current dawnRun. */
+let splashShownDay   = -1
+/** Run id whose sunrise card has already started for splashShownDay. */
 let splashShownRun   = -1
+/** Throttle "waiting on cover" logs so catch-up does not flood. */
+let coverWaitLogAtMs = 0
+/** Throttle "waiting for DAWN" logs. */
+let dawnWaitLogAtMs  = 0
 
 
 // MARK: isPhaseHydrated
@@ -194,19 +203,27 @@ function applyPhaseState(msg: {
 	// everyone who joins later.
 	const opening = !serverPhaseSeen
 	serverPhaseSeen = true
-	if (opening) requestDawnSplash(true)
-	// A cycleId drop is a new run (ember-fail / world roll). The
-	// clock starts at DAWN; the title waits until that cover lifts.
-	// Bump the run before the request so this Day 1 is not the one
-	// already shown at boot.
-	if (!opening && msg.cycleId < prevCycle) {
+	if (opening) {
+		// Mid-day join shows immediately once the cover lifts. A join
+		// that lands in DAWN waits for that stage like a normal sunrise.
+		requestDawnSplash(true, phaseName === 'DAWN')
+	} else if (msg.cycleId < prevCycle) {
+		// World reset (ember-fail / cycle roll) — fresh Day 1.
 		console.log(
 			`phase: applyPhaseState: new run cycleId ${prevCycle} -> ${cycleId}, ` +
 			`${phaseName} remaining=${formatPhaseCountdown(getPhaseRemainingSec())}`
 		)
 		noteDawnRun()
-		if (phaseName === 'DAWN') requestDawnSplash(true)
-	} else if (!opening && changed && msg.cycleId >= prevCycle) {
+		requestDawnSplash(true, true)
+	} else if (msg.cycleId > prevCycle) {
+		// Sunrise wrap. Server may land on DAY if DAWN was stepped in
+		// the same tick — still arm so Day 2+ is not skipped.
+		console.log(
+			`phase: applyPhaseState: sunrise cycleId ${prevCycle} -> ${cycleId}, ` +
+			`now ${phaseName}`
+		)
+		requestDawnSplash(true, true)
+	} else if (changed) {
 		maybeAnnounceDawn(prevName)
 	}
 }
@@ -221,8 +238,10 @@ function applyPhaseState(msg: {
  */
 function catchUpLocal(): void {
 	if (!hydrated) return
-	const prevName = phaseName
+	const prevName  = phaseName
+	const prevCycle = cycleId
 	let stepped = 0
+	let sawDawn = false
 	while (stepped < DAILY_PHASES.length + 1) {
 		const durMs = Math.max(1, phaseDurationSec) * 1000
 		if (Date.now() - phaseStartedAtMs < durMs) break
@@ -231,15 +250,20 @@ function catchUpLocal(): void {
 		const cfg        = dailyPhaseAt(phaseIndex)
 		phaseName        = cfg.name
 		phaseDurationSec = cfg.durationSec
+		if (phaseName === 'DAWN') sawDawn = true
 		if (phaseIndex === 0) cycleId++
 		stepped++
 	}
 	if (stepped > 0) {
 		console.log(
 			`phase: catchUpLocal: now ${phaseName} remaining=` +
-			`${formatPhaseCountdown(getPhaseRemainingSec())}`
+			`${formatPhaseCountdown(getPhaseRemainingSec())}` +
+			`${sawDawn || cycleId > prevCycle ? ' (sunrise)' : ''}`
 		)
-		maybeAnnounceDawn(prevName)
+		// Arm on any sunrise wrap, even when this tick also left DAWN
+		// for DAY (server hitch / late snapshot).
+		if (sawDawn || cycleId > prevCycle) requestDawnSplash(true, true)
+		else maybeAnnounceDawn(prevName)
 	}
 }
 
@@ -252,30 +276,36 @@ function noteDawnRun(): void {
 	if (now - dawnRunAtMs < 3000) return
 	dawnRunAtMs = now
 	dawnRun++
+	splashShownDay = -1
 }
 
 
 // MARK: requestDawnSplash
 
 /**
- * Arm the sunrise card for the current day. A world reset sends both
- * a phase snapshot and a local dawn reset; the second request for the
- * same day does not start another card.
+ * Arm the day card. `sunrise` waits for the DAWN stage when possible;
+ * a mid-day join passes false so the card shows once the cover lifts.
  */
-function requestDawnSplash(live: boolean): void {
+function requestDawnSplash(
+	live   : boolean,
+	sunrise: boolean,
+): void {
 	const day = getDayNumber()
-	if (splashShownRun === dawnRun && dawnSplashDay === day) return
+	if (splashShownRun === dawnRun && splashShownDay === day) return
 	if (
-		splashArmedRun === dawnRun &&
 		dawnSplashArmed &&
 		dawnSplashDay === day &&
-		(dawnSplashLive || !live)
+		(dawnSplashLive || !live) &&
+		(dawnSplashSunrise || !sunrise)
 	) return
-	splashArmedRun  = dawnRun
-	dawnSplashDay   = day
-	dawnSplashArmed = true
+	dawnSplashDay     = day
+	dawnSplashArmed   = true
+	dawnSplashSunrise = sunrise
 	if (live) dawnSplashLive = true
-	console.log(`phase: requestDawnSplash: Day ${day} run=${dawnRun} live=${dawnSplashLive}`)
+	console.log(
+		`phase: requestDawnSplash: Day ${day} run=${dawnRun} ` +
+		`live=${dawnSplashLive} sunrise=${dawnSplashSunrise}`
+	)
 }
 
 
@@ -285,20 +315,49 @@ function requestDawnSplash(live: boolean): void {
 function maybeAnnounceDawn(prevName: string): void {
 	if (prevName === 'DAWN') return
 	if (phaseName !== 'DAWN') return
-	requestDawnSplash(true)
+	requestDawnSplash(true, true)
 }
 
 
 // MARK: tryDawnSplash
 
 /**
- * Play the armed day card once the world is visible. Join shows
- * the world's current day. Later sunrises show the new number.
+ * Play the armed day card once the world is visible. Sunrise cards
+ * wait for DAWN. If DAWN was skipped (late cover or a multi-step tick),
+ * show on the first uncovered frame so Day N is not lost.
  */
 function tryDawnSplash(): void {
 	if (!dawnSplashArmed || !dawnSplashLive) return
-	if (isWorldCovered()) return
-	if (splashShownRun === dawnRun && dawnSplashDay === getDayNumber()) {
+	if (isWorldCovered()) {
+		const now = Date.now()
+		if (now - coverWaitLogAtMs > 2000) {
+			coverWaitLogAtMs = now
+			console.log(
+				`phase: tryDawnSplash: Day ${dawnSplashDay} armed, waiting on world cover`,
+			)
+		}
+		return
+	}
+	if (dawnSplashSunrise && phaseName !== 'DAWN') {
+		// Sunrise card: wait for DAWN. If the clock already left DAWN
+		// (cover held, or a skipped packet), show on this uncover so
+		// Day N is not lost.
+		const pastDawn =
+			phaseIndex > 0 ||
+			phaseName === 'DAY' ||
+			phaseName === 'DUSK' ||
+			phaseName === 'NIGHT'
+		if (!pastDawn) return
+		const now = Date.now()
+		if (now - dawnWaitLogAtMs > 2000) {
+			dawnWaitLogAtMs = now
+			console.log(
+				`phase: tryDawnSplash: Day ${dawnSplashDay} missed DAWN ` +
+				`(now ${phaseName}) — showing anyway`,
+			)
+		}
+	}
+	if (splashShownRun === dawnRun && splashShownDay === dawnSplashDay) {
 		dawnSplashArmed = false
 		dawnSplashLive  = false
 		return
@@ -306,7 +365,11 @@ function tryDawnSplash(): void {
 	dawnSplashArmed = false
 	dawnSplashLive  = false
 	splashShownRun  = dawnRun
-	dawnSplashDay   = getDayNumber()
+	splashShownDay  = dawnSplashDay
+	console.log(
+		`phase: tryDawnSplash: showing Day ${dawnSplashDay} ` +
+		`during ${phaseName}${dawnSplashSunrise ? ' (sunrise)' : ' (join)'}`
+	)
 	beginDaySplash(dawnSplashDay)
 }
 
@@ -355,6 +418,6 @@ export function resetPhaseToDawn(reason: string): void {
 	// is already the new run's sunrise, but the phase packet may have
 	// armed that same Day 1 already.
 	if (reason !== 'boot') noteDawnRun()
-	requestDawnSplash(reason !== 'boot')
+	requestDawnSplash(reason !== 'boot', true)
 	console.log(`phase: resetPhaseToDawn: ${cfg.name} ${cfg.durationSec}s (${reason})`)
 }
