@@ -15,6 +15,12 @@
  * and on anything smaller than 16 m, so a runner cannot look under a
  * paper-thin sheet. Stage 0 renders nothing, so the blue ground shows.
  *
+ * Far from melt, pristine roots coalesce into larger multi-tile boxes
+ * (32 / 64 / 128 m) so a bigger playfield does not pay one entity per
+ * 16 m tile. Covered roots skip their fine quadtree until the player or
+ * a melt lip approaches. Coarse sheets are thick boxes (not paper planes)
+ * so their tops and sides shade like nearby snow.
+ *
  * A dirty root is rebuilt create-first: new nodes spawn before old ones
  * leave, and replaced parents stay for RETIRE_FRAMES (sunk so their
  * top plane cannot z-fight the replacements). Roots are processed
@@ -49,6 +55,7 @@ import {
 	SNOW_TILE_M,
 	SNOW_TILES_X,
 	SNOW_TILES_Z,
+	STAGE_PRISTINE,
 	tileCoordsFromKey,
 } from 'src/shared/snowGrid'
 
@@ -79,6 +86,20 @@ const PLANE_PLAYER_KEEP_M2    = PLANE_PLAYER_KEEP_M * PLANE_PLAYER_KEEP_M
 const PLANE_ROT               = Quaternion.fromEulerDegrees(-90, 0, 0)
 // Node id = size * stride + local cell index; stride must exceed SNOW_TILE_CELL_COUNT.
 const NODE_SIZE_STRIDE        = 1024
+// Multi-tile LOD: largest first. Further from melt/player → bigger sheets.
+// playerKeepM is clearance from the block's EDGE (not centre), so a 128 m
+// sheet cannot slide in close while its centre stays "far enough".
+const COARSE_LEVELS: ReadonlyArray<{
+	tiles:         number
+	playerKeepM:   number
+	meltPadCells:  number
+}> = [
+	{ tiles: 8, playerKeepM: 96, meltPadCells: 48 },
+	{ tiles: 4, playerKeepM: 72, meltPadCells: 32 },
+	{ tiles: 2, playerKeepM: 56, meltPadCells: 24 },
+]
+// Near a melt lip, refuse nodes larger than this so the hearth is not a 16 m cliff.
+const MELT_LIP_MAX_CELLS = 4
 
 const SNOW_WHITE  = Color4.create(0.82, 0.86, 0.92, 1)
 const GROUND_BLUE = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
@@ -94,6 +115,13 @@ type LeafAnim  = {
 	durationMs: number
 	removeAtEnd: boolean
 }
+type CoarseRec = {
+	tx:     number
+	tz:     number
+	tiles:  number
+	entity: Entity
+	stage:  number
+}
 
 const roots             = new Map<number, RootState>()
 const pendingRoots      = new Set<number>()
@@ -101,6 +129,7 @@ const urgentRoots       = new Set<number>()
 const fullPassRemaining = new Set<number>()
 const anims             = new Map<Entity, LeafAnim>()
 const retireQueue: Array<{ entity: Entity; framesLeft: number }> = []
+const coarsePlanes      = new Map<string, CoarseRec>()
 
 let groundEntities:   Entity[] = []
 let initialized       = false
@@ -109,6 +138,8 @@ let syncFallbackUsed  = false
 let coldOpenSettled   = false
 let liveNodeCount     = 0
 let cliffMask         = new Uint8Array(ROOT_COUNT)
+let coarseCovered     = new Uint8Array(ROOT_COUNT)
+let coarseDirty       = true
 
 
 // MARK: initSnowRenderer
@@ -172,6 +203,7 @@ export function applyCliffSnowMask(): void {
 		dirty++
 	}
 	cliffMask = next
+	coarseDirty = true
 	console.log(
 		`snowRenderer: applyCliffSnowMask: ${covered} cliff cells, ${dirty} roots rebuilding`,
 	)
@@ -181,12 +213,13 @@ export function applyCliffSnowMask(): void {
 // MARK: snowRenderStats
 
 /** Live entity counts for logging and the debug HUD. */
-export function snowRenderStats(): { nodes: number; animating: number; ground: number; pendingRoots: number } {
+export function snowRenderStats(): { nodes: number; animating: number; ground: number; pendingRoots: number; coarse: number } {
 	return {
 		nodes:        liveNodeCount,
 		animating:    anims.size,
 		ground:       groundEntities.length,
 		pendingRoots: pendingRoots.size,
+		coarse:       coarsePlanes.size,
 	}
 }
 
@@ -196,8 +229,13 @@ export function snowRenderStats(): { nodes: number; animating: number; ground: n
 function snowRenderSystem(dt: number): void {
 	flushRetireQueue()
 
+	const dirtyBefore = pendingRoots.size
 	drainDirtyRoots(pendingRoots, urgentRoots)
+	if (pendingRoots.size > dirtyBefore) coarseDirty = true
+
 	promoteNearbyPlanes()
+
+	if (coarseDirty) syncCoarsePlanes()
 
 	if (pendingRoots.size > 0) processPendingRoots()
 
@@ -219,8 +257,8 @@ function snowRenderSystem(dt: number): void {
 	if (!coldOpenSettled && dataReady && fullPassRemaining.size === 0 && pendingRoots.size === 0) {
 		coldOpenSettled = true
 		console.log(
-			`snowRenderer: snowRenderSystem: cold open settled, ${liveNodeCount} snow nodes, ` +
-			`${groundEntities.length} ground slabs`
+			`snowRenderer: snowRenderSystem: cold open settled, ${liveNodeCount} snow nodes ` +
+			`(${coarsePlanes.size} coarse), ${groundEntities.length} ground slabs`
 		)
 	}
 }
@@ -309,7 +347,18 @@ function buildDesired(
 	const emit = (lx: number, lz: number, size: number): void => {
 		const u = uniform(lx, lz, size)
 		if (u >= 0) {
-			if (u > 0) out.set(nodeId(lx, lz, size), u)
+			if (u > 0) {
+				// Keep melt lips fine so the hearth is not a 16 m snow cliff.
+				if (size > MELT_LIP_MAX_CELLS && nodeTouchesMelt(tileKey, lx, lz, size, stages)) {
+					const h = size / 2
+					emit(lx,     lz,     h)
+					emit(lx + h, lz,     h)
+					emit(lx,     lz + h, h)
+					emit(lx + h, lz + h, h)
+					return
+				}
+				out.set(nodeId(lx, lz, size), u)
+			}
 			return
 		}
 		const h = size / 2
@@ -342,6 +391,18 @@ function rebuildRoot(
 	if (rs === undefined) {
 		rs = { nodes: new Map(), snapshot: stages.slice(base, base + SNOW_TILE_CELL_COUNT) }
 		roots.set(tileKey, rs)
+	}
+
+	// Multi-tile coarse sheet owns this root — keep snapshot current and
+	// retire any leftover fine nodes so we do not double-draw.
+	if (coarseCovered[tileKey] === 1) {
+		for (const rec of rs.nodes.values()) {
+			queueRetire(rec.entity)
+			liveNodeCount--
+		}
+		rs.nodes.clear()
+		for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) rs.snapshot[i] = stages[base + i]
+		return 0
 	}
 
 	const desired = buildDesired(tileKey, stages)
@@ -482,7 +543,7 @@ function readFocusXZ(): { x: number; z: number } {
 
 /** Convert any plane still inside the keep radius into a cube this frame. */
 function promoteNearbyPlanes(): void {
-	if (roots.size === 0) return
+	if (roots.size === 0 && coarsePlanes.size === 0) return
 	const { x: px, z: pz } = readFocusXZ()
 	const keep = PLANE_PLAYER_KEEP_M + SNOW_TILE_M * 0.5
 	const minTx = Math.max(0, Math.floor((px - keep - SNOW_ORIGIN_M) / SNOW_TILE_M))
@@ -502,6 +563,201 @@ function promoteNearbyPlanes(): void {
 			}
 		}
 	}
+
+	// Tear coarse sheets down when the player walks into their keep radius.
+	for (const rec of coarsePlanes.values()) {
+		const level = coarseLevelForTiles(rec.tiles)
+		if (level === null) continue
+		if (distSqToTileBlock(px, pz, rec.tx, rec.tz, rec.tiles) < level.playerKeepM * level.playerKeepM) {
+			coarseDirty = true
+			return
+		}
+	}
+}
+
+
+// MARK: coarseLevelForTiles
+
+function coarseLevelForTiles(tiles: number): { tiles: number; playerKeepM: number; meltPadCells: number } | null {
+	for (const level of COARSE_LEVELS) {
+		if (level.tiles === tiles) return level
+	}
+	return null
+}
+
+
+// MARK: coarseKey
+
+function coarseKey(
+	tx:    number,
+	tz:    number,
+	tiles: number,
+): string {
+	return `${tx},${tz},${tiles}`
+}
+
+
+// MARK: tileIsUniformPristine
+
+function tileIsUniformPristine(
+	tileKey: number,
+	stages:  Uint8Array,
+): boolean {
+	const base = tileKey * SNOW_TILE_CELL_COUNT
+	for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) {
+		if (stages[base + i] !== STAGE_PRISTINE) return false
+	}
+	return true
+}
+
+
+// MARK: distSqToTileBlock
+
+/** Squared distance from a world XZ point to an N×N tile block's AABB. */
+function distSqToTileBlock(
+	px:    number,
+	pz:    number,
+	tx0:   number,
+	tz0:   number,
+	tiles: number,
+): number {
+	const minX = SNOW_ORIGIN_M + tx0 * SNOW_TILE_M
+	const minZ = SNOW_ORIGIN_M + tz0 * SNOW_TILE_M
+	const maxX = minX + tiles * SNOW_TILE_M
+	const maxZ = minZ + tiles * SNOW_TILE_M
+	const cx   = px < minX ? minX : (px > maxX ? maxX : px)
+	const cz   = pz < minZ ? minZ : (pz > maxZ ? maxZ : pz)
+	const dx   = px - cx
+	const dz   = pz - cz
+	return dx * dx + dz * dz
+}
+
+
+// MARK: coarseBlockEligible
+
+/**
+ * True when an N×N tile block can collapse into one LOD sheet: cliff-free,
+ * fully pristine, far from the player (edge clearance), and clear of melt.
+ */
+function coarseBlockEligible(
+	tx0:    number,
+	tz0:    number,
+	tiles:  number,
+	level:  { playerKeepM: number; meltPadCells: number },
+	stages: Uint8Array,
+	focus:  { x: number; z: number },
+): boolean {
+	for (let tz = tz0; tz < tz0 + tiles; tz++) {
+		for (let tx = tx0; tx < tx0 + tiles; tx++) {
+			const k = tz * SNOW_TILES_X + tx
+			if (cliffMask[k] === 1) return false
+			if (!tileIsUniformPristine(k, stages)) return false
+		}
+	}
+
+	if (distSqToTileBlock(focus.x, focus.z, tx0, tz0, tiles) < level.playerKeepM * level.playerKeepM) {
+		return false
+	}
+
+	const gx0 = tx0 * SNOW_TILE_CELLS
+	const gz0 = tz0 * SNOW_TILE_CELLS
+	const gx1 = gx0 + tiles * SNOW_TILE_CELLS
+	const gz1 = gz0 + tiles * SNOW_TILE_CELLS
+	const pad = level.meltPadCells
+	for (let gz = gz0 - pad; gz < gz1 + pad; gz++) {
+		for (let gx = gx0 - pad; gx < gx1 + pad; gx++) {
+			if (gx >= gx0 && gx < gx1 && gz >= gz0 && gz < gz1) continue
+			if (stageAtWorldCell(gx, gz, stages) === 0) return false
+		}
+	}
+	return true
+}
+
+
+// MARK: syncCoarsePlanes
+
+/**
+ * Greedy largest-first packing of pristine multi-tile snow sheets. Runs
+ * only when melt, cliffs, or the player invalidate the previous layout.
+ */
+function syncCoarsePlanes(): void {
+	coarseDirty = false
+	const stages = getDisplayedStages()
+	const focus  = readFocusXZ()
+	const nextCovered = new Uint8Array(ROOT_COUNT)
+	const desired = new Map<string, { tx: number; tz: number; tiles: number; stage: number }>()
+
+	for (const level of COARSE_LEVELS) {
+		const n = level.tiles
+		for (let tz = 0; tz + n <= SNOW_TILES_Z; tz += n) {
+			for (let tx = 0; tx + n <= SNOW_TILES_X; tx += n) {
+				let blocked = false
+				for (let rz = 0; rz < n && !blocked; rz++) {
+					for (let rx = 0; rx < n; rx++) {
+						if (nextCovered[(tz + rz) * SNOW_TILES_X + (tx + rx)] === 1) {
+							blocked = true
+							break
+						}
+					}
+				}
+				if (blocked) continue
+				if (!coarseBlockEligible(tx, tz, n, level, stages, focus)) continue
+
+				desired.set(coarseKey(tx, tz, n), { tx, tz, tiles: n, stage: STAGE_PRISTINE })
+				for (let rz = 0; rz < n; rz++) {
+					for (let rx = 0; rx < n; rx++) {
+						nextCovered[(tz + rz) * SNOW_TILES_X + (tx + rx)] = 1
+					}
+				}
+			}
+		}
+	}
+
+	for (const [key, rec] of coarsePlanes) {
+		if (desired.has(key)) continue
+		queueRetire(rec.entity)
+		coarsePlanes.delete(key)
+		liveNodeCount--
+	}
+
+	for (const [key, want] of desired) {
+		if (coarsePlanes.has(key)) continue
+		const sizeM = want.tiles * SNOW_TILE_M
+		const x     = SNOW_ORIGIN_M + (want.tx + want.tiles / 2) * SNOW_TILE_M
+		const z     = SNOW_ORIGIN_M + (want.tz + want.tiles / 2) * SNOW_TILE_M
+		const e     = createBox(x, z, sizeM, SNOW_STAGE_HEIGHT_M[want.stage], false)
+		coarsePlanes.set(key, {
+			tx:     want.tx,
+			tz:     want.tz,
+			tiles:  want.tiles,
+			entity: e,
+			stage:  want.stage,
+		})
+		liveNodeCount++
+	}
+
+	for (let k = 0; k < ROOT_COUNT; k++) {
+		const was = coarseCovered[k]
+		const now = nextCovered[k]
+		if (was === now) continue
+		if (now === 1) {
+			const rs = roots.get(k)
+			if (rs !== undefined && rs.nodes.size > 0) {
+				pendingRoots.add(k)
+			} else {
+				pendingRoots.delete(k)
+				fullPassRemaining.delete(k)
+				if (rs !== undefined) {
+					const base = k * SNOW_TILE_CELL_COUNT
+					for (let i = 0; i < SNOW_TILE_CELL_COUNT; i++) rs.snapshot[i] = stages[base + i]
+				}
+			}
+			continue
+		}
+		pendingRoots.add(k)
+		urgentRoots.add(k)
+	}
+	coarseCovered = nextCovered
 }
 
 
@@ -753,7 +1009,7 @@ function setupSnowSun(): void {
 			type:      LightSource.Type.Spot({ innerAngle: 70, outerAngle: 95 }),
 			color:     Color3.create(1.0, 0.93, 0.82),
 			intensity: 90000,
-			range:     380,
+			range:     900,
 			shadow:    true,
 		})
 		console.log('snowRenderer: setupSnowSun: morning key light placed over playfield')

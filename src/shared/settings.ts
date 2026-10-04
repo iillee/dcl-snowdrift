@@ -60,29 +60,32 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 
 // MARK: Scene
 
-/** Scene X extent in meters (16 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 512
+/** Scene X extent in meters (64 parcels × 16 m). Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = 1024
 
-/** Scene Z extent in meters (16 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 512
+/** Scene Z extent in meters (64 parcels × 16 m). Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = 1024
 
 /**
  * Interior playfield extent in meters. The maze, paint grid, and
  * campfire live inside this playfield; the outer scene padding is
  * used by the perimeter (cliffs) ring.
  *
+ * Padding stays 16 m per side: (scene − playfield) / 2 = 16 with
+ * scene=1024 and playfield=992 (same as 512/480).
+ *
  * Sizing rule for cliff-cap intrusions: perimeter fork caps sit at
  * ~96 m from each scene edge (one perim tile + half-cap). For those
  * caps to actually poke into the playfield (so the maze retreats
- * around them via setReservedCells), this value must be > 320 in a
- * 512 m scene. Below that the caps land flush against the boundary
- * and the reservation set is empty (system dormant).
+ * around them via setReservedCells), this value must leave the
+ * playfield edge inside that reach. With a 16 m pad the caps always
+ * intrude; the old 512 m examples below are kept for reference:
  *
  *   256 → dormant (empty ring 64 m, caps stop at playfield edge)
  *   320 → mild    (empty ring 32 m, caps intrude 1 edge cell)
  *   384 → strong  (empty ring 0 m,  caps intrude 2 cells deep)
  */
-export const MAZE_PLAYFIELD_METERS = 480
+export const MAZE_PLAYFIELD_METERS = 992
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific

@@ -12,11 +12,13 @@
  * feet: local cubes follow PlayerEntity, remote cubes attach to
  * AAPT_POSITION (the avatar root), and the centre is always
  * feet + half remaining height. Hip attach made shorter avatars and
- * sit poses look like the ice melted upward. Everyone draws that
- * height from the server. If the torch leaves early, the cube grows
- * back a third per second. At ICE_THAW_S the cube is gone, the player
- * can move, and their torch can be lit again. A presence heartbeat
- * keeps a disconnect from counting as someone still alive.
+ * sit poses look like the ice melted upward. Desktop viewers add a
+ * small Y nudge for mobile peers (their attach root sits lower on
+ * desktop). Everyone draws that height from the server. If the torch
+ * leaves early, the cube grows back a third per second. At ICE_THAW_S
+ * the cube is gone, the player can move, and their torch can be lit
+ * again. A presence heartbeat keeps a disconnect from counting as
+ * someone still alive.
  */
 
 import {
@@ -61,6 +63,12 @@ const ICE_SCALE    = Vector3.create(ICE_SIZE, ICE_SIZE, ICE_SIZE)
  * Local cubes do not use this.
  */
 const ICE_REMOTE_OFFSET_Y = 0.4
+/**
+ * Extra lift when a desktop client draws ice on a mobile peer. Mobile
+ * AAPT_POSITION reads a bit lower on desktop; desktop-desktop stays on
+ * ICE_REMOTE_OFFSET_Y alone.
+ */
+const ICE_REMOTE_MOBILE_EXTRA_Y = 0.22
 
 type IceRig = {
 	block  : Entity
@@ -75,6 +83,8 @@ type IceRig = {
 const remoteFrozen = new Map<string, { x: number, z: number }>()
 /** Seconds of torch contact already shown on a cube. 0 is full height. */
 const meltStep     = new Map<string, number>()
+/** Peer Explorers that last heartbeated as mobile (1). */
+const remoteMobile = new Set<string>()
 
 let installed  = false
 /** Retry a thaw ask if the server never answered. */
@@ -99,6 +109,19 @@ const iceByUser = new Map<string, IceRig>()
 /** True when the server has told us this other player is in an ice cube. */
 export function isRemotePlayerFrozen(userId: string): boolean {
 	return remoteFrozen.has(userId.toLowerCase())
+}
+
+
+// MARK: remoteIceOffsetY
+/**
+ * AvatarAttach root height for someone else's cube. Desktop viewers
+ * lift mobile peers a little; every other pairing keeps the base offset.
+ */
+function remoteIceOffsetY(userId: string): number {
+	if (!isMobile() && remoteMobile.has(userId.toLowerCase())) {
+		return ICE_REMOTE_OFFSET_Y + ICE_REMOTE_MOBILE_EXTRA_Y
+	}
+	return ICE_REMOTE_OFFSET_Y
 }
 
 
@@ -174,7 +197,7 @@ function ensureRemoteIce(userId: string): void {
 	const block = engine.addEntity()
 	Transform.create(block, {
 		parent  : anchor,
-		position: Vector3.create(0, ICE_CENTER_Y + ICE_REMOTE_OFFSET_Y, 0),
+		position: Vector3.create(0, ICE_CENTER_Y + remoteIceOffsetY(userId), 0),
 		scale   : ICE_SCALE,
 	})
 	paintIce(block)
@@ -214,7 +237,7 @@ function applyMeltScale(userId: string): void {
 	}
 	const blockT = Transform.getMutable(rig.block)
 	blockT.scale    = Vector3.create(ICE_SIZE, height, ICE_SIZE)
-	blockT.position = Vector3.create(0, height / 2 + ICE_REMOTE_OFFSET_Y, 0)
+	blockT.position = Vector3.create(0, height / 2 + remoteIceOffsetY(userId), 0)
 }
 
 
@@ -314,7 +337,10 @@ function tickHeartbeat(dt: number): void {
 	heartbeat += dt
 	if (heartbeat < HEARTBEAT_S) return
 	heartbeat = 0
-	room.send('frostPresence', { userId: localUserId() })
+	room.send('frostPresence', {
+		userId: localUserId(),
+		mobile: isMobile() ? 1 : 0,
+	})
 }
 
 
@@ -375,6 +401,14 @@ export function setupFrostRescue(): void {
 		return
 	}
 	installed = true
+
+	room.onMessage('playerPlatform', ({ userId, mobile }) => {
+		const id = userId.toLowerCase()
+		if (!id) return
+		if (mobile === 1) remoteMobile.add(id)
+		else remoteMobile.delete(id)
+		if (iceByUser.has(id)) applyMeltScale(id)
+	})
 
 	room.onMessage('frostFrozen', ({ userId, x, z, frozen, cue }) => {
 		const id = userId.toLowerCase()

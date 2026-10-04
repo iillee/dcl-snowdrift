@@ -43,7 +43,7 @@ const WHITE    = Color4.White()
 // Off-screen avatar finder — circular face bubble like the Explorer's
 // middle-click point cue. Rings match that chrome (thin green outside,
 // brighter blue inside the portrait).
-const FINDER_INSET_PCT   = 12
+const FINDER_INSET_PCT   = 15
 const FINDER_SIZE        = 56
 const FINDER_RING_GREEN  = Color4.create(0.45, 0.92, 0.55, 1)
 const FINDER_RING_BLUE   = Color4.create(0.20, 0.55, 1.00, 1)

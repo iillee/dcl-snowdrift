@@ -333,9 +333,18 @@ export const Messages = {
 
 	// Client → Server: still in the scene. The server drops anyone who
 	// goes quiet, so a disconnect does not count as a living player.
-	// userId is the same fallback as frostFreeze.
+	// userId is the same fallback as frostFreeze. mobile is 1 on the
+	// phone/tablet client so peers can nudge AvatarAttach ice height.
 	frostPresence: Schemas.Map({
 		userId: Schemas.String,
+		mobile: Schemas.Int,
+	}),
+
+	// Server → Client: peer platform hint. mobile 1 = that wallet's
+	// Explorer is a mobile client. Used only for remote ice Y nudge.
+	playerPlatform: Schemas.Map({
+		userId: Schemas.String,
+		mobile: Schemas.Int,
 	}),
 
 	// Client → Server: a lit torch is on `userId`. `step` is how many

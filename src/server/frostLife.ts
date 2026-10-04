@@ -47,6 +47,8 @@ const joinGraceUntil = new Map<string, number>()
 const heartbeated    = new Set<string>()
 const frozen         = new Set<string>()
 const frozenAt       = new Map<string, { x: number, z: number }>()
+/** 1 = mobile Explorer for that wallet. Used for remote ice Y nudge. */
+const mobileClient   = new Map<string, number>()
 
 type MeltHold = {
 	step    : number
@@ -112,6 +114,35 @@ export function notePlayerPresent(userId: string): void {
 export function noteFireRelit(): void {
 	cancelPendingExtinct('a fire relit')
 	loggedFireSaves = false
+}
+
+
+// MARK: tellPlatform
+function tellPlatform(
+	id    : string,
+	mobile: number,
+	toUser?: string,
+): void {
+	const msg = { userId: id, mobile: mobile ? 1 : 0 }
+	if (toUser) room.send('playerPlatform', msg, { to: [toUser] })
+	else room.send('playerPlatform', msg)
+}
+
+
+// MARK: notePlayerPlatform
+/**
+ * Remember a wallet's Explorer platform and broadcast when it changes.
+ */
+function notePlayerPlatform(
+	userId: string,
+	mobile: number,
+): void {
+	const id  = userId.toLowerCase()
+	const bit = mobile ? 1 : 0
+	if (!id) return
+	if (mobileClient.get(id) === bit) return
+	mobileClient.set(id, bit)
+	tellPlatform(id, bit)
 }
 
 
@@ -190,6 +221,9 @@ export function sendFrostBodiesTo(userId: string): void {
 		if (hold && (hold.step > 0 || hold.by.size > 0)) {
 			tellMelt(id, hold.step, hold.by.size > 0, userId)
 		}
+	}
+	for (const [id, mobile] of mobileClient) {
+		tellPlatform(id, mobile, userId)
 	}
 	if (frozenAt.size > 0) {
 		console.log(`[Server] frostLife: hydrated ${frozenAt.size} ice cube(s) to ${userId}`)
@@ -393,10 +427,11 @@ export function setupFrostLifeServer(): void {
 		}
 	})
 
-	room.onMessage('frostPresence', ({ userId }, context) => {
+	room.onMessage('frostPresence', ({ userId, mobile }, context) => {
 		const from = senderId(context?.from, userId, 'frostPresence')
 		if (!from) return
 		notePlayerPresent(from)
+		notePlayerPlatform(from, mobile ?? 0)
 	})
 
 	room.onMessage('frostFreeze', ({ userId, x, z }, context) => {

@@ -99,7 +99,7 @@ function logProgress(
 	console.log(
 		`loadTimeline: ${label} t=${sinceStart(nowMs)} ` +
 		`gltf=${g.total} loading=${g.loading} failed=${g.failed} ` +
-		`snowNodes=${s.nodes} pendingRoots=${s.pendingRoots} ground=${s.ground} ` +
+		`snowNodes=${s.nodes} coarse=${s.coarse} pendingRoots=${s.pendingRoots} ground=${s.ground} ` +
 		`entities=${countEntities()}`
 	)
 }

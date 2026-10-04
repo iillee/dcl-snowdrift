@@ -12,13 +12,15 @@
 import { engine } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
-// Dawn pad. Look stays on the playtest sunrise heading.
-const SPAWN_X = 258.1
+// Dawn pad just off the hearth centre. Look stays on the playtest sunrise heading.
+const SPAWN_X = CAMPFIRE_WORLD_X + 2.1
 const SPAWN_Y = 0.5
-const SPAWN_Z = 258.1
+const SPAWN_Z = CAMPFIRE_WORLD_Z + 2.1
 /** Compass degrees from +Z (north), clockwise. 232.5 = SW of WSW. */
 const LOOK_SUNRISE_DEG = 232.5
 const LOOK_DIST_M      = 80
