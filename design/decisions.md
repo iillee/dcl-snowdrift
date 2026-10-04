@@ -6,6 +6,18 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-04 session — 64×64 World, coarse snow, ice + overhead
+
+Shipped state: [`session-2026-10-04.md`](./session-2026-10-04.md).
+
+- **2026-10-04 · Playtest World grows to 64 × 64 · owner-directed** — Same 16 m pad as 512 / 480 (now 1024 / 992). Hearth stays at playfield centre. Tree / wood / fire scatter density left alone until mobile and desktop hold the new size (H1-06). v1 ambition stays 100 × 100 after that gate.
+- **2026-10-04 · Far snow uses larger multi-tile sheets · owner-directed** — Coalesce pristine roots far from melt into 32 / 64 / 128 m thick boxes (edge keep + melt pad). Fine quadtree stays near the player and melt lips (max 4 m at a lip). Paper far planes retired after they read as purple sheets from the pit.
+- **2026-10-04 · Deploy parcels from CLI when Layout fights · owner-directed** — Creator Hub Publish rewrites parcels from SceneMetadata Layout. CLI deploy to Worlds uses `scene.json`. Keep Layout at 64 × 64 so editor and live World agree.
+- **2026-10-04 · Desktop lifts ice on mobile peers only · owner-directed** — Presence carries a mobile flag. Desktop AvatarAttach ice gets a small extra Y on mobile remotes. Desktop–desktop unchanged.
+- **2026-10-04 · Overhead face finder clears the HUD · owner-directed** — Off-screen avatar bubble inset raised to 15% of the screen.
+
+---
+
 ## 2026-09-30 session — layout, phone HUD, fresh seeds
 
 Shipped state: [`session-2026-09-30.md`](./session-2026-09-30.md).

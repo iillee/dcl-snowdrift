@@ -31,7 +31,7 @@ Additional problems found during review:
 
 ### 3.1 Grid
 
-- Cell = 1 m × 1 m. Playfield = `MAZE_PLAYFIELD_METERS` square offset by `MAZE_ORIGIN_OFFSET_METERS` (currently 480 m at 16 m offset → 480 × 480 cells).
+- Cell = 1 m × 1 m. Playfield = `MAZE_PLAYFIELD_METERS` square offset by `MAZE_ORIGIN_OFFSET_METERS` (live playtest: **992 m** at **16 m** offset → 992 × 992 cells; was 480 m at 16 m on the 32 × 32 prototype).
 - Tile (network partition) = 16 × 16 cells → 30 × 30 = 900 tiles. Tiles are a CRDT batching detail only; the renderer's quadtree roots happen to share the same 16 m grid.
 - Global cell coords `(gx, gz)`, `0 <= gx < CELLS_X`.
 

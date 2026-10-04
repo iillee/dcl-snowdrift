@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-09-30.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-04.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -92,15 +92,15 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-09-30)
+## Where the build is (2026-10-04)
 
-Phase 1 **Systems** is underway. The playtest slice is the day/night loop plus a wood trip out to the far trees.
+Phase 1 **Systems** is underway. The playtest World is **64 × 64 parcels** (1024 m) with coarse far snow LOD. The day/night loop and wood trip out to the far trees are live. Scatter density is still the old 32 × 32 tuning.
 
-**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; Ember still heats and loses to the night); melt-to-reveal branches and logs out to 160 m, clear of cliffs; six choppable trees with uneven gaps; six hidden fires grown in generations off the hearth; one carry slot; freeze in ice, with a first-pass torch thaw; a lit fire wakes the frozen; the run ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed (wood lost, torch emptied); a new server start is also a fresh seed, and a live server keeps the world in progress; Day N on join and at sunrise; three gold segments when you wake at a fire; black cold open; ? menu is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute in the old + slot, and overhead zoom under the pan pad; gold warmth pulse while the bar refills; snow LOD planes.
+**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; Ember still heats and loses to the night); melt-to-reveal branches and logs out to 160 m, clear of cliffs; six choppable trees with uneven gaps (chop reach scales with size); six hidden fires grown in generations off the hearth; one carry slot; freeze in ice, with a first-pass torch thaw (desktop elevates ice on mobile peers); a lit fire wakes the frozen; the run ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed (wood lost, torch emptied); a new server start is also a fresh seed, and a live server keeps the world in progress; Day N on join and at sunrise; three gold segments when you wake at a fire; black cold open; ? menu is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute in the old + slot, overhead zoom under the pan pad, off-screen face finder; gold warmth pulse while the bar refills; coarse far snow sheets.
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell.
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. 100 × 100 envelope. Scatter retune for 64 × 64.
 
-**Handoff:** [`session-2026-09-30.md`](./session-2026-09-30.md). Earlier playtest notes: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
+**Handoff:** [`session-2026-10-04.md`](./session-2026-10-04.md). Earlier: [`session-2026-09-30.md`](./session-2026-09-30.md), [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 ## v1 build plan — at a glance
 
