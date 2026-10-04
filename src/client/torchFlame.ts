@@ -16,7 +16,6 @@ import {
 	LightSource,
 	MeshRenderer,
 	Transform,
-	VisibilityComponent,
 } from '@dcl/sdk/ecs'
 import { Color3, Quaternion, Vector3 } from '@dcl/sdk/math'
 
@@ -98,6 +97,8 @@ interface TorchFlameRig {
 	lit     : boolean
 	fuelFrac: number
 	flameMul: number
+	/** Last emit mul written to the tip cube — skip redundant Material sets. */
+	coreEmit: number
 }
 
 const rigs: TorchFlameRig[] = []
@@ -163,31 +164,42 @@ function ensureSystem(): void {
 
 
 // MARK: placeCore
-/** Shrink / hide / pulse the tip cube from fuel + lit. */
+/**
+ * Shrink / pulse the tip cube from fuel + lit. Hide by scale only —
+ * VisibilityComponent toggles were intermittently leaving the cube
+ * invisible after a relight (sparks already use scale-only hide).
+ */
 function placeCore(
 	rig : TorchFlameRig,
 	time: number,
 ): void {
-	const vis = VisibilityComponent.getMutableOrNull(rig.core)
-	if (vis !== null && vis.visible !== rig.lit) vis.visible = rig.lit
-
 	const tr = Transform.getMutableOrNull(rig.core)
 	if (tr === null) return
 	if (!rig.lit) {
 		tr.scale.x = 0.001
 		tr.scale.y = 0.001
 		tr.scale.z = 0.001
+		rig.coreEmit = -1
 		return
 	}
 	const t = clamp01(rig.fuelFrac)
+	// Floor the night pinch so dusk/night never rounds the tip to zero
+	// after SCALE_STEP quantize — that read as "relit but no cube".
+	const mul = Math.max(0.55, rig.flameMul)
 	const base =
-		(CORE_SIZE_MIN + (CORE_SIZE_MAX - CORE_SIZE_MIN) * t) * rig.flameMul
+		(CORE_SIZE_MIN + (CORE_SIZE_MAX - CORE_SIZE_MIN) * t) * mul
 	const pulse = 1 + CORE_PULSE_AMT * (wave(time, CORE_PULSE_PERIOD, 0) * 2 - 1)
-	const s = Math.round((base * pulse) / SCALE_STEP) * SCALE_STEP
+	const s = Math.max(
+		CORE_SIZE_MIN * 0.55,
+		Math.round((base * pulse) / SCALE_STEP) * SCALE_STEP,
+	)
 	tr.scale.x = s
 	tr.scale.y = s
 	tr.scale.z = s
-	writeFlameHeatMaterial(rig.core, CORE_HEAT, rig.flameMul)
+	if (Math.abs(rig.coreEmit - mul) > 0.01) {
+		writeFlameHeatMaterial(rig.core, CORE_HEAT, mul)
+		rig.coreEmit = mul
+	}
 }
 
 
@@ -350,12 +362,12 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 	const core = engine.addEntity()
 	Transform.create(core, {
 		parent: tip,
-		scale : Vector3.create(CORE_SIZE_MAX, CORE_SIZE_MAX, CORE_SIZE_MAX),
+		scale : Vector3.create(0.001, 0.001, 0.001),
 	})
 	MeshRenderer.setBox(core)
 	writeFlameHeatMaterial(core, CORE_HEAT, 1)
-	VisibilityComponent.create(core, { visible: false })
-
+	// Start tiny — placeCore grows it when lit. Do not use
+	// VisibilityComponent; hide/show via scale only.
 	// Y-billboard lift: local +Y is world-up even while the shaft tilts.
 	const lift = engine.addEntity()
 	Transform.create(lift, {
@@ -395,6 +407,7 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 		lit     : false,
 		fuelFrac: 0,
 		flameMul: 1,
+		coreEmit: 1,
 	}
 	rigs.push(rig)
 	ensureSystem()
@@ -413,9 +426,16 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 			flameMul: number,
 		): void {
 			if (!rig.alive) return
+			const wasLit = rig.lit
 			rig.lit      = lit
 			rig.fuelFrac = frac
 			rig.flameMul = flameMul > 0 ? flameMul : 0
+			// Same-frame show on the unlit → lit edge so a relight is not
+			// waiting on system order (flame tick used to run before setFuel).
+			if (lit && !wasLit) {
+				rig.coreEmit = -1
+				placeCore(rig, timeSec)
+			}
 		},
 
 		dispose(): void {
