@@ -28,8 +28,8 @@ import { writeFlameHeatMaterial } from 'src/client/flameBillboards'
 export const TORCH_FLAME_LOCAL_POS = Vector3.create(-0.11, 0.10, 0.28)
 
 /** Core cube size at empty / full fuel. */
-const CORE_SIZE_MIN = 0.03
-const CORE_SIZE_MAX = 0.09
+const CORE_SIZE_MIN = 0.045
+const CORE_SIZE_MAX = 0.14
 /** Core heat — slightly warm yellow, same ramp as hearth base cards. */
 const CORE_HEAT     = 0.18
 /** Soft breath on the tip cube (± fraction of size). */
@@ -46,7 +46,7 @@ const SPOT_INNER_DEG   = 80
 const SPOT_OUTER_DEG   = 110
 const SPOT_RANGE_M     = 5.5
 const SPOT_INTENSITY   = 3200
-const SPOT_COLOR       = Color3.create(1.00, 0.60, 0.00)
+const SPOT_COLOR       = Color3.create(1.00, 0.80, 0.30)
 const SPOT_JITTER_M    = 0.025
 
 interface SparkSpec {

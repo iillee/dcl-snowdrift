@@ -396,6 +396,13 @@ export function setupHiddenCampfireServer(): void {
 		// feedback on feed feels much better.
 		if (newTier > prevTier) seedHiddenMeltRing(target)
 		broadcastFuel(target)
+		if (context?.from) {
+			room.send('feedFireFx', {
+				userId: context.from,
+				target ,
+				kind   : clampWoodKind(kind),
+			})
+		}
 	})
 
 	// Reset on cycle boundary. Registered here (not in server.ts) so

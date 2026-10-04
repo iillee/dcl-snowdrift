@@ -52,6 +52,7 @@ import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupLogsClient } from 'src/client/logs'
 import { setupLogsInput } from 'src/client/logsInput'
 import { setupWoodClient } from 'src/client/wood'
+import { setupLogsFeedFx } from 'src/client/logsFeedFx'
 import { setupLogsPickupFx } from 'src/client/logsPickupFx'
 import { setupHearthFuelClient } from 'src/client/hearthFuel'
 import { setupHearthBillboard }  from 'src/client/hearthBillboard'
@@ -195,6 +196,7 @@ export async function setupClient(): Promise<void> {
 	// other pickup wiring) so the pool is ready before the first
 	// woodChunkRemoved / local pickupLogs() call can fire.
 	setupLogsPickupFx()
+	setupLogsFeedFx()
 	// Main-hearth fuel subscriber - MUST register before initClientHandler
 	// so the joinRoster hydration broadcast (hearthFuelUpdate) is caught
 	// on the very first frame the joiner is in the room.

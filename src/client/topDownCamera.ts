@@ -94,7 +94,7 @@ const DRAG_START_THRESHOLD_PX = 3
 // altitude; scaled by (currentAltitude / 30) at call time so drag
 // feel (screens/s) stays constant across zoom levels, matching the
 // d-pad speed model.
-const DRAG_M_PER_PX_BASE = 0.025
+const DRAG_M_PER_PX_BASE = 0.05
 
 
 // MARK: Module state
@@ -284,16 +284,10 @@ export function recenter(): void {
  * Desktop drag input: pan the camera by a screen-pixel delta.
  *
  * Convention is grab-and-pull-the-world (Google Maps): dragging the
- * cursor right/up scrolls the *content* right/up on screen, which means
- * the camera focus moves in the opposite direction.
- *
- * Axis mapping (screen top = world +X because of CAM_EAST_OFFSET):
- *   screenDelta.y (cursor up) → world +X moves toward the top → target
- *                                slides in -X to reveal more +X (no —
- *                                see grab-and-pull rule → target -X).
- *   screenDelta.x (cursor right) → world -Z moves right → target +Z.
- * If a first playtest shows inverted feel, flip either sign here — the
- * geometry is intentional but not obvious.
+ * cursor pulls the world with it. With CAM_EAST_OFFSET, screen-up is
+ * world -X and screen-right is world -Z, so:
+ *   dy up  → target -X
+ *   dx right → target -Z
  */
 export function applyPanDelta(dxPx: number, dyPx: number): void {
 	if (!active) return
@@ -309,13 +303,13 @@ export function applyPanDelta(dxPx: number, dyPx: number): void {
 	mode = Mode.FREE
 
 	// screenDelta origin is bottom-left, positive y = cursor moved up.
-	// Signs empirically corrected after playtest (initial derivation of
-	// screen-top=+X was wrong — see the matching note in the d-pad
-	// axis map in layer.topDownPan.tsx).
+	// Grab-and-pull: drag up should pull world toward top of screen, so
+	// the look target slides opposite screen-up (world -X with this east
+	// camera). Horizontal (dx → -Z) left as-is from playtest.
 	// Altitude scaling: pixel-to-world ratio grows linearly with camera
 	// height so one screen of drag always covers ~one screen of world.
 	const mPerPx = DRAG_M_PER_PX_BASE * (currentAltitude / 30)
-	targetPos.x +=  dyPx * mPerPx
+	targetPos.x += -dyPx * mPerPx
 	targetPos.z += -dxPx * mPerPx
 }
 

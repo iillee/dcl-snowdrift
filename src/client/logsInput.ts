@@ -15,9 +15,11 @@
  */
 
 import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
+import { getPlayer } from '@dcl/sdk/players'
 
 import { room } from 'src/shared/messages'
 
+import { spawnLogsFeed } from 'src/client/logsFeedFx'
 import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange, restoreRejectedFeed } from 'src/client/logsInventory'
 import { tryChopWood } from 'src/client/wood'
 
@@ -64,6 +66,16 @@ export function setupLogsInput(): void {
 
 	room.onMessage('feedFireRejected', ({ kind }) => {
 		restoreRejectedFeed(kind)
+	})
+
+	// Remotes (and late joiners who miss the optimistic local play) see
+	// wood arc into the fire. Skip our own echo — feedFire already
+	// spawned the local arc.
+	room.onMessage('feedFireFx', ({ userId, target, kind }) => {
+		if (!userId) return
+		const me = getPlayer()?.userId.toLowerCase()
+		if (me && userId.toLowerCase() === me) return
+		spawnLogsFeed(kind, target, userId)
 	})
 
 	engine.addSystem((_dt: number) => {

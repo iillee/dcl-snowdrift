@@ -270,6 +270,13 @@ export function setupHearthFuelServer(): void {
 		// fire on the same feed (e.g. jumping from Bright to Max).
 		maybeFireMaxBurst()
 		broadcastFuel()
+		if (context?.from) {
+			room.send('feedFireFx', {
+				userId: context.from,
+				target : -1,
+				kind   : clampWoodKind(kind),
+			})
+		}
 	})
 
 	room.onMessage('hearthSparkRequest', (_payload, context) => {

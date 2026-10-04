@@ -223,6 +223,15 @@ export const Messages = {
 		kind: Schemas.Int,
 	}),
 
+	// Server -> Client: a feed landed. Everyone plays the wood-into-fire
+	// arc. `userId` is the feeder; `target` is -1 (main) or a hidden pit
+	// index; `kind` picks the branch / log GLB.
+	feedFireFx: Schemas.Map({
+		userId: Schemas.String,
+		target: Schemas.Int,
+		kind  : Schemas.Int,
+	}),
+
 	// Server -> Client: current main-hearth fuel in seconds. Broadcast
 	// on significant change (delta > threshold, or tier crossed, or on
 	// feed) and on joinRoster hydration. `players` is the current

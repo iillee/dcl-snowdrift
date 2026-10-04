@@ -37,12 +37,12 @@ const CORE_HEAT         = 0.15
 const CORE_PULSE_AMT    = 0.08
 const CORE_PULSE_PERIOD = 1.35
 
-/** Yellow (heat 0) toward a deeper orange (heat 1). Wider span than before. */
-const COL_YELLOW_ALBEDO = Color4.create(1.00, 0.78, 0.22, 1)
-const COL_YELLOW_EMIT   = Color3.create(1.00, 0.62, 0.12)
+/** Yellow (heat 0) toward a deeper orange (heat 1). Cool albedo matches heat-bar gold; emit stays darker so it does not wash white. */
+const COL_YELLOW_ALBEDO = Color4.create(1.00, 0.80, 0.30, 1)
+const COL_YELLOW_EMIT   = Color3.create(1.00, 0.66, 0.16)
 const COL_ORANGE_ALBEDO = Color4.create(1.00, 0.42, 0.06, 1)
 const COL_ORANGE_EMIT   = Color3.create(1.00, 0.30, 0.04)
-const EMIT_BASE         = 1.75
+const EMIT_BASE         = 1.35
 
 /**
  * Planted cards — one silhouette arm. A second arm is the same
@@ -85,7 +85,7 @@ const SPOT_INNER_DEG = 80
 const SPOT_OUTER_DEG = 110
 const SPOT_RANGE_M   = 16
 const SPOT_INTENSITY = 8000
-const SPOT_COLOR     = Color3.create(1.00, 0.60, 0.00)
+const SPOT_COLOR     = Color3.create(1.00, 0.80, 0.30)
 const SPOT_JITTER_M  = 0.10
 
 

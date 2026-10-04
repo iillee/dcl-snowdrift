@@ -8,6 +8,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
+import { playSunriseSfx } from 'src/client/audio'
 import { isEmberFailing } from 'src/client/emberFail'
 
 
@@ -51,11 +52,17 @@ export function getDaySplashText(): string {
 // MARK: beginDaySplash
 
 /**
- * Play the sunrise card for `day`. A second call for the same day
- * while the card is up does not restart it. No-op during ember-fail
- * so game-over cards stay alone on black.
+ * Play the day card for `day`. `sunrise` is true for a real dawn
+ * wrap (including Day 1 for the first joiner at DAWN) — that is the
+ * only case that plays sunrise.wav. Mid-round join announcements
+ * show the title silently. A second call for the same day while the
+ * card is up does not restart it. No-op during ember-fail so
+ * game-over cards stay alone on black.
  */
-export function beginDaySplash(day: number): void {
+export function beginDaySplash(
+	day    : number,
+	sunrise: boolean,
+): void {
 	if (isEmberFailing()) {
 		console.log(`daySplash: beginDaySplash: skip day ${day}, ember-fail owns the screen`)
 		return
@@ -69,7 +76,11 @@ export function beginDaySplash(day: number): void {
 	phase      = Phase.FADE_IN
 	phaseTimer = 0
 	opacity    = 0
-	console.log(`daySplash: beginDaySplash: Day ${dayNumber}`)
+	if (sunrise) playSunriseSfx()
+	console.log(
+		`daySplash: beginDaySplash: Day ${dayNumber}` +
+		`${sunrise ? ' (sunrise sfx)' : ' (join, silent)'}`,
+	)
 }
 
 

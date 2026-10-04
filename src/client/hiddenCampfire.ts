@@ -513,6 +513,20 @@ export function getLitHiddenFires(): { index: number; x: number; z: number }[] {
 }
 
 
+
+// MARK: getHiddenCampfireWorldPos
+/**
+ * World XZ of hidden pit `index`, or null if the index is out of range.
+ * Used by the feed-arc FX to aim wood into the right flame.
+ */
+export function getHiddenCampfireWorldPos(
+	index: number,
+): { x: number; z: number } | null {
+	if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return null
+	return { x: worldX[index], z: worldZ[index] }
+}
+
+
 // MARK: onCycleRoll
 /**
  * Wipe every pit's lit state, move them to the new cycle's positions,

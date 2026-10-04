@@ -27,6 +27,7 @@ const TORCH_SRC = 'assets/sounds/torch.mp3'
 const FROST_SRC = 'assets/sounds/frost.mp3'
 const HEAL_SRC    = 'assets/sounds/heal2.wav'
 const ICECUBE_SRC = 'assets/sounds/icecube.mp3'
+const SUNRISE_SRC = 'assets/sounds/sunrise.wav'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -41,6 +42,7 @@ let surgeSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
 let healSfxEnt:  Entity = 0 as Entity
 let iceSfxEnt:   Entity = 0 as Entity
+let sunriseSfxEnt: Entity = 0 as Entity
 
 // Frost SFX driver state. playFrostChunkSfx() only stops the voice and
 // raises frostSfxPending. The system below starts it on the next frame
@@ -84,6 +86,12 @@ export function initAudio(): void {
   AudioSource.create(iceSfxEnt, {
 	  audioClipUrl: ICECUBE_SRC,
 	  playing: false, loop: false, volume: 0.7, global: true, currentTime: 0,
+  })
+  sunriseSfxEnt = engine.addEntity()
+  Transform.create(sunriseSfxEnt, { parent: engine.CameraEntity })
+  AudioSource.create(sunriseSfxEnt, {
+	  audioClipUrl: SUNRISE_SRC,
+	  playing: false, loop: false, volume: 0.55, global: true, currentTime: 0,
   })
   // Starts a pending frost cue, then cuts the clip after the useful
   // head (~3 s) so the trailing hiss of the 8 s source never plays.
@@ -246,6 +254,27 @@ export function playHealChunkSfx(): void {
 export function playIceCubeSfx(): void {
 	if (!iceSfxEnt) return
 	AudioSource.playSound(iceSfxEnt, ICECUBE_SRC, true)
+}
+
+
+// MARK: playSunriseSfx
+/**
+ * Play sunrise.wav with the "Day X" title card — including Day 1 on
+ * cold-open. Camera-parented and global so every player hears dawn,
+ * even away from the hearth. createOrReplace + currentTime: 0 so the
+ * first splash is not dropped by the CRDT diff-check (same pattern as
+ * torch / UI clicks).
+ */
+export function playSunriseSfx(): void {
+	if (!sunriseSfxEnt) return
+	AudioSource.createOrReplace(sunriseSfxEnt, {
+		audioClipUrl: SUNRISE_SRC,
+		playing     : true,
+		loop        : false,
+		volume      : 0.55,
+		global      : true,
+		currentTime : 0,
+	})
 }
 
 

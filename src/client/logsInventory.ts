@@ -16,6 +16,7 @@ import { clampWoodKind, WOOD_KIND_LOG } from 'src/shared/woodKind'
 import { playDropSfx, playPickupSfx, playSurgeSfxLocal } from 'src/client/audio'
 import { getHiddenFireFuel, getMainFireFuel, requestFeedFire } from 'src/client/hearthFuel'
 import { getLitHiddenFires, isInHiddenRelightRange } from 'src/client/hiddenCampfire'
+import { spawnLogsFeed } from 'src/client/logsFeedFx'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
 
 
@@ -175,6 +176,8 @@ export function feedFire(): void {
 	// hearth. Falls back to -1 (main) when no hidden fire is in range.
 	const target = pickFeedTarget()
 	requestFeedFire(target, kind)
+	// Optimistic local arc — remotes see the same FX via feedFireFx.
+	spawnLogsFeed(kind, target)
 	console.log(`logsInventory: feedFire: kind=${kind} consumed, target=${target}`)
 }
 

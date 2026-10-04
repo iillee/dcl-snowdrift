@@ -366,11 +366,12 @@ function tryDawnSplash(): void {
 	dawnSplashLive  = false
 	splashShownRun  = dawnRun
 	splashShownDay  = dawnSplashDay
+	const sunrise = dawnSplashSunrise
 	console.log(
 		`phase: tryDawnSplash: showing Day ${dawnSplashDay} ` +
-		`during ${phaseName}${dawnSplashSunrise ? ' (sunrise)' : ' (join)'}`
+		`during ${phaseName}${sunrise ? ' (sunrise)' : ' (join)'}`
 	)
-	beginDaySplash(dawnSplashDay)
+	beginDaySplash(dawnSplashDay, sunrise)
 }
 
 
