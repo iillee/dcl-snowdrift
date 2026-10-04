@@ -21,6 +21,7 @@
  *   beginPan(vx, vz)       — mobile d-pad, start panning at velocity (m/s).
  *   endPan()               — mobile d-pad, stop.
  *   recenter()             — snap back to FOLLOW mode.
+ *   getAvatarOffscreenHint() — edge face-bubble cue when the avatar left the view.
  */
 
 import { engine, Entity, InputAction, MainCamera, PointerEventType, Transform, VirtualCamera, inputSystem } from '@dcl/sdk/ecs'
@@ -399,4 +400,50 @@ export function canZoomIn(): boolean {
 /** True if the camera can move further away (not already at max altitude). */
 export function canZoomOut(): boolean {
 	return active && currentAltitude < CAM_ALTITUDE_MAX
+}
+
+
+// MARK: AvatarOffscreenHint
+export interface AvatarOffscreenHint {
+	/**
+	 * Direction toward the avatar on screen. 0 = top, 90 = right,
+	 * 180 = bottom, 270 = left (degrees, clockwise from up).
+	 */
+	angleDeg: number
+}
+
+
+// MARK: getAvatarOffscreenHint
+/**
+ * When top-down and free-panned far enough that the local avatar is
+ * outside the viewport, returns the screen angle toward them. Null
+ * while following, inactive, or while the avatar is still on screen.
+ */
+export function getAvatarOffscreenHint(): AvatarOffscreenHint | null {
+	if (!active) return null
+	if (mode === Mode.FOLLOW) return null
+
+	const p = Transform.getOrNull(engine.PlayerEntity)?.position
+	if (!p) return null
+
+	// Screen-space meters from focus → avatar. Matches d-pad axis map:
+	//   screen-up    = world -X
+	//   screen-right = world +Z
+	const screenUp    = targetPos.x - p.x
+	const screenRight = p.z - targetPos.z
+
+	// Half-viewport from altitude + ~60° FOV. Mobile portrait is taller
+	// than wide, so the horizontal half is tighter.
+	const halfH = currentAltitude * 0.58
+	const halfW = halfH * (isMobile() ? 0.85 : 1.65)
+	// Fire slightly before the hard edge so the cue appears as they leave.
+	const margin = 0.82
+	const onScreen =
+		Math.abs(screenRight) <= halfW * margin &&
+		Math.abs(screenUp)    <= halfH * margin
+	if (onScreen) return null
+
+	let angleDeg = Math.atan2(screenRight, screenUp) * (180 / Math.PI)
+	if (angleDeg < 0) angleDeg += 360
+	return { angleDeg }
 }

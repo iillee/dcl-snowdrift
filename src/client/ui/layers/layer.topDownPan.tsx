@@ -13,21 +13,25 @@
  *   - Recenter button: top-center, snaps camera back to follow-the-player.
  *   - Mobile zoom: + / - in a row under the d-pad, same spot as
  *     dcl-place. Desktop zoom stays beside the eye in the top HUD.
+ *   - Avatar finder: circular face bubble on the screen edge (same
+ *     portrait chrome as the Explorer point cue) once free-pan leaves
+ *     the local avatar off screen.
  *
  * Desktop and mobile controls are both rendered on both platforms — the
  * SDK's own input model gates them (screenDelta is desktop-only, and the
  * d-pad works equally well with a mouse if a desktop user prefers it).
  */
 
-import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
-import { Color4 } from '@dcl/sdk/math'
 import { InputAction, PointerEventType, PrimaryPointerInfo, engine, inputSystem } from '@dcl/sdk/ecs'
+import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
+import { getPlayer } from '@dcl/sdk/players'
+import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { playUiClick } from 'src/client/audio'
-import { applyPanDelta, beginDrag, beginPan, canZoomIn, canZoomOut, endDrag, endPan, getDpadSpeed, isTopDownActive, zoomIn, zoomOut } from 'src/client/topDownCamera'
+import { applyPanDelta, beginDrag, beginPan, canZoomIn, canZoomOut, endDrag, endPan, getAvatarOffscreenHint, getDpadSpeed, isTopDownActive, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -35,6 +39,16 @@ const { colors, borderRadius } = UI_THEME
 
 const PANEL_BG = colors.statsBg
 const WHITE    = Color4.White()
+
+// Off-screen avatar finder — circular face bubble like the Explorer's
+// middle-click point cue. Rings match that chrome (thin green outside,
+// brighter blue inside the portrait).
+const FINDER_INSET_PCT   = 12
+const FINDER_SIZE        = 56
+const FINDER_RING_GREEN  = Color4.create(0.45, 0.92, 0.55, 1)
+const FINDER_RING_BLUE   = Color4.create(0.20, 0.55, 1.00, 1)
+const FINDER_RING_OUTER  = 3
+const FINDER_RING_INNER  = 4
 
 // Layout — d-pad cluster sits above the mobile jump/interaction cluster
 // so it does not overlap the native gamepad HUD. Recenter chip goes top-
@@ -83,6 +97,97 @@ export function dragPollSystem(): void {
 	if (!delta) return
 	if (delta.x === 0 && delta.y === 0) return
 	applyPanDelta(delta.x, delta.y)
+}
+
+
+// MARK: edgeAnchorPct
+/**
+ * Project a screen angle onto the inset frame of the canvas. UI Y grows
+ * downward, so 0° (up) maps to the top edge center.
+ */
+function edgeAnchorPct(angleDeg: number): { leftPct: number, topPct: number } {
+	const rad = (angleDeg * Math.PI) / 180
+	const dx  = Math.sin(rad)
+	const dy  = -Math.cos(rad)
+	const ax  = Math.abs(dx)
+	const ay  = Math.abs(dy)
+	let nx: number
+	let ny: number
+	if (ax > ay) {
+		nx = dx < 0 ? -1 : 1
+		ny = dy / ax
+	} else {
+		ny = dy < 0 ? -1 : 1
+		nx = ax < 0.0001 ? 0 : dx / ay
+	}
+	const span = 100 - 2 * FINDER_INSET_PCT
+	return {
+		leftPct: FINDER_INSET_PCT + ((nx + 1) / 2) * span,
+		topPct : FINDER_INSET_PCT + ((ny + 1) / 2) * span,
+	}
+}
+
+
+// MARK: AvatarFinderBubble
+/**
+ * Edge-mounted face bubble toward the local avatar when free-pan leaves
+ * them off screen. Uses the same avatarTexture portrait as the Explorer
+ * point cue. Hidden while following, while on screen, or before the
+ * local player id is ready.
+ */
+function AvatarFinderBubble() {
+	const hint = getAvatarOffscreenHint()
+	const userId = getPlayer()?.userId
+	if (!hint || !userId) {
+		return <UiEntity key = "ui_AvatarFinder_hidden" uiTransform = {{ display: 'none' }} />
+	}
+	const anchor  = edgeAnchorPct(hint.angleDeg)
+	const half    = FINDER_SIZE / 2
+	const midSize = FINDER_SIZE - FINDER_RING_OUTER * 2
+	const faceSize = midSize - FINDER_RING_INNER * 2
+	return (
+		<UiEntity
+			key = "ui_AvatarFinder_bubble"
+			uiTransform = {{
+				positionType  : 'absolute',
+				position      : {
+					left: `${anchor.leftPct}%` as `${number}%`,
+					top : `${anchor.topPct}%` as `${number}%`,
+				},
+				margin        : { left: -half, top: -half },
+				width         : FINDER_SIZE,
+				height        : FINDER_SIZE,
+				borderRadius  : half,
+				justifyContent: 'center',
+				alignItems    : 'center',
+				pointerFilter : 'none',
+			}}
+			uiBackground = {{ color: FINDER_RING_GREEN }}
+		>
+			<UiEntity
+				uiTransform = {{
+					width         : midSize,
+					height        : midSize,
+					borderRadius  : midSize / 2,
+					justifyContent: 'center',
+					alignItems    : 'center',
+				}}
+				uiBackground = {{ color: FINDER_RING_BLUE }}
+			>
+				<UiEntity
+					uiTransform = {{
+						width       : faceSize,
+						height      : faceSize,
+						borderRadius: faceSize / 2,
+					}}
+					uiBackground = {{
+						textureMode  : 'stretch',
+						avatarTexture: { userId },
+					}}
+				/>
+			</UiEntity>
+		</UiEntity>
+	)
 }
 
 
@@ -370,6 +475,7 @@ class TopDownPanLayer extends Layer {
 				    the catcher above, so the d-pad would only clutter the HUD. */}
 				{isMobile() && <Dpad />}
 				{isMobile() && <ZoomCluster />}
+				<AvatarFinderBubble />
 			</UiEntity>
 		)
 	}

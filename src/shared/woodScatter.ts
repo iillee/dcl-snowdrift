@@ -82,9 +82,38 @@ export const WOOD_BAND_OUTER = 3
 
 /** Chops each scattered tree still holds at cycle start. */
 export const WOOD_LOGS_PER_TREE = 4
-/** How close the player must stand to chop, measured from the trunk. */
-export const TREE_CHOP_RADIUS_M = 5
-export const TREE_CHOP_RADIUS_SQ = TREE_CHOP_RADIUS_M * TREE_CHOP_RADIUS_M
+/**
+ * Chop reach at the catalog base scale for tree_4 (`scale: 6`).
+ * Live reach scales with each instance: `base * (instanceScale / ref)`.
+ * Big trees (~8) open to ~6.7 m so players are not stuck on the roots;
+ * small trees (~4) tighten to ~3.3 m so the prompt does not fire early.
+ */
+export const TREE_CHOP_RADIUS_BASE_M = 5
+/** Catalog midpoint scale for tree_4 — pairs with TREE_CHOP_RADIUS_BASE_M. */
+export const TREE_CHOP_SCALE_REF     = 6
+/** Mid-size chop reach (meters). Prefer {@link treeChopRadiusM} per tree. */
+export const TREE_CHOP_RADIUS_M      = TREE_CHOP_RADIUS_BASE_M
+export const TREE_CHOP_RADIUS_SQ     = TREE_CHOP_RADIUS_M * TREE_CHOP_RADIUS_M
+
+
+// MARK: treeChopRadiusM
+/**
+ * How far from the trunk the player may stand to chop, in metres.
+ * Linear in the tree's spawn scale so rooty giants stay reachable.
+ */
+export function treeChopRadiusM(scale: number): number {
+	const s = scale > 0.01 ? scale : TREE_CHOP_SCALE_REF
+	return TREE_CHOP_RADIUS_BASE_M * (s / TREE_CHOP_SCALE_REF)
+}
+
+
+// MARK: treeChopRadiusSq
+/** Squared {@link treeChopRadiusM} for hot-loop distance checks. */
+export function treeChopRadiusSq(scale: number): number {
+	const r = treeChopRadiusM(scale)
+	return r * r
+}
+
 /** Prop id the chops attach to. Matches PROP_CATALOG. */
 const TREE_PROP_ID = 'tree_4'
 
@@ -108,6 +137,8 @@ export interface WoodTreeSite {
 	worldX   : number
 	worldZ   : number
 	yawDeg   : number
+	/** Uniform prop scale at spawn. Chop reach scales with this. */
+	scale    : number
 }
 
 
@@ -306,6 +337,7 @@ export function treeSitesFromProps(
 		worldX   : p.worldX,
 		worldZ   : p.worldZ,
 		yawDeg   : p.yawDeg,
+		scale    : p.scale,
 	}))
 }
 

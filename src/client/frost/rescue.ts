@@ -45,9 +45,10 @@ import { isTorchLit } from 'src/client/torchEquip'
 const HEARTBEAT_S = 5
 const RESCUE_R_SQ = ICE_RESCUE_RADIUS_M * ICE_RESCUE_RADIUS_M
 
-const ICE_DIFFUSE  = Color4.create(0.55, 0.82, 1.0, 0.55)
-const ICE_ALBEDO   = Color4.create(0.55, 0.82, 1.0, 0.38)
-const ICE_EMISSIVE = Color3.create(0.4, 0.7, 0.95)
+/** Match frost-bar / ground blue (0.42, 0.60, 0.98); denser than the old pale glass. */
+const ICE_DIFFUSE  = Color4.create(0.42, 0.60, 0.98, 0.72)
+const ICE_ALBEDO   = Color4.create(0.42, 0.60, 0.98, 0.55)
+const ICE_EMISSIVE = Color3.create(0.32, 0.48, 0.92)
 /** Blue glass with its own alpha. Mobile drops PBR transparency, so that client uses this unlit texture. */
 const ICE_TEXTURE  = 'assets/images/ice-alpha.png'
 /** Equal sides, tall enough to cover a standing avatar. Centre is half that, so the bottom sits on the feet. */

@@ -35,7 +35,7 @@ import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
 import {
 	computeWoodScatter,
-	TREE_CHOP_RADIUS_SQ,
+	treeChopRadiusSq,
 	treeSitesFromProps,
 	WoodChunk,
 	WoodTreeSite,
@@ -369,12 +369,13 @@ function findChopChunk(): WoodChunk | null {
 	const px = player.position.x
 	const pz = player.position.z
 	let best  : WoodChunk | null = null
-	let bestD = TREE_CHOP_RADIUS_SQ
+	let bestD = Number.POSITIVE_INFINITY
 	for (const site of treeSites) {
 		const dx = px - site.worldX
 		const dz = pz - site.worldZ
 		const d  = dx * dx + dz * dz
-		if (d > bestD) continue
+		if (d > treeChopRadiusSq(site.scale)) continue
+		if (d >= bestD) continue
 		let chunk: WoodChunk | null = null
 		for (const c of scatter) {
 			if (c.treeIndex !== site.treeIndex) continue
