@@ -6,6 +6,20 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-04 — Geography & Migration checkpoint (target Wed 10/07)
+
+Plan: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md). Playtest loop stays; geography is the work.
+
+- **2026-10-04 · Next slice is migration geography, not new verbs · owner-directed (playtest + sketch)** — Small multiplayer (~1 h, ≤3) validated freeze, rescue, wood pressure, and multi-fire cost. Failure mode: nowhere to migrate when local wood is gone. Goal: *"we ran out of wood, so we moved."* No quests; destinations must be readable in the landscape.
+- **2026-10-04 · World size stays configurable; 100×100 is not this week's ship target · owner-directed** — Live is 64×64. Knobs must allow ~80×80 experiments. A full torch must not casually reach the edge — wilderness, not arena.
+- **2026-10-04 · Snow LOD: iterate player-relative cheap far bands on top of coarse sheets · owner-directed** — Do not throw away 10/04 melt-distance coarse LOD. Add mid/far/horizon cheapness vs the local player. Far snow can die; far destinations cannot.
+- **2026-10-04 · Macro geography over random cliff spray · owner-directed** — Hierarchical landforms (ridges, passes, basins, corridors). Oct 7 may prove with one authored direction of opportunity rather than a finished full generator.
+- **2026-10-04 · Resource destinations replace concentric-only thinking · owner-directed** — Exhaustible start; uneven distant concentrations; at least one far grove readable as a silhouette. Ordinary wood only this week.
+- **2026-10-04 · Fixed satellite fires move onto routes; no build-anywhere yet · owner-directed** — Resources = destination; fire = occupation. Build-anywhere fires and Valheim-like hearth upgrade trees stay future/skeptical (risk deleting *fire = safety, distance = stakes* and *exhaust → migrate*).
+- **2026-10-04 · Horizon landmarks stay as cheap proxies · owner-directed** — Major formations are navigation infrastructure; silhouette over detail.
+
+---
+
 ## 2026-10-04 session — 64×64 World, coarse snow, ice + overhead
 
 Shipped state: [`session-2026-10-04.md`](./session-2026-10-04.md).

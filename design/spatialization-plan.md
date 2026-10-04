@@ -2,9 +2,10 @@
 
 *Working doc for the Spatialize + Fun phase of v1. When the design converges here, it folds back into GDD §3 (Pillars 5–6, Core Loop, Reveal table, Seasonal cadence, Scale and traversal).*
 
-**Status:** draft v2 · 2026-09-22 · planned layout, not the playtest map
-**Related:** [`gdd.md`](gdd.md) §3, [`decisions.md`](decisions.md)
-**Extinction line below is superseded (2026-09-30).** The run ends when everyone still connected is frozen and no fire is left. See [`session-2026-09-30.md`](./session-2026-09-30.md). This file is still the planned biome layout. It is not what the playtest world generates.
+**Status:** draft v2 · 2026-09-22 · planned Spatialize layout, not the playtest map  
+**Immediate geography work (2026-10-04 → 2026-10-07):** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) — prove migration on 64×64 with destinations, routes, and repositioned fixed fires. That checkpoint does **not** implement biomes / Kiln / pine yet; it should leave sockets and vocabulary (pass, ridge, grove) that this plan can inherit.  
+**Related:** [`gdd.md`](gdd.md) §3, [`decisions.md`](decisions.md)  
+**Extinction line below is superseded (2026-09-30).** The run ends when everyone still connected is frozen and no fire is left. See [`session-2026-09-30.md`](./session-2026-09-30.md). This file is still the planned biome layout. It is not what the playtest world generates.  
 **Supersedes:** the 2026-09-22 v1 draft of this doc (which proposed torch tiers, meadow/scrub as biomes, and a mixed density/biome model — all replaced).
 
 ---

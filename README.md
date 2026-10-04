@@ -35,6 +35,7 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 - [`design/gdd.md`](design/gdd.md) — full GDD.
 - [`design/summary.md`](design/summary.md) — plain-English overview.
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions and rationale.
+- [`design/checkpoint-2026-10-07-geography-migration.md`](design/checkpoint-2026-10-07-geography-migration.md) — next build: destinations, routes, migration test (target Wed 10/07).
 - [`design/session-2026-10-04.md`](design/session-2026-10-04.md) — 64×64 World, coarse snow LOD, ice + overhead polish.
 - [`design/session-2026-09-30.md`](design/session-2026-09-30.md) — what the playtest build did as of 9/30.
 - [`design/session-2026-09-29-playtest.md`](design/session-2026-09-29-playtest.md) — the 9/29 wood-loop pass.

@@ -98,9 +98,9 @@ Phase 1 **Systems** is underway. The playtest World is **64 × 64 parcels** (102
 
 **Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; Ember still heats and loses to the night); melt-to-reveal branches and logs out to 160 m, clear of cliffs; six choppable trees with uneven gaps (chop reach scales with size); six hidden fires grown in generations off the hearth; one carry slot; freeze in ice, with a first-pass torch thaw (desktop elevates ice on mobile peers); a lit fire wakes the frozen; the run ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed (wood lost, torch emptied); a new server start is also a fresh seed, and a live server keeps the world in progress; Day N on join and at sunrise; three gold segments when you wake at a fire; black cold open; ? menu is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute in the old + slot, overhead zoom under the pan pad, off-screen face finder; gold warmth pulse while the bar refills; coarse far snow sheets.
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. 100 × 100 envelope. Scatter retune for 64 × 64.
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. 100 × 100 envelope. Scatter retune for 64 × 64 — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) (visible destinations + routes so exhaustion produces migration).
 
-**Handoff:** [`session-2026-10-04.md`](./session-2026-10-04.md). Earlier: [`session-2026-09-30.md`](./session-2026-09-30.md), [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
+**Handoff:** [`session-2026-10-04.md`](./session-2026-10-04.md). Next checkpoint: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md). Earlier: [`session-2026-09-30.md`](./session-2026-09-30.md), [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
 
 ## v1 build plan — at a glance
 
