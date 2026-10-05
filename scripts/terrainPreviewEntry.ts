@@ -20,6 +20,7 @@ import {
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
 	TERRAIN_LEVEL_MOUNTAIN,
+	isMountainLevel,
 } from 'src/shared/settings'
 import { generateTerrain, mergeLevelRects, terrainPieceStats } from 'src/shared/terrain/terrainGen'
 import {
@@ -75,7 +76,9 @@ function main(): void {
 		for (const lv of map.levels) area[lv]++
 		const walk = area[0] + area[1] + area[2]
 		const pct  = (n: number): string => `${Math.round((n / walk) * 100)}%`.padStart(4)
-		const dests = map.destinations.map(d => `${d.level === TERRAIN_LEVEL_HIGH ? 'H' : 'L'}${d.area}@${d.route}`).join(' ')
+		const destTag = (lv: number): string =>
+			lv === TERRAIN_LEVEL_HIGH ? 'H' : lv === TERRAIN_LEVEL_MID ? 'M' : 'L'
+		const dests = map.destinations.map(d => `${destTag(d.level)}${d.area}@${d.route}`).join(' ')
 
 		rows.push(
 			`run ${String(run).padStart(3)}  try ${map.attempts}  ` +
@@ -133,7 +136,10 @@ function renderSheet(maps: TerrainMap[]): Uint8Array {
 			for (let cx = 0; cx < map.w; cx++) {
 				const i    = cz * map.w + cx
 				const lv   = map.levels[i]
-				let c      = LEVEL_RGB[lv]
+				let c      = isMountainLevel(lv)
+					? LEVEL_RGB[TERRAIN_LEVEL_MOUNTAIN]
+					: LEVEL_RGB[lv]
+				if (c === undefined) c = LEVEL_RGB[TERRAIN_LEVEL_MOUNTAIN]
 				const tint = LANDFORM_TINT[map.landforms[i]]
 				if (tint) c = mix(c, tint, 0.3)
 				for (let dy = 0; dy < PX; dy++) {

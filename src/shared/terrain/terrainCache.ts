@@ -9,7 +9,11 @@
  * keeps its own cache and both agree because the generator is pure.
  */
 
-import { TERRAIN_HEARTH_SURFACE_Y, TERRAIN_LEVEL_MID } from 'src/shared/settings'
+import {
+	TERRAIN_HEARTH_SURFACE_Y,
+	TERRAIN_LEVEL_MID,
+	isMountainLevel,
+} from 'src/shared/settings'
 import { generateTerrain } from 'src/shared/terrain/terrainGen'
 import { groundYAtWorld, levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 
@@ -89,9 +93,9 @@ export function activeLevelAt(x: number, z: number): number {
 /**
  * Cells where hearth-shelf content must not spawn, keyed `tx,tz,0`.
  *
- * Trees, buried wood and props still place on the mid shelf only so
- * their scatter density stays tuned for the hearth band. Hidden fires
- * use their own walkable-cell rules in shared/hiddenCampfire.ts.
+ * The hearth tree ring and near/far buried wood still place on the mid
+ * shelf only. Destination groves use impassableCellsForMazeSeed instead
+ * so they can sit on the Low terrace.
  */
 export function offHearthCellsForMazeSeed(mazeSeed: number): Set<string> {
 	const map = getTerrain(mazeSeed)
@@ -100,6 +104,30 @@ export function offHearthCellsForMazeSeed(mazeSeed: number): Set<string> {
 		for (let cx = 0; cx < map.w; cx++) {
 			if (map.levels[cz * map.w + cx] !== TERRAIN_LEVEL_MID) out.add(`${cx},${cz},0`)
 		}
+	}
+	return out
+}
+
+
+// MARK: impassableCellsForMazeSeed
+/**
+ * Cells a destination grove or foothold must not touch: mountain,
+ * hearth-unreachable, and ladder feet/tops. Keyed `tx,tz,0`.
+ */
+export function impassableCellsForMazeSeed(mazeSeed: number): Set<string> {
+	const map = getTerrain(mazeSeed)
+	const out = new Set<string>()
+	for (let cz = 0; cz < map.h; cz++) {
+		for (let cx = 0; cx < map.w; cx++) {
+			const i = cz * map.w + cx
+			if (isMountainLevel(map.levels[i]) || map.routeDist[i] < 0) {
+				out.add(`${cx},${cz},0`)
+			}
+		}
+	}
+	for (const ladder of map.ladders) {
+		out.add(`${ladder.lowCx},${ladder.lowCz},0`)
+		out.add(`${ladder.highCx},${ladder.highCz},0`)
 	}
 	return out
 }

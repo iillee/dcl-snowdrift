@@ -6,11 +6,12 @@
  * only the active/inactive set does (owned server-side; see
  * src/server/wood.ts).
  *
- * Three bands, all measured from the hearth:
+ * Bands:
  *   - Near  (15-35 m): one-torch trip. Mostly branches, a few logs.
  *   - Far   (35-80 m): gather belt, peak density at 50 m.
  *   - Outer (80-160 m): thin field toward the far trees and the
  *     second generation of hidden fires, peak density at 110 m.
+ *   - Dest: dense buried wood inside the Low migration destination.
  *
  * A piece whose body would cross a cliff cell is skipped. Kind is
  * stamped at placement (stable per seed). Wilderness is kindling.
@@ -24,8 +25,14 @@
  */
 
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { listGroveSitesForMazeSeed } from 'src/shared/grove'
 import { scatterProps } from 'src/shared/props/scatter'
 import { MAZE_GRID_HEIGHT, MAZE_GRID_WIDTH, MAZE_ORIGIN_OFFSET_METERS, MAZE_TILE_WORLD_METERS } from 'src/shared/settings'
+import {
+	getTerrain,
+	impassableCellsForMazeSeed,
+} from 'src/shared/terrain/terrainCache'
+import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
@@ -36,7 +43,9 @@ export const WOOD_NEAR_POOL = 50
 export const WOOD_FAR_POOL = 150
 /** Outer-band pool size. Sparse, so the far trees stay worth the walk. */
 export const WOOD_OUTER_POOL = 50
-/** Full scatter list length. */
+/** Fallback buried-wood pool per grove when params are unavailable. */
+export const WOOD_DEST_POOL = 32
+/** Full hearth-band scatter list length (destination pool is separate). */
 export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
 
 /**
@@ -48,8 +57,14 @@ export const WOOD_NEAR_ACTIVE = 12
 export const WOOD_FAR_ACTIVE = 28
 /** Active outer chunks. A staging fire, not the hearth, covers these. */
 export const WOOD_OUTER_ACTIVE = 12
+/**
+ * Fallback active dest chunks if grove params are missing. Live total
+ * is the sum of each grove's woodActive (see listGroveSites).
+ */
+export const WOOD_DEST_ACTIVE = 36
 /** Total active buried chunks at cycle start. No in-run refill. */
-export const WOOD_ACTIVE_TARGET = WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE
+export const WOOD_ACTIVE_TARGET =
+	WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE + WOOD_DEST_ACTIVE
 
 /** Inner edge of the near ring (m). Outside the Warm melt ring. */
 export const WOOD_NEAR_MIN_M = 15
@@ -79,6 +94,13 @@ export const WOOD_BAND_NEAR  = 0
 export const WOOD_BAND_FAR   = 1
 export const WOOD_BAND_TREE  = 2
 export const WOOD_BAND_OUTER = 3
+/** Buried wood packed at the Low migration destination. */
+export const WOOD_BAND_DEST  = 4
+
+/** Sampling radius (m) around the destination centroid for dest wood.
+ *  Matches the outer destination tree radii so wood fills the grove,
+ *  not a tight pile under the hub. */
+const WOOD_DEST_RADIUS_M = 160
 
 /** Chops each scattered tree still holds at cycle start. */
 export const WOOD_LOGS_PER_TREE = 4
@@ -126,7 +148,7 @@ export interface WoodChunk {
 	worldZ : number
 	/** WOOD_KIND_BRANCH or WOOD_KIND_LOG. */
 	kind   : number
-	/** WOOD_BAND_NEAR, WOOD_BAND_FAR, WOOD_BAND_OUTER, or WOOD_BAND_TREE. */
+	/** WOOD_BAND_NEAR / FAR / OUTER / TREE / DEST. */
 	band   : number
 	/** Which scattered tree this log belongs to. */
 	treeIndex?: number
@@ -164,8 +186,8 @@ function makeRng(seed: number): () => number {
 
 
 // MARK: pickKind
-function pickKind(rng: () => number): number {
-	return rng() < WOOD_LOG_CHANCE ? WOOD_KIND_LOG : WOOD_KIND_BRANCH
+function pickKind(rng: () => number, logChance: number = WOOD_LOG_CHANCE): number {
+	return rng() < logChance ? WOOD_KIND_LOG : WOOD_KIND_BRANCH
 }
 
 
@@ -342,6 +364,73 @@ export function treeSitesFromProps(
 }
 
 
+// MARK: placeDestBands
+
+/**
+ * Buried wood at every major grove socket. Pool size, active richness,
+ * and log mix come from GroveParams so destinations vary by seed.
+ */
+function placeDestBands(
+	rng     : () => number,
+	out     : WoodChunk[],
+	mazeSeed: number,
+): void {
+	const map      = getTerrain(mazeSeed)
+	const sites    = listGroveSitesForMazeSeed(mazeSeed)
+	const reserved = impassableCellsForMazeSeed(mazeSeed)
+	if (sites.length === 0) {
+		console.log('woodScatter: placeDestBands: no grove sites')
+		return
+	}
+	for (const site of sites) {
+		const { dest, params } = site
+		const centre = cellCenterWorld(dest.cx, dest.cz)
+		const radius = WOOD_DEST_RADIUS_M * Math.max(0.75, Math.min(1.35, params.radiusScale))
+		const min2   = 4 * 4
+		const max2   = radius * radius
+		const span   = max2 - min2
+		const target = out.length + params.woodPool
+		const MAX_ATTEMPTS = params.woodPool * 40
+		let attempts = 0
+		let placed   = 0
+		while (out.length < target && attempts < MAX_ATTEMPTS) {
+			attempts++
+			const r     = Math.sqrt(min2 + rng() * span)
+			const theta = 2 * Math.PI * rng()
+			const x     = centre.x + r * Math.cos(theta)
+			const z     = centre.z + r * Math.sin(theta)
+			if (onCliff(x, z, reserved)) continue
+			const cx = Math.floor((x - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+			const cz = Math.floor((z - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+			if (cx < 0 || cz < 0 || cx >= map.w || cz >= map.h) continue
+			if (map.regions[cz * map.w + cx] !== dest.region && rng() < 0.7) continue
+			out.push({
+				idx   : out.length,
+				worldX: x,
+				worldZ: z,
+				kind  : pickKind(rng, params.logChance),
+				band  : WOOD_BAND_DEST,
+			})
+			placed++
+		}
+		console.log(
+			`woodScatter: placeDestBands: lv=${dest.level} placed ${placed}/` +
+			`${params.woodPool} activeTarget=${params.woodActive} ` +
+			`at (${dest.cx},${dest.cz})`,
+		)
+	}
+}
+
+
+// MARK: destWoodActiveTarget
+/** Sum of per-grove woodActive for this layout seed. */
+export function destWoodActiveTarget(mazeSeed: number): number {
+	const sites = listGroveSitesForMazeSeed(mazeSeed)
+	if (sites.length === 0) return WOOD_DEST_ACTIVE
+	return sites.reduce((sum, s) => sum + s.params.woodActive, 0)
+}
+
+
 // MARK: placeTreeLogs
 
 /**
@@ -381,7 +470,8 @@ export function computeWoodScatter(
 	seed    : number,
 	reserved: ReadonlySet<string>,
 ): WoodChunk[] {
-	const rng = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
+	const rng      = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
+	const mazeSeed = cycleMazeSeed(seed)
 	const out: WoodChunk[] = []
 	placeNearBand(rng, out, reserved)
 	placeFarBand(rng, out, reserved)
@@ -393,7 +483,8 @@ export function computeWoodScatter(
 			`positions (seed ${seed}) - exclusion may be too tight`
 		)
 	}
-	const sites = treeSitesFromProps(cycleMazeSeed(seed), reserved)
+	placeDestBands(rng, out, mazeSeed)
+	const sites = treeSitesFromProps(mazeSeed, reserved)
 	placeTreeLogs(out, sites)
 	console.log(`woodScatter: computeWoodScatter: ${sites.length} tree clusters`)
 	return out

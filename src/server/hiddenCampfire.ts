@@ -1,5 +1,5 @@
 /**
- * hiddenCampfire.ts — authoritative state for the three buried bonfires.
+ * hiddenCampfire.ts — authoritative state for the buried bonfires.
  *
  * Owns:
  *   - the current cycle seed (from shared/hiddenCampfire.getHiddenCampfireSeed)
@@ -99,7 +99,9 @@ function recomputePositions(): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		const spot = spots[i]
 		if (!spot) {
-			console.log(`[Server] hiddenCampfire: recomputePositions: slot ${i} has no clear point`)
+			worldX[i] = 0
+			worldZ[i] = 0
+			console.log(`[Server] hiddenCampfire: recomputePositions: slot ${i} unused this cycle`)
 			continue
 		}
 		worldX[i] = spot.x

@@ -20,6 +20,8 @@ import { engine } from '@dcl/sdk/ecs'
 import {
 	FUEL_HIDDEN_INITIAL,
 	FUEL_MAIN_INITIAL,
+	FUEL_MAX,
+	fuelSecondsForKind,
 	hearthFlameScaleFromFuel,
 	hearthRadiusFromFuel,
 	hearthSmokeDensityFromFuel,
@@ -30,7 +32,7 @@ import {
 } from 'src/shared/hearthFuel'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
-import { WOOD_KIND_LOG } from 'src/shared/woodKind'
+import { clampWoodKind, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
 /** Seconds it takes `currentFuel` to converge on a fresh `targetFuel`.
@@ -43,6 +45,8 @@ let currentFuel  = FUEL_MAIN_INITIAL
 let targetFuel   = FUEL_MAIN_INITIAL
 let playerCount  = 1
 let installed    = false
+/** Last optimistic feed target, for revert on feedFireRejected. */
+let lastFeedTarget = -1
 
 // Per-hidden-fire lerped fuel + target. Zero-length arrays would
 // break the getter contracts; init upfront so callers can safely
@@ -61,27 +65,41 @@ export function setupHearthFuelClient(): void {
 	installed = true
 
 	room.onMessage('hearthFuelUpdate', ({ fuel, players }) => {
+		if (typeof fuel !== 'number' || !Number.isFinite(fuel)) {
+			console.log(
+				`hearthFuel: hearthFuelUpdate: dropping bad fuel=${String(fuel)} ` +
+				`(wire decode failed — check Schemas.Number on hearthFuelUpdate)`,
+			)
+			return
+		}
 		const prevTier = hearthTierFromFuel(currentFuel)
 		// Dead↔lit must be immediate: freeze wake and spark prompts
 		// read currentFuel, and a 250 ms lerp leaves them dark.
 		if (currentFuel <= 0 && fuel > 0) currentFuel = fuel
 		if (fuel <= 0) currentFuel = 0
-		targetFuel     = fuel
-		playerCount    = players
-		const newTier  = hearthTierFromFuel(targetFuel)
+		targetFuel  = fuel
+		playerCount = typeof players === 'number' && players > 0 ? players : playerCount
+		const newTier = hearthTierFromFuel(targetFuel)
 		if (newTier !== prevTier) {
 			console.log(
-				`hearthFuel: tier -> ${TIER_NAMES[newTier]} (fuel=${targetFuel.toFixed(1)}s players=${players})`
+				`hearthFuel: tier -> ${TIER_NAMES[newTier]} (fuel=${targetFuel.toFixed(1)}s players=${playerCount})`
 			)
 		}
 	})
 
 	room.onMessage('hiddenHearthFuelUpdate', ({ index, fuel, players }) => {
 		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		if (typeof fuel !== 'number' || !Number.isFinite(fuel)) {
+			console.log(
+				`hearthFuel: hiddenHearthFuelUpdate: dropping bad fuel=${String(fuel)} ` +
+				`index=${index}`,
+			)
+			return
+		}
 		if (hiddenCurrent[index] <= 0 && fuel > 0) hiddenCurrent[index] = fuel
 		if (fuel <= 0) hiddenCurrent[index] = 0
 		hiddenTarget[index] = fuel
-		playerCount         = players
+		if (typeof players === 'number' && players > 0) playerCount = players
 	})
 
 	engine.addSystem((dt: number) => {
@@ -115,8 +133,67 @@ export function requestFeedFire(
 	target: number = -1,
 	kind  : number = WOOD_KIND_LOG,
 ): void {
+	// Optimistic local bump so the flame steps this frame even if a
+	// hearthFuelUpdate packet is delayed. Server overwrite is authoritative.
+	lastFeedTarget = target
+	applyOptimisticFeed(target, kind)
 	room.send('feedFireRequest', { target, kind })
 	console.log(`hearthFuel: requestFeedFire: target=${target} kind=${kind}`)
+}
+
+
+// MARK: applyOptimisticFeed
+/**
+ * Add local fuel for a just-sent feed. Cap-checked by the caller via
+ * feedFitsFire before requestFeedFire runs.
+ */
+function applyOptimisticFeed(
+	target: number,
+	kind  : number,
+): void {
+	const add = fuelSecondsForKind(clampWoodKind(kind))
+	if (target === -1) {
+		if (currentFuel <= 0) return
+		const next = Math.min(FUEL_MAX, Math.max(currentFuel, targetFuel) + add)
+		currentFuel = next
+		targetFuel  = next
+		return
+	}
+	if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
+	if (hiddenCurrent[target] <= 0 && hiddenTarget[target] <= 0) return
+	const next = Math.min(
+		FUEL_MAX,
+		Math.max(hiddenCurrent[target], hiddenTarget[target]) + add,
+	)
+	hiddenCurrent[target] = next
+	hiddenTarget[target]  = next
+}
+
+
+// MARK: revertOptimisticFeed
+/**
+ * Undo a local feed bump when the server refuses the piece. Prefer
+ * waiting for the next hearthFuelUpdate; this only nudges back by
+ * one piece so a rejected feed does not leave a fake Bright flame.
+ */
+export function revertOptimisticFeed(
+	kind  : number = WOOD_KIND_LOG,
+	target: number = lastFeedTarget,
+): void {
+	const sub = fuelSecondsForKind(clampWoodKind(kind))
+	if (target === -1) {
+		const next = Math.max(0, Math.min(currentFuel, targetFuel) - sub)
+		currentFuel = next
+		targetFuel  = next
+		return
+	}
+	if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
+	const next = Math.max(
+		0,
+		Math.min(hiddenCurrent[target], hiddenTarget[target]) - sub,
+	)
+	hiddenCurrent[target] = next
+	hiddenTarget[target]  = next
 }
 
 
