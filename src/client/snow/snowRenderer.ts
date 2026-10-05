@@ -1,12 +1,12 @@
 /**
  * snowRenderer.ts — draws the snow layer from snowModel.
  *
- * Ground: one slab (top at SNOW_GROUND_TOP_Y, melt-blue, physics collider)
- * under the whole playfield. Snow tiles a cliff base covers are left
- * empty. The seam where snow meets a cliff is left flush: up close
- * that snow is already melted. The mask is applied when the cliff
- * seed arrives, and again on every reroll. Building starts on the
- * first frame, before the seed or the CRDT snapshot arrive.
+ * Ground belongs to the terrain renderer. Snow lies on top of it at
+ * every elevation: a 16 m snow tile covers exactly one 16 m terrain
+ * cell, so each root has a single ground height (baseYForTile).
+ * applyTerrainLevels adopts a layout's elevations when the seed
+ * arrives and again on every reroll. Building starts on the first
+ * frame, before the seed or the CRDT snapshot arrive.
  *
  * Snow: one quadtree per 16 m root. A node renders as a single mesh when
  * every cell under it shares a stage; otherwise it splits (16 -> 8 -> 4 ->
@@ -17,7 +17,8 @@
  *
  * Far from melt, pristine roots coalesce into larger multi-tile boxes
  * (32 / 64 / 128 m) so a bigger playfield does not pay one entity per
- * 16 m tile. Covered roots skip their fine quadtree until the player or
+ * 16 m tile; a block only coalesces when every tile in it shares one
+ * level. Covered roots skip their fine quadtree until the player or
  * a melt lip approaches. Coarse sheets are thick boxes (not paper planes)
  * so their tops and sides shade like nearby snow.
  *
@@ -43,11 +44,11 @@ import {
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { TERRAIN_LEVEL_MID, groundYForLevel } from 'src/shared/settings'
 import {
 	SNOW_CELL_M,
 	SNOW_CELLS_X,
 	SNOW_CELLS_Z,
-	SNOW_GROUND_TOP_Y,
 	SNOW_ORIGIN_M,
 	SNOW_STAGE_HEIGHT_M,
 	SNOW_TILE_CELL_COUNT,
@@ -58,8 +59,8 @@ import {
 	STAGE_PRISTINE,
 	tileCoordsFromKey,
 } from 'src/shared/snowGrid'
+import { getTerrain } from 'src/shared/terrain/terrainCache'
 
-import { getCliffSnowCells } from 'src/client/perimeter'
 import {
 	drainDirtyRoots,
 	getDisplayedStages,
@@ -69,7 +70,6 @@ import {
 const CREATE_BUDGET_PER_FRAME = 150
 const CREATE_HARD_CAP         = 300
 const SYNC_FALLBACK_MS        = 8000
-const GROUND_THICKNESS_M      = 0.5
 const BOX_LIFT_M              = 0.01
 const MELTED_LEAF_HEIGHT_M    = 0.02
 const LEAF_DROP_MS            = 300
@@ -77,7 +77,6 @@ const LEAF_RISE_MS            = 400
 const RETIRE_FRAMES           = 2
 const RETIRE_SINK_M           = 0.08
 const ROOT_COUNT              = SNOW_TILES_X * SNOW_TILES_Z
-const BOX_BASE_Y              = SNOW_GROUND_TOP_Y + BOX_LIFT_M
 // Only a full 16 m tile far from the player and from melt becomes a plane.
 const PLANE_MIN_M             = 16
 const PLANE_MELT_PAD_CELLS    = 16
@@ -109,6 +108,7 @@ type RootState = { nodes: Map<number, NodeRec>; snapshot: Uint8Array }
 type LeafAnim  = {
 	x:          number
 	z:          number
+	baseY:      number
 	startH:     number
 	endH:       number
 	elapsedMs:  number
@@ -137,7 +137,11 @@ let waitMs            = 0
 let syncFallbackUsed  = false
 let coldOpenSettled   = false
 let liveNodeCount     = 0
-let cliffMask         = new Uint8Array(ROOT_COUNT)
+// Terrain level of each 16 m root. A snow tile and a terrain cell are
+// both 16 m, so the mapping is 1:1 and every tile has exactly one
+// ground height. Defaults to the hearth level for the frames before a
+// seed lands.
+let tileLevel         = new Uint8Array(ROOT_COUNT).fill(TERRAIN_LEVEL_MID)
 let coarseCovered     = new Uint8Array(ROOT_COUNT)
 let coarseDirty       = true
 
@@ -179,34 +183,81 @@ export function isSnowRebuilding(): boolean {
 }
 
 
-// MARK: applyCliffSnowMask
+// MARK: applyTerrainLevels
 /**
- * Drop snow on every 16 m cell a cliff base covers. Call after the
- * perimeter seed is set. A repeat with the same layout rebuilds nothing.
+ * Adopt the elevation of a layout. Snow lies on every level; what
+ * changes per tile is the height it sits at. Any tile whose level
+ * moved is rebuilt, so a reroll does not leave snow floating over the
+ * previous layout's ground.
  */
-export function applyCliffSnowMask(): void {
-	const next  = new Uint8Array(ROOT_COUNT)
-	const cells = getCliffSnowCells()
-	let covered = 0
-	for (const c of cells) {
-		if (c.tx < 0 || c.tz < 0 || c.tx >= SNOW_TILES_X || c.tz >= SNOW_TILES_Z) continue
-		const k = c.tz * SNOW_TILES_X + c.tx
-		if (next[k] === 1) continue
-		next[k] = 1
-		covered++
+export function applyTerrainLevels(mazeSeed: number): void {
+	const map  = getTerrain(mazeSeed)
+	const next = new Uint8Array(ROOT_COUNT).fill(TERRAIN_LEVEL_MID)
+	for (let tz = 0; tz < SNOW_TILES_Z && tz < map.h; tz++) {
+		for (let tx = 0; tx < SNOW_TILES_X && tx < map.w; tx++) {
+			next[tz * SNOW_TILES_X + tx] = map.levels[tz * map.w + tx]
+		}
 	}
 	let dirty = 0
 	for (let k = 0; k < ROOT_COUNT; k++) {
-		if (next[k] === cliffMask[k]) continue
+		if (next[k] === tileLevel[k]) continue
+		// A node's height is baked into its transform when it is
+		// created, and rebuildRoot only repositions nodes whose STAGE
+		// changed. Retire this root's nodes outright so the rebuild
+		// recreates them at the new ground height instead of leaving
+		// them hanging at the old one.
+		dropRootNodes(k)
 		pendingRoots.add(k)
 		fullPassRemaining.add(k)
 		dirty++
 	}
-	cliffMask = next
+	// Coarse sheets are keyed by position and size, not by height, so a
+	// block that stays eligible across the change would keep its old
+	// base. Drop them all and let syncCoarsePlanes repack.
+	if (dirty > 0) dropAllCoarseSheets()
+	tileLevel = next
 	coarseDirty = true
 	console.log(
-		`snowRenderer: applyCliffSnowMask: ${covered} cliff cells, ${dirty} roots rebuilding`,
+		`snowRenderer: applyTerrainLevels: ${dirty} roots changed level and are rebuilding`,
 	)
+}
+
+
+// MARK: dropRootNodes
+// Retire every node of one root and forget its state, so the next
+// rebuildRoot treats it as a first build.
+function dropRootNodes(tileKey: number): void {
+	const rs = roots.get(tileKey)
+	if (rs === undefined) return
+	for (const rec of rs.nodes.values()) {
+		queueRetire(rec.entity)
+		liveNodeCount--
+	}
+	rs.nodes.clear()
+	roots.delete(tileKey)
+}
+
+
+// MARK: dropAllCoarseSheets
+// Retire every coarse sheet so syncCoarsePlanes rebuilds them at the
+// current heights. coarseCovered is deliberately left alone: it is the
+// record of which roots a sheet was covering, and syncCoarsePlanes
+// diffs against it to decide which roots must go back to fine nodes.
+// Clearing it would strand those roots with neither.
+function dropAllCoarseSheets(): void {
+	for (const rec of coarsePlanes.values()) {
+		queueRetire(rec.entity)
+		liveNodeCount--
+	}
+	coarsePlanes.clear()
+}
+
+
+// MARK: baseYForTile
+// Underside of the snow on this root: the terrain surface, lifted a
+// hair so the snow does not z-fight the cap it rests on.
+function baseYForTile(tileKey: number): number {
+	return groundYForLevel(tileLevel[tileKey]) + BOX_LIFT_M
 }
 
 
@@ -330,7 +381,6 @@ function buildDesired(
 	stages:  Uint8Array,
 ): Map<number, number> {
 	const out  = new Map<number, number>()
-	if (cliffMask[tileKey] === 1) return out
 	const base = tileKey * SNOW_TILE_CELL_COUNT
 
 	const uniform = (lx: number, lz: number, size: number): number => {
@@ -428,6 +478,7 @@ function rebuildRoot(
 	const { tx, tz } = tileCoordsFromKey(tileKey)
 	const rootX = SNOW_ORIGIN_M + tx * SNOW_TILE_M
 	const rootZ = SNOW_ORIGIN_M + tz * SNOW_TILE_M
+	const baseY = baseYForTile(tileKey)
 	const animatedIds = new Set<number>()
 
 	for (const i of changedLeaves) {
@@ -448,9 +499,9 @@ function rebuildRoot(
 				rs.nodes.delete(id)
 				liveNodeCount--
 			} else {
-				e = createBox(x, z, SNOW_CELL_M, prevH)
+				e = createBox(x, z, baseY, SNOW_CELL_M, prevH)
 			}
-			startLeafAnim(e, x, z, MELTED_LEAF_HEIGHT_M, LEAF_DROP_MS, true)
+			startLeafAnim(e, x, z, baseY, MELTED_LEAF_HEIGHT_M, LEAF_DROP_MS, true)
 			continue
 		}
 
@@ -459,11 +510,11 @@ function rebuildRoot(
 		if (live !== undefined) {
 			live.stage = newStage
 		} else {
-			const e = createBox(x, z, SNOW_CELL_M, prevH)
+			const e = createBox(x, z, baseY, SNOW_CELL_M, prevH)
 			rs.nodes.set(id, { entity: e, stage: newStage, plane: false })
 			liveNodeCount++
 		}
-		startLeafAnim(rs.nodes.get(id)!.entity, x, z, SNOW_STAGE_HEIGHT_M[newStage], durationMs, false)
+		startLeafAnim(rs.nodes.get(id)!.entity, x, z, baseY, SNOW_STAGE_HEIGHT_M[newStage], durationMs, false)
 		animatedIds.add(id)
 	}
 
@@ -488,13 +539,13 @@ function rebuildRoot(
 				liveNodeCount--
 			} else {
 				if (live.stage !== stage) {
-					setBoxPose(live.entity, x, z, sizeM, h, plane)
+					setBoxPose(live.entity, x, z, baseY, sizeM, h, plane)
 					live.stage = stage
 				}
 				continue
 			}
 		}
-		const e = createBox(x, z, sizeM, h, plane)
+		const e = createBox(x, z, baseY, sizeM, h, plane)
 		rs.nodes.set(id, { entity: e, stage, plane })
 		liveNodeCount++
 	}
@@ -636,8 +687,10 @@ function distSqToTileBlock(
 // MARK: coarseBlockEligible
 
 /**
- * True when an N×N tile block can collapse into one LOD sheet: cliff-free,
- * fully pristine, far from the player (edge clearance), and clear of melt.
+ * True when an N×N tile block can collapse into one LOD sheet: all on
+ * one terrain level, fully pristine, far from the player (edge
+ * clearance), and clear of melt. A block spanning two levels would have
+ * to pick one height and leave the other half buried or floating.
  */
 function coarseBlockEligible(
 	tx0:    number,
@@ -647,10 +700,11 @@ function coarseBlockEligible(
 	stages: Uint8Array,
 	focus:  { x: number; z: number },
 ): boolean {
+	const blockLevel = tileLevel[tz0 * SNOW_TILES_X + tx0]
 	for (let tz = tz0; tz < tz0 + tiles; tz++) {
 		for (let tx = tx0; tx < tx0 + tiles; tx++) {
 			const k = tz * SNOW_TILES_X + tx
-			if (cliffMask[k] === 1) return false
+			if (tileLevel[k] !== blockLevel) return false
 			if (!tileIsUniformPristine(k, stages)) return false
 		}
 	}
@@ -725,7 +779,9 @@ function syncCoarsePlanes(): void {
 		const sizeM = want.tiles * SNOW_TILE_M
 		const x     = SNOW_ORIGIN_M + (want.tx + want.tiles / 2) * SNOW_TILE_M
 		const z     = SNOW_ORIGIN_M + (want.tz + want.tiles / 2) * SNOW_TILE_M
-		const e     = createBox(x, z, sizeM, SNOW_STAGE_HEIGHT_M[want.stage], false)
+		// Uniform level across the block, so any member tile's base works.
+		const baseY = baseYForTile(want.tz * SNOW_TILES_X + want.tx)
+		const e     = createBox(x, z, baseY, sizeM, SNOW_STAGE_HEIGHT_M[want.stage], false)
 		coarsePlanes.set(key, {
 			tx:     want.tx,
 			tz:     want.tz,
@@ -789,7 +845,12 @@ function nodeTouchesMelt(
 
 // MARK: wantsLodPlane
 
-/** 16 m sheet only when far from the player and not near a melt lip. */
+/**
+ * 16 m sheet only when far from the player, not near a melt lip, and
+ * not on a cliff edge. A plane has no sides, so on a lip it leaves the
+ * snow looking like paper laid over bare rock from any angle that can
+ * see the drop.
+ */
 function wantsLodPlane(
 	tileKey  : number,
 	lx       : number,
@@ -800,6 +861,7 @@ function wantsLodPlane(
 	worldZ   : number,
 ): boolean {
 	if (sizeCells * SNOW_CELL_M < PLANE_MIN_M) return false
+	if (tileOnLevelBoundary(tileKey)) return false
 	const focus = readFocusXZ()
 	const dx    = worldX - focus.x
 	const dz    = worldZ - focus.z
@@ -808,11 +870,29 @@ function wantsLodPlane(
 }
 
 
+// MARK: tileOnLevelBoundary
+// True when any 4-neighbour tile sits at a different elevation, i.e.
+// this tile owns a cliff edge. Off-grid neighbours count, since the
+// playfield edge is a drop too.
+function tileOnLevelBoundary(tileKey: number): boolean {
+	const { tx, tz } = tileCoordsFromKey(tileKey)
+	const here = tileLevel[tileKey]
+	for (let i = 0; i < 4; i++) {
+		const nx = tx + (i === 0 ? 1 : i === 1 ? -1 : 0)
+		const nz = tz + (i === 2 ? 1 : i === 3 ? -1 : 0)
+		if (nx < 0 || nz < 0 || nx >= SNOW_TILES_X || nz >= SNOW_TILES_Z) return true
+		if (tileLevel[nz * SNOW_TILES_X + nx] !== here) return true
+	}
+	return false
+}
+
+
 // MARK: createBox
 
 function createBox(
 	x:       number,
 	z:       number,
+	baseY:   number,
 	size:    number,
 	heightM: number,
 	plane:   boolean = false,
@@ -820,14 +900,14 @@ function createBox(
 	const e = engine.addEntity()
 	if (plane) {
 		Transform.create(e, {
-			position: Vector3.create(x, BOX_BASE_Y + heightM, z),
+			position: Vector3.create(x, baseY + heightM, z),
 			rotation: PLANE_ROT,
 			scale   : Vector3.create(size, size, 1),
 		})
 		MeshRenderer.setPlane(e)
 	} else {
 		Transform.create(e, {
-			position: Vector3.create(x, BOX_BASE_Y + heightM / 2, z),
+			position: Vector3.create(x, baseY + heightM / 2, z),
 			scale   : Vector3.create(size, heightM, size),
 		})
 		MeshRenderer.setBox(e)
@@ -849,6 +929,7 @@ function setBoxPose(
 	e:       Entity,
 	x:       number,
 	z:       number,
+	baseY:   number,
 	size:    number,
 	heightM: number,
 	plane:   boolean = false,
@@ -859,12 +940,12 @@ function setBoxPose(
 		return
 	}
 	if (plane) {
-		tr.position = Vector3.create(x, BOX_BASE_Y + heightM, z)
+		tr.position = Vector3.create(x, baseY + heightM, z)
 		tr.rotation = PLANE_ROT
 		tr.scale    = Vector3.create(size, size, 1)
 		return
 	}
-	tr.position = Vector3.create(x, BOX_BASE_Y + heightM / 2, z)
+	tr.position = Vector3.create(x, baseY + heightM / 2, z)
 	tr.scale    = Vector3.create(size, heightM, size)
 }
 
@@ -915,6 +996,7 @@ function startLeafAnim(
 	e:           Entity,
 	x:           number,
 	z:           number,
+	baseY:       number,
 	endH:        number,
 	durationMs:  number,
 	removeAtEnd: boolean,
@@ -924,12 +1006,12 @@ function startLeafAnim(
 			engine.removeEntity(e)
 			return
 		}
-		setBoxPose(e, x, z, SNOW_CELL_M, endH)
+		setBoxPose(e, x, z, baseY, SNOW_CELL_M, endH)
 		return
 	}
 	const tr     = Transform.getOrNull(e)
 	const startH = tr ? tr.scale.y : endH
-	anims.set(e, { x, z, startH, endH, elapsedMs: 0, durationMs, removeAtEnd })
+	anims.set(e, { x, z, baseY, startH, endH, elapsedMs: 0, durationMs, removeAtEnd })
 }
 
 
@@ -948,7 +1030,7 @@ function leafAnimSystem(dt: number): void {
 			anims.delete(e)
 			continue
 		}
-		tr.position = Vector3.create(a.x, BOX_BASE_Y + h / 2, a.z)
+		tr.position = Vector3.create(a.x, a.baseY + h / 2, a.z)
 		tr.scale    = Vector3.create(SNOW_CELL_M, h, SNOW_CELL_M)
 		if (raw < 1) continue
 		anims.delete(e)
@@ -959,31 +1041,14 @@ function leafAnimSystem(dt: number): void {
 
 // MARK: buildGround
 
-/** One slab and collider under the whole playfield. Cliffs sit on top of it. */
+/**
+ * No-op since the terrain renderer owns the ground. Its hearth-level
+ * slabs are tinted melt-blue, so a melted cell reads the same as it did
+ * on the old single playfield slab.
+ */
 function buildGround(): void {
 	for (const e of groundEntities) engine.removeEntity(e)
 	groundEntities = []
-	const e     = engine.addEntity()
-	const sizeX = SNOW_TILES_X * SNOW_TILE_M
-	const sizeZ = SNOW_TILES_Z * SNOW_TILE_M
-	Transform.create(e, {
-		position: Vector3.create(
-			SNOW_ORIGIN_M + sizeX / 2,
-			SNOW_GROUND_TOP_Y - GROUND_THICKNESS_M / 2,
-			SNOW_ORIGIN_M + sizeZ / 2,
-		),
-		scale: Vector3.create(sizeX, GROUND_THICKNESS_M, sizeZ),
-	})
-	MeshRenderer.setBox(e)
-	MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
-	Material.setPbrMaterial(e, {
-		albedoColor:       GROUND_BLUE,
-		roughness:         1.0,
-		metallic:          0.0,
-		specularIntensity: 0.0,
-	})
-	groundEntities.push(e)
-	console.log(`snowRenderer: buildGround: one ${sizeX}x${sizeZ}m slab`)
 }
 
 

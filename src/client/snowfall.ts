@@ -23,9 +23,14 @@
 import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Vector3 } from '@dcl/sdk/math'
 
-import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS } from 'src/shared/settings'
+import {
+	SCENE_WORLD_SIZE_X_METERS,
+	SCENE_WORLD_SIZE_Z_METERS,
+	TERRAIN_LEVEL_MOUNTAIN,
+	groundYForLevel,
+} from 'src/shared/settings'
 
-import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
+import { hasTerrainSpawned, isTerrainReady } from 'src/client/terrain/terrainRenderer'
 import { isSnowSettled } from 'src/client/snow/snowRenderer'
 import { refreshSnowfallAudio } from 'src/client/snowfallAudio'
 
@@ -46,7 +51,8 @@ export enum PrecipitationLevel {
 // far overhead instead of just clearing the cliff line. If flakes
 // disappear mid-air, bump the per-level `lifetime` in PROFILES so
 // particles survive long enough to reach the ground from this height.
-const SPAWN_Y       = 60
+// Above the mountain band so snow falls on the whole elevation stack.
+const SPAWN_Y       = groundYForLevel(TERRAIN_LEVEL_MOUNTAIN) + 40
 // Downward drift accelerated by mild gravity. See per-level tables for
 // the level-specific overrides that make heavier snow feel weightier.
 const WIND_FORCE    = Vector3.create(0.05, 0, 0.02)
@@ -168,7 +174,7 @@ export function isSnowfallArmed(): boolean {
 function tryArmSnowfall(): void {
 	if (emissionArmed) return
 	if (!isSnowSettled()) return
-	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return
+	if (!hasTerrainSpawned() || !isTerrainReady()) return
 	emissionArmed = true
 	applyProfile(currentLevel)
 	refreshSnowfallAudio()

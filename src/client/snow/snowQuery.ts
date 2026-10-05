@@ -4,12 +4,12 @@
  */
 
 import {
-	SNOW_GROUND_TOP_Y,
 	SNOW_STAGE_HEIGHT_M,
 	SnowStage,
 	STAGE_PRISTINE,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 import { getDisplayedStage } from 'src/client/snow/snowModel'
 
@@ -35,7 +35,7 @@ export function getSnowStageAtWorld(
 	if (key === null) return STAGE_PRISTINE
 	const stage = getDisplayedStage(key)
 	if (stage === 0) return 0
-	const snowTopY = SNOW_GROUND_TOP_Y + SNOW_STAGE_HEIGHT_M[stage]
+	const snowTopY = activeGroundYAt(x, z) + SNOW_STAGE_HEIGHT_M[stage]
 	if (y > snowTopY + FOOT_ABOVE_TOP_TOLERANCE_M) return 0
 	return stage
 }

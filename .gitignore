@@ -8,6 +8,12 @@ dist/
 .env
 .env.*
 
+# Creator Hub MCP endpoint: URL and token are regenerated every app launch
+.cursor/mcp.json
+
+# Offline terrain preview output (bundle + contact sheet)
+scripts/out/
+
 # Agent skill packs (installed by tooling, not part of the scene)
 .claude/
 agent/

@@ -18,7 +18,7 @@ import { COLD_OPEN_LINE } from 'src/shared/emberFail'
 
 import { isEmberFailing } from 'src/client/emberFail'
 import { isPlayerLaidDownAtHome } from 'src/client/frost/death'
-import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
+import { hasTerrainSpawned, isTerrainReady } from 'src/client/terrain/terrainRenderer'
 import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
@@ -53,7 +53,7 @@ function isColdOpenHolding(): boolean {
 	if (isEmberFailing()) return false
 	if (!isPlayerLaidDownAtHome()) return true
 	if (!isSnowSettled()) return true
-	if (!hasPerimeterSpawned() || !arePerimeterModelsReady()) return true
+	if (!hasTerrainSpawned() || !isTerrainReady()) return true
 	return false
 }
 
@@ -94,7 +94,7 @@ function isMidGameCoverActive(): boolean {
 	if (isEmberFailing()) return false
 	if (!coldOpenReleased) return false
 	if (isSnowRebuilding()) return true
-	if (hasPerimeterSpawned() && !arePerimeterModelsReady()) return true
+	if (hasTerrainSpawned() && !isTerrainReady()) return true
 	return false
 }
 

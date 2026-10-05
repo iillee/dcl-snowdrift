@@ -24,7 +24,7 @@ import { SeedHolder, seedHolder } from 'src/shared/components'
 
 import { isRostered } from 'src/client/clientHandler'
 import { getEmberFailPhaseName, isEmberFailing } from 'src/client/emberFail'
-import { arePerimeterModelsReady, hasPerimeterSpawned } from 'src/client/perimeter'
+import { hasTerrainSpawned, isTerrainReady } from 'src/client/terrain/terrainRenderer'
 import { isSnowHydrated } from 'src/client/snow/snowModel'
 import { isSnowRebuilding, isSnowSettled, snowRenderStats } from 'src/client/snow/snowRenderer'
 import { isColdOpenReleased } from 'src/client/ui/layers/layer.loadingSplash'
@@ -41,8 +41,8 @@ const coldOpenGates: Gate[] = [
 	{ name: 'seed known',                         test: () => (SeedHolder.getOrNull(seedHolder)?.seed ?? 0) !== 0, firedAtMs: null },
 	{ name: 'snow first pass built',              test: () => !isSnowRebuilding(),                          firedAtMs: null },
 	{ name: 'snow CRDT hydrated',                 test: isSnowHydrated,                                     firedAtMs: null },
-	{ name: 'cliffs spawned',                     test: hasPerimeterSpawned,                                firedAtMs: null },
-	{ name: 'cliff GLBs loaded',                  test: arePerimeterModelsReady,                            firedAtMs: null },
+	{ name: 'terrain spawned',                    test: hasTerrainSpawned,                                  firedAtMs: null },
+	{ name: 'terrain ready',                      test: isTerrainReady,                                     firedAtMs: null },
 	{ name: 'snow settled (first full pass)',     test: isSnowSettled,                                      firedAtMs: null },
 	{ name: 'splash released',                    test: isColdOpenReleased,                                 firedAtMs: null },
 ]
@@ -54,7 +54,7 @@ let failStartMs      = 0
 let lastFailPhase    = 'IDLE'
 let failSawRebuild   = false
 let failRebuildEnded = false
-let failCliffsReady  = true
+let failTerrainReady  = true
 
 
 // MARK: sinceStart
@@ -141,7 +141,7 @@ function tickEmberFail(nowMs: number): void {
 			failStartMs      = nowMs
 			failSawRebuild   = false
 			failRebuildEnded = false
-			failCliffsReady  = arePerimeterModelsReady()
+			failTerrainReady  = isTerrainReady()
 			logProgress('ember fail START', nowMs)
 		}
 		const rel = nowMs - failStartMs
@@ -160,10 +160,10 @@ function tickEmberFail(nowMs: number): void {
 		failRebuildEnded = true
 		logProgress(`ember fail: snow rebuild finished at +${rel}ms`, nowMs)
 	}
-	const cliffsReady = hasPerimeterSpawned() && arePerimeterModelsReady()
-	if (cliffsReady !== failCliffsReady) {
-		failCliffsReady = cliffsReady
-		logProgress(`ember fail: cliffs ${cliffsReady ? 'ready' : 'reloading'} at +${rel}ms`, nowMs)
+	const terrainReady = hasTerrainSpawned() && isTerrainReady()
+	if (terrainReady !== failTerrainReady) {
+		failTerrainReady = terrainReady
+		logProgress(`ember fail: terrain ${terrainReady ? 'ready' : 'reloading'} at +${rel}ms`, nowMs)
 	}
 }
 

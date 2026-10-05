@@ -10,7 +10,13 @@
  * never lose their melted (blue) color (server).
  */
 
-import { MAZE_GRID_HEIGHT, MAZE_GRID_WIDTH, MAZE_ORIGIN_OFFSET_METERS, MAZE_TILE_WORLD_METERS } from 'src/shared/settings'
+import {
+	MAZE_GRID_HEIGHT,
+	MAZE_GRID_WIDTH,
+	MAZE_ORIGIN_OFFSET_METERS,
+	MAZE_TILE_WORLD_METERS,
+	TERRAIN_HEARTH_SURFACE_Y,
+} from 'src/shared/settings'
 
 
 // MARK: Placement
@@ -18,8 +24,8 @@ import { MAZE_GRID_HEIGHT, MAZE_GRID_WIDTH, MAZE_ORIGIN_OFFSET_METERS, MAZE_TILE
 export const CAMPFIRE_WORLD_X = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_WIDTH  * MAZE_TILE_WORLD_METERS) / 2
 /** Campfire world position (Z). Geometric centre of the playfield. */
 export const CAMPFIRE_WORLD_Z = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_HEIGHT * MAZE_TILE_WORLD_METERS) / 2
-/** Campfire visual base height. */
-export const CAMPFIRE_WORLD_Y = 0.25
+/** Campfire visual base height. Sits on the hearth level. */
+export const CAMPFIRE_WORLD_Y = TERRAIN_HEARTH_SURFACE_Y
 
 
 // MARK: Heat radius

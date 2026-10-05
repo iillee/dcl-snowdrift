@@ -50,7 +50,7 @@ import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
 } from 'src/client/hearthBillboard'
 import { getHearthPlayerCount, getHiddenFireFuel, getHiddenFireMeltRadius } from 'src/client/hearthFuel'
-import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { isTorchLit }                    from 'src/client/torchEquip'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
 import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
@@ -554,7 +554,7 @@ function handleCycleSeedChange(newSeed: number): void {
 	currentSeed = newSeed
 	const positions = getHiddenCampfireWorldPositionsForSeed(
 		newSeed,
-		reservedCellsForMazeSeed(cycleMazeSeed(newSeed)),
+		offHearthCellsForMazeSeed(cycleMazeSeed(newSeed)),
 	)
 	console.log(
 		`hiddenCampfire: cycle roll old=${oldSeed} → new=${newSeed} — ` +
@@ -583,7 +583,7 @@ function handleCycleSeedChange(newSeed: number): void {
 export function setupHiddenCampfire(): void {
 	const bootSeed  = getHiddenCampfireSeed()
 	const positions = getHiddenCampfireWorldPositions(
-		reservedCellsForMazeSeed(cycleMazeSeed(bootSeed)),
+		offHearthCellsForMazeSeed(cycleMazeSeed(bootSeed)),
 	)
 	currentSeed = bootSeed
 	console.log(`hiddenCampfire: setupHiddenCampfire: seed=${currentSeed} count=${HIDDEN_CAMPFIRE_COUNT}`)

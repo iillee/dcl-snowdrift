@@ -46,7 +46,7 @@ import {
 import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
-import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
@@ -98,7 +98,7 @@ export function onHiddenFireRelit(handler: () => void): void {
 function recomputePositions(): void {
 	const spots = pickHiddenCampfires(
 		currentSeed,
-		reservedCellsForMazeSeed(cycleMazeSeed(currentSeed)),
+		offHearthCellsForMazeSeed(cycleMazeSeed(currentSeed)),
 	)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		const spot = spots[i]

@@ -17,7 +17,7 @@
 import { Entity, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 import { getMainFireSmokeDensity, getMainFireSmokeHeight, getMainFireTier } from 'src/client/hearthFuel'
 
@@ -25,7 +25,7 @@ import { getMainFireSmokeDensity, getMainFireSmokeHeight, getMainFireTier } from
 // MARK: Tuning
 // Emit from just above the flame tip so smoke reads as rising from the
 // fire, not from the log pile.
-const SMOKE_ORIGIN_Y  = 1.4
+const SMOKE_ORIGIN_Y  = CAMPFIRE_WORLD_Y + 1.15
 // Cone tuning: narrow half-angle → tight column that widens with age
 // as sizeOverTime + wind spread the particles.
 const CONE_ANGLE_DEG  = 12

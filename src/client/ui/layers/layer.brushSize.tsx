@@ -186,7 +186,7 @@ function forceSnuffFires(): void {
 /**
  * Roll a fresh maze seed and publish it via SeedHolder. The synced
  * seed change trips the watcher in src/client/index.ts, which calls
- * setupPerimeter() and setupProps(). clearProps() flips setupProps'
+ * setupTerrain() and setupProps(). clearProps() flips setupProps'
  * idempotency latch so scattered decorations (trees, huts...) also
  * reroll with the new seed instead of persisting from the old layout.
  *

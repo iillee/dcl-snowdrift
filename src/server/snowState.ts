@@ -18,8 +18,12 @@ import {
 	forEachCellInDisc,
 	isCellKeyValid,
 	snowByteFromStage,
+	tileCoordsFromKey,
+	tileKeyOfCell,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
+import { activeTerrain } from 'src/shared/terrain/terrainCache'
+import { levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 
 import { noteComponentChange } from 'src/server/serverStats'
 import { publishSnowCoverage, writeSnowByte, zeroAllSnowTiles } from 'src/server/snowSync'
@@ -118,11 +122,29 @@ export function meltDisc(
 	radiusM: number,
 ): number {
 	let changed = 0
+	const map   = activeTerrain()
+	// A fire warms the ground it stands on, not the plateau 16 m above
+	// it that happens to fall inside the same 2D disc.
+	const fireLevel = map === null ? -1 : levelAtWorld(map, cx, cz)
 	forEachCellInDisc(cx, cz, radiusM, (key) => {
+		if (map !== null && levelOfCell(map, key) !== fireLevel) return
 		protectedCells.add(key)
 		if (applyMelt(key, 0)) changed++
 	})
 	return changed
+}
+
+
+// MARK: levelOfCell
+// Terrain level under a snow cell. A snow tile and a terrain cell are
+// both 16 m, so one tile lookup answers for every cell inside it.
+function levelOfCell(
+	map: TerrainMap,
+	key: number,
+): number {
+	const { tx, tz } = tileCoordsFromKey(tileKeyOfCell(key))
+	if (tx < 0 || tz < 0 || tx >= map.w || tz >= map.h) return -1
+	return map.levels[tz * map.w + tx]
 }
 
 

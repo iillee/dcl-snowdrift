@@ -38,7 +38,7 @@ import {
 	WOOD_OUTER_ACTIVE,
 } from 'src/shared/woodScatter'
 
-import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { getStageAtWorld } from 'src/server/snowState'
 
@@ -74,7 +74,7 @@ function shuffleTake(
  */
 function rebuildScatter(seed: number): void {
 	currentSeed = seed
-	const reserved = reservedCellsForMazeSeed(cycleMazeSeed(seed))
+	const reserved = offHearthCellsForMazeSeed(cycleMazeSeed(seed))
 	scatter     = computeWoodScatter(seed, reserved)
 	active.clear()
 

@@ -17,6 +17,7 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 import { scatterProps } from 'src/shared/props/scatter'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 import { WOOD_LOGS_PER_TREE } from 'src/shared/woodScatter'
 
 
@@ -54,8 +55,11 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 			continue
 		}
 		const e = engine.addEntity()
+		// scatterProps leaves worldY as the prop's own offset; the
+		// terrain surface under the prop is ours to add.
+		const groundY = activeGroundYAt(p.worldX, p.worldZ)
 		Transform.create(e, {
-			position: Vector3.create(p.worldX, p.worldY, p.worldZ),
+			position: Vector3.create(p.worldX, groundY + p.worldY, p.worldZ),
 			rotation: Quaternion.fromEulerDegrees(0, p.yawDeg, 0),
 			scale   : Vector3.create(p.scale, p.scale, p.scale),
 		})

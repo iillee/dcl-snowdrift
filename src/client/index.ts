@@ -27,6 +27,7 @@ import {
 	SeedHolder,
 	seedHolder,
 } from 'src/shared/components'
+import { offHearthCellsForMazeSeed, setActiveTerrain } from 'src/shared/terrain/terrainCache'
 import { SEED_NETWORK_ID } from 'src/shared/networkIds'
 
 import { initAudio } from 'src/client/audio'
@@ -58,13 +59,9 @@ import { setupHearthFuelClient } from 'src/client/hearthFuel'
 import { setupHearthBillboard }  from 'src/client/hearthBillboard'
 import { setupHiddenCampfire } from 'src/client/hiddenCampfire'
 import { setupSnowFootsteps } from 'src/client/snowFootsteps'
-import { applyCliffSnowMask } from 'src/client/snow/snowRenderer'
+import { applyTerrainLevels } from 'src/client/snow/snowRenderer'
 import { setupSnowfall } from 'src/client/snowfall'
-import {
-	getCliffSnowCells,
-	setPerimeterSeed,
-	setupPerimeter,
-} from 'src/client/perimeter'
+import { setTerrainSeed, setupTerrain } from 'src/client/terrain/terrainRenderer'
 import { clearProps, setupProps } from 'src/client/props/spawn'
 import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
@@ -93,25 +90,30 @@ engine.addSystem(() => {
   const s = SeedHolder.get(seedHolder).seed
   if (s !== 0 && s !== currentSeed) {
     currentSeed = s
-    // Perimeter cliffs share the seed too, so every reroll produces a
-    // fresh skyline. Set the seed FIRST — getCliffSnowCells and
-    // setupPerimeter() both read it. Spawn immediately so the splash can
-    // wait on the cliff GLBs instead of dropping onto an empty horizon.
-    // Snow leaves a hole where each cliff base sits. The mask has to
-    // follow this seed or the old holes stay after a reroll.
-    setPerimeterSeed(s)
-    setupPerimeter()
-    applyCliffSnowMask()
-    const reservedTiles = getCliffSnowCells()
-    // Props scatter avoids the cliff footprint so trees / huts / etc
-    // never land on perimeter cliffs. They follow the seed like the
-    // cliffs do, so clear them first: a world death or a late server
-    // seed would otherwise leave props placed for the old layout.
-    const reserved = new Set<string>(
-      reservedTiles.map(c => `${c.tx},${c.tz},0`)
-    )
+    // SeedHolder already carries cycleMazeSeed(cycleSeed) — src/client/cycle.ts
+    // mixes it before publishing. Mixing again here would give the terrain a
+    // layout id nobody else shares: wood, hidden fires and the server all
+    // derive theirs from cycleMazeSeed(cycleSeed), which is exactly this value.
+    const layoutSeed = s
+    // Publish the layout before anything reads ground heights from it:
+    // props, the melt brush and footsteps all ask the active map what
+    // the surface under them is.
+    setActiveTerrain(layoutSeed)
+    // Set the seed FIRST: setupTerrain and the snow mask both read it.
+    // Spawn immediately so the splash waits on real geometry instead of
+    // dropping onto an empty horizon.
+    setTerrainSeed(layoutSeed)
+    setupTerrain()
+    // Snow sits on every level, so it has to follow this seed or tiles
+    // keep the previous layout's heights after a reroll.
+    applyTerrainLevels(layoutSeed)
+    // Props avoid everything off the hearth level. They follow the seed
+    // like the terrain does, so clear them first: a world death or a
+    // late server seed would otherwise leave props for the old layout.
     clearProps()
-    setupProps(s, reserved)
+    // Seed and reserved set both have to match computeWoodScatter's
+    // treeSitesFromProps call, or the trunks stand where the chop never looks.
+    setupProps(layoutSeed, offHearthCellsForMazeSeed(layoutSeed))
   }
 })
 

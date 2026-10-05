@@ -156,6 +156,49 @@ export function isInsidePlayfield(x: number, z: number): boolean {
 }
 
 
+// MARK: Terrain
+// Elevation grid shared by client and server. See design/terrain-plan.md.
+
+/** Edge length of one terrain cell in meters (one snow tile). */
+export const TERRAIN_CELL_M = MAZE_TILE_WORLD_METERS
+
+/** Terrain grid width (X) in cells. Matches the snow tile grid. */
+export const TERRAIN_GRID_W = MAZE_GRID_WIDTH
+
+/** Terrain grid height (Z) in cells. Matches the snow tile grid. */
+export const TERRAIN_GRID_H = MAZE_GRID_HEIGHT
+
+/** Vertical distance between terrain levels. Too tall to jump. */
+export const TERRAIN_LEVEL_STEP_M = 16
+
+/** Walkable surface height of level 0, matching the old flat ground. */
+export const TERRAIN_BASE_SURFACE_Y = 0.25
+
+/** Lowest walkable level (basins, canyons). */
+export const TERRAIN_LEVEL_LOW      = 0
+/** Hearth level. One level above, one below. */
+export const TERRAIN_LEVEL_MID      = 1
+/** Highest walkable level (plateaus, ridges). */
+export const TERRAIN_LEVEL_HIGH     = 2
+/** Impassable mountain band. No ladders reach it. */
+export const TERRAIN_LEVEL_MOUNTAIN = 3
+
+
+// MARK: groundYForLevel
+/**
+ * Walkable surface height of a terrain level. Lives here rather than in
+ * terrain/ so snowGrid and other low-level modules can read it without
+ * depending on the terrain map.
+ */
+export function groundYForLevel(level: number): number {
+	return TERRAIN_BASE_SURFACE_Y + level * TERRAIN_LEVEL_STEP_M
+}
+
+
+/** Walkable surface height of the hearth level. The scene's default ground. */
+export const TERRAIN_HEARTH_SURFACE_Y = groundYForLevel(TERRAIN_LEVEL_MID)
+
+
 // MARK: Paint (derived from performance knobs + maze tile size)
 
 /** World-space edge length of one paint cell (meters). */

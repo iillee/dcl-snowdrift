@@ -16,9 +16,9 @@ import { Vector3 } from '@dcl/sdk/math'
 import { PAINT_BRUSH_LEAD_METERS } from 'src/shared/settings'
 import {
 	SNOW_CELL_M,
-	SNOW_GROUND_TOP_Y,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
+import { activeGroundYAt, activeLevelAt } from 'src/shared/terrain/terrainCache'
 
 import { getBrushCells } from 'src/client/brush'
 import { getDisplayedStage, setOptimisticStage } from 'src/client/snow/snowModel'
@@ -52,18 +52,24 @@ function snowBrushSystem(): void {
 	if (t === null) return
 
 	const { x, y, z } = t.position
-	if (y - SNOW_GROUND_TOP_Y > GROUND_TOLERANCE_M) return
+	if (y - activeGroundYAt(x, z) > GROUND_TOLERANCE_M) return
 
 	const fwd         = Vector3.rotate(Vector3.Forward(), t.rotation)
 	const sx          = x + fwd.x * PAINT_BRUSH_LEAD_METERS
 	const sz          = z + fwd.z * PAINT_BRUSH_LEAD_METERS
 	const half        = Math.floor(brushCells / 2)
 	const targetStage = isTorchLit() ? 0 : 1
+	// The brush leads the player and is wider than one cell, so near a
+	// lip it reaches over the edge. Only paint the level we stand on.
+	const footLevel   = activeLevelAt(x, z)
 
 	for (let dz = -half; dz <= half; dz++) {
 		for (let dx = -half; dx <= half; dx++) {
-			const key = worldToCellKey(sx + dx * SNOW_CELL_M, sz + dz * SNOW_CELL_M)
+			const cellX = sx + dx * SNOW_CELL_M
+			const cellZ = sz + dz * SNOW_CELL_M
+			const key = worldToCellKey(cellX, cellZ)
 			if (key === null) continue
+			if (activeLevelAt(cellX, cellZ) !== footLevel) continue
 			if (targetStage === 0) {
 				meltOutbox.add(key)
 				setOptimisticStage(key, 0)

@@ -22,7 +22,7 @@ import {
 import { room } from 'src/shared/messages'
 
 import { onCycleSeedChange } from 'src/client/cycle'
-import { arePerimeterModelsReady, getPerimeterGeneration, hasPerimeterSpawned } from 'src/client/perimeter'
+import { getTerrainGeneration, hasTerrainSpawned, isTerrainReady } from 'src/client/terrain/terrainRenderer'
 import { isSnowRebuilding, snowRenderStats } from 'src/client/snow/snowRenderer'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
@@ -50,7 +50,7 @@ let worldOpacity = 0
 let textOpacity  = 0
 let daysLived       = 0
 let rebuilt         = false
-let perimGenAtFail  = 0
+let terrainGenAtFail  = 0
 let installed       = false
 
 /** If the new world never reports ready, do not pin the cards forever. */
@@ -111,9 +111,9 @@ export function isEmberFailing(): boolean {
  */
 function isNewWorldReady(): boolean {
 	if (!rebuilt) return false
-	if (getPerimeterGeneration() <= perimGenAtFail) return false
-	if (!hasPerimeterSpawned()) return false
-	if (!arePerimeterModelsReady()) return false
+	if (getTerrainGeneration() <= terrainGenAtFail) return false
+	if (!hasTerrainSpawned()) return false
+	if (!isTerrainReady()) return false
 	if (isSnowRebuilding()) return false
 	if (snowRenderStats().pendingRoots > 0) return false
 	return true
@@ -162,7 +162,7 @@ function beginFail(days: number): void {
 	textOpacity  = 0
 	daysLived      = days
 	rebuilt        = false
-	perimGenAtFail = getPerimeterGeneration()
+	terrainGenAtFail = getTerrainGeneration()
 	lockPlayer()
 }
 

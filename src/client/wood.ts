@@ -44,7 +44,7 @@ import {
 
 import { hasLogs, pickupLogs } from 'src/client/logsInventory'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
-import { reservedCellsForMazeSeed } from 'src/client/perimeter'
+import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { onPropTreesSpawned, syncTreeScales } from 'src/client/props/spawn'
 import { getDisplayedStage } from 'src/client/snow/snowModel'
 import { attachWoodModel } from 'src/client/woodVisual'
@@ -88,6 +88,8 @@ let currentSeed         = 0
 let scatter             : WoodChunk[] = []
 let treeSites           : WoodTreeSite[] = []
 const activeIdx         = new Set<number>()
+/** False until the server's first woodActiveSet lands. */
+let hasActiveSet        = false
 const chunkEntities     = new Map<number, ChunkRec>()
 /** Idx -> Date.now() when the local player grabbed it. Reveal must
  *  not put the GLB back while this is set, or the head pop plays over
@@ -115,6 +117,7 @@ export function setupWoodClient(): void {
 	room.onMessage('woodActiveSet', ({ seed, indices }) => {
 		rebuildForSeed(seed)
 		activeIdx.clear()
+		hasActiveSet = true
 		for (const idx of indices) activeIdx.add(idx)
 		// A full set can arrive while our own pickup is still in flight
 		// (join hydration). Drop claims the server has already removed,
@@ -169,6 +172,13 @@ export function setupWoodClient(): void {
 
 /** Shrink each tree to the share of its four logs that are still there. */
 function syncTreeWoodScale(): void {
+	// Before the first woodActiveSet every chunk reads as taken, which
+	// would scale all six trees to zero and silently empty the map.
+	// Trees spawn at full size and wait for the real counts.
+	if (!hasActiveSet) {
+		console.log('wood: syncTreeWoodScale: no woodActiveSet yet, leaving trees at full scale')
+		return
+	}
 	const remaining: number[] = []
 	for (const c of scatter) {
 		if (c.treeIndex === undefined) continue
@@ -183,7 +193,7 @@ function syncTreeWoodScale(): void {
 function rebuildForSeed(seed: number): void {
 	if (cycleSeedsEqual(seed, currentSeed) && scatter.length > 0) return
 	currentSeed = seed
-	const reserved = reservedCellsForMazeSeed(cycleMazeSeed(seed))
+	const reserved = offHearthCellsForMazeSeed(cycleMazeSeed(seed))
 	scatter        = computeWoodScatter(seed, reserved)
 	treeSites      = treeSitesFromProps(cycleMazeSeed(seed), reserved)
 	console.log(`wood: rebuildForSeed seed=${seed} count=${scatter.length}`)

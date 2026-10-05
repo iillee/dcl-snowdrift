@@ -7,6 +7,7 @@
  */
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { TERRAIN_HEARTH_SURFACE_Y } from 'src/shared/settings'
 
 
 // MARK: Hearth drop slot
@@ -24,7 +25,7 @@ export const INITIAL_LOGS_PILE_Z = CAMPFIRE_WORLD_Z + -2.5
  * (if we ever add position sync via CRDT) matches what the client
  * would spawn locally.
  */
-export const LOGS_PILE_WORLD_Y = 0.25
+export const LOGS_PILE_WORLD_Y = TERRAIN_HEARTH_SURFACE_Y
 
 
 // MARK: Pickup radius

@@ -17,6 +17,7 @@ import {
 	MAZE_ORIGIN_OFFSET_METERS,
 	PAINT_CELL_SIZE_METERS,
 	PAINT_CELLS_PER_TILE_AXIS,
+	TERRAIN_HEARTH_SURFACE_Y,
 } from 'src/shared/settings'
 
 
@@ -38,11 +39,11 @@ export const SNOW_CELLS_X         = SNOW_TILES_X * SNOW_TILE_CELLS
 export const SNOW_CELLS_Z         = SNOW_TILES_Z * SNOW_TILE_CELLS
 /** World coord of the playfield's SW corner (both axes). */
 export const SNOW_ORIGIN_M        = MAZE_ORIGIN_OFFSET_METERS
-/** World Y of the walkable ground surface (top of the ground slab).
- *  Matches CAMPFIRE_WORLD_Y / LOGS_PILE_WORLD_Y so props sit on the slab,
- *  not inside it. Player.y on the old tile collider read ~0.5 because the
- *  avatar origin is above the visual floor. */
-export const SNOW_GROUND_TOP_Y    = 0.25
+/** World Y of the walkable ground surface on the hearth level.
+ *  Matches CAMPFIRE_WORLD_Y / LOGS_PILE_WORLD_Y so props sit on the
+ *  terrain, not inside it. Snow only exists on this level until the
+ *  renderer becomes elevation-aware. */
+export const SNOW_GROUND_TOP_Y    = TERRAIN_HEARTH_SURFACE_Y
 
 
 // MARK: Stages

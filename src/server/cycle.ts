@@ -26,9 +26,10 @@
  * register the paint clear BEFORE ring reseeds if you add a new one.
  */
 
-import { clampCycleSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
+import { clampCycleSeed, cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
+import { setActiveTerrain } from 'src/shared/terrain/terrainCache'
 
 
 // MARK: State
@@ -131,6 +132,9 @@ export function rollCycle(opts?: { newSeed?: number }): void {
 		currentSeed = freshSeed(oldSeed)
 	}
 	if (cycleSeedsEqual(currentSeed, oldSeed)) currentSeed = freshSeed(oldSeed)
+	// Before any handler runs: wood, hidden fires and the melt discs all
+	// ask the active map which level a cell is on.
+	setActiveTerrain(cycleMazeSeed(currentSeed))
 	currentNextRebuild = nextRebuildEpochMs()
 	rollCount++
 	console.log(
@@ -158,6 +162,7 @@ export function rollCycle(opts?: { newSeed?: number }): void {
  */
 export function setupCycleServer(): void {
 	currentSeed        = freshSeed(0)
+	setActiveTerrain(cycleMazeSeed(currentSeed))
 	currentNextRebuild = nextRebuildEpochMs()
 	console.log(
 		`[Server] cycle: seed=${currentSeed} ` +

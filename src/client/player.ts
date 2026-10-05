@@ -13,13 +13,14 @@ import { engine } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { TERRAIN_HEARTH_SURFACE_Y } from 'src/shared/settings'
 
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
 // Dawn pad just off the hearth centre. Look stays on the playtest sunrise heading.
 const SPAWN_X = CAMPFIRE_WORLD_X + 2.1
-const SPAWN_Y = 0.5
+const SPAWN_Y = TERRAIN_HEARTH_SURFACE_Y + 0.25
 const SPAWN_Z = CAMPFIRE_WORLD_Z + 2.1
 /** Compass degrees from +Z (north), clockwise. 232.5 = SW of WSW. */
 const LOOK_SUNRISE_DEG = 232.5
@@ -88,10 +89,11 @@ export function teleportNear(
 		console.log('player: teleportNear: leaving spectator so the arrival look can land')
 		toggleTopDownCamera()
 	}
+	const lookY = TERRAIN_HEARTH_SURFACE_Y + 1.2
 	movePlayerTo({
 		newRelativePosition: { x, y: SPAWN_Y, z },
-		cameraTarget       : { x: lookX, y: 1.2, z: lookZ },
-		avatarTarget       : { x: lookX, y: 1.2, z: lookZ },
+		cameraTarget       : { x: lookX, y: lookY, z: lookZ },
+		avatarTarget       : { x: lookX, y: lookY, z: lookZ },
 	}).catch(() => {})
 }
 
