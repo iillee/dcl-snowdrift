@@ -18,6 +18,7 @@
 import { engine } from '@dcl/sdk/ecs'
 
 import {
+	FUEL_HIDDEN_INITIAL,
 	FUEL_MAIN_INITIAL,
 	hearthFlameScaleFromFuel,
 	hearthRadiusFromFuel,
@@ -126,8 +127,30 @@ export function requestFeedFire(
  * stays lit. This only passes the flame to the hearth.
  */
 export function requestHearthSpark(): void {
+	// Optimistic Ember so the spawn hearth lights this frame; server
+	// hearthFuelUpdate confirms (or overwrites) on the round trip.
+	if (currentFuel <= 0) {
+		currentFuel = FUEL_HIDDEN_INITIAL
+		targetFuel  = FUEL_HIDDEN_INITIAL
+	}
 	room.send('hearthSparkRequest', {})
 	console.log('hearthFuel: requestHearthSpark: passing the torch flame to the dead hearth')
+}
+
+
+// MARK: seedHiddenFireFuel
+/**
+ * Snap a hidden fire's local fuel (e.g. optimistic ignite). Server
+ * hiddenHearthFuelUpdate overwrites on arrival.
+ */
+export function seedHiddenFireFuel(
+	index: number,
+	fuel : number,
+): void {
+	if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+	const v = fuel < 0 ? 0 : fuel
+	hiddenCurrent[index] = v
+	hiddenTarget[index]  = v
 }
 
 

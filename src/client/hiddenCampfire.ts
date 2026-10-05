@@ -45,16 +45,30 @@ import { playSurgeSfxAt } from 'src/client/audio'
 import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { createFlameRig, FlameRig } from 'src/client/flameBillboards'
-import { hearthLightParams, syncPointLight } from 'src/client/fireLight'
+import {
+	hearthLightParams, LitFirePos, nearestLitFireIndex, syncPointLight,
+} from 'src/client/fireLight'
 import {
 	BillboardHandle, destroyHearthBillboard, spawnHearthBillboard,
 } from 'src/client/hearthBillboard'
-import { getHearthPlayerCount, getHiddenFireFuel, getHiddenFireMeltRadius } from 'src/client/hearthFuel'
-import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
+import {
+	getHearthPlayerCount,
+	getHiddenFireFuel,
+	getHiddenFireMeltRadius,
+	getMainFireFuel,
+	seedHiddenFireFuel,
+} from 'src/client/hearthFuel'
 import { isTorchLit }                    from 'src/client/torchEquip'
-import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_Y } from 'src/shared/campfire'
-import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
-import { hearthFlameScaleFromFuel, hearthSmokeDensityFromFuel, hearthSmokeHeightFromFuel, hearthTierFromFuel, hearthVolumeFromFuel } from 'src/shared/hearthFuel'
+import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
+import {
+	FUEL_HIDDEN_INITIAL,
+	hearthFlameScaleFromFuel,
+	hearthSmokeDensityFromFuel,
+	hearthSmokeHeightFromFuel,
+	hearthTierFromFuel,
+	hearthVolumeFromFuel,
+} from 'src/shared/hearthFuel'
 import {
 	getHiddenCampfireSeed,
 	getHiddenCampfireWorldPositions,
@@ -117,6 +131,7 @@ const beaconInnerEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).f
 const beaconOuterEntity : (Entity | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const billboardHandle   : (BillboardHandle | null)[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
 const worldX            : number[]          = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+const worldY            : number[]          = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const worldZ            : number[]          = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const litLocal          : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
 // Debounce: don't spam ignite requests while the player stands inside a
@@ -132,7 +147,7 @@ function spawnUnlitPit(index: number): void {
 	const e = engine.addEntity()
 	firePitEntity[index] = e
 	Transform.create(e, {
-		position: Vector3.create(worldX[index], CAMPFIRE_WORLD_Y, worldZ[index]),
+		position: Vector3.create(worldX[index], worldY[index], worldZ[index]),
 	})
 	GltfContainer.create(e, { src: CAMPFIRE_BASE_MODEL })
 
@@ -154,7 +169,7 @@ function spawnLocatorBeacon(index: number): void {
 	const gradient = Material.Texture.Common({ src: BEACON_GRADIENT_TEX })
 	const alpha    = Material.Texture.Common({ src: BEACON_ALPHA_TEX })
 	const c        = BEACON_COLOR
-	const yCentre  = CAMPFIRE_WORLD_Y + BEACON_Y_OFFSET_M + BEACON_HEIGHT_M / 2
+	const yCentre  = worldY[index] + BEACON_Y_OFFSET_M + BEACON_HEIGHT_M / 2
 
 	const inner = engine.addEntity()
 	beaconInnerEntity[index] = inner
@@ -283,16 +298,20 @@ function applyLitVisuals(index: number): void {
 	// Ignition surge: 3D-positional whoosh at the pit so nearby players
 	// hear the fire come to life. Fires on the unlit -> lit transition
 	// only (litLocal early-out above guarantees idempotency).
-	playSurgeSfxAt(Vector3.create(worldX[index], CAMPFIRE_WORLD_Y, worldZ[index]))
+	playSurgeSfxAt(Vector3.create(worldX[index], worldY[index], worldZ[index]))
 	if (firePitEntity[index] === null) spawnUnlitPit(index)
 	const pit = firePitEntity[index]!
+
+	// Floor to Ember spark if the fuel packet has not landed yet — otherwise
+	// flame.setScale(0) leaves a blank pit until the next fuel tick.
+	const fuel = Math.max(getHiddenFireFuel(index), FUEL_HIDDEN_INITIAL)
 
 	// Same orange card rig as the main hearth. Parenting keeps it on
 	// the pit; dispose() tears cards + spots when the fire snuffs.
 	if (flameRig[index] === null) {
 		const flame = createFlameRig(pit)
 		flameRig[index] = flame
-		flame.setScale(hearthFlameScaleFromFuel(getHiddenFireFuel(index)))
+		flame.setScale(hearthFlameScaleFromFuel(fuel))
 	}
 
 	if (lightEntity[index] === null) {
@@ -302,7 +321,7 @@ function applyLitVisuals(index: number): void {
 			position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
 			parent  : pit,
 		})
-		syncPointLight(light, hearthLightParams(getHiddenFireFuel(index)))
+		syncPointLight(light, hearthLightParams(fuel))
 	}
 
 	// Match src/client/campfire.ts's proven `create` (not `createOrReplace`)
@@ -315,14 +334,14 @@ function applyLitVisuals(index: number): void {
 		loop        : true,
 		playing     : true,
 		global      : false,
-		volume      : CAMPFIRE_VOLUME * hearthVolumeFromFuel(getHiddenFireFuel(index)),
+		volume      : CAMPFIRE_VOLUME * hearthVolumeFromFuel(fuel),
 	})
 
 	if (smokeEntity[index] === null) {
 		const smoke = engine.addEntity()
 		smokeEntity[index] = smoke
 		Transform.create(smoke, {
-			position: Vector3.create(worldX[index], CAMPFIRE_WORLD_Y + SMOKE_ORIGIN_Y_OFFSET, worldZ[index]),
+			position: Vector3.create(worldX[index], worldY[index] + SMOKE_ORIGIN_Y_OFFSET, worldZ[index]),
 			rotation: Quaternion.Identity(),
 		})
 		ParticleSystem.create(smoke, {
@@ -353,8 +372,8 @@ function applyLitVisuals(index: number): void {
 		})
 		applyHearthSmoke(
 			smoke,
-			hearthSmokeHeightFromFuel(getHiddenFireFuel(index)),
-			hearthSmokeDensityFromFuel(getHiddenFireFuel(index)),
+			hearthSmokeHeightFromFuel(fuel),
+			hearthSmokeDensityFromFuel(fuel),
 		)
 	}
 
@@ -367,7 +386,7 @@ function applyLitVisuals(index: number): void {
 	// applyUnlitVisuals when the fire snuffs.
 	if (billboardHandle[index] === null) {
 		billboardHandle[index] = spawnHearthBillboard(
-			worldX[index], CAMPFIRE_WORLD_Y, worldZ[index],
+			worldX[index], worldY[index], worldZ[index],
 			() => getHiddenFireFuel(index),
 			getHearthPlayerCount,
 		)
@@ -375,7 +394,7 @@ function applyLitVisuals(index: number): void {
 
 	console.log(
 		`hiddenCampfire[${index}]: lit (seed=${currentSeed}) at ` +
-		`(${worldX[index].toFixed(1)}, ${worldZ[index].toFixed(1)})`,
+		`(${worldX[index].toFixed(1)}, ${worldY[index].toFixed(1)}, ${worldZ[index].toFixed(1)})`,
 	)
 }
 
@@ -436,6 +455,10 @@ export function requestHiddenIgnite(): void {
 		`(${HIDDEN_IGNITE_RADIUS_M} m) with lit torch — requesting ignition ` +
 		`from server (seed=${currentSeed})`,
 	)
+	// Optimistic light this frame — server broadcast is idempotent and
+	// confirms for everyone else after the round trip.
+	seedHiddenFireFuel(index, FUEL_HIDDEN_INITIAL)
+	applyLitVisuals(index)
 	room.send('hiddenCampfireIgnite', { seed: currentSeed, index })
 }
 
@@ -471,6 +494,29 @@ export function isHiddenCampfireLit(): boolean {
 		if (litLocal[i]) return true
 	}
 	return false
+}
+
+
+// MARK: collectLitCampfirePositions
+/**
+ * Main hearth at index 0, then each hidden slot. Null when that fire
+ * is dark. Closest gets three shadow spots; every other lit entry
+ * keeps one radial fill point light for distance visibility.
+ */
+export function collectLitCampfirePositions(): LitFirePos[] {
+	const out: LitFirePos[] = [
+		getMainFireFuel() > 0
+			? { x: CAMPFIRE_WORLD_X, z: CAMPFIRE_WORLD_Z }
+			: null,
+	]
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		out.push(
+			litLocal[i] && getHiddenFireFuel(i) > 0
+				? { x: worldX[i], z: worldZ[i] }
+				: null,
+		)
+	}
+	return out
 }
 
 
@@ -516,14 +562,14 @@ export function getLitHiddenFires(): { index: number; x: number; z: number }[] {
 
 // MARK: getHiddenCampfireWorldPos
 /**
- * World XZ of hidden pit `index`, or null if the index is out of range.
- * Used by the feed-arc FX to aim wood into the right flame.
+ * World position of hidden pit `index`, or null if the index is out of
+ * range. Used by the feed-arc FX to aim wood into the right flame.
  */
 export function getHiddenCampfireWorldPos(
 	index: number,
-): { x: number; z: number } | null {
+): { x: number; y: number; z: number } | null {
 	if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return null
-	return { x: worldX[index], z: worldZ[index] }
+	return { x: worldX[index], y: worldY[index], z: worldZ[index] }
 }
 
 
@@ -552,10 +598,7 @@ function handleCycleSeedChange(newSeed: number): void {
 		return
 	}
 	currentSeed = newSeed
-	const positions = getHiddenCampfireWorldPositionsForSeed(
-		newSeed,
-		offHearthCellsForMazeSeed(cycleMazeSeed(newSeed)),
-	)
+	const positions = getHiddenCampfireWorldPositionsForSeed(newSeed)
 	console.log(
 		`hiddenCampfire: cycle roll old=${oldSeed} → new=${newSeed} — ` +
 		`resetting ${HIDDEN_CAMPFIRE_COUNT} pits`,
@@ -569,6 +612,7 @@ function handleCycleSeedChange(newSeed: number): void {
 		removeLocatorBeacon(i)
 		applyUnlitVisuals(i)
 		worldX[i] = spot.x
+		worldY[i] = spot.y
 		worldZ[i] = spot.z
 		relocatePit(i)
 	}
@@ -582,9 +626,7 @@ function handleCycleSeedChange(newSeed: number): void {
  */
 export function setupHiddenCampfire(): void {
 	const bootSeed  = getHiddenCampfireSeed()
-	const positions = getHiddenCampfireWorldPositions(
-		offHearthCellsForMazeSeed(cycleMazeSeed(bootSeed)),
-	)
+	const positions = getHiddenCampfireWorldPositions()
 	currentSeed = bootSeed
 	console.log(`hiddenCampfire: setupHiddenCampfire: seed=${currentSeed} count=${HIDDEN_CAMPFIRE_COUNT}`)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -594,12 +636,16 @@ export function setupHiddenCampfire(): void {
 			continue
 		}
 		worldX[i] = spot.x
+		worldY[i] = spot.y
 		worldZ[i] = spot.z
 		console.log(
 			`hiddenCampfire[${i}]: tile=(${spot.tx},${spot.tz}) ` +
-			`world=(${worldX[i].toFixed(1)},${worldZ[i].toFixed(1)})`,
+			`world=(${worldX[i].toFixed(1)},${worldY[i].toFixed(1)},${worldZ[i].toFixed(1)})`,
 		)
-		spawnUnlitPit(i)
+		// relocatePit (not spawnUnlitPit): HMR / re-setup must move an
+		// existing entity. spawnUnlitPit early-outs when one is already
+		// live, which left GLBs at old spots and empty hollows at new ones.
+		relocatePit(i)
 	}
 
 	// Authoritative state stream. The server sends one message per
@@ -662,12 +708,16 @@ export function setupHiddenCampfire(): void {
 	// card rig. Per-pit tier cache avoids scanning fuel every frame.
 	const lastFlameTier: number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
 	engine.addSystem(() => {
+		const nearest = nearestLitFireIndex(collectLitCampfirePositions())
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 			const flame = flameRig[i]
 			const fuel  = getHiddenFireFuel(i)
 			const light = lightEntity[i]
 			if (light !== null) {
-				syncPointLight(light, hearthLightParams(fuel))
+				// Roster index 0 is the main hearth; hidden slot i is i+1.
+				// Closest fire: spots only. Other lit fires: one radial.
+				const radial = litLocal[i] && fuel > 0 && nearest !== i + 1
+				syncPointLight(light, hearthLightParams(radial ? fuel : 0))
 			}
 			if (flame === null) {
 				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1

@@ -13,6 +13,12 @@
  * arrival order between CRDT data and render entities cannot lose a
  * change.
  *
+ * While the spawn hearth is lit, its melt ring is also forced locally
+ * so late joiners do not draw pristine snow over the fire before
+ * PaintTile CRDT arrives. When the hearth is out, that force-melt
+ * stops and snowfall can bury the logs again. Hidden pits are never
+ * force-cleared — they start buried and only melt when lit.
+ *
  * Optimistic writes expire after OPTIMISTIC_TIMEOUT_MS: if the server has
  * not moved the cell by then, displayed snaps back to the server value.
  */
@@ -20,17 +26,26 @@
 import { engine, Entity, NetworkEntity } from '@dcl/sdk/ecs'
 import { isStateSyncronized } from '@dcl/sdk/network'
 
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { PaintTile } from 'src/shared/components'
+import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { tileKeyFromNetworkId } from 'src/shared/networkIds'
 import {
 	SNOW_TILE_CELL_COUNT,
 	SNOW_TILES_X,
 	SNOW_TILES_Z,
 	SnowStage,
+	STAGE_MELTED,
 	STAGE_PRISTINE,
+	forEachCellInDisc,
 	stageFromSnowByte,
+	tileCoordsFromKey,
 	tileKeyOfCell,
 } from 'src/shared/snowGrid'
+import { activeTerrain } from 'src/shared/terrain/terrainCache'
+import { levelAtWorld } from 'src/shared/terrain/terrainMap'
+
+import { getMainFireFuel } from 'src/client/hearthFuel'
 
 const OPTIMISTIC_TIMEOUT_MS = 3000
 const CELL_COUNT            = SNOW_TILES_X * SNOW_TILES_Z * SNOW_TILE_CELL_COUNT
@@ -100,6 +115,9 @@ function snowModelSystem(dt: number): void {
 	}
 
 	pruneGoneTiles(live)
+	// After CRDT apply / prune: keep the lit spawn ring open for late
+	// joiners. Dead hearth / unlit hidden pits are left to snowfall.
+	ensureHearthClearing()
 
 	if (!hydrated && synced) {
 		hydrated = true
@@ -118,6 +136,73 @@ function snowModelSystem(dt: number): void {
 	}
 
 	if (pending.size > 0) expirePending()
+}
+
+
+/** Cells held melted by ensureHearthClearing (displayed only). */
+const hearthClearingKeys = new Set<number>()
+
+
+// MARK: ensureHearthClearing
+/**
+ * While the spawn hearth is lit, force-melt its live fuel radius in
+ * displayed stages so late joiners see the ring before PaintTiles
+ * arrive. Displayed-only — do not poison serverStages, or a dead
+ * hearth can never be buried by snowfall after the force-melt stops.
+ * When fuel hits zero (or the ring shrinks), released cells snap back
+ * to the last CRDT stage and regrow with the rest of the field.
+ */
+function ensureHearthClearing(): void {
+	const fuel = getMainFireFuel()
+	const next = new Set<number>()
+	if (fuel > 0) {
+		collectClearingKeys(
+			CAMPFIRE_WORLD_X,
+			CAMPFIRE_WORLD_Z,
+			hearthRadiusFromFuel(fuel),
+			next,
+		)
+	}
+	for (const key of hearthClearingKeys) {
+		if (next.has(key)) continue
+		pending.delete(key)
+		if (displayedStages[key] === serverStages[key]) continue
+		displayedStages[key] = serverStages[key]
+		const tileKey = tileKeyOfCell(key)
+		dirtyRoots.add(tileKey)
+		urgentRoots.add(tileKey)
+	}
+	for (const key of next) {
+		pending.delete(key)
+		if (displayedStages[key] === STAGE_MELTED) continue
+		displayedStages[key] = STAGE_MELTED
+		const tileKey = tileKeyOfCell(key)
+		dirtyRoots.add(tileKey)
+		urgentRoots.add(tileKey)
+	}
+	hearthClearingKeys.clear()
+	for (const key of next) hearthClearingKeys.add(key)
+}
+
+
+// MARK: collectClearingKeys
+/** Add every same-level snow cell in the disc to `out`. */
+function collectClearingKeys(
+	cx     : number,
+	cz     : number,
+	radiusM: number,
+	out    : Set<number>,
+): void {
+	const map       = activeTerrain()
+	const fireLevel = map === null ? -1 : levelAtWorld(map, cx, cz)
+	forEachCellInDisc(cx, cz, radiusM, (key) => {
+		if (map !== null) {
+			const { tx, tz } = tileCoordsFromKey(tileKeyOfCell(key))
+			if (tx < 0 || tz < 0 || tx >= map.w || tz >= map.h) return
+			if (map.levels[tz * map.w + tx] !== fireLevel) return
+		}
+		out.add(key)
+	})
 }
 
 
@@ -160,6 +245,7 @@ function applyTileBytes(
 	}
 
 	let changed = false
+	let melted  = false
 	for (let i = 0; i < len; i++) {
 		const byte = cells[i] & 0xff
 		if (byte === shadow[i]) continue
@@ -169,11 +255,17 @@ function applyTileBytes(
 		serverStages[key] = stage
 		pending.delete(key)
 		if (displayedStages[key] !== stage) {
+			// Stage drop = another player's torch / a fire ring. Mark
+			// urgent so the renderer does not park the rebuild behind
+			// CREATE_BUDGET_PER_FRAME (local melts already use urgent
+			// via setOptimisticStage; remotes used to look a beat late).
+			if (stage < displayedStages[key]) melted = true
 			displayedStages[key] = stage
 			changed = true
 		}
 	}
 	if (changed) dirtyRoots.add(tileKey)
+	if (melted)  urgentRoots.add(tileKey)
 }
 
 
@@ -309,6 +401,7 @@ export function resetSnowToPristine(): void {
 		applyTileBytes(entity, tileKey, incoming)
 		reapplied++
 	}
+	ensureHearthClearing()
 	console.log(`snowModel: resetSnowToPristine: reapplied ${reapplied} PaintTiles`)
 }
 

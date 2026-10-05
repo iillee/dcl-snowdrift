@@ -1,11 +1,11 @@
 /**
- * torchFlame.ts — tip cube + world-up sparks + hearth-style spot lights.
+ * torchFlame.ts — tip cube + world-up sparks for held torches.
  *
  * Shared by the local torch and every remote avatar torch. Tip cube
  * matches hearth heat colors. Sparks climb on a Y-billboarded lift
- * (world-up). Three outward spots (same strategy as flameBillboards)
- * jitter and cast flicker shadows; the soft fill point light stays
- * in torch.ts / remoteTorches.ts.
+ * (world-up). Lighting is a single flickering radial point light in
+ * torch.ts / remoteTorches.ts — no torch spot lights, so campfires
+ * can keep Explorer's shadow budget.
  */
 
 import {
@@ -13,11 +13,10 @@ import {
 	BillboardMode,
 	engine,
 	Entity,
-	LightSource,
 	MeshRenderer,
 	Transform,
 } from '@dcl/sdk/ecs'
-import { Color3, Quaternion, Vector3 } from '@dcl/sdk/math'
+import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { writeFlameHeatMaterial } from 'src/client/flameBillboards'
 
@@ -36,17 +35,6 @@ const CORE_PULSE_AMT    = 0.08
 const CORE_PULSE_PERIOD = 1.15
 
 const SCALE_STEP = 0.01
-
-/** Torch-sized copy of the hearth's three outward spots. */
-const SPOT_COUNT       = 3
-const SPOT_Y           = 0.10
-const SPOT_OUT_M       = 0.035
-const SPOT_INNER_DEG   = 80
-const SPOT_OUTER_DEG   = 110
-const SPOT_RANGE_M     = 5.5
-const SPOT_INTENSITY   = 3200
-const SPOT_COLOR       = Color3.create(1.00, 0.80, 0.30)
-const SPOT_JITTER_M    = 0.025
 
 interface SparkSpec {
 	id    : string
@@ -78,21 +66,11 @@ interface Spark {
 	entity: Entity
 }
 
-interface Spot {
-	entity  : Entity
-	yaw     : number
-	freq    : number
-	elapsed : number
-	jitter  : { x: number, y: number, z: number }
-	target  : { x: number, y: number, z: number }
-}
-
 interface TorchFlameRig {
 	tip     : Entity
 	core    : Entity
 	lift    : Entity
 	sparks  : Spark[]
-	spots   : Spot[]
 	alive   : boolean
 	lit     : boolean
 	fuelFrac: number
@@ -111,8 +89,7 @@ export interface TorchFlame {
 	tip: Entity
 	/**
 	 * Y-billboarded lift on the tip. Local +Y is world-up — parent
-	 * smoke / sparks / spots here so they rise off the wood, not into
-	 * the floor.
+	 * smoke / sparks here so they rise off the wood, not into the floor.
 	 */
 	lift: Entity
 	setFuel(
@@ -151,16 +128,11 @@ function ensureSystem(): void {
 			for (let s = 0; s < rig.sparks.length; s++) {
 				placeSpark(rig, rig.sparks[s], timeSec)
 			}
-			const spotScale = rig.lit
-				? clamp01(rig.fuelFrac) * rig.flameMul
-				: 0
-			for (let s = 0; s < rig.spots.length; s++) {
-				writeSpotLight(rig.spots[s].entity, rig.lit, spotScale)
-				tickSpot(rig.spots[s], dt)
-			}
 		}
 	})
 }
+
+
 
 
 // MARK: placeCore
@@ -168,6 +140,11 @@ function ensureSystem(): void {
  * Shrink / pulse the tip cube from fuel + lit. Hide by scale only —
  * VisibilityComponent toggles were intermittently leaving the cube
  * invisible after a relight (sparks already use scale-only hide).
+ *
+ * Always assign a fresh Vector3 for scale. Mutating tr.scale.x/y/z
+ * in place often fails to dirty the Transform in Explorer, so after
+ * an extinguish (scale → 0.001) a relight / torch-to-torch light
+ * could leave the tip stuck invisible.
  */
 function placeCore(
 	rig : TorchFlameRig,
@@ -176,16 +153,14 @@ function placeCore(
 	const tr = Transform.getMutableOrNull(rig.core)
 	if (tr === null) return
 	if (!rig.lit) {
-		tr.scale.x = 0.001
-		tr.scale.y = 0.001
-		tr.scale.z = 0.001
+		tr.scale = Vector3.create(0.001, 0.001, 0.001)
 		rig.coreEmit = -1
 		return
 	}
 	const t = clamp01(rig.fuelFrac)
 	// Floor the night pinch so dusk/night never rounds the tip to zero
 	// after SCALE_STEP quantize — that read as "relit but no cube".
-	const mul = Math.max(0.55, rig.flameMul)
+	const mul = Math.max(0.55, Number.isFinite(rig.flameMul) ? rig.flameMul : 1)
 	const base =
 		(CORE_SIZE_MIN + (CORE_SIZE_MAX - CORE_SIZE_MIN) * t) * mul
 	const pulse = 1 + CORE_PULSE_AMT * (wave(time, CORE_PULSE_PERIOD, 0) * 2 - 1)
@@ -193,13 +168,28 @@ function placeCore(
 		CORE_SIZE_MIN * 0.55,
 		Math.round((base * pulse) / SCALE_STEP) * SCALE_STEP,
 	)
-	tr.scale.x = s
-	tr.scale.y = s
-	tr.scale.z = s
+	tr.scale = Vector3.create(s, s, s)
 	if (Math.abs(rig.coreEmit - mul) > 0.01) {
 		writeFlameHeatMaterial(rig.core, CORE_HEAT, mul)
 		rig.coreEmit = mul
 	}
+}
+
+
+// MARK: showCoreOnRelight
+/**
+ * Hard refresh on the unlit → lit edge. Re-asserts the box mesh and
+ * material, then sizes the cube immediately so a same-frame system
+ * order (flame tick before setFuel) cannot leave a stuck 0.001 scale.
+ */
+function showCoreOnRelight(
+	rig: TorchFlameRig,
+): void {
+	if (!MeshRenderer.has(rig.core)) {
+		MeshRenderer.setBox(rig.core)
+	}
+	rig.coreEmit = -1
+	placeCore(rig, timeSec)
 }
 
 
@@ -245,109 +235,17 @@ function placeSpark(
 }
 
 
-// MARK: randomJitter
-function randomJitter(): { x: number, y: number, z: number } {
-	return {
-		x: Math.random() * SPOT_JITTER_M * 2 - SPOT_JITTER_M,
-		y: Math.random() * SPOT_JITTER_M * 2 - SPOT_JITTER_M,
-		z: Math.random() * SPOT_JITTER_M * 2 - SPOT_JITTER_M,
-	}
-}
-
-
-// MARK: writeSpotLight
-function writeSpotLight(
-	entity: Entity,
-	lit   : boolean,
-	scale : number,
-): void {
-	const intensity = lit && scale > 0.01 ? SPOT_INTENSITY * scale : 0
-	if (!LightSource.has(entity)) {
-		LightSource.create(entity, {
-			type     : LightSource.Type.Spot({
-				innerAngle: SPOT_INNER_DEG,
-				outerAngle: SPOT_OUTER_DEG,
-			}),
-			color    : SPOT_COLOR,
-			intensity: intensity,
-			range    : SPOT_RANGE_M,
-			shadow   : true,
-			active   : lit && intensity > 0,
-		})
-		return
-	}
-	const light = LightSource.getMutable(entity)
-	const on    = lit && intensity > 0
-	if (light.active !== on) light.active = on
-	if (!on) return
-	light.intensity = intensity
-	light.range     = SPOT_RANGE_M
-}
-
-
-// MARK: spawnSpot
-function spawnSpot(
-	parent: Entity,
-	index : number,
-): Spot {
-	const yaw    = index * (360 / SPOT_COUNT)
-	const entity = engine.addEntity()
-	Transform.create(entity, {
-		parent,
-		rotation: Quaternion.fromEulerDegrees(45, yaw, 0),
-		position: Vector3.create(0, SPOT_Y, 0),
-	})
-	writeSpotLight(entity, false, 0)
-	return {
-		entity,
-		yaw,
-		freq   : 0.10 + Math.random() * 0.20,
-		elapsed: Math.random() * 0.2,
-		jitter : { x: 0, y: 0, z: 0 },
-		target : randomJitter(),
-	}
-}
-
-
-// MARK: tickSpot
-function tickSpot(
-	spot: Spot,
-	dt  : number,
-): void {
-	spot.elapsed += dt
-	if (spot.elapsed >= spot.freq) {
-		spot.elapsed = 0
-		spot.freq    = 0.10 + Math.random() * 0.20
-		spot.target  = randomJitter()
-	}
-	const k = Math.min(1, dt * 8)
-	spot.jitter.x += (spot.target.x - spot.jitter.x) * k
-	spot.jitter.y += (spot.target.y - spot.jitter.y) * k
-	spot.jitter.z += (spot.target.z - spot.jitter.z) * k
-
-	const rest = Vector3.rotate(
-		Vector3.create(0, SPOT_Y, SPOT_OUT_M),
-		Quaternion.fromEulerDegrees(0, spot.yaw, 0),
-	)
-	Transform.getMutable(spot.entity).position = Vector3.create(
-		rest.x + spot.jitter.x,
-		rest.y + spot.jitter.y,
-		rest.z + spot.jitter.z,
-	)
-}
-
-
 // MARK: clamp01
 function clamp01(v: number): number {
 	return v < 0 ? 0 : v > 1 ? 1 : v
 }
 
 
-
 // MARK: mountTorchFlame
 /**
- * Tip cube + sparks + shadow spots on `handAnchor`. Used by both the
- * local torch and every remote avatar torch. Call `setFuel` each frame.
+ * Tip cube + sparks on `handAnchor`. Used by both the local torch and
+ * every remote avatar torch. Call `setFuel` each frame. Light comes
+ * from the flickering radial in torch.ts / remoteTorches.ts.
  */
 export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 	const tip = engine.addEntity()
@@ -392,17 +290,11 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 		sparks.push({ spec, entity })
 	}
 
-	const spots: Spot[] = []
-	for (let i = 0; i < SPOT_COUNT; i++) {
-		spots.push(spawnSpot(lift, i))
-	}
-
 	const rig: TorchFlameRig = {
 		tip,
 		core,
 		lift,
 		sparks,
-		spots,
 		alive   : true,
 		lit     : false,
 		fuelFrac: 0,
@@ -413,7 +305,7 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 	ensureSystem()
 
 	console.log(
-		`torchFlame: mountTorchFlame: core + ${sparks.length} sparks + ${spots.length} spots`,
+		`torchFlame: mountTorchFlame: core + ${sparks.length} sparks`,
 	)
 
 	return {
@@ -428,13 +320,12 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 			if (!rig.alive) return
 			const wasLit = rig.lit
 			rig.lit      = lit
-			rig.fuelFrac = frac
-			rig.flameMul = flameMul > 0 ? flameMul : 0
-			// Same-frame show on the unlit → lit edge so a relight is not
-			// waiting on system order (flame tick used to run before setFuel).
+			rig.fuelFrac = frac < 0 ? 0 : frac > 1 ? 1 : frac
+			rig.flameMul = flameMul > 0 && Number.isFinite(flameMul) ? flameMul : 0
+			// Same-frame show on the unlit → lit edge so a relight or
+			// torch-to-torch light is not waiting on system order.
 			if (lit && !wasLit) {
-				rig.coreEmit = -1
-				placeCore(rig, timeSec)
+				showCoreOnRelight(rig)
 			}
 		},
 
@@ -444,9 +335,6 @@ export function mountTorchFlame(handAnchor: Entity): TorchFlame {
 			rig.lit   = false
 			for (let i = 0; i < rig.sparks.length; i++) {
 				engine.removeEntity(rig.sparks[i].entity)
-			}
-			for (let i = 0; i < rig.spots.length; i++) {
-				engine.removeEntity(rig.spots[i].entity)
 			}
 			engine.removeEntity(rig.core)
 			engine.removeEntity(rig.lift)

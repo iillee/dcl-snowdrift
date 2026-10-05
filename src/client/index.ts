@@ -148,6 +148,12 @@ export async function setupClient(): Promise<void> {
 	initAudio()
 	initHelpPanelHotkey()
 
+	// Campfire + smoke FIRST so the fireplace GLB claims asset-load
+	// bandwidth before snow/terrain/prop floods. Late joiners were
+	// missing the log pile + flame until a reload when this ran last.
+	setupCampfire()
+	setupCampfireSmoke()
+
 	// Composite-lever scrubber. The scene's main.composite still contains a
 	// decorative lever entity from an earlier iteration where pulling it
 	// regenerated the maze. UTC-boundary rounds + server roundReset replaced
@@ -240,13 +246,6 @@ export async function setupClient(): Promise<void> {
 	// when top-down is inactive.
 	engine.addSystem(dragPollSystem)
 
-	// Campfire + its VFX/audio come FIRST so they claim the initial
-	// asset-load bandwidth. The player spawns next to the fire and needs
-	// it visible on the first frame. Cliff GLBs start as soon as the
-	// seed watcher runs (no extra delay) so the splash can hold until
-	// they are actually on screen.
-	setupCampfire()
-	setupCampfireSmoke()
 	setupLogsInput()
 	// Second, buried campfire the player has to find + light with a
 	// torch. Deterministic position per 24 h cycle; no server sync yet.

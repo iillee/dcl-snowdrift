@@ -16,7 +16,7 @@
  * Pattern mirrors src/client/torch.ts's AvatarAttach setup:
  *   Anchor (AvatarAttach, right hand)   ← Bevy propagates bone
  *     Model (STATIC child, offsets set once)
- *     Tip cube + world-up sparks + shadow spots (mountTorchFlame)
+ *     Tip cube + world-up sparks (mountTorchFlame) + one radial light
  *     Soft fill point light
  *
  * The anchor's Transform is written once and never mutated after
@@ -152,7 +152,7 @@ function createRemoteTorch(userIdLower: string): void {
 
 // MARK: setupRemoteFlameScaler
 // Night pinches remote flames (torchFlameMul). Fuel fraction dims
-// tip cube / sparks / spots and the soft fill point light.
+// tip cube / sparks and the single radial point light.
 function setupRemoteFlameScaler(): void {
 	engine.addSystem(() => {
 		const flameMul = getLivePhaseConfig().torchFlameMul

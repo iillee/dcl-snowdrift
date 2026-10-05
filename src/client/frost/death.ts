@@ -62,6 +62,11 @@ const CUBE_GONE_S = 0.4
 const FADE_IN_S  = 1.0
 /** Hold fully black while the teleport + stuck-emote workaround completes. */
 const BLACK_HOLD_MIN_S = 1.5
+/**
+ * When splash / ember-fail already owns the black, only wait long enough
+ * for the collapse emote to stick before the cover can release.
+ */
+const COVER_OWNED_HOLD_S = 0.2
 
 /** Stuck-emote fix: how long to wait for the player Y to settle after a teleport. */
 const SETTLE_TIME_S     = 0.35
@@ -556,7 +561,8 @@ export function setupFrostDeath(): void {
 		// ── EMOTE: hold black briefly so emote registers ───────
 		if (phase === Phase.EMOTE) {
 			if (!coverOwned) fadeOpacity = 1
-			if (phaseTimer >= BLACK_HOLD_MIN_S) {
+			const holdS = coverOwned ? COVER_OWNED_HOLD_S : BLACK_HOLD_MIN_S
+			if (phaseTimer >= holdS) {
 				if (coverOwned) {
 					fadeOpacity = 0
 					phase       = Phase.WAKE_WAIT

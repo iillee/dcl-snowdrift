@@ -26,7 +26,7 @@ import { Color4, Vector3 } from '@dcl/sdk/math'
 import {
 	SCENE_WORLD_SIZE_X_METERS,
 	SCENE_WORLD_SIZE_Z_METERS,
-	TERRAIN_LEVEL_MOUNTAIN,
+	TERRAIN_LEVEL_MOUNTAIN_MAX,
 	groundYForLevel,
 } from 'src/shared/settings'
 
@@ -52,7 +52,7 @@ export enum PrecipitationLevel {
 // disappear mid-air, bump the per-level `lifetime` in PROFILES so
 // particles survive long enough to reach the ground from this height.
 // Above the mountain band so snow falls on the whole elevation stack.
-const SPAWN_Y       = groundYForLevel(TERRAIN_LEVEL_MOUNTAIN) + 40
+const SPAWN_Y       = groundYForLevel(TERRAIN_LEVEL_MOUNTAIN_MAX) + 40
 // Downward drift accelerated by mild gravity. See per-level tables for
 // the level-specific overrides that make heavier snow feel weightier.
 const WIND_FORCE    = Vector3.create(0.05, 0, 0.02)

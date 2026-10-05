@@ -4,8 +4,12 @@
  * Six pits per cycle, grown as generations. The first three branch
  * off the hearth. Each later generation branches off the pits of the
  * generation before it, so a larger world keeps walking outward.
- * Every peer computes the same points from the cycle seed. A pit
- * never lands on a cliff cell or on a tree trunk from that layout.
+ * Every peer computes the same points from the cycle seed.
+ *
+ * Placement is elevation-aware: pits sit on walkable terrain (low /
+ * mid / high) that the hearth can route to, never on mountain or
+ * ladder cells, and never on a tree trunk from that layout. Y comes
+ * from the cell's ground height so logs sit on the right shelf.
  *
  * A step is 48–80 m. That is far enough that the heat rings stay
  * apart, and close enough that one 30 s torch can jog the gap.
@@ -19,7 +23,11 @@ import {
 	MAZE_GRID_WIDTH,
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_TILE_WORLD_METERS,
+	groundYForLevel,
+	isMountainLevel,
 } from 'src/shared/settings'
+import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
+import { cellIndex, TerrainMap } from 'src/shared/terrain/terrainMap'
 
 
 // MARK: Multi-fire count
@@ -49,8 +57,8 @@ export const HIDDEN_LINK_MIN_M = 48
 export const HIDDEN_LINK_MAX_M = 80
 
 /**
- * Log-pile radius. A pit is rejected when this disc touches a cliff
- * cell or a tree trunk.
+ * Log-pile radius. A pit is rejected when this disc touches a mountain
+ * cell, an unreachable cell, a ladder cell, or a tree trunk.
  */
 const HIDDEN_PIT_RADIUS_M = 1.5
 
@@ -69,6 +77,17 @@ export const HIDDEN_IGNITE_RADIUS_SQ_M = HIDDEN_IGNITE_RADIUS_M * HIDDEN_IGNITE_
  * we'll shorten this (2–6 h) once the retention loop is fleshed out.
  */
 export const HIDDEN_CYCLE_MS = 24 * 60 * 60 * 1000
+
+
+// MARK: HiddenCampfireSpot
+/** One placed pit: world centre + tile indices. */
+export interface HiddenCampfireSpot {
+	x  : number
+	y  : number
+	z  : number
+	tx : number
+	tz : number
+}
 
 
 // MARK: nextRebuildEpochMs
@@ -121,22 +140,36 @@ function mulberry32(seed: number): () => number {
  * before it. A step is HIDDEN_LINK_MIN_M..HIDDEN_LINK_MAX_M, and a
  * pit stays at least HIDDEN_LINK_MIN_M from every node already placed.
  *
- * `cliffCells` is the measured cliff footprint for this cycle, keyed
- * `tx,tz,0`. Tree trunks come from the same layout seed. Determinism:
- * one mulberry32(seed) walks the whole draw.
+ * Terrain rules (replacing the old mid-only / cliff-cell reject):
+ *   - walkable low / mid / high only
+ *   - hearth-routable (routeDist >= 0)
+ *   - clear of mountain, ladders, and tree trunks
+ *   - first half of tries prefer the parent's elevation so branches
+ *     do not jump shelves until the search has to
+ *
+ * Determinism: one mulberry32(seed) walks the whole draw. Layout seed
+ * is cycleMazeSeed(seed) so placement agrees with trees and terrain.
  */
 export function pickHiddenCampfires(
-	seed      : number,
-	cliffCells: ReadonlySet<string>,
-): { x: number; z: number; tx: number; tz: number }[] {
-	const rand  = mulberry32(seed)
-	const trees = trunkDiscs(cycleMazeSeed(seed), cliffCells)
-	const hearth = { x: CAMPFIRE_WORLD_X, z: CAMPFIRE_WORLD_Z }
-	const nodes : { x: number; z: number }[] = [hearth]
-	const picks : { x: number; z: number; tx: number; tz: number }[] = []
-	const generations: { x: number; z: number }[][] = []
-	const children = new Map<{ x: number; z: number }, number>()
-	const TRIES = 96
+	seed: number,
+): HiddenCampfireSpot[] {
+	const rand     = mulberry32(seed)
+	const mazeSeed = cycleMazeSeed(seed)
+	const map      = getTerrain(mazeSeed)
+	const blocked  = blockedCellsForPits(map)
+	// Trees still scatter on the hearth shelf only — match that set so
+	// trunk discs agree with the props the player actually sees.
+	const trees    = trunkDiscs(mazeSeed, offHearthCellsForMazeSeed(mazeSeed))
+	const hearth   = {
+		x    : CAMPFIRE_WORLD_X,
+		z    : CAMPFIRE_WORLD_Z,
+		level: levelAt(map, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z),
+	}
+	const nodes      : { x: number; z: number }[] = [{ x: hearth.x, z: hearth.z }]
+	const picks      : HiddenCampfireSpot[] = []
+	const generations: { x: number; z: number; level: number }[][] = []
+	const children = new Map<{ x: number; z: number; level: number }, number>()
+	const TRIES = 160
 	for (let slot = 0; slot < HIDDEN_CAMPFIRE_COUNT; slot++) {
 		const gen     = Math.floor(slot / HIDDEN_HEARTH_BRANCHES)
 		const parents = gen === 0 ? [hearth] : (generations[gen - 1] ?? [])
@@ -149,14 +182,18 @@ export function pickHiddenCampfires(
 		}
 		let placed = false
 		for (let i = 0; i < TRIES; i++) {
-			const parent = pickParent(rand, parents, children)
-			const spot   = stepFrom(rand, parent, i >= TRIES / 2)
+			const parent      = pickParent(rand, parents, children)
+			const preferLevel = i < TRIES / 2 ? parent.level : null
+			const spot        = stepFrom(rand, parent, i >= TRIES / 2)
 			if (spot === null) continue
-			if (!spotClear(spot.x, spot.z, nodes, cliffCells, trees)) continue
-			nodes.push(spot)
-			picks.push(spot)
+			if (!spotClear(spot.x, spot.z, nodes, blocked, trees, map, preferLevel)) continue
+			const level = levelAt(map, spot.x, spot.z)
+			const y     = groundYForLevel(level)
+			nodes.push({ x: spot.x, z: spot.z })
+			picks.push({ x: spot.x, y, z: spot.z, tx: spot.tx, tz: spot.tz })
+			const node = { x: spot.x, z: spot.z, level }
 			if (!generations[gen]) generations[gen] = []
-			generations[gen].push(spot)
+			generations[gen].push(node)
 			children.set(parent, (children.get(parent) ?? 0) + 1)
 			placed = true
 			break
@@ -164,7 +201,7 @@ export function pickHiddenCampfires(
 		if (!placed) {
 			console.log(
 				`hiddenCampfire: pickHiddenCampfires: slot ${slot} ` +
-				`has no point within ${HIDDEN_LINK_MAX_M}m of its parents`,
+				`has no walkable point within ${HIDDEN_LINK_MAX_M}m of its parents`,
 			)
 		}
 	}
@@ -185,17 +222,14 @@ export function tileToWorld(tx: number, tz: number): { x: number; z: number } {
 // MARK: getHiddenCampfireWorldPositions
 /**
  * Convenience — full world positions for every hidden bonfire in the
- * current cycle (as computed from local Date.now()). `cliffCells` is
- * the cliff footprint for that same layout. Y is fixed at the same
- * base as the central campfire (see CAMPFIRE_WORLD_Y).
+ * current cycle (as computed from local Date.now()). Y is the walkable
+ * ground height of each pit's terrain level.
  *
  * For a specific server-supplied seed, use
- * getHiddenCampfireWorldPositionsForSeed(seed, cliffCells) instead.
+ * getHiddenCampfireWorldPositionsForSeed(seed) instead.
  */
-export function getHiddenCampfireWorldPositions(
-	cliffCells: ReadonlySet<string>,
-): { x: number; z: number; tx: number; tz: number }[] {
-	return getHiddenCampfireWorldPositionsForSeed(getHiddenCampfireSeed(), cliffCells)
+export function getHiddenCampfireWorldPositions(): HiddenCampfireSpot[] {
+	return getHiddenCampfireWorldPositionsForSeed(getHiddenCampfireSeed())
 }
 
 
@@ -206,10 +240,9 @@ export function getHiddenCampfireWorldPositions(
  * the new positions regardless of local clock skew.
  */
 export function getHiddenCampfireWorldPositionsForSeed(
-	seed      : number,
-	cliffCells: ReadonlySet<string>,
-): { x: number; z: number; tx: number; tz: number }[] {
-	return pickHiddenCampfires(seed, cliffCells)
+	seed: number,
+): HiddenCampfireSpot[] {
+	return pickHiddenCampfires(seed)
 }
 
 
@@ -220,9 +253,9 @@ export function getHiddenCampfireWorldPositionsForSeed(
  */
 function pickParent(
 	rand    : () => number,
-	parents : ReadonlyArray<{ x: number; z: number }>,
-	children: ReadonlyMap<{ x: number; z: number }, number>,
-): { x: number; z: number } {
+	parents : ReadonlyArray<{ x: number; z: number; level: number }>,
+	children: ReadonlyMap<{ x: number; z: number; level: number }, number>,
+): { x: number; z: number; level: number } {
 	let sum = 0
 	const weights: number[] = []
 	for (const parent of parents) {
@@ -267,11 +300,13 @@ function stepFrom(
 
 // MARK: spotClear
 function spotClear(
-	x         : number,
-	z         : number,
-	nodes     : ReadonlyArray<{ x: number; z: number }>,
-	cliffCells: ReadonlySet<string>,
-	trees     : ReadonlyArray<{ x: number; z: number; radius: number }>,
+	x          : number,
+	z          : number,
+	nodes      : ReadonlyArray<{ x: number; z: number }>,
+	blocked    : ReadonlySet<string>,
+	trees      : ReadonlyArray<{ x: number; z: number; radius: number }>,
+	map        : TerrainMap,
+	preferLevel: number | null,
 ): boolean {
 	const minSq = HIDDEN_LINK_MIN_M * HIDDEN_LINK_MIN_M
 	for (const n of nodes) {
@@ -279,7 +314,8 @@ function spotClear(
 		const dz = z - n.z
 		if (dx * dx + dz * dz < minSq) return false
 	}
-	return !pitOverlaps(x, z, cliffCells, trees)
+	if (preferLevel !== null && levelAt(map, x, z) !== preferLevel) return false
+	return !pitOverlaps(x, z, blocked, trees)
 }
 
 
@@ -292,21 +328,57 @@ function cellAt(x: number, z: number): { tx: number; tz: number } | null {
 }
 
 
+// MARK: levelAt
+function levelAt(
+	map: TerrainMap,
+	x  : number,
+	z  : number,
+): number {
+	const cell = cellAt(x, z)
+	if (cell === null) return -1
+	return map.levels[cellIndex(cell.tx, cell.tz)]
+}
+
+
+// MARK: blockedCellsForPits
+/**
+ * Cells a log pile must not touch: mountain, hearth-unreachable, and
+ * ladder feet/tops (so a pit never blocks a climb).
+ */
+function blockedCellsForPits(map: TerrainMap): Set<string> {
+	const out = new Set<string>()
+	for (let cz = 0; cz < map.h; cz++) {
+		for (let cx = 0; cx < map.w; cx++) {
+			const i = cellIndex(cx, cz)
+			const level = map.levels[i]
+			if (isMountainLevel(level) || map.routeDist[i] < 0) {
+				out.add(`${cx},${cz},0`)
+			}
+		}
+	}
+	for (const ladder of map.ladders) {
+		out.add(`${ladder.lowCx},${ladder.lowCz},0`)
+		out.add(`${ladder.highCx},${ladder.highCz},0`)
+	}
+	return out
+}
+
+
 // MARK: pitOverlaps
-/** True when the log pile at (x, z) touches a cliff cell or a trunk. */
+/** True when the log pile at (x, z) touches a blocked cell or a trunk. */
 function pitOverlaps(
-	x         : number,
-	z         : number,
-	cliffCells: ReadonlySet<string>,
-	trees     : ReadonlyArray<{ x: number; z: number; radius: number }>,
+	x       : number,
+	z       : number,
+	blocked : ReadonlySet<string>,
+	trees   : ReadonlyArray<{ x: number; z: number; radius: number }>,
 ): boolean {
 	const cell = cellAt(x, z)
 	if (cell === null) return true
-	if (cliffCells.has(`${cell.tx},${cell.tz},0`)) return true
+	if (blocked.has(`${cell.tx},${cell.tz},0`)) return true
 	const C = MAZE_TILE_WORLD_METERS
 	const O = MAZE_ORIGIN_OFFSET_METERS
 	const pitSq = HIDDEN_PIT_RADIUS_M * HIDDEN_PIT_RADIUS_M
-	for (const key of cliffCells) {
+	for (const key of blocked) {
 		const [cx, cz] = key.split(',').map(Number)
 		const x0 = O + cx * C
 		const z0 = O + cz * C

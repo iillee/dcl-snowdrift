@@ -235,6 +235,22 @@ export function setupTorch(): void {
 }
 
 
+// MARK: syncTorchFlameNow
+/**
+ * Push lit/fuel into the tip cube immediately. Relight and torch-to-
+ * torch light call this so the cube does not wait a frame on the
+ * per-tick system (and so an unlit→lit edge always hits setFuel).
+ */
+export function syncTorchFlameNow(): void {
+	if (torchFlame === null) return
+	const lit      = isTorchLit()
+	const frac     = Math.max(0, Math.min(1, getTorchFuelFraction()))
+	const flameMul = getLivePhaseConfig().torchFlameMul
+	torchFlame.setFuel(lit, frac, flameMul)
+	syncPointLight(torchLight, torchLightParams(lit, frac, flameMul))
+}
+
+
 // MARK: getTorchTipEntity
 /**
  * Handle to the torch's model entity, useful for parenting flame

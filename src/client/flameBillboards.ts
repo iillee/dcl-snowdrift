@@ -8,9 +8,10 @@
  * fuel. Smaller ember cards climb and shrink out. Roster and scale
  * follow fuel-tier flame scale (Warm = 1). Above Warm, the cluster
  * grows taller faster than it grows wide. The cluster Y-billboards
- * so the hero face stays toward the camera. Three outward spots
- * jitter on Bence's clock and cast the flicker shadows. Fuel,
- * warmth, radius, and drain are not decided here.
+ * so the hero face stays toward the camera. The closest lit fire
+ * gets three outward spots (shadows); every other planted fire
+ * leaves spots off and uses a single fill point light instead.
+ * Fuel, warmth, radius, and drain are not decided here.
  */
 
 import {
@@ -77,7 +78,11 @@ const EMBERS: readonly EmberSpec[] = [
 	{ id: 'E12', yaw: 220, x: -0.12, z:  0.06, width: 0.05, height: 0.09, period: 0.60, phase: 0.88, riseY: 1.20, heat: 0.60, minScale: 1.50 },
 ]
 
-/** Bence's three outward spots. Jitter is on the lights, not the cards. */
+/**
+ * Three outward spots on the closest lit planted fire only. That uses
+ * Explorer's full ~3 shadow-light budget; distant fires and torches
+ * stay on non-shadow point lights.
+ */
 const SPOT_Y         = 1.50
 const SPOT_OUT_M     = 0.10
 const SPOT_COUNT     = 3
@@ -87,6 +92,9 @@ const SPOT_RANGE_M   = 16
 const SPOT_INTENSITY = 8000
 const SPOT_COLOR     = Color3.create(1.00, 0.80, 0.30)
 const SPOT_JITTER_M  = 0.10
+/** Closest lit planted fire keeps all three spots (with shadows). */
+const MAX_SHADOW_RIGS   = 1
+const MAX_LIT_SPOT_RIGS = 1
 
 
 type TongueKind = 'base' | 'medium' | 'tall' | 'flicker'
@@ -141,6 +149,8 @@ interface Spot {
 }
 
 interface Rig {
+	/** World-anchored parent (campfire root) — used for light budget distance. */
+	anchor  : Entity
 	tongues : Tongue[]
 	embers  : Ember[]
 	spots   : Spot[]
@@ -494,11 +504,13 @@ function randomJitter(): { x: number, y: number, z: number } {
 // MARK: writeSpotLight
 
 function writeSpotLight(
-	entity: Entity,
-	lit   : boolean,
-	scale : number,
+	entity    : Entity,
+	lit       : boolean,
+	scale     : number,
+	castShadow: boolean,
 ): void {
 	const intensity = lit ? SPOT_INTENSITY * scale : 0
+	const on        = lit && intensity > 0
 	if (!LightSource.has(entity)) {
 		LightSource.create(entity, {
 			type     : LightSource.Type.Spot({
@@ -508,16 +520,62 @@ function writeSpotLight(
 			color    : SPOT_COLOR,
 			intensity: intensity,
 			range    : SPOT_RANGE_M,
-			shadow   : true,
-			active   : lit,
+			shadow   : castShadow,
+			active   : on,
 		})
 		return
 	}
 	const light = LightSource.getMutable(entity)
-	if (light.active !== lit) light.active = lit
-	if (!lit) return
+	if (light.active !== on) light.active = on
+	if (light.shadow !== castShadow) light.shadow = castShadow
+	if (!on) return
 	light.intensity = intensity
 	light.range     = SPOT_RANGE_M
+}
+
+
+// MARK: applySpotBudget
+/**
+ * Only the closest lit planted fire keeps its three shadow spots.
+ * Other lit fires turn spots off and rely on a radial fill point
+ * light (see campfire / hiddenCampfire). Emissive cards stay on.
+ */
+function applySpotBudget(): void {
+	const playerT = Transform.getOrNull(engine.PlayerEntity)
+	const px = playerT?.position.x ?? 0
+	const pz = playerT?.position.z ?? 0
+
+	const ranked: { rig: Rig; d2: number }[] = []
+	for (let i = 0; i < rigs.length; i++) {
+		const rig = rigs[i]
+		if (!rig.alive || rig.spots.length === 0) continue
+		if (rig.scale <= 0.01) {
+			for (let s = 0; s < rig.spots.length; s++) {
+				writeSpotLight(rig.spots[s].entity, false, 0, false)
+			}
+			continue
+		}
+		const t = Transform.getOrNull(rig.anchor)
+		if (t === null) continue
+		const dx = t.position.x - px
+		const dz = t.position.z - pz
+		ranked.push({ rig, d2: dx * dx + dz * dz })
+	}
+	ranked.sort((a, b) => a.d2 - b.d2)
+
+	for (let i = 0; i < ranked.length; i++) {
+		const rig        = ranked[i].rig
+		const inSpotPool = i < MAX_LIT_SPOT_RIGS
+		const castShadow = i < MAX_SHADOW_RIGS
+		for (let s = 0; s < rig.spots.length; s++) {
+			writeSpotLight(
+				rig.spots[s].entity,
+				inSpotPool,
+				rig.scale,
+				castShadow,
+			)
+		}
+	}
 }
 
 
@@ -534,7 +592,7 @@ function spawnSpot(
 		rotation: Quaternion.fromEulerDegrees(45, yaw, 0),
 		position: Vector3.create(0, SPOT_Y, 0),
 	})
-	writeSpotLight(entity, false, 0)
+	writeSpotLight(entity, false, 0, false)
 	return {
 		entity,
 		yaw,
@@ -596,6 +654,7 @@ function ensureSystem(): void {
 				tickSpot(rig.spots[s], dt)
 			}
 		}
+		applySpotBudget()
 	})
 }
 
@@ -678,6 +737,7 @@ export function createFlameRig(
 	}
 
 	const rig: Rig = {
+		anchor: parent,
 		tongues,
 		embers,
 		spots,
@@ -701,7 +761,6 @@ export function createFlameRig(
 			const next = scale > 0 ? scale : 0
 			if (next === rig.scale) return
 			rig.scale = next
-			const lit = next > 0.01
 			writeClusterScale(rig.facing, next)
 			writeCoreScale(rig.core, next, timeSec)
 			for (let i = 0; i < rig.tongues.length; i++) {
@@ -710,9 +769,8 @@ export function createFlameRig(
 			for (let i = 0; i < rig.embers.length; i++) {
 				placeEmber(rig.embers[i], timeSec, next)
 			}
-			for (let i = 0; i < rig.spots.length; i++) {
-				writeSpotLight(rig.spots[i].entity, lit, next)
-			}
+			// Spot LightSource active/shadow is owned by applySpotBudget
+			// each frame so nearby fires share Explorer's light cap.
 			console.log(
 				`flameBillboards: setScale ${next.toFixed(2)} cards ${countLit(next)}`,
 			)

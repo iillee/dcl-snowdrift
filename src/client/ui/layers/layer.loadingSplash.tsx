@@ -24,7 +24,7 @@ import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
 /** Fade-out once the player is down and the world is ready to see. */
-const COLD_OPEN_FADE_MS = 800
+const COLD_OPEN_FADE_MS = 400
 const { fontSizes } = UI_THEME
 
 // Once the first winter has been shown, the cold-open cover must
@@ -72,7 +72,7 @@ function coldOpenAlpha(): number {
 	}
 	if (fadeStartedAt === null) {
 		fadeStartedAt = Date.now()
-		console.log('loadingSplash: coldOpenAlpha: player is down, fading cover')
+		console.log('loadingSplash: coldOpenAlpha: world ready, fading cover')
 	}
 	const t = (Date.now() - fadeStartedAt) / COLD_OPEN_FADE_MS
 	if (t >= 1) {

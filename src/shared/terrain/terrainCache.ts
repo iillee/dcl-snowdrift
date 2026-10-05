@@ -87,12 +87,11 @@ export function activeLevelAt(x: number, z: number): number {
 
 // MARK: offHearthCellsForMazeSeed
 /**
- * Cells where ground-level content must not spawn, keyed `tx,tz,0`.
+ * Cells where hearth-shelf content must not spawn, keyed `tx,tz,0`.
  *
- * Snow and ground heights understand elevation now, but trees, wood and
- * hidden fires are still placed and balanced around a single level, so
- * this keeps them on the hearth. Spreading them across levels belongs
- * with the destination work, which decides what is worth the climb.
+ * Trees, buried wood and props still place on the mid shelf only so
+ * their scatter density stays tuned for the hearth band. Hidden fires
+ * use their own walkable-cell rules in shared/hiddenCampfire.ts.
  */
 export function offHearthCellsForMazeSeed(mazeSeed: number): Set<string> {
 	const map = getTerrain(mazeSeed)

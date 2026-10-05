@@ -9,13 +9,12 @@
  * ~1100 corner pieces the final kit needs, which is what we want while
  * the shapes are still being tuned.
  *
- * Each rectangle spawns two boxes: a rock-coloured body and a thin
- * ground-coloured cap on top. That keeps every cliff face the same rock
- * regardless of the level it holds up, and mirrors how the final art
- * splits into a cliff kit plus a snow layer on top.
- *
- * The cap tops ARE the ground: there is no separate ground slab, and
- * the snow renderer lays its tiles directly on them.
+ * Each playable rectangle spawns a rock-coloured body plus a thin
+ * ground-coloured cap when the player is nearby. The cap is the melt-
+ * blue ice under the snow; far caps are culled and the rock stretches
+ * to the full walkable height so physics stays continuous. Mountain /
+ * boundary-wall rects never get a cap — nobody walks up there, and the
+ * snow layer still covers them for the distant silhouette.
  *
  * Replaces perimeter.ts. The spawned / ready / generation accessors
  * keep the same shape so the load timeline and splash gates are
@@ -33,7 +32,12 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color4, Vector3 } from '@dcl/sdk/math'
 
-import { TERRAIN_CELL_M, groundYForLevel } from 'src/shared/settings'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import {
+	TERRAIN_CELL_M,
+	groundYForLevel,
+	isMountainLevel,
+} from 'src/shared/settings'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
 import { mergeLevelRects } from 'src/shared/terrain/terrainGen'
 import { TERRAIN_ORIGIN_M } from 'src/shared/terrain/terrainMap'
@@ -54,6 +58,14 @@ const SLAB_BASE_Y = -4
 const CAP_M = 0.15
 
 /**
+ * Spawn / keep melt-blue caps within this distance of the player
+ * (AABB edge, not centre). Farther caps are culled; mountain never
+ * gets one.
+ */
+const CAP_KEEP_M  = 100
+const CAP_KEEP_M2 = CAP_KEEP_M * CAP_KEEP_M
+
+/**
  * Exposed rock. Matches the baseColorFactor on the authored
  * tile-cliff-*.glb models so the greybox reads as the same slate the
  * eventual cliff kit will use. Every cliff face is this colour at
@@ -61,15 +73,28 @@ const CAP_M = 0.15
  */
 const COLOR_ROCK = Color4.create(0.2525, 0.3354, 0.6314, 1)
 
-/** Melt-blue ground the snow lies on, at every level. */
+/** Melt-blue ground the snow lies on, at every playable level. */
 const COLOR_GROUND = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
 
 
 // MARK: State
 
+type RectGeom = {
+	centerX : number
+	centerZ : number
+	sizeX   : number
+	sizeZ   : number
+	top     : number
+	wantsCap: boolean
+	rock    : Entity
+	cap     : Entity | null
+}
+
+const rectGeoms: RectGeom[] = []
 const terrainEntities: Entity[] = []
 let terrainSeed       = 0
 let terrainGeneration = 0
+let capLodInstalled   = false
 
 
 // MARK: setTerrainSeed
@@ -88,6 +113,7 @@ export function setTerrainSeed(seed: number): void {
 export function clearTerrain(): void {
 	for (const e of terrainEntities) engine.removeEntity(e)
 	terrainEntities.length = 0
+	rectGeoms.length = 0
 	clearLadders()
 }
 
@@ -124,20 +150,37 @@ export function getTerrainGeneration(): number {
  */
 export function setupTerrain(): void {
 	clearTerrain()
+	ensureCapLodSystem()
 	const map   = getTerrain(terrainSeed)
 	const rects = mergeLevelRects(map)
+	const focus = readFocusXZ()
+	let   caps  = 0
 
 	for (const r of rects) {
-		const top     = groundYForLevel(r.level)
-		const centerX = TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * TERRAIN_CELL_M
-		const centerZ = TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * TERRAIN_CELL_M
-		const sizeX   = r.w * TERRAIN_CELL_M
-		const sizeZ   = r.h * TERRAIN_CELL_M
-
-		// Body and cap meet at a shared interior face, so neither one
-		// has a coplanar twin to fight with.
-		spawnSlab(centerX, centerZ, sizeX, sizeZ, SLAB_BASE_Y, top - CAP_M, COLOR_ROCK)
-		spawnSlab(centerX, centerZ, sizeX, sizeZ, top - CAP_M, top, COLOR_GROUND)
+		const top      = groundYForLevel(r.level)
+		const centerX  = TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * TERRAIN_CELL_M
+		const centerZ  = TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * TERRAIN_CELL_M
+		const sizeX    = r.w * TERRAIN_CELL_M
+		const sizeZ    = r.h * TERRAIN_CELL_M
+		const wantsCap = !isMountainLevel(r.level)
+		const showCap  = wantsCap && distSqToRect(focus.x, focus.z, centerX, centerZ, sizeX, sizeZ) < CAP_KEEP_M2
+		const rockTop  = showCap ? top - CAP_M : top
+		const rock     = spawnSlab(centerX, centerZ, sizeX, sizeZ, SLAB_BASE_Y, rockTop, COLOR_ROCK)
+		let   cap: Entity | null = null
+		if (showCap) {
+			cap = spawnSlab(centerX, centerZ, sizeX, sizeZ, top - CAP_M, top, COLOR_GROUND)
+			caps++
+		}
+		rectGeoms.push({
+			centerX,
+			centerZ,
+			sizeX,
+			sizeZ,
+			top,
+			wantsCap,
+			rock,
+			cap,
+		})
 	}
 
 	setupLadders(map)
@@ -145,9 +188,80 @@ export function setupTerrain(): void {
 
 	console.log(
 		`terrainRenderer: setupTerrain: seed ${map.usedSeed} (try ${map.attempts}), ` +
-		`${rects.length} slabs, ${map.ladders.length} ladders, ` +
-		`${map.regionLevel.length} regions, ${map.destinations.length} destinations`
+		`${rects.length} rock slabs, ${caps} caps (keep=${CAP_KEEP_M}m), ` +
+		`${map.ladders.length} ladders, ${map.regionLevel.length} regions, ` +
+		`${map.destinations.length} destinations`
 	)
+}
+
+
+// MARK: ensureCapLodSystem
+
+function ensureCapLodSystem(): void {
+	if (capLodInstalled) return
+	capLodInstalled = true
+	engine.addSystem(capLodSystem)
+}
+
+
+// MARK: capLodSystem
+/**
+ * Stream melt-blue caps around the player. Mountain rects are skipped.
+ * Rock height tracks the cap so the walkable surface never drops when
+ * a far cap is removed.
+ */
+function capLodSystem(): void {
+	if (rectGeoms.length === 0) return
+	const focus = readFocusXZ()
+	for (const g of rectGeoms) {
+		if (!g.wantsCap) continue
+		const near = distSqToRect(focus.x, focus.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) < CAP_KEEP_M2
+		if (near && g.cap === null) {
+			setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top - CAP_M)
+			g.cap = spawnSlab(g.centerX, g.centerZ, g.sizeX, g.sizeZ, g.top - CAP_M, g.top, COLOR_GROUND)
+			continue
+		}
+		if (!near && g.cap !== null) {
+			removeTracked(g.cap)
+			g.cap = null
+			setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top)
+		}
+	}
+}
+
+
+// MARK: readFocusXZ
+
+/** Player XZ, or the hearth if the avatar is not ready yet. */
+function readFocusXZ(): { x: number; z: number } {
+	const player = Transform.getOrNull(engine.PlayerEntity)
+	if (player !== null) return { x: player.position.x, z: player.position.z }
+	return { x: CAMPFIRE_WORLD_X, z: CAMPFIRE_WORLD_Z }
+}
+
+
+// MARK: distSqToRect
+
+/** Squared distance from a world XZ point to a centred AABB's edge. */
+function distSqToRect(
+	px     : number,
+	pz     : number,
+	centerX: number,
+	centerZ: number,
+	sizeX  : number,
+	sizeZ  : number,
+): number {
+	const halfX = sizeX * 0.5
+	const halfZ = sizeZ * 0.5
+	const minX  = centerX - halfX
+	const maxX  = centerX + halfX
+	const minZ  = centerZ - halfZ
+	const maxZ  = centerZ + halfZ
+	const cx    = px < minX ? minX : (px > maxX ? maxX : px)
+	const cz    = pz < minZ ? minZ : (pz > maxZ ? maxZ : pz)
+	const dx    = px - cx
+	const dz    = pz - cz
+	return dx * dx + dz * dz
 }
 
 
@@ -161,7 +275,7 @@ function spawnSlab(
 	bottomY : number,
 	topY    : number,
 	color   : Color4,
-): void {
+): Entity {
 	const height = topY - bottomY
 	const e      = engine.addEntity()
 	terrainEntities.push(e)
@@ -177,6 +291,36 @@ function spawnSlab(
 		metallic:          0.0,
 		specularIntensity: 0.0,
 	})
+	return e
 }
 
 
+// MARK: setSlabSpan
+// Resize an existing rock box when a cap is added or removed.
+function setSlabSpan(
+	e       : Entity,
+	centerX : number,
+	centerZ : number,
+	sizeX   : number,
+	sizeZ   : number,
+	bottomY : number,
+	topY    : number,
+): void {
+	const height = topY - bottomY
+	const tr     = Transform.getMutableOrNull(e)
+	if (tr === null) {
+		console.log('terrainRenderer: setSlabSpan: missing transform, skipping resize')
+		return
+	}
+	tr.position = Vector3.create(centerX, bottomY + height / 2, centerZ)
+	tr.scale    = Vector3.create(sizeX, height, sizeZ)
+}
+
+
+// MARK: removeTracked
+
+function removeTracked(e: Entity): void {
+	const i = terrainEntities.indexOf(e)
+	if (i >= 0) terrainEntities.splice(i, 1)
+	engine.removeEntity(e)
+}

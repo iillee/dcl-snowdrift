@@ -9,7 +9,7 @@
  * respawn-on-death (Phase 6), team-color indicator attachments, etc.
  */
 
-import { engine } from '@dcl/sdk/ecs'
+import { engine, Transform } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -100,17 +100,21 @@ export function teleportNear(
 
 // MARK: initPlayerNet
 /**
- * After a short load beat, run `onReady` (first-join collapse).
- * Delay lets PlayerEntity exist before movePlayerTo.
+ * Run `onReady` (first-join collapse) as soon as PlayerEntity exists.
+ * A short floor avoids racing the first frame; a cap keeps cold open
+ * from hanging if Transform is slow to appear.
  */
 export function initPlayerNet(onReady: () => void): void {
 	let elapsed = 0
-	let done = false
-	const INIT_DELAY = 2
+	let done    = false
+	const READY_FLOOR_S = 0.15
+	const READY_CAP_S   = 0.75
 	engine.addSystem((dt: number) => {
 		if (done) return
 		elapsed += dt
-		if (elapsed < INIT_DELAY) return
+		if (elapsed < READY_FLOOR_S) return
+		const playerReady = Transform.getOrNull(engine.PlayerEntity) !== null
+		if (!playerReady && elapsed < READY_CAP_S) return
 		done = true
 		onReady()
 	})

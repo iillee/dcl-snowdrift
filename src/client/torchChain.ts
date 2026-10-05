@@ -39,6 +39,7 @@ import { room } from 'src/shared/messages'
 import { playSurgeSfxAt, playTorchSfxLocal }          from 'src/client/audio'
 import { isRemotePlayerFrozen }                        from 'src/client/frost/rescue'
 import { getRemoteTorchUserIds, isRemoteTorchLit }     from 'src/client/remoteTorches'
+import { syncTorchFlameNow } from 'src/client/torch'
 import {
 	TORCH_FUEL_MAX_S,
 	isTorchEquipped,
@@ -187,6 +188,7 @@ export function setupTorchChain(): void {
 		if (!isTorchEquipped()) return
 		if (isTorchLit()) return  // our own echo, or already lit
 		relightTorchPartial(CHAIN_TRANSFER_S)
+		syncTorchFlameNow()
 		playTorchSfxLocal()
 		console.log(`torchChain: local torch lit by remote chain-light (+${CHAIN_TRANSFER_S.toFixed(1)}s)`)
 	})

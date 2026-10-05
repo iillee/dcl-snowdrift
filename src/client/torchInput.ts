@@ -25,6 +25,7 @@ import { playSurgeSfxLocal, playTorchSfxLocal } from 'src/client/audio'
 import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
+import { syncTorchFlameNow } from 'src/client/torch'
 import {
 	TORCH_FUEL_MAX_S,
 	consumeTorchFuel,
@@ -113,6 +114,7 @@ export function tryRelightAtFire(): void {
 	}
 
 	relightTorch()
+	syncTorchFlameNow()
 	relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
 	// Torch ignition SFX fires here — on the successful relight action
 	// itself, not on an isTorchLit() state edge. Topping off a still-lit

@@ -60,32 +60,24 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 
 // MARK: Scene
 
-/** Scene X extent in meters (64 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 1024
+/** Scene X extent in meters (100 parcels × 16 m). Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = 1600
 
-/** Scene Z extent in meters (64 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 1024
+/** Scene Z extent in meters (100 parcels × 16 m). Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = 1600
 
 /**
  * Interior playfield extent in meters. The maze, paint grid, and
  * campfire live inside this playfield; the outer scene padding is
- * used by the perimeter (cliffs) ring.
+ * used by the mountain band / former perimeter ring.
  *
  * Padding stays 16 m per side: (scene − playfield) / 2 = 16 with
- * scene=1024 and playfield=992 (same as 512/480).
+ * scene=1600 and playfield=1568 → 98 × 98 terrain/snow cells.
  *
- * Sizing rule for cliff-cap intrusions: perimeter fork caps sit at
- * ~96 m from each scene edge (one perim tile + half-cap). For those
- * caps to actually poke into the playfield (so the maze retreats
- * around them via setReservedCells), this value must leave the
- * playfield edge inside that reach. With a 16 m pad the caps always
- * intrude; the old 512 m examples below are kept for reference:
- *
- *   256 → dormant (empty ring 64 m, caps stop at playfield edge)
- *   320 → mild    (empty ring 32 m, caps intrude 1 edge cell)
- *   384 → strong  (empty ring 0 m,  caps intrude 2 cells deep)
+ * Stress-test envelope (was 64 × 64 / 1024 / 992). v1 target remains
+ * gated on H1-06 mobile; this size is for load limits, not a ship call.
  */
-export const MAZE_PLAYFIELD_METERS = 992
+export const MAZE_PLAYFIELD_METERS = 1568
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
@@ -180,18 +172,49 @@ export const TERRAIN_LEVEL_LOW      = 0
 export const TERRAIN_LEVEL_MID      = 1
 /** Highest walkable level (plateaus, ridges). */
 export const TERRAIN_LEVEL_HIGH     = 2
-/** Impassable mountain band. No ladders reach it. */
+/**
+ * Impassable mountain band base. Peak cells use this plus 1..PEAK_STEPS
+ * so the rim can step for an organic horizon without becoming walkable.
+ */
 export const TERRAIN_LEVEL_MOUNTAIN = 3
+/** Extra mountain peak steps above the base rim (levels 4, 5, …). */
+export const TERRAIN_MOUNTAIN_PEAK_STEPS = 2
+/** Highest mountain peak level index. */
+export const TERRAIN_LEVEL_MOUNTAIN_MAX =
+	TERRAIN_LEVEL_MOUNTAIN + TERRAIN_MOUNTAIN_PEAK_STEPS
+/**
+ * Vertical step between mountain peak tiers. Finer than the walkable
+ * 16 m step so the horizon reads as jagged rock, not another plateau.
+ */
+export const TERRAIN_MOUNTAIN_STEP_M = 8
+
+
+// MARK: isMountainLevel
+/**
+ * True for the impassable rim and any peak tier above it. Walkable
+ * gameplay (ladders, caps, regions) treats all of these as mountain.
+ */
+export function isMountainLevel(level: number): boolean {
+	return level >= TERRAIN_LEVEL_MOUNTAIN
+}
 
 
 // MARK: groundYForLevel
 /**
- * Walkable surface height of a terrain level. Lives here rather than in
- * terrain/ so snowGrid and other low-level modules can read it without
- * depending on the terrain map.
+ * Surface height of a terrain level. Walkable levels use the 16 m step;
+ * mountain peaks stack a finer step on top of the base mountain height
+ * so the boundary wall can vary without matching plateau spacing.
  */
 export function groundYForLevel(level: number): number {
-	return TERRAIN_BASE_SURFACE_Y + level * TERRAIN_LEVEL_STEP_M
+	if (level <= TERRAIN_LEVEL_HIGH) {
+		return TERRAIN_BASE_SURFACE_Y + level * TERRAIN_LEVEL_STEP_M
+	}
+	const peak = Math.max(0, level - TERRAIN_LEVEL_MOUNTAIN)
+	return (
+		TERRAIN_BASE_SURFACE_Y +
+		TERRAIN_LEVEL_MOUNTAIN * TERRAIN_LEVEL_STEP_M +
+		peak * TERRAIN_MOUNTAIN_STEP_M
+	)
 }
 
 

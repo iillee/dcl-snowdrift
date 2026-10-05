@@ -221,7 +221,7 @@ function resolveFirePos(target: number): Vector3 {
 	if (target >= 0) {
 		const pos = getHiddenCampfireWorldPos(target)
 		if (pos !== null) {
-			return Vector3.create(pos.x, CAMPFIRE_WORLD_Y + FIRE_AIM_Y, pos.z)
+			return Vector3.create(pos.x, pos.y + FIRE_AIM_Y, pos.z)
 		}
 	}
 	return Vector3.create(

@@ -27,7 +27,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
+import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import {
 	FUEL_HIDDEN_FLOOR,
 	FUEL_HIDDEN_INITIAL,
@@ -46,7 +46,6 @@ import {
 import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
-import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
@@ -96,10 +95,7 @@ export function onHiddenFireRelit(handler: () => void): void {
 
 // MARK: recomputePositions
 function recomputePositions(): void {
-	const spots = pickHiddenCampfires(
-		currentSeed,
-		offHearthCellsForMazeSeed(cycleMazeSeed(currentSeed)),
-	)
+	const spots = pickHiddenCampfires(currentSeed)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		const spot = spots[i]
 		if (!spot) {
@@ -108,6 +104,11 @@ function recomputePositions(): void {
 		}
 		worldX[i] = spot.x
 		worldZ[i] = spot.z
+		console.log(
+			`[Server] hiddenCampfire: slot ${i} ` +
+			`tile=(${spot.tx},${spot.tz}) ` +
+			`world=(${spot.x.toFixed(1)},${spot.y.toFixed(1)},${spot.z.toFixed(1)})`,
+		)
 	}
 }
 
@@ -234,12 +235,13 @@ export function snuffAllHiddenFires(): void {
  */
 export function sendHiddenCampfireStateTo(userId: string): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		// Fuel first when lit so applyLitVisuals reads a real tank.
+		if (lit[i]) broadcastFuel(i, userId)
 		room.send(
 			'hiddenCampfireState',
 			{ seed: currentSeed, index: i, lit: lit[i] ? 1 : 0 },
 			{ to: [userId] },
 		)
-		if (lit[i]) broadcastFuel(i, userId)
 	}
 }
 
@@ -292,14 +294,12 @@ export function setupHiddenCampfireServer(): void {
 			`(seed=${currentSeed}, fuel=${FUEL_HIDDEN_INITIAL}s tier ${hearthTierFromFuel(FUEL_HIDDEN_INITIAL)})`
 		)
 		if (fireRelitHandler) fireRelitHandler()
-		// Broadcast BEFORE the paint pass so a ring-seeding failure can't
-		// silently swallow the state flip. Clients need the lit=true message
-		// to spawn smoke / crackle / warmth even if the melt ring lags. The
-		// ring itself grows in over MELT_GROWTH_DURATION_S on the tick below
-		// — no seed pass here, so the first frame reads as "just ignited,
-		// snow still there" and melts outward from centre.
-		broadcastOne(index)
+		// Fuel BEFORE lit-state so clients spawn flame cards at Ember
+		// scale instead of scale 0 (lit packet used to win the race and
+		// leave a blank pit for a beat). Melt ring still grows in on the
+		// tick below — no seed pass here.
 		broadcastFuel(index)
+		broadcastOne(index)
 	})
 
 	// Fuel decay + ring refresh + broadcast throttling. Runs every

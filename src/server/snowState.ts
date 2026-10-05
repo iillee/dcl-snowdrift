@@ -6,7 +6,9 @@
  * PaintTile byte, and dirty tiles are flushed once per tick by server.ts.
  *
  * Cells absent from `cells` are pristine (stage 3). Fire-protected cells
- * never regrow while protected.
+ * never regrow while protected. The single snow cell under each
+ * campfire melt caps at stage 2 so found fires leave a shallow dip
+ * after they go out — easier to re-find without a full clearing.
  */
 
 import {
@@ -33,6 +35,8 @@ type CellState = { stage: 0 | 1 | 2; changedAtMs: number }
 
 const cells          = new Map<number, CellState>()
 const protectedCells = new Set<number>()
+/** Cells under a campfire that has melted at least once this cycle. */
+const scarredCells   = new Set<number>()
 
 let serverClockMs = 0
 let coverageDirty = false
@@ -44,6 +48,9 @@ const STAGE_INTERVAL_MS: Record<number, number | null> = {
 	2: 20000,
 	3: 12000,
 }
+
+/** Highest snow stage a scarred cell may reach (never pristine). */
+const FIRE_SCAR_MAX_STAGE: 1 | 2 = 2
 
 
 // MARK: writeStage
@@ -115,6 +122,8 @@ export function getStageAtWorld(
 /**
  * Melt and heat-protect every cell within `radiusM` of world (cx, cz).
  * Idempotent; returns the count of cells whose stage changed.
+ * Also scars a small footprint at the centre so snowfall never fully
+ * erases a found campfire this cycle.
  */
 export function meltDisc(
 	cx:      number,
@@ -131,7 +140,23 @@ export function meltDisc(
 		protectedCells.add(key)
 		if (applyMelt(key, 0)) changed++
 	})
+	markFireScar(cx, cz)
 	return changed
+}
+
+
+// MARK: markFireScar
+/**
+ * Remember the single snow cell under the fire. tickRegrowth will
+ * refuse to push it past FIRE_SCAR_MAX_STAGE for the rest of the cycle.
+ */
+function markFireScar(
+	cx: number,
+	cz: number,
+): void {
+	const key = worldToCellKey(cx, cz)
+	if (key === null) return
+	scarredCells.add(key)
 }
 
 
@@ -196,6 +221,17 @@ export function tickRegrowth(
 		const nextStage = state.stage + 1
 		if (serverClockMs - state.changedAtMs < intervalMs * nextStage) continue
 
+		if (nextStage > FIRE_SCAR_MAX_STAGE && scarredCells.has(key)) {
+			// Found-fire scar: stop at the dip stage. Keep the cell in
+			// the map so it never collapses back to pristine.
+			if (state.stage !== FIRE_SCAR_MAX_STAGE) {
+				state.stage = FIRE_SCAR_MAX_STAGE
+				writeStage(key, FIRE_SCAR_MAX_STAGE)
+				coverageDirty = true
+			}
+			state.changedAtMs = serverClockMs
+			continue
+		}
 		if (nextStage >= STAGE_PRISTINE) {
 			cells.delete(key)
 			writeStage(key, STAGE_PRISTINE)
@@ -235,6 +271,7 @@ export function clearAllSnow(): void {
 	const cleared = cells.size
 	cells.clear()
 	protectedCells.clear()
+	scarredCells.clear()
 	zeroAllSnowTiles()
 	noteComponentChange(cleared)
 	coverageDirty = true

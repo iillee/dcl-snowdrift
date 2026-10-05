@@ -16,11 +16,13 @@
  * paper-thin sheet. Stage 0 renders nothing, so the blue ground shows.
  *
  * Far from melt, pristine roots coalesce into larger multi-tile boxes
- * (32 / 64 / 128 m) so a bigger playfield does not pay one entity per
- * 16 m tile; a block only coalesces when every tile in it shares one
- * level. Covered roots skip their fine quadtree until the player or
- * a melt lip approaches. Coarse sheets are thick boxes (not paper planes)
- * so their tops and sides shade like nearby snow.
+ * (32 / 64 / 128 / 256 m) so a bigger playfield does not pay one entity
+ * per 16 m tile; a block only coalesces when every tile in it shares
+ * one level. Covered roots skip their fine quadtree until the player or
+ * a melt lip approaches. Coarse sheets are always thick boxes (never
+ * paper planes) so cliff lips keep vertical snow faces — a sheet never
+ * spans two elevations, and single-tile LOD planes are refused on any
+ * level boundary.
  *
  * A dirty root is rebuilt create-first: new nodes spawn before old ones
  * leave, and replaced parents stay for RETIRE_FRAMES (sunk so their
@@ -86,16 +88,18 @@ const PLANE_ROT               = Quaternion.fromEulerDegrees(-90, 0, 0)
 // Node id = size * stride + local cell index; stride must exceed SNOW_TILE_CELL_COUNT.
 const NODE_SIZE_STRIDE        = 1024
 // Multi-tile LOD: largest first. Further from melt/player → bigger sheets.
-// playerKeepM is clearance from the block's EDGE (not centre), so a 128 m
+// playerKeepM is clearance from the block's EDGE (not centre), so a 256 m
 // sheet cannot slide in close while its centre stays "far enough".
+// Sheets are thick boxes only (see syncCoarsePlanes → createBox plane=false).
 const COARSE_LEVELS: ReadonlyArray<{
 	tiles:         number
 	playerKeepM:   number
 	meltPadCells:  number
 }> = [
-	{ tiles: 8, playerKeepM: 96, meltPadCells: 48 },
-	{ tiles: 4, playerKeepM: 72, meltPadCells: 32 },
-	{ tiles: 2, playerKeepM: 56, meltPadCells: 24 },
+	{ tiles: 16, playerKeepM: 128, meltPadCells: 64 },
+	{ tiles: 8,  playerKeepM: 80,  meltPadCells: 40 },
+	{ tiles: 4,  playerKeepM: 56,  meltPadCells: 28 },
+	{ tiles: 2,  playerKeepM: 40,  meltPadCells: 20 },
 ]
 // Near a melt lip, refuse nodes larger than this so the hearth is not a 16 m cliff.
 const MELT_LIP_MAX_CELLS = 4

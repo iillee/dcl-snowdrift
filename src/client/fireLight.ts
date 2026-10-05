@@ -1,14 +1,15 @@
 /**
  * fireLight.ts — point lights that read remaining burn time.
  *
- * Torches and fires both use the same split: a soft fill point light
- * (this file, no shadows) plus three outward spots on the flame tip
- * (torchFlame / flameBillboards) that cast the flicker shadows. Keep
- * the fill dim so it does not wash the spots into a flat ground disc.
+ * Light budget (Explorer ~4–10 lights / ~3 shadowed):
+ *   - Closest lit campfire: three shadow spots (flameBillboards)
+ *   - Other lit campfires: one radial fill point light each (here)
+ *   - Local + remote torches: one flickering radial each (here)
+ *
  * Active lights flicker so they read as fire, not bulbs.
  */
 
-import { Entity, LightSource } from '@dcl/sdk/ecs'
+import { engine, Entity, LightSource, Transform } from '@dcl/sdk/ecs'
 import { Color3 } from '@dcl/sdk/math'
 
 import { hearthLightRangeFromFuel } from 'src/shared/hearthFuel'
@@ -19,24 +20,25 @@ import { hearthLightRangeFromFuel } from 'src/shared/hearthFuel'
 const FIRE_COLOR = Color3.create(1.00, 0.80, 0.30)
 
 
-// MARK: Torch fill pool
-// Soft fill only — tip spots do the dramatic light and shadows.
+// MARK: Torch radial pool
+// Torches no longer carry spot lights — this point light is the whole
+// torch contribution to the scene light budget.
 /** Range (m) at an empty-but-still-lit torch. */
-const TORCH_RANGE_MIN_M = 2.0
+const TORCH_RANGE_MIN_M = 2.5
 /** Range (m) at a full tank. */
-const TORCH_RANGE_MAX_M = 4.5
+const TORCH_RANGE_MAX_M = 6.0
 /** Candela at empty-but-lit. */
-const TORCH_INTENSITY_MIN = 280
+const TORCH_INTENSITY_MIN = 450
 /** Candela at a full tank before night pinch. */
-const TORCH_INTENSITY_MAX = 900
+const TORCH_INTENSITY_MAX = 1400
 
 
-// MARK: Hearth pool
+// MARK: Hearth radial pool
 /**
- * Soft fill only. Spots do the dramatic light and shadows — this
- * used to be 2000 and washed them out into a flat ground disc.
+ * Distant lit campfires (not the closest) — one soft radial so they
+ * stay visible from afar without eating the shadow-spot budget.
  */
-const HEARTH_INTENSITY_PER_M = 350
+const HEARTH_INTENSITY_PER_M = 400
 
 
 // MARK: Write epsilons
@@ -48,6 +50,37 @@ export interface FireLightParams {
 	active    : boolean
 	intensity : number
 	range     : number
+}
+
+/** World XZ of a lit fire, or null when that slot is dark / absent. */
+export type LitFirePos = { x: number; z: number } | null
+
+
+// MARK: nearestLitFireIndex
+/**
+ * Index of the lit fire closest to the local player, or -1 when none
+ * are lit. `fires[i] === null` means that slot is skipped.
+ */
+export function nearestLitFireIndex(
+	fires: ReadonlyArray<LitFirePos>,
+): number {
+	const playerT = Transform.getOrNull(engine.PlayerEntity)
+	const px = playerT?.position.x ?? 0
+	const pz = playerT?.position.z ?? 0
+	let best   = -1
+	let bestD2 = Infinity
+	for (let i = 0; i < fires.length; i++) {
+		const f = fires[i]
+		if (f === null) continue
+		const dx = f.x - px
+		const dz = f.z - pz
+		const d2 = dx * dx + dz * dz
+		if (d2 < bestD2) {
+			bestD2 = d2
+			best   = i
+		}
+	}
+	return best
 }
 
 
@@ -74,9 +107,9 @@ function fireFlicker(
 
 // MARK: torchLightParams
 /**
- * Soft fill point-light params for a held torch. Spots on the tip do
- * the dramatic light and shadows. `fuelFrac` is 0..1 remaining tank;
- * `flameMul` is the phase pinch (night 0.65). Unlit is off.
+ * Single radial point-light params for a held torch (local or remote).
+ * `fuelFrac` is 0..1 remaining tank; `flameMul` is the phase pinch
+ * (night 0.65). Unlit is off.
  */
 export function torchLightParams(
 	lit     : boolean,
@@ -98,9 +131,9 @@ export function torchLightParams(
 
 // MARK: hearthLightParams
 /**
- * Point-light params for a campfire. Range is the tier's light pool,
- * not the melt ring. Intensity grows with that range. Fuel at or
- * below zero turns the light off.
+ * Radial point-light params for a campfire that is NOT the closest
+ * lit fire (closest uses shadow spots instead). Range is the tier's
+ * light pool, not the melt ring. Fuel at or below zero turns it off.
  */
 export function hearthLightParams(fuel: number): FireLightParams {
 	const range = hearthLightRangeFromFuel(fuel)

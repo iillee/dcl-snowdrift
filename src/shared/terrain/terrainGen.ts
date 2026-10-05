@@ -2,7 +2,9 @@
  * terrainGen.ts — seeded elevation generator.
  *
  * Regions first, boundaries second. Pipeline (design/terrain-plan.md):
- *   1. Mountain band around the edge, jittered thickness.
+ *   1. Mountain band around the edge: jittered thickness, corner
+ *      bumpouts, inward fingers, bays, lip serration, then peak-height
+ *      sculpting so the rim and horizon do not read as a box.
  *   2. Low / Middle / High from fractal noise, cut by quantile.
  *   3. Hearth disc forced Middle, noise blended toward Middle around it.
  *   4. Landform stamps in separate directions: canyon, ridge, plateau, basin.
@@ -14,6 +16,9 @@
  *   8. Validate; a failing seed retries deterministically.
  *
  * Pure and deterministic; client and server get the same map.
+ *
+ * Cell lengths scale with grid size relative to a 62-cell reference so
+ * enlarging the World grows plateaus instead of adding more seams.
  */
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -25,6 +30,8 @@ import {
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
 	TERRAIN_LEVEL_MOUNTAIN,
+	TERRAIN_MOUNTAIN_PEAK_STEPS,
+	isMountainLevel,
 } from 'src/shared/settings'
 import {
 	DIR_DX,
@@ -65,13 +72,50 @@ const MID      = TERRAIN_LEVEL_MID
 const HIGH     = TERRAIN_LEVEL_HIGH
 const MOUNTAIN = TERRAIN_LEVEL_MOUNTAIN
 
-// Mountain band thickness in cells: MIN plus 0..JITTER from noise.
-const MOUNTAIN_BAND_MIN    = 3
-const MOUNTAIN_BAND_JITTER = 2
-const MOUNTAIN_JITTER_SCALE = 6
+/**
+ * Reference grid the generator was tuned against (64×64 playfield → 62
+ * cells). Bigger maps multiply lengths/radii by SCALE so plateaus grow
+ * instead of the map sprouting more seams. That keeps cliff-edge count
+ * roughly flat and gives the snow coarse LOD larger same-level runs.
+ */
+const REF_GRID = 62
+const SCALE    = Math.max(1, Math.min(W, H) / REF_GRID)
 
-// One noise feature spans this many cells (14 cells = 224 m).
-const FIELD_SCALE_CELLS = 14
+/** Scale a cell length/radius. Kept as a helper so call sites stay readable. */
+function sc(cells: number): number {
+	return cells * SCALE
+}
+
+// Mountain band stays a fixed world thickness (not scaled): it is a
+// silhouette rim, not an interior landform. Fingers / corners / bays /
+// serration + peak heights stop the rim reading as a flat box wall.
+const MOUNTAIN_BAND_MIN     = 3
+const MOUNTAIN_BAND_JITTER  = 4
+const MOUNTAIN_JITTER_SCALE = sc(5)
+/** Extra mountain mass at each corner (cells into the interior). */
+const MOUNTAIN_CORNER_R     = 6
+/** Inward mountain spurs per edge (seed picks their slots). */
+const MOUNTAIN_FINGERS_PER_EDGE = 4
+const MOUNTAIN_FINGER_LEN_MIN   = 3
+const MOUNTAIN_FINGER_LEN_MAX   = 9
+const MOUNTAIN_FINGER_HALF_W    = 1
+/** Recesses carved into the band per edge (outer rim stays sealed). */
+const MOUNTAIN_BAYS_PER_EDGE = 2
+const MOUNTAIN_BAY_HALF_W    = 2
+/** Never strip mountain inside this many cells of the scene edge. */
+const MOUNTAIN_SEAL_CELLS    = 2
+/** Chance each inner-lip cell gains or loses a neighbour for jaggedness. */
+const MOUNTAIN_SERRATE_CHANCE = 0.38
+/**
+ * Noise scale for peak-height sculpting. Large on purpose so raised /
+ * lowered rim segments clump into long horizon chunks (not speckles).
+ */
+const MOUNTAIN_PEAK_NOISE_SCALE = sc(18)
+
+// One noise feature spans this many cells. 14 on the reference grid
+// (= 224 m); grows with SCALE so a 100×100 map keeps a similar number
+// of plateaus, each larger in metres.
+const FIELD_SCALE_CELLS = sc(14)
 const FIELD_OCTAVES     = 3
 const FIELD_GAIN        = 0.4
 
@@ -79,24 +123,25 @@ const FIELD_GAIN        = 0.4
 const LOW_FRACTION  = 0.27
 const HIGH_FRACTION = 0.27
 
-// Hearth disc (cells): forced Middle inside FORCE, blended out to BLEND.
+// Hearth disc stays local to gameplay (not scaled with the world).
 const HEARTH_FORCE_R = 4.5
 const HEARTH_BLEND_R = 9
 
-// Regions smaller than this merge into a neighbour.
-const MIN_REGION_CELLS = 8
+// Tiny regions fold into neighbours. Floor grows with SCALE so a big
+// map does not keep more crumb-sized fragments than the reference.
+const MIN_REGION_CELLS = Math.round(sc(8))
 
 // Ladder placement.
-const SECOND_LADDER_MIN_SITES = 24
-const SECOND_LADDER_MIN_SEP   = 10
+const SECOND_LADDER_MIN_SITES = Math.round(sc(24))
+const SECOND_LADDER_MIN_SEP   = Math.round(sc(10))
 
 // Destinations.
-const DEST_MIN_AREA      = 40
+const DEST_MIN_AREA      = Math.round(sc(40))
 const DEST_MAX           = 2
 const DEST_MIN_ANGLE_RAD = Math.PI / 2
 
 // Validation.
-const MIN_HEARTH_REGION_CELLS = 40
+const MIN_HEARTH_REGION_CELLS = Math.round(sc(40))
 const MIN_LADDERS             = 2
 const MAX_ATTEMPTS            = 8
 const MAX_REPAIR_PASSES       = 6
@@ -226,17 +271,245 @@ function hearthDist(
 }
 
 
+// MARK: lockMountain
+/**
+ * Paint one cell as sealed mountain. Skips the hearth neighbourhood so
+ * fingers never pin the spawn pad against a spur.
+ */
+function lockMountain(
+	work: Work,
+	cx:   number,
+	cz:   number,
+): void {
+	if (cx < 0 || cz < 0 || cx >= W || cz >= H) return
+	if (hearthDist(cx, cz) < HEARTH_BLEND_R) return
+	const i = cz * W + cx
+	work.levels[i] = MOUNTAIN
+	work.locked[i] = 1
+}
+
+
 // MARK: paintMountainBand
+/**
+ * Outer rim plus breakup that keeps it from reading as a box: jittered
+ * thickness, corner mass, inward fingers, bays, lip serration, then
+ * peak-height tiers for an uneven horizon. Outer MOUNTAIN_SEAL_CELLS
+ * stay solid so nothing walks out of the scene.
+ */
 function paintMountainBand(work: Work): void {
 	for (let cz = 0; cz < H; cz++) {
 		for (let cx = 0; cx < W; cx++) {
 			const edge   = Math.min(cx, cz, W - 1 - cx, H - 1 - cz)
 			const jitter = Math.floor(valueNoise2(cx / MOUNTAIN_JITTER_SCALE, cz / MOUNTAIN_JITTER_SCALE, work.seed + 77) * (MOUNTAIN_BAND_JITTER + 1))
-			if (edge < MOUNTAIN_BAND_MIN + jitter) {
-				const i = cz * W + cx
-				work.levels[i] = MOUNTAIN
-				work.locked[i] = 1
+			if (edge < MOUNTAIN_BAND_MIN + jitter) lockMountain(work, cx, cz)
+		}
+	}
+	paintMountainCorners(work)
+	paintMountainFingers(work)
+	paintMountainBays(work)
+	serrateMountainLip(work)
+	sculptMountainHeights(work)
+}
+
+
+// MARK: paintMountainCorners
+/** Thicken each corner so the silhouette does not meet as a sharp box. */
+function paintMountainCorners(work: Work): void {
+	const r = MOUNTAIN_CORNER_R
+	const corners: Array<[number, number]> = [
+		[0, 0],
+		[W - 1, 0],
+		[0, H - 1],
+		[W - 1, H - 1],
+	]
+	for (const [ox, oz] of corners) {
+		for (let dz = -r; dz <= r; dz++) {
+			for (let dx = -r; dx <= r; dx++) {
+				const cx = ox + dx
+				const cz = oz + dz
+				if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
+				// Quarter-disk into the interior from that corner.
+				const ix = ox === 0 ? cx : W - 1 - cx
+				const iz = oz === 0 ? cz : H - 1 - cz
+				if (ix * ix + iz * iz <= r * r) lockMountain(work, cx, cz)
 			}
+		}
+	}
+}
+
+
+// MARK: paintMountainFingers
+/**
+ * Short mountain spurs pulling off each edge into the playfield — the
+ * light version of the old perimeter canyon fingers.
+ */
+function paintMountainFingers(work: Work): void {
+	const margin = MOUNTAIN_CORNER_R + 2
+	const spanX  = W - 2 * margin
+	const spanZ  = H - 2 * margin
+	if (spanX < 4 || spanZ < 4) return
+
+	type Edge = { along: number; axis: 'x' | 'z'; inward: 1 | -1; fixed: number }
+	const edges: Edge[] = [
+		{ along: spanX, axis: 'x', inward:  1, fixed: 0 },
+		{ along: spanX, axis: 'x', inward: -1, fixed: H - 1 },
+		{ along: spanZ, axis: 'z', inward:  1, fixed: 0 },
+		{ along: spanZ, axis: 'z', inward: -1, fixed: W - 1 },
+	]
+
+	for (let e = 0; e < edges.length; e++) {
+		const edge = edges[e]
+		for (let f = 0; f < MOUNTAIN_FINGERS_PER_EDGE; f++) {
+			const slot = margin + Math.floor(work.rng() * edge.along)
+			const len  = randInt(work.rng, MOUNTAIN_FINGER_LEN_MIN, MOUNTAIN_FINGER_LEN_MAX)
+			for (let s = 0; s <= len; s++) {
+				for (let w = -MOUNTAIN_FINGER_HALF_W; w <= MOUNTAIN_FINGER_HALF_W; w++) {
+					let cx: number
+					let cz: number
+					if (edge.axis === 'x') {
+						cx = slot + w
+						cz = edge.fixed + edge.inward * (MOUNTAIN_BAND_MIN + s)
+					} else {
+						cx = edge.fixed + edge.inward * (MOUNTAIN_BAND_MIN + s)
+						cz = slot + w
+					}
+					lockMountain(work, cx, cz)
+				}
+			}
+		}
+	}
+}
+
+
+// MARK: paintMountainBays
+/**
+ * Carve shallow recesses into the inner face of the band. Outer seal
+ * cells stay mountain so the world rim never opens.
+ */
+function paintMountainBays(work: Work): void {
+	const margin = MOUNTAIN_CORNER_R + 3
+	const spanX  = W - 2 * margin
+	const spanZ  = H - 2 * margin
+	if (spanX < 4 || spanZ < 4) return
+
+	type Edge = { along: number; axis: 'x' | 'z'; inward: 1 | -1; fixed: number }
+	const edges: Edge[] = [
+		{ along: spanX, axis: 'x', inward:  1, fixed: 0 },
+		{ along: spanX, axis: 'x', inward: -1, fixed: H - 1 },
+		{ along: spanZ, axis: 'z', inward:  1, fixed: 0 },
+		{ along: spanZ, axis: 'z', inward: -1, fixed: W - 1 },
+	]
+
+	for (let e = 0; e < edges.length; e++) {
+		const edge = edges[e]
+		for (let b = 0; b < MOUNTAIN_BAYS_PER_EDGE; b++) {
+			const slot = margin + Math.floor(work.rng() * edge.along)
+			// Depth reaches the inner lip of the band, not the seal.
+			const depth = MOUNTAIN_BAND_MIN + MOUNTAIN_BAND_JITTER
+			for (let s = MOUNTAIN_SEAL_CELLS; s < depth; s++) {
+				for (let w = -MOUNTAIN_BAY_HALF_W; w <= MOUNTAIN_BAY_HALF_W; w++) {
+					let cx: number
+					let cz: number
+					if (edge.axis === 'x') {
+						cx = slot + w
+						cz = edge.fixed + edge.inward * s
+					} else {
+						cx = edge.fixed + edge.inward * s
+						cz = slot + w
+					}
+					if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
+					const i = cz * W + cx
+					if (!isMountainLevel(work.levels[i])) continue
+					// Clear so paintLevelField can claim the bay as walkable.
+					work.levels[i]    = MID
+					work.locked[i]    = 0
+					work.landforms[i] = LANDFORM_NONE
+				}
+			}
+		}
+	}
+}
+
+
+// MARK: serrateMountainLip
+/**
+ * Jab the inner mountain face: randomly grow one cell into the playfield
+ * or chew one non-seal mountain cell back. Breaks long straight seams
+ * left by the band / finger / bay pass.
+ */
+function serrateMountainLip(work: Work): void {
+	const lip: number[] = []
+	for (let cz = 0; cz < H; cz++) {
+		for (let cx = 0; cx < W; cx++) {
+			const i = cz * W + cx
+			if (!isMountainLevel(work.levels[i])) continue
+			let touchesInterior = false
+			for (let d = 0; d < 4; d++) {
+				const nx = cx + DIR_DX[d]
+				const nz = cz + DIR_DZ[d]
+				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				if (!isMountainLevel(work.levels[nz * W + nx])) {
+					touchesInterior = true
+					break
+				}
+			}
+			if (touchesInterior) lip.push(i)
+		}
+	}
+	for (const i of lip) {
+		if (work.rng() > MOUNTAIN_SERRATE_CHANCE) continue
+		const cx   = i % W
+		const cz   = (i - cx) / W
+		const edge = Math.min(cx, cz, W - 1 - cx, H - 1 - cz)
+		if (work.rng() < 0.55) {
+			const order = [0, 1, 2, 3]
+			for (let k = order.length - 1; k > 0; k--) {
+				const j = Math.floor(work.rng() * (k + 1))
+				const t = order[k]
+				order[k] = order[j]
+				order[j] = t
+			}
+			for (const d of order) {
+				const nx = cx + DIR_DX[d]
+				const nz = cz + DIR_DZ[d]
+				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				if (isMountainLevel(work.levels[nz * W + nx])) continue
+				lockMountain(work, nx, nz)
+				break
+			}
+			continue
+		}
+		if (edge < MOUNTAIN_SEAL_CELLS) continue
+		work.levels[i]    = MID
+		work.locked[i]    = 0
+		work.landforms[i] = LANDFORM_NONE
+	}
+}
+
+
+// MARK: sculptMountainHeights
+/**
+ * Assign peak tiers (MOUNTAIN .. MOUNTAIN+PEAK_STEPS) from very
+ * low-frequency noise so raised and lowered rim segments form large
+ * contiguous chunks — long horizon steps, not cell-scale speckles.
+ */
+function sculptMountainHeights(work: Work): void {
+	if (TERRAIN_MOUNTAIN_PEAK_STEPS <= 0) return
+	for (let cz = 0; cz < H; cz++) {
+		for (let cx = 0; cx < W; cx++) {
+			const i = cz * W + cx
+			if (!isMountainLevel(work.levels[i])) continue
+			const n = valueNoise2(
+				cx / MOUNTAIN_PEAK_NOISE_SCALE,
+				cz / MOUNTAIN_PEAK_NOISE_SCALE,
+				work.seed + 191,
+			)
+			let boost = 0
+			if (n > 0.36) boost = 1
+			if (n > 0.66) boost = 2
+			if (boost > TERRAIN_MOUNTAIN_PEAK_STEPS) boost = TERRAIN_MOUNTAIN_PEAK_STEPS
+			work.levels[i] = MOUNTAIN + boost
+			work.locked[i] = 1
 		}
 	}
 }
@@ -250,7 +523,7 @@ function paintLevelField(work: Work): void {
 		for (let cx = 0; cx < W; cx++) {
 			const i = cz * W + cx
 			field[i] = fractalNoise2(cx / FIELD_SCALE_CELLS, cz / FIELD_SCALE_CELLS, work.seed, FIELD_OCTAVES, FIELD_GAIN)
-			if (work.levels[i] !== MOUNTAIN) interior.push(i)
+			if (!isMountainLevel(work.levels[i])) interior.push(i)
 		}
 	}
 
@@ -374,7 +647,7 @@ function stampPath(
 		const cx = Math.floor(x)
 		const cz = Math.floor(z)
 		if (cx < 0 || cz < 0 || cx >= W || cz >= H) return
-		if (work.levels[cz * W + cx] === MOUNTAIN) return
+		if (isMountainLevel(work.levels[cz * W + cx])) return
 		stampDisc(work, x, z, radius, level, landform)
 		a += (work.rng() - 0.5) * 0.25
 		x += Math.cos(a) * 0.5
@@ -390,7 +663,8 @@ function stampCanyon(
 	angle: number,
 ): void {
 	const start = HEARTH_FORCE_R + 2
-	const len   = randInt(work.rng, 14, 22)
+	// Length scales with the map; width stays a narrow corridor.
+	const len   = randInt(work.rng, Math.round(sc(14)), Math.round(sc(22)))
 	stampPath(work, HEARTH_FX + Math.cos(angle) * start, HEARTH_FZ + Math.sin(angle) * start, angle, len, 1.05, LOW, LANDFORM_CANYON)
 }
 
@@ -401,8 +675,8 @@ function stampRidge(
 	work:  Work,
 	angle: number,
 ): void {
-	const dist   = randInt(work.rng, 9, 13)
-	const len    = randInt(work.rng, 12, 20)
+	const dist   = randInt(work.rng, Math.round(sc(9)), Math.round(sc(13)))
+	const len    = randInt(work.rng, Math.round(sc(12)), Math.round(sc(20)))
 	const across = angle + Math.PI / 2 + (work.rng() - 0.5) * 0.8
 	const cx     = HEARTH_FX + Math.cos(angle) * dist
 	const cz     = HEARTH_FZ + Math.sin(angle) * dist
@@ -419,8 +693,8 @@ function stampPlateau(
 	work:  Work,
 	angle: number,
 ): void {
-	const dist   = randInt(work.rng, 15, 21)
-	const radius = 3.5 + work.rng() * 2.5
+	const dist   = randInt(work.rng, Math.round(sc(15)), Math.round(sc(21)))
+	const radius = sc(3.5) + work.rng() * sc(2.5)
 	stampBlob(work, HEARTH_FX + Math.cos(angle) * dist, HEARTH_FZ + Math.sin(angle) * dist, radius, HIGH, LANDFORM_PLATEAU)
 }
 
@@ -431,8 +705,8 @@ function stampBasin(
 	work:  Work,
 	angle: number,
 ): void {
-	const dist   = randInt(work.rng, 12, 18)
-	const radius = 3 + work.rng() * 2
+	const dist   = randInt(work.rng, Math.round(sc(12)), Math.round(sc(18)))
+	const radius = sc(3) + work.rng() * sc(2)
 	const fx     = HEARTH_FX + Math.cos(angle) * dist
 	const fz     = HEARTH_FZ + Math.sin(angle) * dist
 	const ring   = Math.ceil(radius + 2)
@@ -494,7 +768,7 @@ function smooth(
 					for (let dx = -1; dx <= 1; dx++) {
 						if (dx === 0 && dz === 0) continue
 						const lv = work.levels[(cz + dz) * W + cx + dx]
-						if (lv !== MOUNTAIN) counts[lv]++
+						if (!isMountainLevel(lv)) counts[lv]++
 					}
 				}
 				for (let lv = LOW; lv <= HIGH; lv++) {
@@ -519,7 +793,7 @@ function labelRegions(levels: Uint8Array): {
 	const regionArea  : number[] = []
 	const stack       : number[] = []
 	for (let start = 0; start < N; start++) {
-		if (regions[start] !== -1 || levels[start] === MOUNTAIN) continue
+		if (regions[start] !== -1 || isMountainLevel(levels[start])) continue
 		const id = regionLevel.length
 		const lv = levels[start]
 		let area = 0
@@ -575,7 +849,7 @@ function mergeTinyRegions(work: Work): void {
 				const nz = cz + DIR_DZ[d]
 				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
 				const lv = work.levels[nz * W + nx]
-				if (lv !== own && lv !== MOUNTAIN) counts[lv]++
+				if (lv !== own && !isMountainLevel(lv)) counts[lv]++
 			}
 		}
 		let best = MID
@@ -651,12 +925,12 @@ function findLadderSites(levels: Uint8Array): LadderSite[] {
 	for (let cz = 0; cz < H; cz++) {
 		for (let cx = 0; cx < W; cx++) {
 			const lowLv = levels[cz * W + cx]
-			if (lowLv === MOUNTAIN) continue
+			if (isMountainLevel(lowLv)) continue
 			for (let d = 0; d < 4; d++) {
 				const hx = cx + DIR_DX[d]
 				const hz = cz + DIR_DZ[d]
 				const highLv = at(hx, hz)
-				if (highLv !== lowLv + 1 || highLv === MOUNTAIN) continue
+				if (highLv !== lowLv + 1 || isMountainLevel(highLv)) continue
 				if (at(cx - DIR_DX[d], cz - DIR_DZ[d]) !== lowLv) continue
 				if (at(hx + DIR_DX[d], hz + DIR_DZ[d]) !== highLv) continue
 				let straight = true
@@ -818,7 +1092,7 @@ function flattenRegions(
 				const nz = cz + DIR_DZ[d]
 				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
 				const lv = work.levels[nz * W + nx]
-				if (lv !== own && lv !== MOUNTAIN) counts[lv]++
+				if (lv !== own && !isMountainLevel(lv)) counts[lv]++
 			}
 		}
 		// Prefer a level one step away so the merged region gets ladder sites.
@@ -879,7 +1153,7 @@ function computeRouteDist(
 			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
 			const j  = nz * W + nx
 			const nl = levels[j]
-			if (nl === MOUNTAIN || nl > lv) continue
+			if (isMountainLevel(nl) || nl > lv) continue
 			visit(j)
 		}
 		for (const j of climb.get(i) ?? []) visit(j)
