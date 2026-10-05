@@ -1,8 +1,8 @@
 /**
  * layer.loadingSplash.tsx — cold-open black + mid-game black cover.
  *
- *   1. Cold-open — solid black, with the two-line hearth card, until the player
- *      is collapsed at the fire and the snow and cliffs are up, then
+ *   1. Cold-open — solid black, with the two-line hearth card, until a
+ *      short min hold plus player collapsed / snow / cliffs ready, then
  *      a short fade.
  *   2. Mid-game regen — solid black, never a title card. Ember-fail
  *      owns its own black cards, so this cover stays off during that
@@ -23,6 +23,13 @@ import { isSnowRebuilding, isSnowSettled } from 'src/client/snow/snowRenderer'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
+/**
+ * Minimum wall-clock cover from script start. Readiness gates can hold
+ * longer on slow loads; this floor keeps AvatarAttach / torch GLB from
+ * racing the fade on fast/cached boots. ~3s is enough headroom without
+ * feeling like a long load screen.
+ */
+const COLD_OPEN_MIN_HOLD_MS = 3000
 /** Fade-out once the player is down and the world is ready to see. */
 const COLD_OPEN_FADE_MS = 400
 const { fontSizes } = UI_THEME
@@ -30,8 +37,9 @@ const { fontSizes } = UI_THEME
 // Once the first winter has been shown, the cold-open cover must
 // never return. Mid-game perimeter teardown used to look like a
 // cold-open (cliffs go to zero for a frame).
-let coldOpenReleased = false
-let fadeStartedAt: number | null = null
+const coldOpenStartedAt = Date.now()
+let   coldOpenReleased  = false
+let   fadeStartedAt: number | null = null
 
 
 // MARK: isColdOpenReleased
@@ -45,12 +53,14 @@ export function isColdOpenReleased(): boolean {
 // MARK: isColdOpenHolding
 
 /**
- * Solid black until the player is collapsed at the fire and the
- * first winter is actually on screen.
+ * Solid black until the min hold has elapsed AND the player is
+ * collapsed at the fire with snow+terrain ready. Min hold covers
+ * attach/asset races; readiness gates cover slow machines.
  */
 function isColdOpenHolding(): boolean {
 	if (coldOpenReleased) return false
 	if (isEmberFailing()) return false
+	if (Date.now() - coldOpenStartedAt < COLD_OPEN_MIN_HOLD_MS) return true
 	if (!isPlayerLaidDownAtHome()) return true
 	if (!isSnowSettled()) return true
 	if (!hasTerrainSpawned() || !isTerrainReady()) return true

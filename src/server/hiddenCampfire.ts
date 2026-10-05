@@ -50,7 +50,7 @@ import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
-import { meltDisc, releaseDiscOutside } from 'src/server/snowState'
+import { meltDisc, releaseDiscOutside, seedFireDimple } from 'src/server/snowState'
 
 
 // MARK: Melt-growth tuning
@@ -109,6 +109,20 @@ function recomputePositions(): void {
 			`tile=(${spot.tx},${spot.tz}) ` +
 			`world=(${spot.x.toFixed(1)},${spot.y.toFixed(1)},${spot.z.toFixed(1)})`,
 		)
+	}
+}
+
+
+// MARK: seedHiddenCampfireDimples
+/**
+ * One-cell snow dip above every placed hidden pit. Call after positions
+ * are known and after any clearAllSnow (cycle wipe runs after this
+ * module's reset, so the cycle handler must call this again).
+ */
+export function seedHiddenCampfireDimples(): void {
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (worldX[i] === 0 && worldZ[i] === 0) continue
+		seedFireDimple(worldX[i], worldZ[i])
 	}
 }
 
@@ -255,6 +269,7 @@ export function sendHiddenCampfireStateTo(userId: string): void {
 export function setupHiddenCampfireServer(): void {
 	currentSeed = getCurrentCycleSeed()
 	recomputePositions()
+	seedHiddenCampfireDimples()
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		console.log(
 			`[Server] hiddenCampfire[${i}]: cycle seed=${currentSeed} ` +

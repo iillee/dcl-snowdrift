@@ -7,8 +7,8 @@
  *
  * Cells absent from `cells` are pristine (stage 3). Fire-protected cells
  * never regrow while protected. The single snow cell under each
- * campfire melt caps at stage 2 so found fires leave a shallow dip
- * after they go out — easier to re-find without a full clearing.
+ * campfire caps at stage 2: hidden pits start with that dimple, and
+ * found fires keep it after they go out so they stay re-findable.
  */
 
 import {
@@ -157,6 +157,28 @@ function markFireScar(
 	const key = worldToCellKey(cx, cz)
 	if (key === null) return
 	scarredCells.add(key)
+}
+
+
+// MARK: seedFireDimple
+/**
+ * Put a shallow one-cell dip (stage FIRE_SCAR_MAX_STAGE) under a
+ * campfire and scar it so snowfall never fills it flat this cycle.
+ * Does not deepen an already-melted cell. Used for unlit hidden pits
+ * at cycle start so they read as a findable hollow without a clear ring.
+ */
+export function seedFireDimple(
+	cx: number,
+	cz: number,
+): void {
+	const key = worldToCellKey(cx, cz)
+	if (key === null) return
+	scarredCells.add(key)
+	const prev = cells.get(key)
+	if (prev !== undefined && prev.stage <= FIRE_SCAR_MAX_STAGE) return
+	cells.set(key, { stage: FIRE_SCAR_MAX_STAGE, changedAtMs: serverClockMs })
+	writeStage(key, FIRE_SCAR_MAX_STAGE)
+	coverageDirty = true
 }
 
 

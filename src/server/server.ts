@@ -30,7 +30,11 @@ import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycl
 import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
 import { notePlayerJoined, sendFrostBodiesTo, setupFrostLifeServer } from 'src/server/frostLife'
 import { getMainFireFuel, sendHearthFuelStateTo, setupHearthFuelServer } from 'src/server/hearthFuel'
-import { sendHiddenCampfireStateTo, setupHiddenCampfireServer } from 'src/server/hiddenCampfire'
+import {
+	seedHiddenCampfireDimples,
+	sendHiddenCampfireStateTo,
+	setupHiddenCampfireServer,
+} from 'src/server/hiddenCampfire'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
 import { armPhaseClock, isPhaseClockArmed, sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
 import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
@@ -127,10 +131,13 @@ export async function setupServer(): Promise<void> {
 	onCycleRoll(() => {
 		// Cycle wipes fuel-driven expansion too - baseline ring is the
 		// correct visual reset. Fuel itself is reset by hearthFuel's
-		// onCycleRoll handler (back to FUEL_MAIN_INITIAL).
+		// onCycleRoll handler (back to FUEL_MAIN_INITIAL). Hidden pit
+		// dimples re-seed after the wipe (hidden reset runs earlier in
+		// the subscriber list and would otherwise be cleared here).
 		console.log('[Server] cycle: clearing snow + reseeding central ring')
 		clearAllSnow()
 		seedStartingArea()
+		seedHiddenCampfireDimples()
 	})
 
 	// PaintTick summary accumulators (coalesced log every few seconds).
