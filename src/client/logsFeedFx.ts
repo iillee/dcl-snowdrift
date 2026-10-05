@@ -3,7 +3,12 @@
  *
  * Mirror of logsPickupFx, but world-space: the piece leaves the feeder
  * and arcs into the hearth (or a lit hidden pit), shrinking as it lands.
- * Pooled so we never churn AvatarAttach / GltfContainer creates per feed.
+ * Pooled so we never churn GltfContainer creates per feed.
+ *
+ * Motion is a manual lerp (not Tween / TweenSequence). Mobile Explorer
+ * often stalls the second TweenSequence phase, leaving wood frozen
+ * above the fire; driving Transform ourselves keeps desktop and mobile
+ * on one reliable path.
  *
  * Usage:
  *   - setupLogsFeedFx() once from client bootstrap
@@ -12,13 +17,10 @@
  */
 
 import {
-	EasingFunction,
 	Entity,
 	GltfContainer,
 	PlayerIdentityData,
 	Transform,
-	Tween,
-	TweenSequence,
 	VisibilityComponent,
 	engine,
 } from '@dcl/sdk/ecs'
@@ -36,8 +38,8 @@ const POOL_SIZE = 6
 
 /** Pop up then fly into the fire. */
 const FEED_DURATION_S = 0.55
-const ARC_UP_MS       = 180
-const ARC_IN_MS       = 370
+const ARC_UP_S        = 0.18
+const ARC_IN_S        = 0.37
 
 /** How high above the player the piece peaks before diving in. */
 const LAUNCH_Y        = 1.55
@@ -53,13 +55,19 @@ const BRANCH_PITCH_X_DEG = 90
 
 
 interface Rig {
-	root  : Entity
-	shrink: Entity
-	log   : Entity
-	branch: Entity
-	timer : number
-	busy  : boolean
+	root   : Entity
+	shrink : Entity
+	log    : Entity
+	branch : Entity
+	timer  : number
+	busy   : boolean
+	/** Elapsed seconds into the current arc (0..FEED_DURATION_S). */
+	elapsed: number
+	launch : Vector3
+	peak   : Vector3
+	end    : Vector3
 }
+
 
 const pool: Rig[] = []
 let ready = false
@@ -87,7 +95,7 @@ export function setupLogsFeedFx(): void {
 		const shrink = engine.addEntity()
 		Transform.create(shrink, {
 			parent: root,
-			scale : Vector3.One(),
+			scale : Vector3.Zero(),
 		})
 
 		const log = engine.addEntity()
@@ -101,6 +109,7 @@ export function setupLogsFeedFx(): void {
 			visibleMeshesCollisionMask  : 0,
 			invisibleMeshesCollisionMask: 0,
 		})
+		VisibilityComponent.create(log, { visible: false })
 
 		const branch = engine.addEntity()
 		Transform.create(branch, {
@@ -115,7 +124,18 @@ export function setupLogsFeedFx(): void {
 		})
 		VisibilityComponent.create(branch, { visible: false })
 
-		pool.push({ root, shrink, log, branch, timer: 0, busy: false })
+		pool.push({
+			root,
+			shrink,
+			log,
+			branch,
+			timer  : 0,
+			busy   : false,
+			elapsed: 0,
+			launch : Vector3.Zero(),
+			peak   : Vector3.Zero(),
+			end    : Vector3.Zero(),
+		})
 	}
 
 	engine.addSystem(tickPool)
@@ -154,10 +174,8 @@ export function spawnLogsFeed(
 	if (!rig) {
 		rig = pool[0]
 		for (const r of pool) if (r.timer < rig!.timer) rig = r
+		releaseRig(rig!)
 	}
-
-	rig.busy  = true
-	rig.timer = FEED_DURATION_S
 
 	const launch = Vector3.create(start.x, start.y + LAUNCH_Y, start.z)
 	const peak   = Vector3.create(
@@ -166,44 +184,17 @@ export function spawnLogsFeed(
 		(launch.z + end.z) * 0.5,
 	)
 
-	if (Tween.has(rig.root))                Tween.deleteFrom(rig.root)
-	if (TweenSequence.has(rig.root))        TweenSequence.deleteFrom(rig.root)
-	if (Tween.has(rig.shrink))              Tween.deleteFrom(rig.shrink)
-	if (TweenSequence.has(rig.shrink))      TweenSequence.deleteFrom(rig.shrink)
+	rig.busy    = true
+	rig.timer   = FEED_DURATION_S
+	rig.elapsed = 0
+	rig.launch  = launch
+	rig.peak    = peak
+	rig.end     = end
 
 	Transform.getMutable(rig.root).position = launch
 	Transform.getMutable(rig.root).scale    = Vector3.One()
 	Transform.getMutable(rig.shrink).scale  = Vector3.One()
 	applyFeedVisual(rig, kind)
-
-	// Phase 1: pop up toward the arc peak.
-	Tween.createOrReplace(rig.root, {
-		mode          : Tween.Mode.Move({ start: launch, end: peak }),
-		duration      : ARC_UP_MS,
-		easingFunction: EasingFunction.EF_EASEOUTQUAD,
-	})
-	// Phase 2: dive into the fire.
-	TweenSequence.createOrReplace(rig.root, {
-		sequence: [{
-			mode          : Tween.Mode.Move({ start: peak, end: end }),
-			duration      : ARC_IN_MS,
-			easingFunction: EasingFunction.EF_EASEINQUAD,
-		}],
-	})
-
-	// Hold scale on the pop, then shrink away as it lands.
-	Tween.createOrReplace(rig.shrink, {
-		mode          : Tween.Mode.Scale({ start: Vector3.One(), end: Vector3.One() }),
-		duration      : ARC_UP_MS,
-		easingFunction: EasingFunction.EF_LINEAR,
-	})
-	TweenSequence.createOrReplace(rig.shrink, {
-		sequence: [{
-			mode          : Tween.Mode.Scale({ start: Vector3.One(), end: Vector3.Zero() }),
-			duration      : ARC_IN_MS,
-			easingFunction: EasingFunction.EF_EASEINQUAD,
-		}],
-	})
 }
 
 
@@ -252,24 +243,64 @@ function applyFeedVisual(
 }
 
 
+// MARK: easeOutQuad
+function easeOutQuad(t: number): number {
+	return 1 - (1 - t) * (1 - t)
+}
+
+
+// MARK: easeInQuad
+function easeInQuad(t: number): number {
+	return t * t
+}
+
+
+// MARK: lerpVec
+function lerpVec(a: Vector3, b: Vector3, t: number): Vector3 {
+	return Vector3.create(
+		a.x + (b.x - a.x) * t,
+		a.y + (b.y - a.y) * t,
+		a.z + (b.z - a.z) * t,
+	)
+}
+
+
 // MARK: tickPool
 function tickPool(dt: number): void {
 	for (const rig of pool) {
 		if (!rig.busy) continue
-		rig.timer -= dt
-		if (rig.timer <= 0) releaseRig(rig)
+		rig.elapsed += dt
+		rig.timer    = FEED_DURATION_S - rig.elapsed
+
+		if (rig.elapsed >= FEED_DURATION_S) {
+			releaseRig(rig)
+			continue
+		}
+
+		const rootT   = Transform.getMutable(rig.root)
+		const shrinkT = Transform.getMutable(rig.shrink)
+
+		if (rig.elapsed <= ARC_UP_S) {
+			const u = easeOutQuad(rig.elapsed / ARC_UP_S)
+			rootT.position = lerpVec(rig.launch, rig.peak, u)
+			shrinkT.scale  = Vector3.One()
+		} else {
+			const u = easeInQuad(Math.min(1, (rig.elapsed - ARC_UP_S) / ARC_IN_S))
+			rootT.position = lerpVec(rig.peak, rig.end, u)
+			const s = 1 - u
+			shrinkT.scale = Vector3.create(s, s, s)
+		}
 	}
 }
 
 
 // MARK: releaseRig
 function releaseRig(rig: Rig): void {
-	rig.busy  = false
-	rig.timer = 0
-	if (Tween.has(rig.root))           Tween.deleteFrom(rig.root)
-	if (TweenSequence.has(rig.root))   TweenSequence.deleteFrom(rig.root)
-	if (Tween.has(rig.shrink))         Tween.deleteFrom(rig.shrink)
-	if (TweenSequence.has(rig.shrink)) TweenSequence.deleteFrom(rig.shrink)
+	rig.busy    = false
+	rig.timer   = 0
+	rig.elapsed = 0
 	Transform.getMutable(rig.root).scale   = Vector3.Zero()
 	Transform.getMutable(rig.shrink).scale = Vector3.Zero()
+	VisibilityComponent.createOrReplace(rig.log,    { visible: false })
+	VisibilityComponent.createOrReplace(rig.branch, { visible: false })
 }

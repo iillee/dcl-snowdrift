@@ -38,7 +38,7 @@ import { room } from 'src/shared/messages'
 import { playIceCubeSfx } from 'src/client/audio'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { isEmberFailing } from 'src/client/emberFail'
-import { getFrostLocal, resetFrostLocal, seedWakeWarmth } from 'src/client/frost/accumulation'
+import { getFrostLocal, resetFrostLocal, seedRescueWarmth, seedWakeWarmth } from 'src/client/frost/accumulation'
 import { getMainFireFuel } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { dropLogAtPlayer } from 'src/client/logsInput'
@@ -317,7 +317,7 @@ function publishFreeze(): void {
 function thawInPlace(): void {
 	console.log('frost/death: thawInPlace: standing back up')
 	clearLocalDeath(true)
-	resetFrostLocal()
+	seedRescueWarmth()
 	resetMeltClock()
 	unlockPlayer()
 	rescued      = false

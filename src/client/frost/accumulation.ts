@@ -219,6 +219,26 @@ export function resetFrostLocal(): void {
 
 // Gold segments left after waking at a fire. Cold end of that bucket.
 const WAKE_WARM_SEGMENTS = 3
+/** Gold segments left after a teammate melts you out of ice. */
+const RESCUE_WARM_SEGMENTS = 5
+
+
+// MARK: seedWarmSegments
+/**
+ * Leave `warmSegments` gold blocks on the heat bar. Shared by fire-wake
+ * and rescue thaw so both use the same edge-bucket math.
+ */
+function seedWarmSegments(warmSegments: number, label: string): void {
+	const clamped    = Math.max(1, Math.min(FROST_BAR_SEGMENTS, warmSegments | 0))
+	const edge       = FROST_MAX * (1 - (clamped - 1) / FROST_BAR_SEGMENTS)
+	const value      = edge - 1
+	frost            = value
+	lastWrittenFrost = value
+	lastColdSegments = visibleColdSegments(value)
+	warmingByFire    = false
+	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
+	console.log(`frost/accumulation: ${label}: bar at ${value}, ${clamped} gold`)
+}
 
 
 // MARK: seedWakeWarmth
@@ -228,16 +248,18 @@ const WAKE_WARM_SEGMENTS = 3
  * cold-segment count is primed so the seed itself does not chirp.
  */
 export function seedWakeWarmth(): void {
-	// Cold end of the bucket, one point inside the edge, so a moment
-	// of fire during the fade-in does not tick another block.
-	const edge       = FROST_MAX * (1 - (WAKE_WARM_SEGMENTS - 1) / FROST_BAR_SEGMENTS)
-	const value      = edge - 1
-	frost            = value
-	lastWrittenFrost = value
-	lastColdSegments = visibleColdSegments(value)
-	warmingByFire    = false
-	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
-	console.log(`frost/accumulation: seedWakeWarmth: bar at ${value}, ${WAKE_WARM_SEGMENTS} gold`)
+	seedWarmSegments(WAKE_WARM_SEGMENTS, 'seedWakeWarmth')
+}
+
+
+// MARK: seedRescueWarmth
+/**
+ * Leave five gold segments after a torch thaw. Full warmth on rescue
+ * made freeze→thaw a free heat refill; half a bar keeps the player
+ * standing but still hungry for fire.
+ */
+export function seedRescueWarmth(): void {
+	seedWarmSegments(RESCUE_WARM_SEGMENTS, 'seedRescueWarmth')
 }
 
 
