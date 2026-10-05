@@ -29,15 +29,19 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 import { TERRAIN_LEVEL_STEP_M, groundYForLevel } from 'src/shared/settings'
-import { DIR_DX, DIR_DZ, TerrainLadder, TerrainMap } from 'src/shared/terrain/terrainMap'
+import {
+	DIR_DX,
+	DIR_DZ,
+	LADDER_FOOT_M,
+	TerrainLadder,
+	TerrainMap,
+} from 'src/shared/terrain/terrainMap'
 
 
 // MARK: Tuning
 
-/** How far the ladder pokes above the lip so it reads from the top. */
-const RISE_ABOVE_LIP_M = 1.6
-const RAIL_WIDTH_M     = 1.2
-const RAIL_DEPTH_M     = 0.35
+const RAIL_WIDTH_M = 1.2
+const RAIL_DEPTH_M = 0.35
 
 /** Pointer box footprint. Generous so a tap lands from any angle. */
 const CLICK_BOX_XZ_M = 4
@@ -78,17 +82,22 @@ function spawnLadder(ladder: TerrainLadder): void {
 	const dx     = DIR_DX[ladder.dir]
 	const dz     = DIR_DZ[ladder.dir]
 	const baseY  = groundYForLevel(ladder.lowLevel)
-	const height = TERRAIN_LEVEL_STEP_M + RISE_ABOVE_LIP_M
+	// Stop at the cliff lip (high ground), not above it into the snow.
+	const topY   = groundYForLevel(ladder.lowLevel + 1)
+	const height = topY - baseY
 
-	// Rails lean against the cliff face, centred between the two ends.
+	// Face of the cliff is LADDER_FOOT_M toward the high cell from the
+	// foot. Centre the rail so its inner face sits flush on that outside
+	// wall — not buried in the upper slab, not floating off it.
+	const faceX = ladder.bottom.x + dx * LADDER_FOOT_M
+	const faceZ = ladder.bottom.z + dz * LADDER_FOOT_M
+	const railX = faceX - dx * (RAIL_DEPTH_M / 2)
+	const railZ = faceZ - dz * (RAIL_DEPTH_M / 2)
+
 	const rail = engine.addEntity()
 	ladderEntities.push(rail)
 	Transform.create(rail, {
-		position: Vector3.create(
-			(ladder.bottom.x + ladder.top.x) / 2,
-			baseY + height / 2,
-			(ladder.bottom.z + ladder.top.z) / 2,
-		),
+		position: Vector3.create(railX, baseY + height / 2, railZ),
 		scale:    Vector3.create(
 			dx !== 0 ? RAIL_DEPTH_M : RAIL_WIDTH_M,
 			height,

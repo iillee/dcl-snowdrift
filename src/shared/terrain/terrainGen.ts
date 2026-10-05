@@ -27,9 +27,10 @@ import {
 	TERRAIN_LEVEL_MOUNTAIN,
 } from 'src/shared/settings'
 import {
-	CLIFF_HALF_TAPER_M,
 	DIR_DX,
 	DIR_DZ,
+	LADDER_FOOT_M,
+	LADDER_LAND_M,
 	LANDFORM_BASIN,
 	LANDFORM_CANYON,
 	LANDFORM_HEARTH,
@@ -88,8 +89,6 @@ const MIN_REGION_CELLS = 8
 // Ladder placement.
 const SECOND_LADDER_MIN_SITES = 24
 const SECOND_LADDER_MIN_SEP   = 10
-const LADDER_FOOT_M           = CLIFF_HALF_TAPER_M + 1.5
-const LADDER_LAND_M           = CLIFF_HALF_TAPER_M + 2
 
 // Destinations.
 const DEST_MIN_AREA      = 40

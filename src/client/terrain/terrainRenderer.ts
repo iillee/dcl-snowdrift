@@ -54,11 +54,12 @@ const SLAB_BASE_Y = -4
 const CAP_M = 0.15
 
 /**
- * Exposed rock. Every cliff face is this colour at every level — height
- * is read from the geometry, not from a tint, the same way the final
- * cliff kit will read.
+ * Exposed rock. Matches the baseColorFactor on the authored
+ * tile-cliff-*.glb models so the greybox reads as the same slate the
+ * eventual cliff kit will use. Every cliff face is this colour at
+ * every level — height is read from the geometry, not from a tint.
  */
-const COLOR_ROCK = Color4.create(0.34, 0.34, 0.37, 1)
+const COLOR_ROCK = Color4.create(0.2525, 0.3354, 0.6314, 1)
 
 /** Melt-blue ground the snow lies on, at every level. */
 const COLOR_GROUND = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)

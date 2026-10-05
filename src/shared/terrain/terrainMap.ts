@@ -33,6 +33,21 @@ export const TERRAIN_ORIGIN_M = MAZE_ORIGIN_OFFSET_METERS
 /** Half the horizontal lean of a cliff face (base to lip is twice this). */
 export const CLIFF_HALF_TAPER_M = 2
 
+/**
+ * Thin ground cap on each greybox slab. Rock body ends here; snow sits
+ * on top of groundY. Ladders stop at the rock lip so they don't poke
+ * into the snow pack.
+ */
+export const CLIFF_CAP_M = 0.15
+
+/**
+ * How far the ladder foot sits out from the cliff face into the low
+ * cell, and how far the landing sits in from the lip on the high cell.
+ * Shared by the generator (world endpoints) and the renderer (rail pose).
+ */
+export const LADDER_FOOT_M = CLIFF_HALF_TAPER_M + 1.5
+export const LADDER_LAND_M = CLIFF_HALF_TAPER_M + 2
+
 /** Cardinal step tables. Index 0 = N (+Z), 1 = E (+X), 2 = S, 3 = W. */
 export const DIR_DX: readonly number[] = [0, 1, 0, -1]
 export const DIR_DZ: readonly number[] = [1, 0, -1, 0]
