@@ -30,6 +30,7 @@ const TORCH_SRC = 'assets/sounds/torch.mp3'
 const FROST_SRC = 'assets/sounds/frost.mp3'
 const HEAL_SRC    = 'assets/sounds/heal2.wav'
 const ICECUBE_SRC = 'assets/sounds/icecube.mp3'
+const ICEMELT_SRC = 'assets/sounds/icemelt.mp3'
 const SUNRISE_SRC = 'assets/sounds/sunrise.wav'
 const PICKUP_SRC  = 'assets/sounds/pop.mp3'
 const DROP_SRC    = 'assets/sounds/droplogs.mp3'
@@ -49,7 +50,8 @@ let surgeSfxEnt: Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
 let healSfxEnt:  Entity = 0 as Entity
-let iceSfxEnt:   Entity = 0 as Entity
+let iceSfxEnt:     Entity = 0 as Entity
+let iceMeltSfxEnt: Entity = 0 as Entity
 let sunriseSfxEnt: Entity = 0 as Entity
 let unlockSfxEnt: Entity = 0 as Entity
 
@@ -144,6 +146,7 @@ export function initAudio(): void {
 	frostSfxEnt   = makeCameraSfx(FROST_SRC, 0.28)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
 	iceSfxEnt     = makeCameraSfx(ICECUBE_SRC, 0.7)
+	iceMeltSfxEnt = makeCameraSfx(ICEMELT_SRC, 0.65)
 	sunriseSfxEnt = makeCameraSfx(SUNRISE_SRC, 0.55)
 	unlockSfxEnt  = makeCameraSfx(CLICK_SRC, 0.001)
 
@@ -280,6 +283,17 @@ export function playIceCubeSfx(): void {
 }
 
 
+// MARK: playIceMeltSfx
+/**
+ * Play icemelt for a local thaw phase (torch eating a third of the
+ * cube, or the last third vanishing). Camera-parented so the frozen
+ * player and rescuer both hear it clearly.
+ */
+export function playIceMeltSfx(): void {
+	playOneShot(iceMeltSfxEnt, ICEMELT_SRC, 0.65)
+}
+
+
 // MARK: playSunriseSfx
 /**
  * Play sunrise.wav with the "Day X" title card — including Day 1 on
@@ -313,6 +327,33 @@ export function playIceCubeSfxAt(position: Vector3): void {
 	const spawnedAt = Date.now()
 	const cleanup = (): void => {
 		if (Date.now() - spawnedAt < ICE_CLEANUP_MS) return
+		engine.removeEntity(ent)
+		engine.removeSystem(cleanup)
+	}
+	engine.addSystem(cleanup)
+}
+
+
+// MARK: playIceMeltSfxAt
+/**
+ * Play icemelt at a world position so nearby players hear each thaw
+ * phase on someone else's cube. Mobile falls back to the global cue.
+ */
+export function playIceMeltSfxAt(position: Vector3): void {
+	if (isMobile()) {
+		playIceMeltSfx()
+		return
+	}
+	const ent = engine.addEntity()
+	Transform.create(ent, { position })
+	AudioSource.create(ent, {
+		audioClipUrl: ICEMELT_SRC,
+		playing: true, loop: false, volume: 0.8, global: false,
+	})
+	const MELT_CLEANUP_MS = 2500
+	const spawnedAt = Date.now()
+	const cleanup = (): void => {
+		if (Date.now() - spawnedAt < MELT_CLEANUP_MS) return
 		engine.removeEntity(ent)
 		engine.removeSystem(cleanup)
 	}

@@ -2,7 +2,7 @@
 
 *Owner sketch reviewed 2026-10-04. Folds playtest findings into the next build slice. Does not replace [`spatialization-plan.md`](./spatialization-plan.md) (v1 biomes / Kiln); that plan stays the longer Spatialize target. This file is the **immediate** geography test.*
 
-Related: [`session-2026-10-04.md`](./session-2026-10-04.md) (64×64 live), [`gdd.md`](./gdd.md) §3 Scale / Pillars 3–4, [`decisions.md`](./decisions.md).
+Related: [`session-2026-10-05.md`](./session-2026-10-05.md) (100×100 authored + mobile parcel clamp), [`session-2026-10-04.md`](./session-2026-10-04.md), [`gdd.md`](./gdd.md) §3 Scale / Pillars 3–4, [`decisions.md`](./decisions.md).
 
 ---
 
@@ -50,9 +50,9 @@ From an **exhausted** starting hearth (artificially deplete if needed — do not
 
 ### P1 — Configurable world dimensions
 
-Live playtest is **64 × 64**. Size must stay a setting (parcels + `SCENE_*` / playfield knobs), not buried constants, so we can try ~80 × 80 later and eventually 100 × 100.
+Authored playtest is **100 × 100** (`scene.json` + settings; Worlds content server verified). Size must stay a setting (parcels + `SCENE_*` / playfield knobs), not buried constants.
 
-- **Not required for Oct 7:** shipping 100 × 100.
+- **Mobile blocker (H1-07, 2026-10-05):** Explorer on phone reports only **51 × 51** parcels for the same World desktop sees as 100 × 100 — hearth sits ~10–18 m from the NE edge on mobile. Phone geography playtests are blocked until that client fix lands (or we temporarily author a ≤50×50 envelope — not the preferred path).
 - **Gameplay constraint:** a full torch must **not** casually reach the world edge. The map should feel like wilderness, not an arena whose walls are psychologically reachable.
 
 ### P2 — Snow LOD cheaper with distance (iterate, don't trash)

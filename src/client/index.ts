@@ -66,6 +66,7 @@ import { clearProps, setupProps } from 'src/client/props/spawn'
 import { setupSkybox } from 'src/client/skybox'
 import { setupSnowfallAudio } from 'src/client/snowfallAudio'
 import { setupRemoteTorches } from 'src/client/remoteTorches'
+import { setupSceneBoundsDebug } from 'src/client/sceneBoundsDebug'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchChain } from 'src/client/torchChain'
 import { setupTorchInput } from 'src/client/torchInput'
@@ -268,6 +269,10 @@ export async function setupClient(): Promise<void> {
 	// the mobile action layer renders scene-branded replacements.
 	setupTouchControls()
 	setupUi()
+
+	// Temporary mobile leave-scene HUD — floating billboard (hidden by
+	// default; toggle with the "xy" chip to the right of the heat bar).
+	setupSceneBoundsDebug()
 
 	// Proximity-driven show/hide for the relight + feed tooltips. Split
 	// out of the layer bodies so the kit can tween the slide in/out

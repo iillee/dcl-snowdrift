@@ -10,19 +10,19 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 **Deploy target:** [`snowdrift.dcl.eth`](https://play.decentraland.org/?realm=snowdrift.dcl.eth) (Decentraland World)
 **Runtime:** SDK7 (`@dcl/sdk` 7.26.x, pinned exact) with authoritative headless server
-**Scene (playtest):** **64 × 64 parcels** (1024 m × 1024 m, 992 m playfield, 16 m pad). Portrait-friendly mobile-first UI. **v1 target** remains 100 × 100, gated on H1-06 mobile perf at the live size.
+**Scene (playtest):** **100 × 100 parcels** (1600 m × 1600 m, 1568 m playfield, 16 m pad). Portrait-friendly mobile-first UI. **Known blocker:** mobile Explorer currently reports only **51 × 51** parcels for this World (desktop sees the full 100 × 100) — see H1-07 / [`design/session-2026-10-05.md`](design/session-2026-10-05.md).
 
 ---
 
 ## Status
 
-**v1 Systems in progress** (2026-10-04). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
+**v1 Systems in progress** (2026-10-05). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
 
-**In the current build:** torch, melt, branch/log pickup out to the far trees, choppable trees (chop reach scales with size), six hidden fires, fuel tiers (the flame you see is the warmth you get; the smallest flame still heats), frost that freezes you in ice, a first-pass torch thaw (desktop elevates ice on mobile peers), chain-light, weather, **Dawn / Day / Dusk / Night**, a run that ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed, Day N on join and at sunrise, black cold open, ? menu (Day N, the phase and its countdown, "Don't let the fire die"), phone mute and overhead zoom + off-screen face finder, **64 × 64** World with coarse far snow LOD.
+**In the current build:** torch, melt, branch/log pickup, choppable trees, home teaching fires + per-grove pits + generation-grown finds, fuel tiers (flame / melt / warmth move together; fuel updates coerced to Number on the wire), frost freeze + torch thaw with ice-melt SFX, chain-light, weather, **Dawn / Day / Dusk / Night**, run-end cards + fresh seed, Day N, black cold open, ? menu, phone mute / overhead zoom / face finder, **100 × 100** authored World with coarse far snow LOD, opt-in **xy** bounds debug chip beside the heat bar.
 
-**Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine, kiln, a communal wood pile. Scatter density not yet retuned for 64 × 64.
+**Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine, kiln, a communal wood pile. Reliable mobile traversal of the full 100 × 100 envelope (H1-07). Geography destinations for migration (Oct 7 checkpoint).
 
-Full spec [`design/gdd.md`](design/gdd.md). What the build actually does: [`design/session-2026-10-04.md`](design/session-2026-10-04.md) (and [`design/session-2026-09-30.md`](design/session-2026-09-30.md)). The phased plan lives in GDD §9.
+Full spec [`design/gdd.md`](design/gdd.md). What the build actually does: [`design/session-2026-10-05.md`](design/session-2026-10-05.md) (prior: [`design/session-2026-10-04.md`](design/session-2026-10-04.md)). The phased plan lives in GDD §9.
 
 The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \§0.1):
 
@@ -36,6 +36,7 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 - [`design/summary.md`](design/summary.md) — plain-English overview.
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions and rationale.
 - [`design/checkpoint-2026-10-07-geography-migration.md`](design/checkpoint-2026-10-07-geography-migration.md) — next build: destinations, routes, migration test (target Wed 10/07).
+- [`design/session-2026-10-05.md`](design/session-2026-10-05.md) — 100×100 authoring, fuel sync fix, mobile 51×51 parcel clamp (H1-07), bounds debug HUD.
 - [`design/session-2026-10-04.md`](design/session-2026-10-04.md) — 64×64 World, coarse snow LOD, ice + overhead polish.
 - [`design/session-2026-09-30.md`](design/session-2026-09-30.md) — what the playtest build did as of 9/30.
 - [`design/session-2026-09-29-playtest.md`](design/session-2026-09-29-playtest.md) — the 9/29 wood-loop pass.
@@ -91,7 +92,9 @@ Prefer **CLI** when changing parcel layout — Creator Hub Publish rewrites parc
 npm run deploy -- --target-content https://worlds-content-server.decentraland.org
 ```
 
-Keep Creator Hub **Layout** at 64 × 64 so the composite and CLI stay aligned. If the CLI proxy errors out on Node 24, Creator Hub Publish still works for content — just confirm Layout matches before publishing.
+Keep Creator Hub **Layout** at **100 × 100** so the composite and CLI stay aligned (as of 2026-10-05 Layout was still 64 × 64 while `scene.json` was 100 × 100). If the CLI proxy errors out on Node 24, Creator Hub Publish still works for content — just confirm Layout matches before publishing.
+
+**Mobile note:** after deploy, confirm the **xy** chip (right of the heat bar) shows `live 100x100` on phones. If it shows `51x51 MISMATCH`, that is Explorer H1-07 — not a bad deploy (content server already has 10 000 parcels).
 
 ## Repository layout
 

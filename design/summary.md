@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-04.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-05.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -25,7 +25,7 @@ The pitch:
 ## How a session actually plays
 
 - **First 30 seconds (playtest build).** Black screen: "A new hearth is kindled." / "Don't let the fire die." You wake by the hearth. Day 1 if you started the world; otherwise the world's current day. Light the torch at the fire.
-- **First few minutes (playtest build).** Melt snow to reveal a branch (30 s) or a log (60 s). Wood sits out to the far trees, and never on a cliff. Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The flame shrinks as the fuel does, and the warmth shrinks with it. Six hidden fires grow outward from the hearth in steps of 48–80 m, so the far trees have a place to rest. A full frost bar freezes you in the ice. Another player's lit torch can thaw you.
+- **First few minutes (playtest build).** Melt snow to reveal a branch (30 s) or a log (60 s). Wood sits out to the far trees, and never on a cliff. Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The flame shrinks as the fuel does, and the warmth shrinks with it. Teaching pits sit around home; groves carry their own small fire sets; more pits grow outward in generations. A full frost bar freezes you in the ice. Another player's lit torch can thaw you (ice melt SFX per thaw step).
 - **v1 target, not in this build.** Kindling everywhere, deadwood and pine around groves, fell a tree by holding torch heat, charcoal at a kiln.
 - **Session shape.** Gather → tend → hold territory → decide which fires matter → make it to the next solstice.
 
@@ -57,7 +57,7 @@ Same verb at three scales: tend the torch through the night, tend the network th
 
 ## Geography is the tech tree
 
-*Planned v1 layout. The playtest world is the shorter map in [Where the build is](#where-the-build-is-2026-09-30).*
+*Planned v1 layout. The playtest world is the 100 × 100 envelope in [Where the build is](#where-the-build-is-2026-10-05) (mobile still blocked on H1-07).*
 
 The v1 world contains, arranged procedurally per seed:
 
@@ -92,15 +92,15 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-10-04)
+## Where the build is (2026-10-05)
 
-Phase 1 **Systems** is underway. The playtest World is **64 × 64 parcels** (1024 m) with coarse far snow LOD. The day/night loop and wood trip out to the far trees are live. Scatter density is still the old 32 × 32 tuning.
+Phase 1 **Systems** is underway. The authored / deployed World is **100 × 100 parcels** (1600 m) with coarse far snow LOD. Desktop joins that full footprint. **Mobile Explorer currently clamps the same World to 51 × 51** (hearth ~10–18 m from the NE edge) — reported upstream as **H1-07**; phone leave-scene playtests are blocked until that lands.
 
-**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; Ember still heats and loses to the night); melt-to-reveal branches and logs out to 160 m, clear of cliffs; six choppable trees with uneven gaps (chop reach scales with size); six hidden fires grown in generations off the hearth; one carry slot; freeze in ice, with a first-pass torch thaw (desktop elevates ice on mobile peers); a lit fire wakes the frozen; the run ends only when everyone connected is frozen and no fire is left, then three cards and a fresh seed (wood lost, torch emptied); a new server start is also a fresh seed, and a live server keeps the world in progress; Day N on join and at sunrise; three gold segments when you wake at a fire; black cold open; ? menu is Day N, the phase and its countdown, and "Don't let the fire die"; phone mute in the old + slot, overhead zoom under the pan pad, off-screen face finder; gold warmth pulse while the bar refills; coarse far snow sheets.
+**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; wire path coerces fuel to Number so clients stay in sync); melt-to-reveal branches and logs; choppable trees; home teaching fires + per-grove pits + generation-grown world finds; one carry slot; freeze in ice, torch thaw with ice-melt SFX (desktop elevates ice on mobile peers); a lit fire wakes the frozen; run-end cards + fresh seed; Day N; black cold open; ? menu; phone mute / overhead zoom / face finder; coarse far snow sheets; opt-in **xy** bounds debug chip beside the heat bar.
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. 100 × 100 envelope. Scatter retune for 64 × 64 — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) (visible destinations + routes so exhaustion produces migration).
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. Reliable **mobile** play on 100 × 100 (H1-07). Geography / migration destinations — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).
 
-**Handoff:** [`session-2026-10-04.md`](./session-2026-10-04.md). Next checkpoint: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md). Earlier: [`session-2026-09-30.md`](./session-2026-09-30.md), [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md).
+**Handoff:** [`session-2026-10-05.md`](./session-2026-10-05.md). Prior: [`session-2026-10-04.md`](./session-2026-10-04.md). Next checkpoint: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).
 
 ## v1 build plan — at a glance
 

@@ -74,8 +74,8 @@ export const SCENE_WORLD_SIZE_Z_METERS = 1600
  * Padding stays 16 m per side: (scene − playfield) / 2 = 16 with
  * scene=1600 and playfield=1568 → 98 × 98 terrain/snow cells.
  *
- * Stress-test envelope (was 64 × 64 / 1024 / 992). v1 target remains
- * gated on H1-06 mobile; this size is for load limits, not a ship call.
+ * v1 target is 100 × 100. Live Worlds must deploy the full parcel
+ * list — a truncated footprint leaves the hearth near the NE edge.
  */
 export const MAZE_PLAYFIELD_METERS = 1568
 

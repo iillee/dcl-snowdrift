@@ -39,7 +39,7 @@ import { FrostDeath } from 'src/shared/frost/components'
 import { ICE_RESCUE_RADIUS_M, ICE_THAW_S } from 'src/shared/frost/tuning'
 import { room } from 'src/shared/messages'
 
-import { playIceCubeSfxAt } from 'src/client/audio'
+import { playIceCubeSfxAt, playIceMeltSfx, playIceMeltSfxAt } from 'src/client/audio'
 import { grantFrostRescue, noteLocalMelt } from 'src/client/frost/death'
 import { isTorchLit } from 'src/client/torchEquip'
 
@@ -285,6 +285,39 @@ function dropIce(userId: string): void {
 }
 
 
+// MARK: playIceMeltCue
+/**
+ * One thaw-phase hit of icemelt.mp3. Local player (inside their own
+ * cube) gets the camera cue; everyone else hears it at the cube.
+ */
+function playIceMeltCue(
+	userId: string,
+	fallX?: number,
+	fallZ?: number,
+): void {
+	const me = localUserId()
+	if (me && userId === me) {
+		playIceMeltSfx()
+		return
+	}
+	const rig = iceByUser.get(userId)
+	if (rig !== undefined && rig.feetX !== undefined && rig.feetY !== undefined && rig.feetZ !== undefined) {
+		playIceMeltSfxAt(Vector3.create(rig.feetX, rig.feetY + 1.2, rig.feetZ))
+		return
+	}
+	const at = remoteFrozen.get(userId)
+	if (at !== undefined) {
+		playIceMeltSfxAt(Vector3.create(at.x, 1.2, at.z))
+		return
+	}
+	if (fallX !== undefined && fallZ !== undefined) {
+		playIceMeltSfxAt(Vector3.create(fallX, 1.2, fallZ))
+		return
+	}
+	playIceMeltSfx()
+}
+
+
 // MARK: syncIceBlocks
 function syncIceBlocks(me: string): void {
 	const live = new Set<string>()
@@ -415,6 +448,10 @@ export function setupFrostRescue(): void {
 		const me = localUserId()
 		if (me && id === me) return
 		if (frozen === 0) {
+			// Last third of the cube — thaw clears whatever melt left.
+			if (iceByUser.has(id) || remoteFrozen.has(id)) {
+				playIceMeltCue(id, x, z)
+			}
 			remoteFrozen.delete(id)
 			meltStep.delete(id)
 			dropIce(id)
@@ -430,11 +467,14 @@ export function setupFrostRescue(): void {
 	})
 
 	room.onMessage('frostMelt', ({ userId, step, live }) => {
-		const id = userId.toLowerCase()
+		const id   = userId.toLowerCase()
+		const prev = meltStep.get(id) ?? 0
 		if (step <= 0) meltStep.delete(id)
 		else meltStep.set(id, step)
 		applyMeltScale(id)
 		if (id === localUserId()) noteLocalMelt(Math.max(0, step), live === 1)
+		// Each raised step is one third of the cube melting off the top.
+		if (step > prev) playIceMeltCue(id)
 		console.log(`frost/rescue: frostMelt: ${id} step ${step} live ${live}`)
 	})
 
@@ -442,6 +482,8 @@ export function setupFrostRescue(): void {
 		const id = userId.toLowerCase()
 		if (sentFor === id) sentFor = ''
 		if (id !== localUserId()) return
+		// Final third for the local cube — frostFrozen is skipped for self.
+		playIceMeltSfx()
 		grantFrostRescue()
 	})
 

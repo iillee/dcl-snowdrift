@@ -6,6 +6,18 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-05 session — 100×100 authoring, fuel sync, mobile parcel clamp
+
+Shipped / investigated state: [`session-2026-10-05.md`](./session-2026-10-05.md).
+
+- **2026-10-05 · Authored envelope is 100 × 100; do not shrink to hide a client bug · owner-directed** — `scene.json` / settings / Worlds content server carry the full 10 000 parcels and hearth at ~800. Mobile Explorer reports only 51 × 51 via `getSceneInformation` while desktop sees 100 × 100 on the same World. Shrinking to 64 × 64 would centre the hearth again but abandons the v1 size for an Explorer clamp. Stay at 100 × 100 and wait on the DCL report (**H1-07**).
+- **2026-10-05 · CLI deploy remains the parcel source of truth · owner-directed** — Creator Hub Layout in `main.composite` was still 64 × 64 while `scene.json` was 100 × 100. Hub Publish can stomp parcels. Prefer CLI for Worlds deploys; sync Hub Layout to 100 × 100 when using the editor.
+- **2026-10-05 · Coerce hearth fuel on the wire · bugfix** — `Schemas.Float` + non-Number `room.send` payloads left some clients stuck on an old flame tier. Always `Number(...)` fuel updates so flame, melt, and warmth stay in lockstep.
+- **2026-10-05 · Teaching fires stay dense at home and per grove · owner-directed** — Sparse rewrite had removed the 4–6 home pits and per-grove pits. Restore them; grove params still drive trees/wood, fire budgets stay count-only.
+- **2026-10-05 · Bounds debug is opt-in HUD · owner-directed** — Floating parcel billboard stays off by default; **xy** chip beside the heat bar toggles it for H1-07 / leave-scene checks.
+
+---
+
 ## 2026-10-04 — Geography & Migration checkpoint (target Wed 10/07)
 
 Plan: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md). Playtest loop stays; geography is the work.
