@@ -9,11 +9,17 @@
  * identical PropPlacement[]. That guarantee is what lets every client
  * spawn identical props without any network sync.
  *
+ * Placement phases after reserving props:
+ *   1. Hearth tree ring (catalog radiiM)
+ *   2. Low destination grove (hearth-like spacing)
+ *   3. Sparse wilderness deadwood across walkable levels
+ *
  * Uses a local mulberry32 RNG instance rather than the shared maze
  * rng.ts so we never perturb the maze generator's RNG state.
  */
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { GroveParams, listGroveSitesForMazeSeed } from 'src/shared/grove'
 import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 import {
 	MAZE_GRID_HEIGHT,
@@ -21,6 +27,28 @@ import {
 	MAZE_ORIGIN_OFFSET_METERS,
 	MAZE_TILE_WORLD_METERS,
 } from 'src/shared/settings'
+import {
+	getTerrain,
+	impassableCellsForMazeSeed,
+} from 'src/shared/terrain/terrainCache'
+import {
+	cellCenterWorld,
+	TerrainDestination,
+} from 'src/shared/terrain/terrainMap'
+
+
+/**
+ * Base metres from a destination centroid — mirrors hearth tree radii,
+ * then scaled per-grove by GroveParams.radiusScale.
+ */
+const DEST_GROVE_RADII_M: readonly number[] = [64, 96, 144, 88, 168, 104, 120, 80]
+
+/** Sparse wilderness deadwood across the walkable map (not mountain rim). */
+const WILD_TREE_COUNT = 18
+/** Min trunk spacing between wilderness trees (and vs hearth/grove trunks). */
+const WILD_MIN_SEP_M = 140
+/** Keep wilderness trees outside the outer hearth ring. */
+const WILD_HEARTH_KEEP_M = 200
 
 
 // MARK: PropPlacement
@@ -148,6 +176,40 @@ export function scatterProps(
 		}
 	}
 
+	// ── Phase 3: major grove at each green destination ───────────
+	const treeDef = PROP_CATALOG.find(p => p.id === 'tree_4')
+	if (treeDef !== undefined) {
+		const sites = listGroveSitesForMazeSeed(seed)
+		for (const site of sites) {
+			const groveRng = makeRng(
+				(seed | 0) ^ 0x47524F56 ^ (site.params.destIndex * 0x9E3779B9),
+			)
+			const grove = placeDestinationGrove(
+				groveRng,
+				treeDef,
+				seed,
+				usedCells,
+				site.dest,
+				site.params,
+			)
+			for (const p of grove) {
+				usedCells.add(cellKey(p.tx, p.tz))
+				phase2Cells.push(p)
+			}
+		}
+	}
+
+	// ── Phase 4: sparse wilderness deadwood ──────────────────────
+	if (treeDef !== undefined) {
+		const wildRng = makeRng((seed | 0) ^ 0x57494C44) // 'WILD'
+		const placed  = phase2Cells.filter(p => p.worldX !== undefined)
+		const wild    = placeWildernessTrees(wildRng, treeDef, seed, usedCells, placed)
+		for (const p of wild) {
+			usedCells.add(cellKey(p.tx, p.tz))
+			phase2Cells.push(p)
+		}
+	}
+
 	// ── Jitter + yaw pass (shared RNG for both phases) ───────────
 	const jitterRng = makeRng((seed | 0) ^ 0x4A495454) // 'JITT'
 	for (const c of [...phase1Cells, ...phase2Cells]) {
@@ -250,6 +312,196 @@ function ringBearings(
 		out.push(ang)
 		ang += (weights[i] / sum) * Math.PI * 2
 	}
+	return out
+}
+
+
+// MARK: placeWildernessTrees
+
+/**
+ * Sparse deadwood across all walkable levels. High min separation so
+ * a lone tree feels significant; mountain rim and the dest grove
+ * region are excluded. Spacing is also enforced against already-placed
+ * hearth and grove trunks.
+ */
+function placeWildernessTrees(
+	rng     : () => number,
+	def     : PropDef,
+	mazeSeed: number,
+	used    : ReadonlySet<string>,
+	placed  : ReadonlyArray<{ worldX?: number; worldZ?: number }>,
+): Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> {
+	const map  = getTerrain(mazeSeed)
+	const groveRegions = new Set(map.destinations.map(d => d.region))
+	const blocked = mergeSets(impassableCellsForMazeSeed(mazeSeed), used)
+	const reach   = def.scale * (1 + (def.scaleJitter ?? 0)) * TREE_TRUNK_RADIUS_M
+	const out     : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
+	const minSepSq = WILD_MIN_SEP_M * WILD_MIN_SEP_M
+	const hearthKeepSq = WILD_HEARTH_KEEP_M * WILD_HEARTH_KEEP_M
+	const prior: Array<{ x: number; z: number }> = []
+	for (const p of placed) {
+		if (p.worldX === undefined || p.worldZ === undefined) continue
+		prior.push({ x: p.worldX, z: p.worldZ })
+	}
+
+	const candidates: Array<{ tx: number; tz: number }> = []
+	for (let cz = 0; cz < map.h; cz++) {
+		for (let cx = 0; cx < map.w; cx++) {
+			const i = cz * map.w + cx
+			if (map.routeDist[i] < 0) continue
+			if (groveRegions.has(map.regions[i])) continue
+			const key = cellKey(cx, cz)
+			if (blocked.has(key)) continue
+			candidates.push({ tx: cx, tz: cz })
+		}
+	}
+	for (let i = candidates.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1))
+		const t = candidates[i]
+		candidates[i] = candidates[j]
+		candidates[j] = t
+	}
+
+	const tooClose = (x: number, z: number): boolean => {
+		const hdx = x - CAMPFIRE_WORLD_X
+		const hdz = z - CAMPFIRE_WORLD_Z
+		if (hdx * hdx + hdz * hdz < hearthKeepSq) return true
+		for (const p of prior) {
+			const dx = x - p.x
+			const dz = z - p.z
+			if (dx * dx + dz * dz < minSepSq) return true
+		}
+		for (const p of out) {
+			const dx = x - p.worldX
+			const dz = z - p.worldZ
+			if (dx * dx + dz * dz < minSepSq) return true
+		}
+		return false
+	}
+
+	for (const cell of candidates) {
+		if (out.length >= WILD_TREE_COUNT) break
+		const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+		const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+		if (tooClose(worldX, worldZ)) continue
+		if (reachesBlocked(worldX, worldZ, blocked, reach)) continue
+		out.push({ def, tx: cell.tx, tz: cell.tz, worldX, worldZ })
+	}
+
+	console.log(
+		`scatter: placeWildernessTrees: placed ${out.length}/${WILD_TREE_COUNT} ` +
+		`from ${candidates.length} walkable candidates`,
+	)
+	return out
+}
+
+
+// MARK: placeDestinationGrove
+
+/**
+ * Living-tree grove inside one destination region. Tree count, radius
+ * scale, and min separation come from GroveParams so each socket can
+ * feel dense, scattered, or rich without bespoke per-level code.
+ */
+function placeDestinationGrove(
+	rng     : () => number,
+	def     : PropDef,
+	mazeSeed: number,
+	used    : ReadonlySet<string>,
+	dest    : TerrainDestination,
+	params  : GroveParams,
+): Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> {
+	const map = getTerrain(mazeSeed)
+	const regionKeys = new Set<string>()
+	const regionCells: Array<{ tx: number; tz: number }> = []
+	for (let cz = 0; cz < map.h; cz++) {
+		for (let cx = 0; cx < map.w; cx++) {
+			if (map.regions[cz * map.w + cx] !== dest.region) continue
+			regionKeys.add(cellKey(cx, cz))
+			regionCells.push({ tx: cx, tz: cz })
+		}
+	}
+	if (regionCells.length === 0) {
+		console.log(
+			`scatter: placeDestinationGrove: destination region ${dest.region} has no cells`,
+		)
+		return []
+	}
+	const blocked = mergeSets(impassableCellsForMazeSeed(mazeSeed), used)
+	const reach   = def.scale * (1 + (def.scaleJitter ?? 0)) * TREE_TRUNK_RADIUS_M
+	const out     : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
+	const claimed = new Set<string>()
+	const centre  = cellCenterWorld(dest.cx, dest.cz)
+	const count   = Math.min(params.treeCount, DEST_GROVE_RADII_M.length)
+	const bearings = ringBearings(rng, count)
+	const NUDGES   = 180
+	const delta    = (Math.PI * 2) / NUDGES
+	const minSepSq = params.minSepM * params.minSepM
+
+	const accept = (
+		worldX: number,
+		worldZ: number,
+	): { tx: number; tz: number } | null => {
+		const tx = Math.floor((worldX - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+		const tz = Math.floor((worldZ - MAZE_ORIGIN_OFFSET_METERS) / MAZE_TILE_WORLD_METERS)
+		if (tx < 0 || tz < 0 || tx >= MAZE_GRID_WIDTH || tz >= MAZE_GRID_HEIGHT) return null
+		const key = cellKey(tx, tz)
+		if (!regionKeys.has(key) || blocked.has(key) || claimed.has(key)) return null
+		if (reachesBlocked(worldX, worldZ, blocked, reach)) return null
+		for (const p of out) {
+			const dx = worldX - p.worldX
+			const dz = worldZ - p.worldZ
+			if (dx * dx + dz * dz < minSepSq) return null
+		}
+		return { tx, tz }
+	}
+
+	for (let i = 0; i < count; i++) {
+		const radius = DEST_GROVE_RADII_M[i] * params.radiusScale
+		let placed = false
+		for (let n = 0; n < NUDGES; n++) {
+			const side = n === 0 ? 0 : (n % 2 === 1 ? 1 : -1) * Math.ceil(n / 2)
+			const ang  = bearings[i] + side * delta
+			const worldX = centre.x + Math.sin(ang) * radius
+			const worldZ = centre.z + Math.cos(ang) * radius
+			const cell = accept(worldX, worldZ)
+			if (cell === null) continue
+			claimed.add(cellKey(cell.tx, cell.tz))
+			out.push({ def, tx: cell.tx, tz: cell.tz, worldX, worldZ })
+			placed = true
+			break
+		}
+		if (!placed) {
+			console.log(
+				`scatter: placeDestinationGrove: ring slot ${i + 1}/${count} ` +
+				`r=${radius.toFixed(0)}m lv=${dest.level} missed — sparse fill`,
+			)
+		}
+	}
+
+	if (out.length < count) {
+		for (let i = regionCells.length - 1; i > 0; i--) {
+			const j = Math.floor(rng() * (i + 1))
+			const t = regionCells[i]
+			regionCells[i] = regionCells[j]
+			regionCells[j] = t
+		}
+		for (const cell of regionCells) {
+			if (out.length >= count) break
+			const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.35 + rng() * 0.3) * MAZE_TILE_WORLD_METERS
+			const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.35 + rng() * 0.3) * MAZE_TILE_WORLD_METERS
+			const ok = accept(worldX, worldZ)
+			if (ok === null) continue
+			claimed.add(cellKey(ok.tx, ok.tz))
+			out.push({ def, tx: ok.tx, tz: ok.tz, worldX, worldZ })
+		}
+	}
+
+	console.log(
+		`scatter: placeDestinationGrove: placed ${out.length}/${count} ` +
+		`lv=${dest.level} region=${dest.region} at (${dest.cx},${dest.cz}) ` +
+		`scale=${params.radiusScale.toFixed(2)}`,
+	)
 	return out
 }
 

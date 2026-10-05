@@ -18,7 +18,7 @@
  *
  * Cycle roll (subscribed to onCycleRoll):
  *   - recompute scatter for the new seed
- *   - reactivate the near, far, and outer subsets and every tree cluster
+ *   - reactivate the near, far, outer, and dest subsets and every tree
  *   - broadcast fresh woodActiveSet
  */
 
@@ -29,10 +29,12 @@ import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 import {
 	computeWoodScatter,
 	WoodChunk,
+	WOOD_BAND_DEST,
 	WOOD_BAND_FAR,
 	WOOD_BAND_NEAR,
 	WOOD_BAND_OUTER,
 	WOOD_BAND_TREE,
+	destWoodActiveTarget,
 	WOOD_FAR_ACTIVE,
 	WOOD_NEAR_ACTIVE,
 	WOOD_OUTER_ACTIVE,
@@ -81,14 +83,17 @@ function rebuildScatter(seed: number): void {
 	const near : number[] = []
 	const far  : number[] = []
 	const outer: number[] = []
+	const dest : number[] = []
 	for (const c of scatter) {
 		if (c.band === WOOD_BAND_NEAR) near.push(c.idx)
 		else if (c.band === WOOD_BAND_FAR) far.push(c.idx)
 		else if (c.band === WOOD_BAND_OUTER) outer.push(c.idx)
+		else if (c.band === WOOD_BAND_DEST) dest.push(c.idx)
 	}
 	shuffleTake(near,  WOOD_NEAR_ACTIVE,  active)
 	shuffleTake(far,   WOOD_FAR_ACTIVE,   active)
 	shuffleTake(outer, WOOD_OUTER_ACTIVE, active)
+	shuffleTake(dest,  destWoodActiveTarget(cycleMazeSeed(seed)), active)
 	for (const c of scatter) {
 		if (c.band === WOOD_BAND_TREE) active.add(c.idx)
 	}
@@ -98,12 +103,14 @@ function rebuildScatter(seed: number): void {
 	let nearN    = 0
 	let farN     = 0
 	let outerN   = 0
+	let destN    = 0
 	let treeN    = 0
 	for (const idx of active) {
 		const c = scatter[idx]
 		if (c.band === WOOD_BAND_NEAR) nearN++
 		else if (c.band === WOOD_BAND_FAR) farN++
 		else if (c.band === WOOD_BAND_OUTER) outerN++
+		else if (c.band === WOOD_BAND_DEST) destN++
 		else if (c.band === WOOD_BAND_TREE) treeN++
 		if (c.kind === WOOD_KIND_BRANCH) branches++
 		else logs++
@@ -112,7 +119,7 @@ function rebuildScatter(seed: number): void {
 	console.log(
 		`[Server] wood: rebuilt scatter seed=${seed} pool=${scatter.length} ` +
 		`active=${active.size} (near=${nearN} far=${farN} outer=${outerN} ` +
-		`tree=${treeN} branches=${branches} logs=${logs})`
+		`dest=${destN} tree=${treeN} branches=${branches} logs=${logs})`
 	)
 }
 

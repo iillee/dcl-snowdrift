@@ -19,6 +19,7 @@ import { getPlayer } from '@dcl/sdk/players'
 
 import { room } from 'src/shared/messages'
 
+import { revertOptimisticFeed } from 'src/client/hearthFuel'
 import { spawnLogsFeed } from 'src/client/logsFeedFx'
 import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange, restoreRejectedFeed } from 'src/client/logsInventory'
 import { tryChopWood } from 'src/client/wood'
@@ -65,6 +66,7 @@ export function setupLogsInput(): void {
 	installed = true
 
 	room.onMessage('feedFireRejected', ({ kind }) => {
+		revertOptimisticFeed(kind)
 		restoreRejectedFeed(kind)
 	})
 

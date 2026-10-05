@@ -78,7 +78,7 @@ export interface TerrainLadder {
 	top      : { x: number; y: number; z: number }
 }
 
-/** A far region worth an expedition (Phase 2 grove site). */
+/** A far Low / Mid / High region worth an expedition (major grove socket). */
 export interface TerrainDestination {
 	region : number
 	level  : number

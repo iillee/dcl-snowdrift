@@ -135,10 +135,13 @@ const MIN_REGION_CELLS = Math.round(sc(8))
 const SECOND_LADDER_MIN_SITES = Math.round(sc(24))
 const SECOND_LADDER_MIN_SEP   = Math.round(sc(10))
 
-// Destinations.
+// Destinations — one major grove socket per walkable elevation.
 const DEST_MIN_AREA      = Math.round(sc(40))
-const DEST_MAX           = 2
-const DEST_MIN_ANGLE_RAD = Math.PI / 2
+const DEST_MAX           = 3
+/** Angular separation from the hearth so territories fan out. */
+const DEST_MIN_ANGLE_RAD = Math.PI / 3
+/** Min mean route distance (cells) so a Mid socket is not the hearth shelf. */
+const DEST_MIN_ROUTE     = Math.round(sc(14))
 
 // Validation.
 const MIN_HEARTH_REGION_CELLS = Math.round(sc(40))
@@ -236,7 +239,13 @@ function buildOnce(
 
 	const hearthRegion = regions[HEARTH_CZ * W + HEARTH_CX]
 	const routeDist    = computeRouteDist(work.levels, ladders)
-	const destinations = pickDestinations(regions, regionLevel, regionArea, routeDist)
+	const destinations = pickDestinations(
+		regions,
+		regionLevel,
+		regionArea,
+		routeDist,
+		hearthRegion,
+	)
 
 	return {
 		seed,
@@ -1164,14 +1173,17 @@ function computeRouteDist(
 
 // MARK: pickDestinations
 /**
- * Up to DEST_MAX large Low or High regions, farthest route first, at
- * least DEST_MIN_ANGLE_RAD apart as seen from the hearth.
+ * One major grove socket per walkable elevation (Low / Mid / High).
+ * Far + large regions win within each level; sockets stay
+ * DEST_MIN_ANGLE_RAD apart from the hearth view and skip the hearth
+ * region itself. Route difficulty is not prescribed — geography decides.
  */
 function pickDestinations(
-	regions:     Int16Array,
-	regionLevel: number[],
-	regionArea:  number[],
-	routeDist:   Int32Array,
+	regions:      Int16Array,
+	regionLevel:  number[],
+	regionArea:   number[],
+	routeDist:    Int32Array,
+	hearthRegion: number,
 ): TerrainDestination[] {
 	const sumX  = new Float64Array(regionLevel.length)
 	const sumZ  = new Float64Array(regionLevel.length)
@@ -1184,13 +1196,16 @@ function pickDestinations(
 		sumD[r] += Math.max(0, routeDist[i])
 	}
 
-	const candidates: TerrainDestination[] = []
+	const byLevel: TerrainDestination[][] = [[], [], []]
 	for (let r = 0; r < regionLevel.length; r++) {
 		const lv = regionLevel[r]
-		if (lv === MID || regionArea[r] < DEST_MIN_AREA) continue
+		if (lv !== LOW && lv !== MID && lv !== HIGH) continue
+		if (r === hearthRegion) continue
+		if (regionArea[r] < DEST_MIN_AREA) continue
+		const meanRoute = sumD[r] / regionArea[r]
+		if (meanRoute < DEST_MIN_ROUTE) continue
 		const mx = sumX[r] / regionArea[r]
 		const mz = sumZ[r] / regionArea[r]
-		// Region cell nearest the centroid that is surrounded by its own region.
 		let best = -1
 		let bestD = Infinity
 		for (let i = 0; i < N; i++) {
@@ -1210,30 +1225,41 @@ function pickDestinations(
 			}
 		}
 		if (best < 0) continue
-		candidates.push({
+		byLevel[lv].push({
 			region : r,
 			level  : lv,
 			area   : regionArea[r],
 			cx     : best % W,
 			cz     : Math.floor(best / W),
-			route  : Math.round(sumD[r] / regionArea[r]),
+			route  : Math.round(meanRoute),
 		})
 	}
-	// Far and big both matter: a long trip to a pocket is not a destination.
-	const score = (d: TerrainDestination): number => d.route * Math.sqrt(d.area)
-	candidates.sort((a, b) => score(b) - score(a) || a.region - b.region)
 
-	const out: TerrainDestination[] = []
-	for (const c of candidates) {
-		if (out.length >= DEST_MAX) break
+	const score = (d: TerrainDestination): number => d.route * Math.sqrt(d.area)
+	for (const list of byLevel) {
+		list.sort((a, b) => score(b) - score(a) || a.region - b.region)
+	}
+
+	const clashes = (c: TerrainDestination, out: TerrainDestination[]): boolean => {
 		const ang = Math.atan2(c.cz + 0.5 - HEARTH_FZ, c.cx + 0.5 - HEARTH_FX)
-		const clash = out.some(o => {
-			const oa   = Math.atan2(o.cz + 0.5 - HEARTH_FZ, o.cx + 0.5 - HEARTH_FX)
-			let diff   = Math.abs(ang - oa) % (Math.PI * 2)
+		return out.some(o => {
+			const oa  = Math.atan2(o.cz + 0.5 - HEARTH_FZ, o.cx + 0.5 - HEARTH_FX)
+			let diff  = Math.abs(ang - oa) % (Math.PI * 2)
 			if (diff > Math.PI) diff = Math.PI * 2 - diff
 			return diff < DEST_MIN_ANGLE_RAD
 		})
-		if (!clash) out.push(c)
+	}
+
+	// Pick Low / Mid / High in that order so each elevation gets a socket
+	// when candidates exist; angle clashes skip to the next best on that level.
+	const out: TerrainDestination[] = []
+	for (const lv of [LOW, MID, HIGH]) {
+		if (out.length >= DEST_MAX) break
+		for (const c of byLevel[lv]) {
+			if (clashes(c, out)) continue
+			out.push(c)
+			break
+		}
 	}
 	return out
 }
@@ -1256,7 +1282,18 @@ function validate(map: TerrainMap): string {
 	for (let i = 0; i < N; i++) {
 		if (map.regions[i] >= 0 && map.routeDist[i] < 0) return 'unreachable cell'
 	}
-	if (map.destinations.length === 0) return 'no destination'
+	if (map.destinations.length < DEST_MAX) {
+		return `destinations ${map.destinations.length}/${DEST_MAX}`
+	}
+	const seen = new Set<number>()
+	for (const d of map.destinations) {
+		if (d.level !== LOW && d.level !== MID && d.level !== HIGH) {
+			return `bad dest level ${d.level}`
+		}
+		if (seen.has(d.level)) return `duplicate dest level ${d.level}`
+		seen.add(d.level)
+	}
+	if (seen.size < DEST_MAX) return 'missing dest elevation'
 	return ''
 }
 

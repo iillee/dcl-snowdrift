@@ -102,35 +102,41 @@ export function setupCampfire(): void {
 	let glbReadyLogged = false
 
 	engine.addSystem(() => {
-		const tier  = getMainFireTier()
-		const scale = getMainFireFlameScale()
-		if (tier !== lastTier || scale !== lastScale) {
-			flame.setScale(scale)
-			lastTier  = tier
-			lastScale = scale
-			console.log(`campfire: tier ${tier} flame=${scale.toFixed(2)}x`)
-		}
+		try {
+			const tier  = getMainFireTier()
+			const scale = getMainFireFlameScale()
+			if (tier !== lastTier || scale !== lastScale) {
+				flame.setScale(scale)
+				lastTier  = tier
+				lastScale = scale
+				console.log(`campfire: tier ${tier} flame=${scale.toFixed(2)}x`)
+			}
 
-		const vol = CAMPFIRE_VOLUME * getMainFireVolume()
-		if (vol !== lastVolume) {
-			AudioSource.getMutable(root).volume = vol
-			lastVolume = vol
-			console.log(`campfire: crackle=${vol.toFixed(2)}`)
-		}
+			const vol = CAMPFIRE_VOLUME * getMainFireVolume()
+			if (vol !== lastVolume) {
+				AudioSource.getMutable(root).volume = vol
+				lastVolume = vol
+				console.log(`campfire: crackle=${vol.toFixed(2)}`)
+			}
 
-		// Closest lit fire uses three shadow spots; other lit fires keep
-		// one radial fill so they stay visible at a distance.
-		const fuel    = getMainFireFuel()
-		const nearest = nearestLitFireIndex(collectLitCampfirePositions())
-		const radial  = fuel > 0 && nearest !== 0
-		syncPointLight(light, hearthLightParams(radial ? fuel : 0))
+			// Closest lit fire uses three shadow spots; other lit fires keep
+			// one radial fill so they stay visible at a distance.
+			const fuel    = getMainFireFuel()
+			const nearest = nearestLitFireIndex(collectLitCampfirePositions())
+			const radial  = fuel > 0 && nearest !== 0
+			syncPointLight(light, hearthLightParams(radial ? fuel : 0))
 
-		const ready = ensureBaseGlb(base, spawnedAtMs, nextRetryAtMs)
-		if (ready.respawnedAtMs !== null) spawnedAtMs = ready.respawnedAtMs
-		if (ready.nextRetryAtMs !== null) nextRetryAtMs = ready.nextRetryAtMs
-		if (ready.finished && !glbReadyLogged) {
-			glbReadyLogged = true
-			console.log('campfire: setupCampfire: base GLB finished loading')
+			const ready = ensureBaseGlb(base, spawnedAtMs, nextRetryAtMs)
+			if (ready.respawnedAtMs !== null) spawnedAtMs = ready.respawnedAtMs
+			if (ready.nextRetryAtMs !== null) nextRetryAtMs = ready.nextRetryAtMs
+			if (ready.finished && !glbReadyLogged) {
+				glbReadyLogged = true
+				console.log('campfire: setupCampfire: base GLB finished loading')
+			}
+		} catch (err) {
+			// One bad Transform write must not kill the fuel visual loop —
+			// a stuck system looks exactly like "fire never grows/shrinks".
+			console.log(`campfire: tick failed: ${String(err)}`)
 		}
 	})
 

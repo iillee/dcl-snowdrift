@@ -237,8 +237,11 @@ export const Messages = {
 	// feed) and on joinRoster hydration. `players` is the current
 	// player count baked into the packet so the client can render the
 	// "xN" drain multiplier without a separate roster subscription.
+	// Schemas.Number (not Float) — same wire bug as logPileAdded: Float
+	// fields arrive empty on room.send in this SDK build, which left
+	// clients stuck at the boot fuel and made the flame never grow/shrink.
 	hearthFuelUpdate: Schemas.Map({
-		fuel   : Schemas.Float,
+		fuel   : Schemas.Number,
 		players: Schemas.Int,
 	}),
 
@@ -250,7 +253,7 @@ export const Messages = {
 	// dying" event.
 	hiddenHearthFuelUpdate: Schemas.Map({
 		index  : Schemas.Int,
-		fuel   : Schemas.Float,
+		fuel   : Schemas.Number,
 		players: Schemas.Int,
 	}),
 
@@ -302,8 +305,9 @@ export const Messages = {
 	// authenticated sender, which the preview does on some messages.
 	frostFreeze: Schemas.Map({
 		userId: Schemas.String,
-		x     : Schemas.Float,
-		z     : Schemas.Float,
+		// Number not Float — Float xy arrived empty on room.send (see logPileAdded).
+		x     : Schemas.Number,
+		z     : Schemas.Number,
 	}),
 
 	// Server → Client: draw or remove the ice cube on `userId`.
@@ -313,8 +317,8 @@ export const Messages = {
 	// for cubes that were already there.
 	frostFrozen: Schemas.Map({
 		userId: Schemas.String,
-		x     : Schemas.Float,
-		z     : Schemas.Float,
+		x     : Schemas.Number,
+		z     : Schemas.Number,
 		frozen: Schemas.Int,
 		cue   : Schemas.Int,
 	}),
