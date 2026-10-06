@@ -284,7 +284,9 @@ function spawnSlab(
 		scale   : Vector3.create(sizeX, height, sizeZ),
 	})
 	MeshRenderer.setBox(e)
-	MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
+	// 3rd-person camera only blocks on PHYSICS|POINTER — CL_CAMERA alone
+	// does not stop the orbit cam from clipping through walls.
+	MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS | ColliderLayer.CL_POINTER)
 	Material.setPbrMaterial(e, {
 		albedoColor:       color,
 		roughness:         1.0,

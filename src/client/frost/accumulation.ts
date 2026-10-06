@@ -34,6 +34,7 @@ import { hearthTierFromFuel, hearthWarmthPerSec } from 'src/shared/hearthFuel'
 import { ambientFreezeSec, torchLeakFreezeSec, type PhaseConfig } from 'src/shared/phase'
 
 import { playHealChunkSfx, playFrostChunkSfx } from 'src/client/audio'
+import { DEV_DISABLE_FROST } from 'src/client/devFlags'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
@@ -111,6 +112,17 @@ export function initFrostAccumulation(): void {
 		if (sampleAccum < FROST_SAMPLE_INTERVAL_S) return
 		const step = sampleAccum
 		sampleAccum = 0
+
+		if (DEV_DISABLE_FROST) {
+			if (frost !== 0 || lastWrittenFrost !== 0) {
+				frost            = 0
+				lastWrittenFrost = 0
+				lastColdSegments = 0
+				warmingByFire    = false
+				FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
+			}
+			return
+		}
 
 		// Frozen in place: the bar holds until a thaw or a fire wake.
 		const held = FrostDeath.getOrNull(engine.PlayerEntity)

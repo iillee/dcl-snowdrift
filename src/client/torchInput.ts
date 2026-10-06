@@ -22,6 +22,7 @@ import { InputAction, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 import { playSurgeSfxLocal, playTorchSfxLocal } from 'src/client/audio'
+import { DEV_KEEP_TORCH_LIT } from 'src/client/devFlags'
 import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
@@ -139,7 +140,12 @@ export function setupTorchInput(): void {
 
 	engine.addSystem((dt: number) => {
 		// \u2500\u2500 Fuel drain \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-		if (isTorchLit()) {
+		if (DEV_KEEP_TORCH_LIT) {
+			if (!isTorchLit() || getTorchFuelSeconds() < TORCH_FUEL_MAX_S) {
+				relightTorch()
+				syncTorchFlameNow()
+			}
+		} else if (isTorchLit()) {
 			const remaining = consumeTorchFuel(dt * getLivePhaseConfig().torchDrainMul)
 			if (remaining <= 0) {
 				extinguishTorch()

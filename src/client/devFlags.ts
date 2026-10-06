@@ -33,3 +33,11 @@ export const SHOW_DEV_ADVANCE_PHASE    = false
 
 /** 'OUT' button that snuffs every fire to playtest ember-fail game over. */
 export const SHOW_DEV_SNUFF_BUTTON     = false
+
+
+// MARK: Survival cheats (ladder / geography iteration)
+/** Skip frost gain and hold the bar at full warm. Flip off before deploy. */
+export const DEV_DISABLE_FROST = false
+
+/** Keep the local torch lit at full fuel (no drain). Flip off before deploy. */
+export const DEV_KEEP_TORCH_LIT = false

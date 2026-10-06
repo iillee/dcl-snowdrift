@@ -1,31 +1,25 @@
 /**
- * ladders.ts — click-to-climb connections between terrain levels.
+ * ladders.ts — walk-into-climb connections between terrain levels.
  *
- * Decentraland has no climbing, so a ladder is an interaction: step up
- * to it, click or tap, and movePlayerTo puts you at the other end. The
- * generator decides where they go (one per region connection, on a
- * straight cliff run); this module draws them and wires the clicks.
+ * Decentraland has no climbing, so a ladder is a zone: step into the
+ * volume and movePlayerTo puts you on the lip. The generator decides
+ * where they go; this module draws the GLB and owns the trigger.
  *
- * Both ends are clickable. Dropping off a cliff is still free, so the
- * downward click is only a safer way down for someone carrying wood.
- *
- * Following flagtag's ladderSystem: the visible ladder keeps physics
- * colliders only and a separate oversized invisible box takes the
- * pointer, because a thin ladder mesh swallows taps on mobile.
+ * Yaw is derived from climb dir (rungs face the low cell). The climb
+ * TriggerArea is a child of the GLB so it cannot drift by cardinal.
+ * The GLB is visual-only (no physics collider).
  */
 
 import {
 	ColliderLayer,
 	Entity,
-	InputAction,
-	Material,
-	MeshCollider,
-	MeshRenderer,
+	GltfContainer,
 	Transform,
+	TriggerArea,
 	engine,
-	pointerEventsSystem,
+	triggerAreaEventsSystem,
 } from '@dcl/sdk/ecs'
-import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
+import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 import { TERRAIN_LEVEL_STEP_M, groundYForLevel } from 'src/shared/settings'
@@ -40,29 +34,76 @@ import {
 
 // MARK: Tuning
 
-const RAIL_WIDTH_M = 1.2
-const RAIL_DEPTH_M = 0.35
+/** Author ladder — ~15.6 m climb in the GLB, baked +90° X so it stands up. */
+const LADDER_MODEL_SRC = 'assets/models/ladder2.glb'
 
-/** Pointer box footprint. Generous so a tap lands from any angle. */
-const CLICK_BOX_XZ_M = 4
-const CLICK_MAX_DIST = 12
+/**
+ * Native climb length of ladder2.glb (metres). Scale uniformly so the
+ * top lands on the TERRAIN_LEVEL_STEP_M cliff lip.
+ */
+const MODEL_CLIMB_M = 15.604
+
+/**
+ * Offset from the cliff face toward the low cell (metres). Positive =
+ * sit out in the pit, not buried in the slab.
+ */
+const GLB_FACE_GAP_M = 0.02
+
+/**
+ * Trigger box in world metres. Converted to parent-local by / heightScale.
+ * X = across rungs, Y = climb, Z = depth out from wall.
+ */
+const TRIGGER_W_M = 1.4
+const TRIGGER_D_M = 0.7
+/** Child-only lateral nudge (world metres). */
+const TRIGGER_LOCAL_X_M = 0
+
+/**
+ * Yaw so rungs face the low cell (−dir). Index N E S W.
+ * Tower-confirmed: only S was still edge-on at 0 → 180.
+ */
+const YAW_FACE_LOW_BY_DIR: readonly number[] = [0, 90, 180, -90]
 
 /** Where the climber ends up, measured out from the cliff edge. */
 const ARRIVE_LOOK_AHEAD_M = 6
 
-const LADDER_COLOR = Color4.create(0.52, 0.38, 0.22, 1)
+type ClimbDest = {
+	to:   { x: number; y: number; z: number }
+	look: { x: number; y: number; z: number }
+}
 
 const ladderEntities: Entity[] = []
+const climbDestByTrigger = new Map<Entity, ClimbDest>()
+/** How many climb-up TriggerAreas currently contain the local player. */
+let insideClimbCount = 0
+/** True after leaving every climb volume; false after a successful climb. */
+let climbArmed = true
+
+
+// MARK: yawFacingLow
+/** Yaw for climb dir (low → high). */
+function yawFacingLow(dx: number, dz: number): number {
+	// Recover dir index from unit step (generator only uses cardinals).
+	let dir = 0
+	if (dx === 1) dir = 1
+	else if (dz === -1) dir = 2
+	else if (dx === -1) dir = 3
+	return YAW_FACE_LOW_BY_DIR[dir] ?? 0
+}
 
 
 // MARK: clearLadders
-/** Remove every ladder and its click boxes. */
+/** Remove every ladder visual/trigger and reset climb state. */
 export function clearLadders(): void {
-	for (const e of ladderEntities) {
-		pointerEventsSystem.removeOnPointerDown(e)
-		engine.removeEntity(e)
+	for (const e of climbDestByTrigger.keys()) {
+		triggerAreaEventsSystem.removeOnTriggerEnter(e)
+		triggerAreaEventsSystem.removeOnTriggerExit(e)
 	}
+	climbDestByTrigger.clear()
+	for (const e of ladderEntities) engine.removeEntity(e)
 	ladderEntities.length = 0
+	insideClimbCount = 0
+	climbArmed = true
 }
 
 
@@ -73,98 +114,103 @@ export function clearLadders(): void {
  */
 export function setupLadders(map: TerrainMap): void {
 	for (const ladder of map.ladders) spawnLadder(ladder)
-	console.log(`ladders: setupLadders: ${map.ladders.length} ladders`)
+	console.log(`ladders: setupLadders: ${map.ladders.length} ladders (TriggerArea climb-up)`)
 }
 
 
 // MARK: spawnLadder
 function spawnLadder(ladder: TerrainLadder): void {
-	const dx     = DIR_DX[ladder.dir]
-	const dz     = DIR_DZ[ladder.dir]
-	const baseY  = groundYForLevel(ladder.lowLevel)
-	// Stop at the cliff lip (high ground), not above it into the snow.
-	const topY   = groundYForLevel(ladder.lowLevel + 1)
-	const height = topY - baseY
+	const dx    = DIR_DX[ladder.dir]
+	const dz    = DIR_DZ[ladder.dir]
+	const baseY = groundYForLevel(ladder.lowLevel)
 
-	// Face of the cliff is LADDER_FOOT_M toward the high cell from the
-	// foot. Centre the rail so its inner face sits flush on that outside
-	// wall — not buried in the upper slab, not floating off it.
 	const faceX = ladder.bottom.x + dx * LADDER_FOOT_M
 	const faceZ = ladder.bottom.z + dz * LADDER_FOOT_M
-	const railX = faceX - dx * (RAIL_DEPTH_M / 2)
-	const railZ = faceZ - dz * (RAIL_DEPTH_M / 2)
+	const glbX  = faceX - dx * GLB_FACE_GAP_M
+	const glbZ  = faceZ - dz * GLB_FACE_GAP_M
+	const yaw   = yawFacingLow(dx, dz)
 
-	const rail = engine.addEntity()
-	ladderEntities.push(rail)
-	Transform.create(rail, {
-		position: Vector3.create(railX, baseY + height / 2, railZ),
-		scale:    Vector3.create(
-			dx !== 0 ? RAIL_DEPTH_M : RAIL_WIDTH_M,
-			height,
-			dz !== 0 ? RAIL_DEPTH_M : RAIL_WIDTH_M,
-		),
-		rotation: Quaternion.Identity(),
-	})
-	MeshRenderer.setBox(rail)
-	MeshCollider.setBox(rail, ColliderLayer.CL_PHYSICS)
-	Material.setPbrMaterial(rail, {
-		albedoColor:       LADDER_COLOR,
-		roughness:         1.0,
-		metallic:          0.0,
-		specularIntensity: 0.0,
-	})
-
-	// Climb up: stand at the foot, arrive on the lip looking inland.
-	addClimbBox(
-		ladder.bottom,
-		ladder.top,
-		{ x: ladder.top.x + dx * ARRIVE_LOOK_AHEAD_M, y: ladder.top.y + 1.2, z: ladder.top.z + dz * ARRIVE_LOOK_AHEAD_M },
-		'Climb up',
-	)
-
-	// Climb down: stand on the lip, arrive at the foot looking outward.
-	addClimbBox(
-		ladder.top,
-		ladder.bottom,
-		{ x: ladder.bottom.x - dx * ARRIVE_LOOK_AHEAD_M, y: ladder.bottom.y + 1.2, z: ladder.bottom.z - dz * ARRIVE_LOOK_AHEAD_M },
-		'Climb down',
-	)
+	const dest: ClimbDest = {
+		to:   { x: ladder.top.x, y: ladder.top.y + 0.25, z: ladder.top.z },
+		look: {
+			x: ladder.top.x + dx * ARRIVE_LOOK_AHEAD_M,
+			y: ladder.top.y + 1.2,
+			z: ladder.top.z + dz * ARRIVE_LOOK_AHEAD_M,
+		},
+	}
+	placeLadderVisual(glbX, baseY, glbZ, yaw, dest)
 }
 
 
-// MARK: addClimbBox
-/**
- * Invisible pointer box at `at` that moves the player to `to` facing
- * `look`. Pointer-layer only, so it never blocks walking.
- */
-function addClimbBox(
-	at:        { x: number; y: number; z: number },
-	to:        { x: number; y: number; z: number },
-	look:      { x: number; y: number; z: number },
-	hoverText: string,
+// MARK: placeLadderVisual
+/** GLB (visual only) + child TriggerArea for walk-in climb. */
+function placeLadderVisual(
+	faceX: number,
+	baseY: number,
+	faceZ: number,
+	yaw:   number,
+	dest:  ClimbDest,
 ): void {
-	const box = engine.addEntity()
-	ladderEntities.push(box)
-	Transform.create(box, {
-		position: Vector3.create(at.x, at.y + TERRAIN_LEVEL_STEP_M / 4, at.z),
-		scale:    Vector3.create(CLICK_BOX_XZ_M, TERRAIN_LEVEL_STEP_M / 2, CLICK_BOX_XZ_M),
-	})
-	MeshCollider.setBox(box, ColliderLayer.CL_POINTER)
+	const heightScale = TERRAIN_LEVEL_STEP_M / MODEL_CLIMB_M
+	const yawQ        = Quaternion.fromEulerDegrees(0, yaw, 0)
 
-	pointerEventsSystem.onPointerDown(
-		{
-			entity: box,
-			opts:   {
-				button:      InputAction.IA_POINTER,
-				hoverText,
-				maxDistance: CLICK_MAX_DIST,
-			},
-		},
-		() => {
-			movePlayerTo({
-				newRelativePosition: { x: to.x, y: to.y + 0.25, z: to.z },
-				cameraTarget:        look,
-			}).catch(() => {})
-		},
-	)
+	const visual = engine.addEntity()
+	ladderEntities.push(visual)
+	Transform.create(visual, {
+		position: Vector3.create(faceX, baseY, faceZ),
+		scale:    Vector3.create(heightScale, heightScale, heightScale),
+		rotation: yawQ,
+	})
+	GltfContainer.create(visual, {
+		src:                          LADDER_MODEL_SRC,
+		visibleMeshesCollisionMask:   0,
+		invisibleMeshesCollisionMask: 0,
+	})
+
+	attachClimbVolume(visual, heightScale, dest)
+}
+
+
+// MARK: attachClimbVolume
+/** Invisible child TriggerArea on the GLB. */
+function attachClimbVolume(
+	visual:      Entity,
+	heightScale: number,
+	dest:        ClimbDest,
+): void {
+	const sx = TRIGGER_W_M / heightScale
+	const sy = MODEL_CLIMB_M
+	const sz = TRIGGER_D_M / heightScale
+	const lx = TRIGGER_LOCAL_X_M / heightScale
+	const ly = MODEL_CLIMB_M / 2
+
+	const trigger = engine.addEntity()
+	ladderEntities.push(trigger)
+	Transform.create(trigger, {
+		parent:   visual,
+		position: Vector3.create(lx, ly, 0),
+		scale:    Vector3.create(sx, sy, sz),
+	})
+	TriggerArea.setBox(trigger, ColliderLayer.CL_PLAYER)
+	climbDestByTrigger.set(trigger, dest)
+
+	triggerAreaEventsSystem.onTriggerEnter(trigger, (result) => {
+		if (result.trigger?.entity !== engine.PlayerEntity) return
+		insideClimbCount++
+		if (!climbArmed) return
+		climbArmed = false
+		console.log(
+			`ladders: climbUp: TriggerArea teleport to ` +
+			`(${dest.to.x.toFixed(1)}, ${dest.to.y.toFixed(1)}, ${dest.to.z.toFixed(1)})`,
+		)
+		movePlayerTo({
+			newRelativePosition: dest.to,
+			cameraTarget:        dest.look,
+		}).catch(() => {})
+	})
+	triggerAreaEventsSystem.onTriggerExit(trigger, (result) => {
+		if (result.trigger?.entity !== engine.PlayerEntity) return
+		insideClimbCount = Math.max(0, insideClimbCount - 1)
+		if (insideClimbCount === 0) climbArmed = true
+	})
 }
