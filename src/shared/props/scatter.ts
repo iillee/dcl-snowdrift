@@ -1,11 +1,11 @@
 /**
- * scatter.ts — pure, seeded prop placement.
+ * scatter.ts Ã¢â‚¬â€ pure, seeded prop placement.
  *
  * Given a maze seed and the current reserved-cell set, produce a
- * deterministic list of PropPlacement records — one per instance to
+ * deterministic list of PropPlacement records Ã¢â‚¬â€ one per instance to
  * spawn. No engine imports, no side effects; safe from tests.
  *
- * Determinism contract: same (seed, reservedCells, PROP_CATALOG) →
+ * Determinism contract: same (seed, reservedCells, PROP_CATALOG) Ã¢â€ â€™
  * identical PropPlacement[]. That guarantee is what lets every client
  * spawn identical props without any network sync.
  *
@@ -33,12 +33,16 @@ import {
 } from 'src/shared/terrain/terrainCache'
 import {
 	cellCenterWorld,
+	cellOfWorld,
+	groundFlatWithin,
+	groundYAtWorld,
 	TerrainDestination,
+	TerrainMap,
 } from 'src/shared/terrain/terrainMap'
 
 
 /**
- * Base metres from a destination centroid — mirrors hearth tree radii,
+ * Base metres from a destination centroid Ã¢â‚¬â€ mirrors hearth tree radii,
  * then scaled per-grove by GroveParams.radiusScale.
  */
 const DEST_GROVE_RADII_M: readonly number[] = [64, 96, 144, 88, 168, 104, 120, 80]
@@ -63,15 +67,17 @@ export interface PropPlacement {
 	worldZ : number
 	yawDeg : number
 	scale  : number
-	/** Grid cell the prop sits on — useful for reservation bookkeeping. */
+	/** Grid cell the prop sits on Ã¢â‚¬â€ useful for reservation bookkeeping. */
 	tx     : number
 	tz     : number
+	/** Terrain surface height under (worldX, worldZ). */
+	groundY: number
 }
 
 
 // MARK: Local RNG
 // Mulberry32, isolated per scatter run. Do NOT swap for the shared
-// maze rng — that would couple the maze's output to prop count.
+// maze rng Ã¢â‚¬â€ that would couple the maze's output to prop count.
 function makeRng(seed: number): () => number {
 	let s = seed | 0
 	return () => {
@@ -136,7 +142,7 @@ export function scatterProps(
 ): PropPlacement[] {
 	const out : PropPlacement[] = []
 
-	// ── Phase 1 rerun (reserving props) ──────────────────────────
+	// Ã¢â€â‚¬Ã¢â€â‚¬ Phase 1 rerun (reserving props) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 	// Same salt + iteration order as getPropReservations, so the same
 	// cells come out. Placements are added to `out` with jitter+yaw
 	// from the second RNG stream below.
@@ -152,13 +158,13 @@ export function scatterProps(
 		}
 	}
 
-	// ── Phase 2: non-reserving props ─────────────────────────────
+	// Ã¢â€â‚¬Ã¢â€â‚¬ Phase 2: non-reserving props Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 	const phase2Rng   = makeRng((seed | 0) ^ 0x53434154) // 'SCAT'
 	const usedCells   = new Set<string>(phase1Claims) // don't double-up
 	const phase2Cells : Array<{ def: PropDef; tx: number; tz: number; worldX?: number; worldZ?: number }> = []
 	for (const def of PROP_CATALOG.filter(p => !p.reserves)) {
 		if (def.radiiM !== undefined && def.radiiM.length > 0) {
-			const ring = placeRing(phase2Rng, def, mergeSets(reservedSet, usedCells))
+			const ring = placeRing(phase2Rng, def, mergeSets(reservedSet, usedCells), getTerrain(seed))
 			for (const p of ring) {
 				usedCells.add(cellKey(p.tx, p.tz))
 				phase2Cells.push(p)
@@ -176,7 +182,7 @@ export function scatterProps(
 		}
 	}
 
-	// ── Phase 3: major grove at each green destination ───────────
+	// Ã¢â€â‚¬Ã¢â€â‚¬ Phase 3: major grove at each green destination Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 	const treeDef = PROP_CATALOG.find(p => p.id === 'tree_4')
 	if (treeDef !== undefined) {
 		const sites = listGroveSitesForMazeSeed(seed)
@@ -199,7 +205,7 @@ export function scatterProps(
 		}
 	}
 
-	// ── Phase 4: sparse wilderness deadwood ──────────────────────
+	// Ã¢â€â‚¬Ã¢â€â‚¬ Phase 4: sparse wilderness deadwood Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 	if (treeDef !== undefined) {
 		const wildRng = makeRng((seed | 0) ^ 0x57494C44) // 'WILD'
 		const placed  = phase2Cells.filter(p => p.worldX !== undefined)
@@ -210,10 +216,13 @@ export function scatterProps(
 		}
 	}
 
-	// ── Jitter + yaw pass (shared RNG for both phases) ───────────
+	// Ã¢â€â‚¬Ã¢â€â‚¬ Jitter + yaw pass (shared RNG for both phases) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 	const jitterRng = makeRng((seed | 0) ^ 0x4A495454) // 'JITT'
+	const map       = getTerrain(seed)
 	for (const c of [...phase1Cells, ...phase2Cells]) {
-		out.push(materialize(c.def, c.tx, c.tz, jitterRng, c.worldX, c.worldZ))
+		const p = materialize(c.def, c.tx, c.tz, jitterRng, c.worldX, c.worldZ)
+		p.groundY = groundYAtWorld(map, p.worldX, p.worldZ)
+		out.push(p)
 	}
 	return out
 }
@@ -246,6 +255,37 @@ const cellKey = (tx: number, tz: number): string => `${tx},${tz},0`
 // reaches ~2.9 and is allowed to cross a cliff. Max scale is
 // scale * (1 + scaleJitter), so the ring keeps that trunk off cliffs.
 const TREE_TRUNK_RADIUS_M = 0.4
+/** Unscaled root flare radius: this disc must sit on one flat shelf. */
+const TREE_ROOT_RADIUS_M = 0.6
+/** Unscaled lower-canopy reach kept clear of any taller cliff wall. */
+const TREE_WALL_CLEAR_M = 1.0
+
+
+// MARK: treeFootprintClear
+/**
+ * True when a tree at its largest jittered scale fits at (x, z): the
+ * root flare is on one shelf (no overhang off a lip) and no taller
+ * cell's wall comes within the lower-canopy reach (no clipping).
+ */
+function treeFootprintClear(map: TerrainMap, def: PropDef, x: number, z: number): boolean {
+	const s = def.scale * (1 + (def.scaleJitter ?? 0))
+	if (!groundFlatWithin(map, x, z, s * TREE_ROOT_RADIUS_M)) return false
+	const y = groundYAtWorld(map, x, z)
+	const r = s * TREE_WALL_CLEAR_M
+	const C = MAZE_TILE_WORLD_METERS
+	const a = cellOfWorld(x - r, z - r)
+	const b = cellOfWorld(x + r, z + r)
+	for (let cz = a.cz; cz <= b.cz; cz++) {
+		for (let cx = a.cx; cx <= b.cx; cx++) {
+			const c  = cellCenterWorld(cx, cz)
+			const dx = Math.max(Math.abs(x - c.x) - C / 2, 0)
+			const dz = Math.max(Math.abs(z - c.z) - C / 2, 0)
+			if (dx * dx + dz * dz >= r * r) continue
+			if (groundYAtWorld(map, c.x, c.z) > y + 0.01) return false
+		}
+	}
+	return true
+}
 
 
 // MARK: reachesBlocked
@@ -381,11 +421,16 @@ function placeWildernessTrees(
 
 	for (const cell of candidates) {
 		if (out.length >= WILD_TREE_COUNT) break
-		const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
-		const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
-		if (tooClose(worldX, worldZ)) continue
-		if (reachesBlocked(worldX, worldZ, blocked, reach)) continue
-		out.push({ def, tx: cell.tx, tz: cell.tz, worldX, worldZ })
+		// A few jitters per cell so edge-clearance rejects retry, not drop.
+		for (let k = 0; k < 4; k++) {
+			const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+			const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+			if (tooClose(worldX, worldZ)) continue
+			if (reachesBlocked(worldX, worldZ, blocked, reach)) continue
+			if (!treeFootprintClear(map, def, worldX, worldZ)) continue
+			out.push({ def, tx: cell.tx, tz: cell.tz, worldX, worldZ })
+			break
+		}
 	}
 
 	console.log(
@@ -448,6 +493,7 @@ function placeDestinationGrove(
 		const key = cellKey(tx, tz)
 		if (!regionKeys.has(key) || blocked.has(key) || claimed.has(key)) return null
 		if (reachesBlocked(worldX, worldZ, blocked, reach)) return null
+		if (!treeFootprintClear(map, def, worldX, worldZ)) return null
 		for (const p of out) {
 			const dx = worldX - p.worldX
 			const dz = worldZ - p.worldZ
@@ -474,7 +520,7 @@ function placeDestinationGrove(
 		if (!placed) {
 			console.log(
 				`scatter: placeDestinationGrove: ring slot ${i + 1}/${count} ` +
-				`r=${radius.toFixed(0)}m lv=${dest.level} missed — sparse fill`,
+				`r=${radius.toFixed(0)}m lv=${dest.level} missed Ã¢â‚¬â€ sparse fill`,
 			)
 		}
 	}
@@ -488,12 +534,16 @@ function placeDestinationGrove(
 		}
 		for (const cell of regionCells) {
 			if (out.length >= count) break
-			const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.35 + rng() * 0.3) * MAZE_TILE_WORLD_METERS
-			const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.35 + rng() * 0.3) * MAZE_TILE_WORLD_METERS
-			const ok = accept(worldX, worldZ)
-			if (ok === null) continue
-			claimed.add(cellKey(ok.tx, ok.tz))
-			out.push({ def, tx: ok.tx, tz: ok.tz, worldX, worldZ })
+			// A few jitters per cell so edge-clearance rejects retry, not drop.
+			for (let k = 0; k < 4; k++) {
+				const worldX = MAZE_ORIGIN_OFFSET_METERS + (cell.tx + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+				const worldZ = MAZE_ORIGIN_OFFSET_METERS + (cell.tz + 0.3 + rng() * 0.4) * MAZE_TILE_WORLD_METERS
+				const ok = accept(worldX, worldZ)
+				if (ok === null) continue
+				claimed.add(cellKey(ok.tx, ok.tz))
+				out.push({ def, tx: ok.tx, tz: ok.tz, worldX, worldZ })
+				break
+			}
 		}
 	}
 
@@ -520,6 +570,7 @@ function placeRing(
 	rng    : () => number,
 	def    : PropDef,
 	blocked: ReadonlySet<string>,
+	map    : TerrainMap,
 ): Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> {
 	const radii    = def.radiiM ?? []
 	const count    = Math.min(def.count, radii.length)
@@ -527,7 +578,7 @@ function placeRing(
 	const reach    = def.scale * (1 + (def.scaleJitter ?? 0)) * TREE_TRUNK_RADIUS_M
 	const out      : Array<{ def: PropDef; tx: number; tz: number; worldX: number; worldZ: number }> = []
 	const claimed  = new Set<string>()
-	// 2° steps. Coarse steps on the outer rings jumped well past the
+	// 2Ã‚Â° steps. Coarse steps on the outer rings jumped well past the
 	// first angle whose trunk cleared the cliff.
 	const NUDGES   = 180
 	const delta    = (Math.PI * 2) / NUDGES
@@ -545,6 +596,7 @@ function placeRing(
 			const key = cellKey(tx, tz)
 			if (blocked.has(key) || claimed.has(key)) continue
 			if (reachesBlocked(worldX, worldZ, blocked, reach)) continue
+			if (!treeFootprintClear(map, def, worldX, worldZ)) continue
 			claimed.add(key)
 			out.push({ def, tx, tz, worldX, worldZ })
 			placed = true
@@ -585,7 +637,7 @@ function materialize(
 	fixedX?: number,
 	fixedZ?: number,
 ): PropPlacement {
-	// Jitter within the cell — keep a small margin so props don't cross
+	// Jitter within the cell Ã¢â‚¬â€ keep a small margin so props don't cross
 	// tile borders and end up half-inside a neighbor. Ring slots pass
 	// a fixed point so the even spacing survives.
 	const MARGIN = 0.15 // fraction of cell reserved as edge buffer
@@ -605,5 +657,6 @@ function materialize(
 		scale,
 		tx,
 		tz,
+		groundY: 0,
 	}
 }

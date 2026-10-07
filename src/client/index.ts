@@ -39,7 +39,7 @@ import { setupFrostRescue } from 'src/client/frost/rescue'
 import { initFrostFlash }        from 'src/client/frost/frostFlash'
 import { setupLoadTimeline } from 'src/client/loadTimeline'
 import { initLocomotionGate } from 'src/client/locomotion'
-import { initPlayerNet } from 'src/client/player'
+import { initPlayerNet, rescueIfBuried } from 'src/client/player'
 import { initSnowBrush } from 'src/client/snow/snowBrush'
 import { initSnowModel } from 'src/client/snow/snowModel'
 import { initSnowRenderer } from 'src/client/snow/snowRenderer'
@@ -50,6 +50,12 @@ import { setupDaySplash } from 'src/client/daySplash'
 import { setupEmberFailClient } from 'src/client/emberFail'
 import { setupPhaseClient } from 'src/client/phase'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
+import { setupVolcanoSmoke } from 'src/client/volcanoSmoke'
+import { setupVolcanoCrown } from 'src/client/volcanoCrown'
+import { setupStationMarkers } from 'src/client/stationMarkers'
+import { setupWorldThaw } from 'src/client/worldThaw'
+import { setupSummitMapTable } from 'src/client/summitMapTable'
+import { setupPerimeterWall } from 'src/client/perimeterWall'
 import { setupLogsClient } from 'src/client/logs'
 import { setupLogsInput } from 'src/client/logsInput'
 import { setupWoodClient } from 'src/client/wood'
@@ -115,6 +121,9 @@ engine.addSystem(() => {
     // Seed and reserved set both have to match computeWoodScatter's
     // treeSitesFromProps call, or the trunks stand where the chop never looks.
     setupProps(layoutSeed, offHearthCellsForMazeSeed(layoutSeed))
+    // Slabs now exist. If the avatar was dropped before they spawned (or
+    // a rebuild raised the ground under it), stand it back on the hearth.
+    rescueIfBuried()
   }
 })
 
@@ -154,6 +163,15 @@ export async function setupClient(): Promise<void> {
 	// missing the log pile + flame until a reload when this ran last.
 	setupCampfire()
 	setupCampfireSmoke()
+	// Volcano landmark plume — seats itself on the caldera once terrain lands.
+	setupVolcanoSmoke()
+	// Crater crown blocks + glowing lava lake on the summit.
+	setupVolcanoCrown()
+	// Ignition station stumps (sockets from the terrain generator).
+	setupStationMarkers()
+	setupWorldThaw()
+	setupSummitMapTable()
+	setupPerimeterWall()
 
 	// Composite-lever scrubber. The scene's main.composite still contains a
 	// decorative lever entity from an earlier iteration where pulling it

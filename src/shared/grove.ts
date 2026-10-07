@@ -6,7 +6,8 @@
  * buried-wood richness, and a future specialDiscovery hook.
  *
  * Starting hearth territory is NOT a grove socket — only the three
- * green destinations. specialDiscovery stays 'none' until later hooks.
+ * major green destinations. The volcano landmark (map.volcano) is not
+ * a grove. specialDiscovery stays 'none' until later hooks.
  */
 
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
@@ -79,16 +80,16 @@ export function groveParamsForDest(
 	destIndex: number,
 ): GroveParams {
 	const rng = makeRng((mazeSeed | 0) ^ 0x47524F56 ^ (destIndex * 0x9E3779B9))
-	const treeCount   = 4 + Math.floor(rng() * 5) // 4..8
+	const treeCount   = 5 + Math.floor(rng() * 5) // 5..9
 	const radiusScale = 0.7 + rng() * 0.7         // 0.7..1.4
 	const compact     = radiusScale < 0.95
-	const minSepM     = compact ? 36 + rng() * 16 : 48 + rng() * 24
-	const woodPool    = 22 + Math.floor(rng() * 22) // 22..43
+	const minSepM     = compact ? 32 + rng() * 14 : 42 + rng() * 20
+	const woodPool    = 32 + Math.floor(rng() * 24) // 32..55
 	const woodActive  = Math.min(
 		woodPool,
-		8 + Math.floor(rng() * 10), // 8..17
+		14 + Math.floor(rng() * 12), // 14..25
 	)
-	const logChance = 0.08 + rng() * 0.16 // 0.08..0.24
+	const logChance = 0.10 + rng() * 0.16 // 0.10..0.26
 	return {
 		destIndex,
 		treeCount,
@@ -106,6 +107,7 @@ export function groveParamsForDest(
 /**
  * All major grove sockets for a cycle seed (layout via cycleMazeSeed).
  * Order matches map.destinations (Low / Mid / High when present).
+ * Volcano is stored on map.volcano and is never listed here.
  */
 export function listGroveSites(cycleSeed: number): GroveSite[] {
 	const mazeSeed = cycleMazeSeed(cycleSeed)

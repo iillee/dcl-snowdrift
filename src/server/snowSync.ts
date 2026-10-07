@@ -17,13 +17,39 @@ import { PaintCoverage, PaintTile } from 'src/shared/components'
 import { COVERAGE_NETWORK_ID, tileNetworkId } from 'src/shared/networkIds'
 import {
 	SNOW_TILE_CELL_COUNT,
+	SNOW_TILES_X,
+	SNOW_TILES_Z,
+	STAGE_MELTED,
 	localIndexOfCell,
+	snowByteFromStage,
 	tileKeyOfCell,
 } from 'src/shared/snowGrid'
 
 const tileEntities = new Map<number, Entity>()
 const tileBuffers  = new Map<number, number[]>()
 const dirtyTiles   = new Set<number>()
+
+/**
+ * Per-tick publish budget. A world thaw dirties every tile on the map
+ * (52x52 = 2704 tiles x 256 cells); publishing them in one tick created
+ * thousands of synced entities in a single CRDT burst, which stalled the
+ * room and froze the client (torch, ladders, fires, actions). Leftover
+ * dirty tiles carry over to the next tick.
+ */
+const FLUSH_BUDGET_PER_TICK = 32
+/**
+ * World-thaw melt wave: seconds for the expanding melt radius to travel
+ * from the volcano to the farthest tile on the map. Tune here.
+ */
+export const THAW_WAVE_DURATION_S = 45
+/** Hard cap on tiles painted per tick, in case of a long server hitch. */
+const THAW_FILL_MAX_PER_TICK = 32
+/** Pending world-thaw tile keys, nearest-first, with distance in tiles. */
+let thawQueue: number[] = []
+let thawDist: number[] = []
+let thawQueueHead = 0
+let thawStartMs = 0
+let thawMaxDist = 1
 
 let coverageEntity: Entity | null = null
 let nonZeroCells    = 0
@@ -103,9 +129,13 @@ export function writeSnowByte(
 
 /** Publish every dirty tile buffer. Call once per server tick. Returns tiles flushed. */
 export function flushDirtySnowTiles(): number {
+	stepThawFill()
 	if (dirtyTiles.size === 0) return 0
 	let flushed = 0
+	const done: number[] = []
 	for (const tileKey of dirtyTiles) {
+		if (flushed >= FLUSH_BUDGET_PER_TICK) break
+		done.push(tileKey)
 		const entity = tileEntities.get(tileKey)
 		const buf    = tileBuffers.get(tileKey)
 		if (entity === undefined || buf === undefined) {
@@ -116,15 +146,92 @@ export function flushDirtySnowTiles(): number {
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
 		flushed++
 	}
-	dirtyTiles.clear()
+	for (const k of done) dirtyTiles.delete(k)
 	return flushed
 }
 
+
+// MARK: stepThawFill
+/** Paint every queued thaw tile the expanding wave radius has reached. */
+function stepThawFill(): void {
+	if (thawQueueHead >= thawQueue.length) return
+	const meltedByte = snowByteFromStage(STAGE_MELTED)
+	const radius = thawWaveRadiusTiles()
+	let painted = 0
+	for (; thawQueueHead < thawQueue.length; thawQueueHead++) {
+		if (thawDist[thawQueueHead] > radius) break
+		if (painted >= THAW_FILL_MAX_PER_TICK) break
+		painted++
+		const tileKey = thawQueue[thawQueueHead]
+		const buf = ensureTile(tileKey)
+		for (let i = 0; i < buf.length; i++) {
+			if (buf[i] === 0 && meltedByte !== 0) nonZeroCells++
+			else if (buf[i] !== 0 && meltedByte === 0) nonZeroCells--
+			buf[i] = meltedByte
+		}
+		dirtyTiles.add(tileKey)
+	}
+	if (thawQueueHead >= thawQueue.length) {
+		console.log(`snowSync: stepThawFill: thaw fill complete (${thawQueue.length} tiles)`)
+		thawQueue = []
+		thawDist = []
+		thawQueueHead = 0
+	}
+}
+
+
+// MARK: thawWaveRadiusTiles
+/** Current melt-wave radius in tiles (grows linearly over THAW_WAVE_DURATION_S). */
+function thawWaveRadiusTiles(): number {
+	const t = (Date.now() - thawStartMs) / (THAW_WAVE_DURATION_S * 1000)
+	return t >= 1 ? Number.POSITIVE_INFINITY : Math.max(0, t) * thawMaxDist
+}
+
+
+/** True while a world-thaw fill or a tile backlog is still publishing. */
+export function snowPublishBacklog(): number {
+	return dirtyTiles.size + (thawQueue.length - thawQueueHead)
+}
+
+
+
+// MARK: fillAllSnowTilesMelted
+/**
+ * World thaw: queue every snow tile to be painted melted (stage 0),
+ * nearest-first from `centre` (tile coords, e.g. the volcano). The fill
+ * and publish follow an expanding radius over THAW_WAVE_DURATION_S
+ * (stepThawFill), so the thaw is a visible wave, never one CRDT burst. Returns tile count.
+ */
+export function fillAllSnowTilesMelted(centre?: { tx: number; tz: number }): number {
+	const tileCount = SNOW_TILES_X * SNOW_TILES_Z
+	const cx = centre ? centre.tx : (SNOW_TILES_X - 1) / 2
+	const cz = centre ? centre.tz : (SNOW_TILES_Z - 1) / 2
+	const keys: Array<{ k: number; d: number }> = []
+	for (let tileKey = 0; tileKey < tileCount; tileKey++) {
+		const tx = tileKey % SNOW_TILES_X
+		const tz = (tileKey - tx) / SNOW_TILES_X
+		keys.push({ k: tileKey, d: (tx - cx) * (tx - cx) + (tz - cz) * (tz - cz) })
+	}
+	keys.sort((a, b) => a.d - b.d)
+	thawQueue = keys.map((e) => e.k)
+	thawDist  = keys.map((e) => Math.sqrt(e.d))
+	thawMaxDist = Math.max(1, thawDist[thawDist.length - 1] ?? 1)
+	thawStartMs = Date.now()
+	thawQueueHead = 0
+	console.log(
+		`snowSync: fillAllSnowTilesMelted: wave ${tileCount} tiles from ` +
+		`(${cx},${cz}) over ${THAW_WAVE_DURATION_S}s (max ${thawMaxDist.toFixed(1)} tiles)`,
+	)
+	return tileCount
+}
 
 // MARK: zeroAllSnowTiles
 
 /** World reset: keep tile entities, zero buffers, mark dirty. */
 export function zeroAllSnowTiles(): void {
+	thawQueue = []
+	thawDist = []
+	thawQueueHead = 0
 	for (const [tileKey, buf] of tileBuffers) {
 		let changed = false
 		for (let i = 0; i < buf.length; i++) {
@@ -161,18 +268,20 @@ export function republishAllSnowTiles(): number {
 	if (coverageEntity !== null) {
 		trySync(coverageEntity, [PaintCoverage.componentId], COVERAGE_NETWORK_ID)
 	}
+	// Queue rather than write inline: after a world thaw every tile is
+	// allocated, and a late joiner's joinRoster/snowResync would otherwise
+	// republish all of them in one burst. flushDirtySnowTiles drains it
+	// under FLUSH_BUDGET_PER_TICK with the new stamp.
 	let n = 0
-	for (const [tileKey, entity] of tileEntities) {
-		const buf = tileBuffers.get(tileKey)
-		if (buf === undefined) {
+	for (const tileKey of tileEntities.keys()) {
+		if (!tileBuffers.has(tileKey)) {
 			console.error(`snowSync: republishAllSnowTiles: tile ${tileKey} has an entity but no buffer`)
 			continue
 		}
-		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
-		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
+		dirtyTiles.add(tileKey)
 		n++
 	}
-	console.log(`snowSync: republishAllSnowTiles: ${n} tiles at stamp ${tileStamp}`)
+	console.log(`snowSync: republishAllSnowTiles: queued ${n} tiles at stamp ${tileStamp}`)
 	return n
 }
 

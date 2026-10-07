@@ -32,19 +32,19 @@ import {
 	getTerrain,
 	impassableCellsForMazeSeed,
 } from 'src/shared/terrain/terrainCache'
-import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
+import { cellCenterWorld, groundFlatWithin, groundYAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
 // MARK: Tuning constants
 /** Near-ring pool size. */
-export const WOOD_NEAR_POOL = 50
+export const WOOD_NEAR_POOL = 60
 /** Far-belt pool size. */
-export const WOOD_FAR_POOL = 150
+export const WOOD_FAR_POOL = 180
 /** Outer-band pool size. Sparse, so the far trees stay worth the walk. */
-export const WOOD_OUTER_POOL = 50
+export const WOOD_OUTER_POOL = 70
 /** Fallback buried-wood pool per grove when params are unavailable. */
-export const WOOD_DEST_POOL = 32
+export const WOOD_DEST_POOL = 40
 /** Full hearth-band scatter list length (destination pool is separate). */
 export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
 
@@ -52,16 +52,16 @@ export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
  * Active near chunks at cycle start. One torch should be able to
  * finish a trip into this ring.
  */
-export const WOOD_NEAR_ACTIVE = 12
+export const WOOD_NEAR_ACTIVE = 16
 /** Active far chunks. Leave the long walk in the field. */
-export const WOOD_FAR_ACTIVE = 28
+export const WOOD_FAR_ACTIVE = 40
 /** Active outer chunks. A staging fire, not the hearth, covers these. */
-export const WOOD_OUTER_ACTIVE = 12
+export const WOOD_OUTER_ACTIVE = 18
 /**
  * Fallback active dest chunks if grove params are missing. Live total
  * is the sum of each grove's woodActive (see listGroveSites).
  */
-export const WOOD_DEST_ACTIVE = 36
+export const WOOD_DEST_ACTIVE = 48
 /** Total active buried chunks at cycle start. No in-run refill. */
 export const WOOD_ACTIVE_TARGET =
 	WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE + WOOD_DEST_ACTIVE
@@ -111,7 +111,7 @@ export const WOOD_LOGS_PER_TREE = 4
  * small trees (~4) tighten to ~3.3 m so the prompt does not fire early.
  */
 export const TREE_CHOP_RADIUS_BASE_M = 5
-/** Catalog midpoint scale for tree_4 — pairs with TREE_CHOP_RADIUS_BASE_M. */
+/** Catalog midpoint scale for tree_4 â€” pairs with TREE_CHOP_RADIUS_BASE_M. */
 export const TREE_CHOP_SCALE_REF     = 6
 /** Mid-size chop reach (meters). Prefer {@link treeChopRadiusM} per tree. */
 export const TREE_CHOP_RADIUS_M      = TREE_CHOP_RADIUS_BASE_M
@@ -146,6 +146,8 @@ export interface WoodChunk {
 	idx    : number
 	worldX : number
 	worldZ : number
+	/** Terrain surface height under (worldX, worldZ). Visuals sit here. */
+	worldY : number
 	/** WOOD_KIND_BRANCH or WOOD_KIND_LOG. */
 	kind   : number
 	/** WOOD_BAND_NEAR / FAR / OUTER / TREE / DEST. */
@@ -229,6 +231,10 @@ function outerDensityWeight(r: number): number {
 }
 
 
+/** Terrain for the scatter in progress (set by computeWoodScatter). */
+let scatterMap: TerrainMap | null = null
+
+
 // MARK: onCliff
 /**
  * True when a piece centred at (x, z) would cross a cliff cell.
@@ -250,7 +256,15 @@ function onCliff(
 			if (reserved.has(`${tx},${tz},0`)) return true
 		}
 	}
+	// Footprint must sit on one shelf, or the piece hangs over a lip.
+	if (scatterMap !== null && !groundFlatWithin(scatterMap, x, z, WOOD_CLIFF_REACH_M)) return true
 	return false
+}
+
+
+// MARK: groundAt
+function groundAt(x: number, z: number): number {
+	return scatterMap === null ? 0 : groundYAtWorld(scatterMap, x, z)
 }
 
 
@@ -276,6 +290,7 @@ function placeNearBand(
 			idx   : out.length,
 			worldX: x,
 			worldZ: z,
+			worldY: groundAt(x, z),
 			kind  : pickKind(rng),
 			band  : WOOD_BAND_NEAR,
 		})
@@ -306,6 +321,7 @@ function placeFarBand(
 			idx   : out.length,
 			worldX: x,
 			worldZ: z,
+			worldY: groundAt(x, z),
 			kind  : pickKind(rng),
 			band  : WOOD_BAND_FAR,
 		})
@@ -336,6 +352,7 @@ function placeOuterBand(
 			idx   : out.length,
 			worldX: x,
 			worldZ: z,
+			worldY: groundAt(x, z),
 			kind  : pickKind(rng),
 			band  : WOOD_BAND_OUTER,
 		})
@@ -408,6 +425,7 @@ function placeDestBands(
 				idx   : out.length,
 				worldX: x,
 				worldZ: z,
+			worldY: groundAt(x, z),
 				kind  : pickKind(rng, params.logChance),
 				band  : WOOD_BAND_DEST,
 			})
@@ -447,6 +465,7 @@ function placeTreeLogs(
 				idx      : out.length,
 				worldX   : site.worldX,
 				worldZ   : site.worldZ,
+				worldY   : groundAt(site.worldX, site.worldZ),
 				kind     : WOOD_KIND_LOG,
 				band     : WOOD_BAND_TREE,
 				treeIndex: site.treeIndex,
@@ -473,6 +492,7 @@ export function computeWoodScatter(
 	const rng      = makeRng((seed | 0) ^ 0x574F4F44) // 'WOOD' salt
 	const mazeSeed = cycleMazeSeed(seed)
 	const out: WoodChunk[] = []
+	scatterMap = getTerrain(mazeSeed)
 	placeNearBand(rng, out, reserved)
 	placeFarBand(rng, out, reserved)
 	placeOuterBand(rng, out, reserved)

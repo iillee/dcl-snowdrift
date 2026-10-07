@@ -21,8 +21,10 @@
  * enlarging the World grows plateaus instead of adding more seams.
  */
 
+import { computeVolcanoCrownCells, crownLevelFor } from 'src/shared/terrain/volcanoCrown'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
+	MAJOR_GROVE_COUNT,
 	TERRAIN_CELL_M,
 	TERRAIN_GRID_H,
 	TERRAIN_GRID_W,
@@ -30,7 +32,9 @@ import {
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
 	TERRAIN_LEVEL_MOUNTAIN,
+	TERRAIN_LEVEL_VOLCANO_RIM,
 	TERRAIN_MOUNTAIN_PEAK_STEPS,
+	isCrownLevel,
 	isMountainLevel,
 } from 'src/shared/settings'
 import {
@@ -41,13 +45,17 @@ import {
 	LANDFORM_BASIN,
 	LANDFORM_CANYON,
 	LANDFORM_HEARTH,
+	LANDFORM_LAVA,
 	LANDFORM_NONE,
 	LANDFORM_PLATEAU,
 	LANDFORM_RIDGE,
+	LANDFORM_VOLCANO,
 	TERRAIN_ORIGIN_M,
 	TerrainDestination,
+	TerrainStation,
 	TerrainLadder,
 	TerrainMap,
+	TerrainVolcano,
 	cellCenterWorld,
 	groundYForLevel,
 } from 'src/shared/terrain/terrainMap'
@@ -70,37 +78,39 @@ const N = W * H
 const LOW      = TERRAIN_LEVEL_LOW
 const MID      = TERRAIN_LEVEL_MID
 const HIGH     = TERRAIN_LEVEL_HIGH
+const RIM      = TERRAIN_LEVEL_VOLCANO_RIM
 const MOUNTAIN = TERRAIN_LEVEL_MOUNTAIN
 
 /**
  * Reference grid the generator was tuned against (64×64 playfield → 62
- * cells). Bigger maps multiply lengths/radii by SCALE so plateaus grow
- * instead of the map sprouting more seams. That keeps cliff-edge count
- * roughly flat and gives the snow coarse LOD larger same-level runs.
+ * cells). Maps larger than REF grow lengths/radii; maps smaller than
+ * REF shrink them so a playtest_52 envelope does not keep full-size
+ * stamps. Cliff-edge count stays roughly flat either way.
  */
 const REF_GRID = 62
-const SCALE    = Math.max(1, Math.min(W, H) / REF_GRID)
+const SCALE    = Math.min(W, H) / REF_GRID
 
 /** Scale a cell length/radius. Kept as a helper so call sites stay readable. */
 function sc(cells: number): number {
 	return cells * SCALE
 }
 
-// Mountain band stays a fixed world thickness (not scaled): it is a
-// silhouette rim, not an interior landform. Fingers / corners / bays /
-// serration + peak heights stop the rim reading as a flat box wall.
-const MOUNTAIN_BAND_MIN     = 3
-const MOUNTAIN_BAND_JITTER  = 4
+// Mountain band scales with the envelope so a playtest_52 map keeps a
+// usable interior (design: don't let the rim eat the playfield). Floors
+// keep the outer seal intact. Fingers / corners / bays / serration +
+// peak heights still break up the box silhouette.
+const MOUNTAIN_BAND_MIN     = Math.max(2, Math.round(sc(3)))
+const MOUNTAIN_BAND_JITTER  = Math.max(2, Math.round(sc(4)))
 const MOUNTAIN_JITTER_SCALE = sc(5)
 /** Extra mountain mass at each corner (cells into the interior). */
-const MOUNTAIN_CORNER_R     = 6
+const MOUNTAIN_CORNER_R     = Math.max(3, Math.round(sc(6)))
 /** Inward mountain spurs per edge (seed picks their slots). */
-const MOUNTAIN_FINGERS_PER_EDGE = 4
-const MOUNTAIN_FINGER_LEN_MIN   = 3
-const MOUNTAIN_FINGER_LEN_MAX   = 9
+const MOUNTAIN_FINGERS_PER_EDGE = SCALE < 0.9 ? 2 : 4
+const MOUNTAIN_FINGER_LEN_MIN   = Math.max(2, Math.round(sc(3)))
+const MOUNTAIN_FINGER_LEN_MAX   = Math.max(4, Math.round(sc(9)))
 const MOUNTAIN_FINGER_HALF_W    = 1
 /** Recesses carved into the band per edge (outer rim stays sealed). */
-const MOUNTAIN_BAYS_PER_EDGE = 2
+const MOUNTAIN_BAYS_PER_EDGE = SCALE < 0.9 ? 1 : 2
 const MOUNTAIN_BAY_HALF_W    = 2
 /** Never strip mountain inside this many cells of the scene edge. */
 const MOUNTAIN_SEAL_CELLS    = 2
@@ -135,19 +145,52 @@ const MIN_REGION_CELLS = Math.round(sc(8))
 const SECOND_LADDER_MIN_SITES = Math.round(sc(24))
 const SECOND_LADDER_MIN_SEP   = Math.round(sc(10))
 
-// Destinations — one major grove socket per walkable elevation.
+// Destinations — Low + Mid + High major grove sockets. Volcano is a
+// separate High landmark (map.volcano), not a grove destination.
 const DEST_MIN_AREA      = Math.round(sc(40))
-const DEST_MAX           = 3
+const DEST_MAX           = MAJOR_GROVE_COUNT
 /** Angular separation from the hearth so territories fan out. */
 const DEST_MIN_ANGLE_RAD = Math.PI / 3
 /** Min mean route distance (cells) so a Mid socket is not the hearth shelf. */
 const DEST_MIN_ROUTE     = Math.round(sc(14))
 
+// Volcano landmark (High plateau). Not a grove.
+const VOLCANO_MIN_AREA       = Math.round(sc(28))
+const VOLCANO_MIN_ROUTE      = Math.round(sc(16))
+/** Min Chebyshev cells between volcano centroid and any grove socket. */
+const VOLCANO_MIN_SEP_CELLS  = Math.round(sc(10))
+/** Prefer opposite half of the map from the farther grove (radians). */
+const VOLCANO_OPPOSITE_RAD   = Math.PI / 2
+
+// Ignition stations — three exploration sockets with LOS to the volcano.
+// Not groves. Scaled so playtest_52 and full_100 share the same feel.
+const STATION_COUNT            = 3
+/** Min Chebyshev cells between any two stations. */
+const STATION_MIN_SEP_CELLS    = Math.round(sc(12))
+/** Min Chebyshev cells from hearth centre. */
+const STATION_MIN_HEARTH_CELLS = Math.round(sc(10))
+/** Min Chebyshev cells from the volcano marker. */
+const STATION_MIN_VOLCANO_CELLS = Math.round(sc(10))
+/** Min Chebyshev cells from a grove socket (avoid grove cores). */
+const STATION_MIN_GROVE_CELLS  = Math.round(sc(6))
+/** Min route steps from the hearth so a station is not the hearth shelf. */
+const STATION_MIN_ROUTE        = Math.round(sc(10))
+/** Angular fan-out from the hearth between stations (radians). */
+const STATION_MIN_ANGLE_RAD    = Math.PI / 4
+/**
+ * Beam start height above the station surface, and LOS clearance under
+ * the beam (m). Matches the ~1.5 m stump the client draws.
+ */
+const STATION_BEAM_CLEAR_M     = 1.5
+const STATION_LOS_CLEAR_M      = 1.0
+/** Last N cells before the target ignore blockers (crater lip / crown). */
+const STATION_LOS_NEAR_TARGET  = 2
+
 // Validation.
 const MIN_HEARTH_REGION_CELLS = Math.round(sc(40))
 const MIN_LADDERS             = 2
-const MAX_ATTEMPTS            = 8
-const MAX_REPAIR_PASSES       = 6
+const MAX_ATTEMPTS            = 24
+const MAX_REPAIR_PASSES       = 10
 
 // Hearth in fractional cell coords (cell corner units).
 const HEARTH_FX = (CAMPFIRE_WORLD_X - TERRAIN_ORIGIN_M) / TERRAIN_CELL_M
@@ -237,14 +280,57 @@ function buildOnce(
 		flattenRegions(work, regions, placed.unreached)
 	}
 
-	const hearthRegion = regions[HEARTH_CZ * W + HEARTH_CX]
-	const routeDist    = computeRouteDist(work.levels, ladders)
+	let hearthRegion = regions[HEARTH_CZ * W + HEARTH_CX]
+	let routeDist    = computeRouteDist(work.levels, ladders)
+	// Small envelopes (and messy volcano stamps) can leave tiny walkable
+	// pockets the ladder tree never reaches. Seal them as mountain so
+	// validate does not reject an otherwise good layout.
+	if (sealUnreachable(work, routeDist) > 0) {
+		const labelled = labelRegions(work.levels)
+		regions     = labelled.regions
+		regionLevel = labelled.regionLevel
+		regionArea  = labelled.regionArea
+		hearthRegion = regions[HEARTH_CZ * W + HEARTH_CX]
+		routeDist    = computeRouteDist(work.levels, ladders)
+	}
 	const destinations = pickDestinations(
+		work.landforms,
 		regions,
 		regionLevel,
 		regionArea,
 		routeDist,
 		hearthRegion,
+	)
+	const volcano = pickVolcano(
+		work,
+		regions,
+		regionLevel,
+		regionArea,
+		routeDist,
+		hearthRegion,
+		destinations,
+	)
+
+	// Extrude the crater crown: inner-lip rim cells become crown terrain
+	// (5–7 m taller columns). After ladders + volcano so access and the
+	// landmark are settled; the cells leave the walkable graph.
+	for (const i of computeVolcanoCrownCells(work.levels, work.landforms, ladders, W, H)) {
+		work.levels[i] = crownLevelFor(i, usedSeed)
+		const r = regions[i]
+		if (r >= 0) regionArea[r]--
+		regions[i]   = -1
+		routeDist[i] = -1
+	}
+
+	// Stations need the final heights (crown extruded) so LOS matches
+	// what the player sees. Empty when the volcano is missing or no
+	// three sockets clear LOS + separation.
+	const stations = pickStations(
+		work,
+		regions,
+		routeDist,
+		destinations,
+		volcano,
 	)
 
 	return {
@@ -263,6 +349,8 @@ function buildOnce(
 		hearthRegion,
 		ladders,
 		destinations,
+		volcano,
+		stations,
 		routeDist,
 	}
 }
@@ -588,7 +676,7 @@ function stampLandforms(work: Work): void {
 		switch (kinds[k]) {
 			case LANDFORM_CANYON:  stampCanyon(work, angle);  break
 			case LANDFORM_RIDGE:   stampRidge(work, angle);   break
-			case LANDFORM_PLATEAU: stampPlateau(work, angle); break
+			case LANDFORM_PLATEAU: stampVolcano(work, angle); break
 			case LANDFORM_BASIN:   stampBasin(work, angle);   break
 		}
 	}
@@ -696,17 +784,180 @@ function stampRidge(
 }
 
 
-// MARK: stampPlateau
-/** Broad High blob far out: the obvious "up there" destination. */
-function stampPlateau(
+// MARK: stampVolcano
+/**
+ * Volcano cone + caldera landmark (not a grove).
+ *
+ * Concentric ellipse rings — the summit sits at VOLCANO_RIM, above
+ * High and all mountain peaks:
+ *   1. Crater interior: rim-level LANDFORM_LAVA (locked). The client
+ *      lays a glowing lava lid over it and a 5–7 m crown of blocks on
+ *      the inner lip (src/shared/terrain/volcanoCrown.ts).
+ *   2. Volcano rim crest
+ *   3. High outer slopes
+ *   4. Mid foothill apron
+ *
+ * Mountain teeth only when a cell already touches the mountain band —
+ * extends silhouette without sealing a stranded High pocket. Teeth
+ * stay below the rim in height (see groundYForLevel).
+ */
+function stampVolcano(
 	work:  Work,
 	angle: number,
 ): void {
-	const dist   = randInt(work.rng, Math.round(sc(15)), Math.round(sc(21)))
-	const radius = sc(3.5) + work.rng() * sc(2.5)
-	stampBlob(work, HEARTH_FX + Math.cos(angle) * dist, HEARTH_FZ + Math.sin(angle) * dist, radius, HIGH, LANDFORM_PLATEAU)
-}
+	const dist = randInt(work.rng, Math.round(sc(17)), Math.round(sc(25)))
+	let fx = HEARTH_FX + Math.cos(angle) * dist
+	let fz = HEARTH_FZ + Math.sin(angle) * dist
+	// Mild oval (not a sausage) so it still reads as a cone from afar.
+	const stretch = angle + (work.rng() - 0.5) * 0.55
+	const majorR  = sc(5.2) + work.rng() * sc(2.2)
+	const minorR  = majorR * (0.70 + work.rng() * 0.22)
+	// Slide the cone toward the hearth until the crater + crest is clear
+	// of the locked mountain band (a band-swallowed core = no lava lake).
+	// Done after all rng draws so the rest of the layout is unchanged.
+	{
+		const coreR = majorR * 0.62 + 1
+		const blocked = (x: number, z: number): boolean => {
+			const r = Math.ceil(coreR)
+			for (let dz = -r; dz <= r; dz++) {
+				for (let dx = -r; dx <= r; dx++) {
+					if (dx * dx + dz * dz > coreR * coreR) continue
+					const cx = Math.floor(x) + dx
+					const cz = Math.floor(z) + dz
+					if (cx < 0 || cz < 0 || cx >= W || cz >= H) return true
+					if (work.locked[cz * W + cx]) return true
+				}
+			}
+			return false
+		}
+		let dd = dist
+		const minD = Math.round(sc(12))
+		while (dd > minD && blocked(fx, fz)) {
+			dd -= 1
+			fx = HEARTH_FX + Math.cos(angle) * dd
+			fz = HEARTH_FZ + Math.sin(angle) * dd
+		}
+	}
+	const cosA = Math.cos(stretch)
+	const sinA = Math.sin(stretch)
+	const rMax = Math.ceil(Math.max(majorR, minorR) + 4)
 
+	const ellipseT = (cx: number, cz: number): number => {
+		const ex = cx + 0.5 - fx
+		const ez = cz + 0.5 - fz
+		const n  = valueNoise2(cx / 2.4, cz / 2.4, work.seed + 71)
+		const lx =  ex * cosA + ez * sinA
+		const lz = -ex * sinA + ez * cosA
+		const u  = lx / (majorR + (n - 0.5) * 1.8)
+		const v  = lz / (minorR + (n - 0.5) * 1.2)
+		return Math.sqrt(u * u + v * v)
+	}
+
+	// Pass 1 — cone / caldera rings.
+	for (let dz = -rMax; dz <= rMax; dz++) {
+		for (let dx = -rMax; dx <= rMax; dx++) {
+			const cx = Math.floor(fx) + dx
+			const cz = Math.floor(fz) + dz
+			if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
+			const t = ellipseT(cx, cz)
+			if (t > 1.15) continue
+			const i = cz * W + cx
+			if (work.locked[i]) continue
+
+			if (t < 0.40) {
+				// Crater interior: rim-level lava lake (was a 32 m-deep Mid
+				// bowl + High terrace that nobody could see). Locked so
+				// cleanup passes keep the crater shape.
+				work.levels[i]    = RIM
+				work.landforms[i] = LANDFORM_LAVA
+				work.locked[i]    = 1
+			} else if (t < 0.58) {
+				// Rim crest — highest point on the map.
+				work.levels[i]    = RIM
+				work.landforms[i] = LANDFORM_VOLCANO
+			} else if (t < 0.82) {
+				// Outer High cone slopes (below the rim).
+				work.levels[i]    = HIGH
+				work.landforms[i] = LANDFORM_VOLCANO
+			} else if (t < 1.0) {
+				// Mid foothill apron.
+				work.levels[i]    = MID
+				work.landforms[i] = LANDFORM_VOLCANO
+			} else if (work.rng() < 0.45) {
+				work.levels[i]    = MID
+				work.landforms[i] = LANDFORM_VOLCANO
+			}
+		}
+	}
+
+	// Stair notch — the rings are ~1 cell thick on a noisy ellipse, so
+	// straight 3-wide ladder sites rarely exist once the crater is a
+	// rim-level lava lake. Carve a locked 3-wide strip toward the hearth:
+	// Rim, Rim, High, High, Mid, Mid (outward), guaranteeing High→Rim
+	// and Mid→High ladder sites so the summit region stays reachable.
+	{
+		const vx = HEARTH_FX - fx
+		const vz = HEARTH_FZ - fz
+		let dOut = 0
+		let bestDot = -Infinity
+		for (let d = 0; d < 4; d++) {
+			const dot = DIR_DX[d] * vx + DIR_DZ[d] * vz
+			if (dot > bestDot) {
+				bestDot = dot
+				dOut    = d
+			}
+		}
+		const pd = (dOut + 1) % 4
+		const c0x = Math.floor(fx)
+		const c0z = Math.floor(fz)
+		let k0 = 1
+		while (k0 < rMax && ellipseT(c0x + DIR_DX[dOut] * k0, c0z + DIR_DZ[dOut] * k0) < 0.40) k0++
+		const NOTCH: number[] = [RIM, RIM, HIGH, HIGH, MID, MID]
+		for (let k = 0; k < NOTCH.length; k++) {
+			for (let p = -1; p <= 1; p++) {
+				const cx = c0x + DIR_DX[dOut] * (k0 + k) + DIR_DX[pd] * p
+				const cz = c0z + DIR_DZ[dOut] * (k0 + k) + DIR_DZ[pd] * p
+				if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
+				const i = cz * W + cx
+				if (work.locked[i] && work.landforms[i] !== LANDFORM_LAVA) continue
+				work.levels[i]    = NOTCH[k]
+				work.landforms[i] = LANDFORM_VOLCANO
+				work.locked[i]    = 1
+			}
+		}
+	}
+
+	// Pass 2 — silhouette teeth glued to the existing mountain band.
+	for (let dz = -rMax; dz <= rMax; dz++) {
+		for (let dx = -rMax; dx <= rMax; dx++) {
+			const cx = Math.floor(fx) + dx
+			const cz = Math.floor(fz) + dz
+			if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
+			const t = ellipseT(cx, cz)
+			if (t < 0.60 || t > 0.90) continue
+			const i = cz * W + cx
+			if (work.locked[i]) continue
+			if (work.levels[i] === RIM) continue
+			if (isMountainLevel(work.levels[i])) continue
+			if (hearthDist(cx, cz) < HEARTH_BLEND_R) continue
+			let touchesMountain = false
+			for (let d = 0; d < 4; d++) {
+				const nx = cx + DIR_DX[d]
+				const nz = cz + DIR_DZ[d]
+				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				if (isMountainLevel(work.levels[nz * W + nx])) {
+					touchesMountain = true
+					break
+				}
+			}
+			if (!touchesMountain) continue
+			if (work.rng() > 0.42) continue
+			work.levels[i]    = MOUNTAIN
+			work.locked[i]    = 1
+			work.landforms[i] = LANDFORM_VOLCANO
+		}
+	}
+}
 
 // MARK: stampBasin
 /** Low blob ringed by at least Middle ground, so it reads as a bowl. */
@@ -884,7 +1135,7 @@ function removeDiagonals(work: Work): void {
 	const lv = work.levels
 	for (let iter = 0; iter < 8; iter++) {
 		let changed = false
-		for (let t = MID; t <= MOUNTAIN; t++) {
+		for (let t = MID; t <= MOUNTAIN + TERRAIN_MOUNTAIN_PEAK_STEPS; t++) {
 			for (let cz = 0; cz < H - 1; cz++) {
 				for (let cx = 0; cx < W - 1; cx++) {
 					const a = cz * W + cx
@@ -927,7 +1178,10 @@ function removeDiagonals(work: Work): void {
  * Every (low, high) cell pair one level apart where the cliff runs
  * straight for three cells and both sides have standing room.
  */
-function findLadderSites(levels: Uint8Array): LadderSite[] {
+function findLadderSites(
+	levels    : Uint8Array,
+	landforms?: Uint8Array,
+): LadderSite[] {
 	const sites: LadderSite[] = []
 	const at = (cx: number, cz: number): number =>
 		cx < 0 || cz < 0 || cx >= W || cz >= H ? MOUNTAIN : levels[cz * W + cx]
@@ -940,6 +1194,8 @@ function findLadderSites(levels: Uint8Array): LadderSite[] {
 				const hz = cz + DIR_DZ[d]
 				const highLv = at(hx, hz)
 				if (highLv !== lowLv + 1 || isMountainLevel(highLv)) continue
+				// No landings inside the lava lake.
+				if (landforms && landforms[hz * W + hx] === LANDFORM_LAVA) continue
 				if (at(cx - DIR_DX[d], cz - DIR_DZ[d]) !== lowLv) continue
 				if (at(hx + DIR_DX[d], hz + DIR_DZ[d]) !== highLv) continue
 				let straight = true
@@ -969,7 +1225,7 @@ function placeLadders(
 ): { ladders: TerrainLadder[]; unreached: number[] } {
 	const pairSites = new Map<string, LadderSite[]>()
 	const adjacency = new Map<number, Set<number>>()
-	for (const site of findLadderSites(work.levels)) {
+	for (const site of findLadderSites(work.levels, work.landforms)) {
 		const ra  = regions[site.low]
 		const rb  = regions[site.high]
 		const key = ra < rb ? `${ra},${rb}` : `${rb},${ra}`
@@ -1121,6 +1377,25 @@ function flattenRegions(
 }
 
 
+// MARK: sealUnreachable
+/** Paint walkable cells the hearth cannot route to as mountain. */
+function sealUnreachable(
+	work:      Work,
+	routeDist: Int32Array,
+): number {
+	let n = 0
+	for (let i = 0; i < N; i++) {
+		if (isMountainLevel(work.levels[i])) continue
+		if (routeDist[i] >= 0) continue
+		work.levels[i]    = MOUNTAIN
+		work.locked[i]    = 1
+		work.landforms[i] = LANDFORM_NONE
+		n++
+	}
+	return n
+}
+
+
 // MARK: computeRouteDist
 /**
  * BFS steps from the hearth cell. Walk between same-level neighbours,
@@ -1173,12 +1448,14 @@ function computeRouteDist(
 
 // MARK: pickDestinations
 /**
- * One major grove socket per walkable elevation (Low / Mid / High).
- * Far + large regions win within each level; sockets stay
- * DEST_MIN_ANGLE_RAD apart from the hearth view and skip the hearth
- * region itself. Route difficulty is not prescribed — geography decides.
+ * Three major grove sockets: Low + Mid + High. Far + large regions win
+ * within each level; sockets stay DEST_MIN_ANGLE_RAD apart from the
+ * hearth view and skip the hearth region itself. The volcano landmark
+ * is picked separately and may share the High shelf with the High grove
+ * when cell separation allows.
  */
 function pickDestinations(
+	landforms:    Uint8Array,
 	regions:      Int16Array,
 	regionLevel:  number[],
 	regionArea:   number[],
@@ -1188,12 +1465,14 @@ function pickDestinations(
 	const sumX  = new Float64Array(regionLevel.length)
 	const sumZ  = new Float64Array(regionLevel.length)
 	const sumD  = new Float64Array(regionLevel.length)
+	const volN  = new Float64Array(regionLevel.length)
 	for (let i = 0; i < N; i++) {
 		const r = regions[i]
 		if (r < 0) continue
 		sumX[r] += i % W
 		sumZ[r] += Math.floor(i / W)
 		sumD[r] += Math.max(0, routeDist[i])
+		if (landforms[i] === LANDFORM_VOLCANO || landforms[i] === LANDFORM_LAVA) volN[r]++
 	}
 
 	const byLevel: TerrainDestination[][] = [[], [], []]
@@ -1202,6 +1481,8 @@ function pickDestinations(
 		if (lv !== LOW && lv !== MID && lv !== HIGH) continue
 		if (r === hearthRegion) continue
 		if (regionArea[r] < DEST_MIN_AREA) continue
+		// Caldera Mid / cone High are the volcano landform — not groves.
+		if (volN[r] / regionArea[r] >= 0.30) continue
 		const meanRoute = sumD[r] / regionArea[r]
 		if (meanRoute < DEST_MIN_ROUTE) continue
 		const mx = sumX[r] / regionArea[r]
@@ -1265,6 +1546,332 @@ function pickDestinations(
 }
 
 
+// MARK: pickVolcano
+/**
+ * Place the volcano on a far High (or volcano-stamped) region.
+ * Prefers opposite half from the farther grove, keeps cell separation
+ * from all grove sockets (including the High grove), and must be
+ * route-reachable. May sit on the same High shelf as the High grove
+ * when the region is large enough for VOLCANO_MIN_SEP_CELLS.
+ */
+function pickVolcano(
+	work:         Work,
+	regions:      Int16Array,
+	regionLevel:  number[],
+	regionArea:   number[],
+	routeDist:    Int32Array,
+	hearthRegion: number,
+	groves:       TerrainDestination[],
+): TerrainVolcano | null {
+	const sumX = new Float64Array(regionLevel.length)
+	const sumZ = new Float64Array(regionLevel.length)
+	const sumD = new Float64Array(regionLevel.length)
+	const volcanoCells = new Float64Array(regionLevel.length)
+	const lavaCells    = new Float64Array(regionLevel.length)
+	for (let i = 0; i < N; i++) {
+		const r = regions[i]
+		if (r < 0) continue
+		sumX[r] += i % W
+		sumZ[r] += Math.floor(i / W)
+		sumD[r] += Math.max(0, routeDist[i])
+		if (work.landforms[i] === LANDFORM_VOLCANO || work.landforms[i] === LANDFORM_LAVA) volcanoCells[r]++
+		if (work.landforms[i] === LANDFORM_LAVA && routeDist[i] >= 0) lavaCells[r]++
+	}
+
+	// Farther grove anchors the "opposite half" preference.
+	let farGrove: TerrainDestination | null = null
+	for (const g of groves) {
+		if (!farGrove || g.route > farGrove.route) farGrove = g
+	}
+	const farAng = farGrove
+		? Math.atan2(farGrove.cz + 0.5 - HEARTH_FZ, farGrove.cx + 0.5 - HEARTH_FX)
+		: 0
+
+	type Cand = TerrainVolcano & { score: number }
+	const cands: Cand[] = []
+	for (let r = 0; r < regionLevel.length; r++) {
+		const lv = regionLevel[r]
+		// Summit crest (RIM) or High cone slopes both host the landmark.
+		if (lv !== HIGH && lv !== RIM) continue
+		if (r === hearthRegion) continue
+		// The reachable lava crater IS the volcano: skip the size /
+		// distance / grove-gap filters for it and boost its score below.
+		const hasLava = lavaCells[r] > 0
+		if (!hasLava && regionArea[r] < VOLCANO_MIN_AREA) continue
+		const meanRoute = sumD[r] / regionArea[r]
+		if (!hasLava && meanRoute < VOLCANO_MIN_ROUTE) continue
+		const mx = sumX[r] / regionArea[r]
+		const mz = sumZ[r] / regionArea[r]
+
+		// Reject if too close to a grove socket.
+		let tooClose = false
+		for (const g of hasLava ? [] : groves) {
+			if (Math.max(Math.abs(mx - g.cx), Math.abs(mz - g.cz)) < VOLCANO_MIN_SEP_CELLS) {
+				tooClose = true
+				break
+			}
+		}
+		if (tooClose) continue
+
+		// Prefer a volcano-tagged cell (caldera / rim) near the landform
+		// centroid so the landmark sits on the cone, not a random High shelf.
+		let volSumX = 0
+		let volSumZ = 0
+		let volCount = 0
+		for (let i = 0; i < N; i++) {
+			if (regions[i] !== r || routeDist[i] < 0) continue
+			if (work.landforms[i] !== LANDFORM_VOLCANO && work.landforms[i] !== LANDFORM_LAVA) continue
+			volSumX += i % W
+			volSumZ += Math.floor(i / W)
+			volCount++
+		}
+		const tx = volCount > 0 ? volSumX / volCount : mx
+		const tz = volCount > 0 ? volSumZ / volCount : mz
+
+		let best = -1
+		let bestD = Infinity
+		for (let i = 0; i < N; i++) {
+			if (regions[i] !== r || routeDist[i] < 0) continue
+			const cx = i % W
+			const cz = (i - cx) / W
+			const lf = work.landforms[i]
+			const volcanoBias = lf === LANDFORM_VOLCANO || lf === LANDFORM_LAVA ? 0 : 80
+			// Prefer the lava lake so the marker is the crater centre.
+			const lavaBias = lf === LANDFORM_LAVA ? -50 : 0
+			const dd = (cx - tx) * (cx - tx) + (cz - tz) * (cz - tz) + volcanoBias + lavaBias
+			if (dd < bestD) {
+				best = i
+				bestD = dd
+			}
+		}
+		if (best < 0) continue
+
+		const cx = best % W
+		const cz = Math.floor(best / W)
+		const ang = Math.atan2(cz + 0.5 - HEARTH_FZ, cx + 0.5 - HEARTH_FX)
+		let opp = 1
+		if (farGrove) {
+			let diff = Math.abs(ang - farAng) % (Math.PI * 2)
+			if (diff > Math.PI) diff = Math.PI * 2 - diff
+			opp = diff >= VOLCANO_OPPOSITE_RAD ? 1.55 : 0.65 + diff / Math.PI
+		}
+		const volcanoBias = 1 + Math.min(1.2, volcanoCells[r] / Math.max(1, regionArea[r]) * 2)
+		const rimBias = lv === RIM ? 1.8 : 1
+		const lavaBoost = hasLava ? 100 : 1
+		const score = meanRoute * Math.sqrt(regionArea[r]) * opp * volcanoBias * rimBias * lavaBoost
+		cands.push({
+			region: r,
+			level: lv,
+			area: regionArea[r],
+			cx,
+			cz,
+			route: Math.round(meanRoute),
+			score,
+		})
+	}
+
+	cands.sort((a, b) => b.score - a.score || a.region - b.region)
+	if (cands.length === 0) return null
+	const best = cands[0]
+	return {
+		region: best.region,
+		level: best.level,
+		area: best.area,
+		cx: best.cx,
+		cz: best.cz,
+		route: best.route,
+	}
+}
+
+
+// MARK: stationLosTarget
+/** Fractional cell target the station beam aims at (lava centre, else marker). */
+function stationLosTarget(
+	landforms : Uint8Array,
+	volcano   : TerrainVolcano,
+): { fx: number; fz: number; endY: number } {
+	let sx = 0
+	let sz = 0
+	let n  = 0
+	for (let i = 0; i < N; i++) {
+		if (landforms[i] !== LANDFORM_LAVA) continue
+		sx += i % W
+		sz += Math.floor(i / W)
+		n++
+	}
+	if (n > 0) {
+		return {
+			fx: sx / n + 0.5,
+			fz: sz / n + 0.5,
+			endY: groundYForLevel(RIM) + 1.7, // matches VOLCANO_LAVA_TOP_ABOVE_RIM_M
+		}
+	}
+	return {
+		fx: volcano.cx + 0.5,
+		fz: volcano.cz + 0.5,
+		endY: groundYForLevel(volcano.level),
+	}
+}
+
+
+// MARK: hasStationLos
+/**
+ * Line of sight from a station cell to the volcano for a future beam.
+ *
+ * Samples cell centres along a DDA ray from the station to the lava
+ * centroid (or volcano marker). Beam height lerps from
+ * groundY(station) + STATION_BEAM_CLEAR_M to the target endY. An
+ * intermediate cell blocks when its surface height exceeds the beam
+ * height at that fraction by more than STATION_LOS_CLEAR_M. The last
+ * STATION_LOS_NEAR_TARGET cells before the target are ignored so the
+ * crater lip / crown does not kill every inbound ray. Mountain and
+ * crown cells further out still block when they poke above the beam.
+ */
+function hasStationLos(
+	levels    : Uint8Array,
+	fromCx    : number,
+	fromCz    : number,
+	toFx      : number,
+	toFz      : number,
+	endY      : number,
+): boolean {
+	const x0 = fromCx + 0.5
+	const z0 = fromCz + 0.5
+	const dx = toFx - x0
+	const dz = toFz - z0
+	const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) * 2))
+	const startY = groundYForLevel(levels[fromCz * W + fromCx]) + STATION_BEAM_CLEAR_M
+	for (let s = 1; s < steps; s++) {
+		const t  = s / steps
+		const fx = x0 + dx * t
+		const fz = z0 + dz * t
+		const cx = Math.floor(fx)
+		const cz = Math.floor(fz)
+		if (cx < 0 || cz < 0 || cx >= W || cz >= H) return false
+		if (cx === fromCx && cz === fromCz) continue
+		// Near-target soft zone: lip / crown may sit above the beam.
+		const remain = steps - s
+		if (remain <= STATION_LOS_NEAR_TARGET) continue
+		const lv = levels[cz * W + cx]
+		const cellY = groundYForLevel(lv)
+		const beamY = startY + (endY - startY) * t
+		if (cellY > beamY + STATION_LOS_CLEAR_M) return false
+		// Tall impassable columns always count once above the soft zone.
+		if ((isMountainLevel(lv) || isCrownLevel(lv)) && cellY > beamY) return false
+	}
+	return true
+}
+
+
+// MARK: pickStations
+/**
+ * Place STATION_COUNT ignition sockets on walkable Low/Mid/High cells
+ * with reachability, separation from each other / hearth / volcano /
+ * grove cores, and line of sight to the volcano. Prefers different
+ * regions and elevations, and fans them out around the hearth.
+ */
+function pickStations(
+	work        : Work,
+	regions     : Int16Array,
+	routeDist   : Int32Array,
+	groves      : TerrainDestination[],
+	volcano     : TerrainVolcano | null,
+): TerrainStation[] {
+	if (!volcano) return []
+	const target = stationLosTarget(work.landforms, volcano)
+
+	type Cand = TerrainStation & { ang: number; score: number }
+	const cands: Cand[] = []
+	for (let i = 0; i < N; i++) {
+		const route = routeDist[i]
+		if (route < STATION_MIN_ROUTE) continue
+		const lv = work.levels[i]
+		if (lv !== LOW && lv !== MID && lv !== HIGH) continue
+		const lf = work.landforms[i]
+		if (lf === LANDFORM_VOLCANO || lf === LANDFORM_LAVA || lf === LANDFORM_HEARTH) continue
+		const cx = i % W
+		const cz = (i - cx) / W
+		if (Math.max(Math.abs(cx - HEARTH_CX), Math.abs(cz - HEARTH_CZ)) < STATION_MIN_HEARTH_CELLS) continue
+		if (Math.max(Math.abs(cx - volcano.cx), Math.abs(cz - volcano.cz)) < STATION_MIN_VOLCANO_CELLS) continue
+		let nearGrove = false
+		for (const g of groves) {
+			if (Math.max(Math.abs(cx - g.cx), Math.abs(cz - g.cz)) < STATION_MIN_GROVE_CELLS) {
+				nearGrove = true
+				break
+			}
+		}
+		if (nearGrove) continue
+		if (!hasStationLos(work.levels, cx, cz, target.fx, target.fz, target.endY)) continue
+
+		const ang = Math.atan2(cz + 0.5 - HEARTH_FZ, cx + 0.5 - HEARTH_FX)
+		// Prefer farther route and a bit of interior (not cliff edge).
+		let edge = 0
+		for (let d = 0; d < 4; d++) {
+			const nx = cx + DIR_DX[d]
+			const nz = cz + DIR_DZ[d]
+			if (nx < 0 || nz < 0 || nx >= W || nz >= H || work.levels[nz * W + nx] !== lv) edge++
+		}
+		const score = route * (1 + (4 - edge) * 0.05)
+		cands.push({
+			cx, cz, level: lv, region: regions[i], route, ang, score,
+		})
+	}
+	cands.sort((a, b) => b.score - a.score || a.cx - b.cx || a.cz - b.cz)
+
+	const out: TerrainStation[] = []
+	const oAng = (st: TerrainStation): number =>
+		Math.atan2(st.cz + 0.5 - HEARTH_FZ, st.cx + 0.5 - HEARTH_FX)
+	const angOk = (ang: number): boolean => {
+		for (const o of out) {
+			let diff = Math.abs(ang - oAng(o)) % (Math.PI * 2)
+			if (diff > Math.PI) diff = Math.PI * 2 - diff
+			if (diff < STATION_MIN_ANGLE_RAD) return false
+		}
+		return true
+	}
+	const sepOk = (c: Cand): boolean => {
+		for (const o of out) {
+			if (Math.max(Math.abs(c.cx - o.cx), Math.abs(c.cz - o.cz)) < STATION_MIN_SEP_CELLS) return false
+		}
+		return true
+	}
+	const take = (c: Cand): void => {
+		out.push({ cx: c.cx, cz: c.cz, level: c.level, region: c.region, route: c.route })
+	}
+
+	// Pass 1: one socket per elevation when a LOS candidate exists, so
+	// stations fan across Low / Mid / High instead of clustering on High.
+	for (const want of [HIGH, MID, LOW]) {
+		if (out.length >= STATION_COUNT) break
+		for (const c of cands) {
+			if (c.level !== want) continue
+			if (!sepOk(c) || !angOk(c.ang)) continue
+			take(c)
+			break
+		}
+	}
+	// Pass 2: fill remaining with angle + separation.
+	if (out.length < STATION_COUNT) {
+		for (const c of cands) {
+			if (out.length >= STATION_COUNT) break
+			if (!sepOk(c) || !angOk(c.ang)) continue
+			if (out.some(o => o.cx === c.cx && o.cz === c.cz)) continue
+			take(c)
+		}
+	}
+	// Pass 3: relax angle (keep separation).
+	if (out.length < STATION_COUNT) {
+		for (const c of cands) {
+			if (out.length >= STATION_COUNT) break
+			if (!sepOk(c)) continue
+			if (out.some(o => o.cx === c.cx && o.cz === c.cz)) continue
+			take(c)
+		}
+	}
+	return out
+}
+
+
 // MARK: validate
 /** Empty string when the map is playable, else the first failure. */
 function validate(map: TerrainMap): string {
@@ -1294,6 +1901,41 @@ function validate(map: TerrainMap): string {
 		seen.add(d.level)
 	}
 	if (seen.size < DEST_MAX) return 'missing dest elevation'
+	if (map.volcano === null) return 'no volcano'
+	const vi = map.volcano.cz * W + map.volcano.cx
+	if (vi < 0 || vi >= N || map.routeDist[vi] < 0) return 'volcano unreachable'
+	if (map.volcano.level !== HIGH && map.volcano.level !== RIM) {
+		return `volcano level ${map.volcano.level}`
+	}
+	if (map.stations.length < STATION_COUNT) {
+		return `stations ${map.stations.length}/${STATION_COUNT}`
+	}
+	{
+		const target = stationLosTarget(map.landforms, map.volcano)
+		const seen = new Set<string>()
+		for (const s of map.stations) {
+			const key = `${s.cx},${s.cz}`
+			if (seen.has(key)) return 'duplicate station'
+			seen.add(key)
+			const i = s.cz * W + s.cx
+			if (i < 0 || i >= N || map.routeDist[i] < 0) return 'station unreachable'
+			if (s.level !== LOW && s.level !== MID && s.level !== HIGH) {
+				return `bad station level ${s.level}`
+			}
+			if (!hasStationLos(map.levels, s.cx, s.cz, target.fx, target.fz, target.endY)) {
+				return 'station no LOS'
+			}
+		}
+		for (let a = 0; a < map.stations.length; a++) {
+			for (let b = a + 1; b < map.stations.length; b++) {
+				const A = map.stations[a]
+				const B = map.stations[b]
+				if (Math.max(Math.abs(A.cx - B.cx), Math.abs(A.cz - B.cz)) < STATION_MIN_SEP_CELLS) {
+					return 'stations too close'
+				}
+			}
+		}
+	}
 	return ''
 }
 
@@ -1417,7 +2059,7 @@ export function terrainPieceStats(map: TerrainMap): {
 	let edge  = 0
 	let inner = 0
 	let diag  = 0
-	for (let t = MID; t <= MOUNTAIN; t++) {
+	for (let t = MID; t <= MOUNTAIN + TERRAIN_MOUNTAIN_PEAK_STEPS; t++) {
 		for (let vz = 0; vz <= H; vz++) {
 			for (let vx = 0; vx <= W; vx++) {
 				const { piece } = classifyCorner(map.levels, vx, vz, t)

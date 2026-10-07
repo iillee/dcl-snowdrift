@@ -1,8 +1,9 @@
 /**
- * locomotion.ts — snow depth slows walk; Shift-run is always off.
+ * locomotion.ts — snow depth slows walk; Shift-run is allowed on melt.
  *
- * Sprint (engine runSpeed 10, Shift) is reserved for a later buff.
- * Melted ground uses the default jog (8). Frost does not change speed.
+ * Melted ground (stage 0) uses engine defaults so Shift-run works for
+ * playtest travel. Snow underfoot still caps walk/jog/run to the snow
+ * drag speeds so sprint cannot bypass deep snow.
  *
  * Snow underfoot drags the walk — this is how torchless travel feels
  * heavy. A lit torch still melts a path (stage 0), so the drag is what
@@ -56,13 +57,14 @@ let installed        = false
 // MARK: applyStageProfile
 
 /**
- * Disable Shift-run. Melted ground uses engine jog; snow caps walk
- * and pins jog/run to that cap so Shift cannot sneak past.
+ * Melted ground: allow Shift-run (engine defaults). Snow stages: keep
+ * run enabled in the modifier but pin runSpeed to the snow walk cap so
+ * Shift cannot outrun the drag.
  */
 function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
 	InputModifier.createOrReplace(engine.PlayerEntity, {
 		mode: InputModifier.Mode.Standard({
-			disableRun : true,
+			disableRun : false,
 			disableJump: stage >= 2,
 		}),
 	})

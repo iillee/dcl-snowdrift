@@ -44,6 +44,7 @@ import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
 import { dropLogAtPlayer } from 'src/client/logsInput'
 import { clearCarriedWood } from 'src/client/logsInventory'
 import { teleportHome, teleportNear } from 'src/client/player'
+import { hasTerrainSpawned } from 'src/client/terrain/terrainRenderer'
 import { emptyTorch, extinguishTorch } from 'src/client/torchEquip'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
@@ -70,6 +71,14 @@ const COVER_OWNED_HOLD_S = 0.2
 
 /** Stuck-emote fix: how long to wait for the player Y to settle after a teleport. */
 const SETTLE_TIME_S     = 0.35
+/**
+ * The settling teleport waits for terrain slabs to exist. Cold open
+ * teleports long before the seed lands (server or 8 s offline fallback);
+ * teleporting over empty space dropped the avatar to the engine floor and
+ * the hearth slab then spawned around it (player buried under the fire).
+ * Cap so a missing seed can never hang the arrival.
+ */
+const TERRAIN_WAIT_CAP_S = 12
 /** Beat between clearing InputModifier and re-applying + firing the emote. */
 const CLEAR_MOD_BEAT_S  = 0.5
 /** Stand this far from a fire's centre so the wake is not inside the mesh. */
@@ -515,7 +524,8 @@ export function setupFrostDeath(): void {
 		// ── TELEPORT: wait for first teleport to settle ─────────
 		if (phase === Phase.TELEPORT) {
 			if (!coverOwned) fadeOpacity = 1
-			if (phaseTimer >= SETTLE_TIME_S) {
+			const groundReady = hasTerrainSpawned() || phaseTimer >= TERRAIN_WAIT_CAP_S
+			if (phaseTimer >= SETTLE_TIME_S && groundReady) {
 				teleportArrival()
 				phase      = Phase.SETTLE
 				phaseTimer = 0

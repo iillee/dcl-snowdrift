@@ -15,17 +15,12 @@
 
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
-import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { playUiClick } from 'src/client/audio'
 import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
 import { FROST_BAR_SEGMENTS, getFrostLocal, visibleColdSegments } from 'src/client/frost/accumulation'
-import {
-	isSceneBoundsDebugVisible,
-	toggleSceneBoundsDebug,
-} from 'src/client/sceneBoundsDebug'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile } from 'src/client/ui/utils/atlas'
@@ -35,12 +30,6 @@ import { getUVsForAtlasTile } from 'src/client/ui/utils/atlas'
 // standalone HUD button + popover.
 const SHOW_CLOCK_BUTTON = false
 
-const { colors, borderRadius } = UI_THEME
-const BOUNDS_BTN_SIZE   = 48
-const BOUNDS_BTN_MARGIN = 8
-const BOUNDS_BORDER_W   = 3
-const BOUNDS_BORDER_OFF = Color4.create(1, 1, 1, 0.75)
-const BOUNDS_BORDER_ON  = Color4.create(1.00, 0.80, 0.30, 1)
 
 
 // Font-awesome atlas from the UI component kit — same asset the
@@ -335,10 +324,6 @@ class FrostBarLayer extends Layer {
 						{segments}
 					</UiEntity>
 				</UiEntity>
-				{/* Bounds debug toggle — small "xy" chip to the right of
-				   the heat bar (desktop + mobile). Billboard stays off
-				   until tapped. */}
-				<BoundsDebugButton />
 				{/* Torch + Logs slots moved to layer.inventoryHotbar
 				   (bottom-center) - the frost bar now only owns the
 				   segmented cold gauge. */}
@@ -347,50 +332,6 @@ class FrostBarLayer extends Layer {
 	}
 }
 
-
-
-// MARK: BoundsDebugButton
-/**
- * Compact chip to the right of the frost bar. Toggles the floating
- * scene-bounds billboard used while the mobile 51×51 parcel clamp is
- * under investigation.
- */
-function BoundsDebugButton() {
-	const on = isSceneBoundsDebugVisible()
-	return (
-		<UiEntity
-			key = "ui_BoundsDebugBtn"
-			uiTransform = {{
-				width         : BOUNDS_BTN_SIZE,
-				height        : BOUNDS_BTN_SIZE,
-				minWidth      : BOUNDS_BTN_SIZE,
-				minHeight     : BOUNDS_BTN_SIZE,
-				flexShrink    : 0,
-				margin        : { left: BOUNDS_BTN_MARGIN, right: BOUNDS_BTN_MARGIN },
-				justifyContent: 'center',
-				alignItems    : 'center',
-				borderRadius  : borderRadius.sm,
-				borderWidth   : BOUNDS_BORDER_W,
-				borderColor   : on ? BOUNDS_BORDER_ON : BOUNDS_BORDER_OFF,
-			}}
-			uiBackground = {{ color: colors.statsBg }}
-			onMouseDown  = {() => { playUiClick(); toggleSceneBoundsDebug() }}
-		>
-			<Label
-				value     = "xy"
-				fontSize  = {18}
-				color     = {on ? BOUNDS_BORDER_ON : Color4.White()}
-				font      = "sans-serif"
-				textAlign = "middle-center"
-				uiTransform = {{
-					width : '100%',
-					height: '100%',
-					margin: { top: isMobile() ? -4 : 0 },
-				}}
-			/>
-		</UiEntity>
-	)
-}
 
 
 export const frostBarLayer = new FrostBarLayer()

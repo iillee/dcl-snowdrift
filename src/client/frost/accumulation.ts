@@ -4,7 +4,7 @@
  * Samples the local player's position at FROST_SAMPLE_INTERVAL_S,
  * reads the snow depth beneath them via src/client/snow/snowQuery's
  * getSnowStageAtWorld(), and pushes FrostLevel up or down accordingly.
- * Heat is only a visible fire or YOUR lit torch. Standing near another
+ * Heat is a visible fire, the volcano crater (Warm), or YOUR lit torch. Standing near another
  * player does nothing. A campfire removes frost at its tier's rate,
  * and the cold still applies. Ember holds the bar still through the
  * day and loses from dusk onward. Warm and above still clear you.
@@ -37,9 +37,17 @@ import { playHealChunkSfx, playFrostChunkSfx } from 'src/client/audio'
 import { DEV_DISABLE_FROST } from 'src/client/devFlags'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
+import { getLitMonumentWarmthPositions } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
+import { isWorldThawed } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
+import { activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import {
+	CRATER_HEAT_FUEL,
+	CRATER_HEAT_RADIUS_SQ_M,
+	volcanoCraterHeatCenter,
+} from 'src/shared/terrain/volcanoCraterHeat'
 
 
 // MARK: Module state
@@ -70,6 +78,8 @@ const FROST_WRITE_EPSILON = 0.5
  * time, about 21s to a full bar on bare ground.
  */
 function ambientColdPerSec(phase: PhaseConfig): number {
+	// After the world thaw there is no open-air / night cold.
+	if (isWorldThawed()) return 0
 	const ttf = ambientFreezeSec(phase, phase.durationSec, FROST_TIME_BASELINE_S)
 	return FROST_MAX / ttf
 }
@@ -145,6 +155,34 @@ export function initFrostAccumulation(): void {
 			warmthFuel   = getMainFireFuel()
 			warmthPerSec = hearthWarmthPerSec(warmthFuel)
 		}
+		// Volcano crater: always Warm heat (even at 0/3 stations).
+		{
+			const map = activeTerrain()
+			const centre = map ? volcanoCraterHeatCenter(map) : null
+			let inCrater = activeIsLavaAt(x, z)
+			if (!inCrater && centre) {
+				const cdx = x - centre.x
+				const cdz = z - centre.z
+				inCrater = cdx * cdx + cdz * cdz <= CRATER_HEAT_RADIUS_SQ_M
+			}
+			if (inCrater) {
+				const craterWarmth = hearthWarmthPerSec(CRATER_HEAT_FUEL)
+				if (craterWarmth > warmthPerSec) {
+					warmthPerSec = craterWarmth
+					warmthFuel   = CRATER_HEAT_FUEL
+				}
+			}
+		}
+		// Lit monuments: eternal Warm campfires (no fuel decay).
+		for (const mp of getLitMonumentWarmthPositions()) {
+			const mdx = x - mp.x
+			const mdz = z - mp.z
+			if (mdx * mdx + mdz * mdz > mp.radiusSq) continue
+			const w = hearthWarmthPerSec(mp.fuel)
+			if (w <= warmthPerSec) continue
+			warmthPerSec = w
+			warmthFuel   = mp.fuel
+		}
 		if (isHiddenCampfireLit()) {
 			for (const hp of getHiddenCampfireWarmthPositions()) {
 				if (hp.radiusSq <= 0) continue
@@ -186,7 +224,7 @@ export function initFrostAccumulation(): void {
 				ratePerSec += ambientColdPerSec(phase)
 			} else {
 				const leak = torchLeakFreezeSec(phase, phase.durationSec)
-				if (leak !== null) ratePerSec += FROST_MAX / leak
+				if (leak !== null && !isWorldThawed()) ratePerSec += FROST_MAX / leak
 			}
 
 			ratePerSec += snowColdPerSec(x, y, z, phase)

@@ -53,6 +53,8 @@ const STEP_TRANSITION_P = 0.75
 let currentLevel      = INITIAL_LEVEL
 let nextChangeAtS     = 0
 let clockS            = 0
+/** After a 3/3 station thaw, hold CLEAR until the cycle rolls. */
+let thawLocked        = false
 
 
 // MARK: pickNextLevel
@@ -100,6 +102,10 @@ function broadcastWeather(): void {
 // MARK: applyLevel
 /** Set the weather to `level`, broadcast, and re-schedule the next change. */
 function applyLevel(level: number): void {
+	if (thawLocked) {
+		scheduleNextChange()
+		return
+	}
 	const floor   = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, getPhaseWeatherFloor()))
 	const clamped = Math.max(floor, Math.min(MAX_LEVEL, level | 0))
 	if (clamped === currentLevel) {
@@ -112,6 +118,32 @@ function applyLevel(level: number): void {
 	currentLevel = clamped
 	broadcastWeather()
 	scheduleNextChange()
+}
+
+
+
+// MARK: forceWeatherClearForThaw
+/**
+ * Snap to CLEAR and lock the weather cycler until clearWeatherThawLock
+ * (cycle roll). Bypasses the phase floor so night storms cannot
+ * immediately re-bury a thawed world.
+ */
+export function forceWeatherClearForThaw(): void {
+	thawLocked = true
+	const prev = currentLevel
+	currentLevel = MIN_LEVEL
+	console.log('[Server] weather: THAW lock CLEAR (was ' + prev + ')')
+	broadcastWeather()
+}
+
+
+// MARK: clearWeatherThawLock
+/** Release the post-thaw CLEAR lock (call on cycle roll). */
+export function clearWeatherThawLock(): void {
+	if (!thawLocked) return
+	thawLocked = false
+	scheduleNextChange()
+	console.log('[Server] weather: thaw lock cleared')
 }
 
 
@@ -142,6 +174,7 @@ export function sendCurrentWeatherTo(userId: string): void {
  * is immediately a storm. Never sit below weatherFloor.
  */
 function syncWeatherToPhase(): void {
+	if (thawLocked) return
 	const floor = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, getPhaseWeatherFloor()))
 	const enter = getPhaseWeatherEnterLevel()
 	let target = currentLevel
@@ -173,6 +206,7 @@ export function setupWeather(): void {
 
 	// Auto-cycler.
 	engine.addSystem((dt: number) => {
+		if (thawLocked) return
 		clockS += dt
 		if (clockS < nextChangeAtS) return
 		applyLevel(pickNextLevel())

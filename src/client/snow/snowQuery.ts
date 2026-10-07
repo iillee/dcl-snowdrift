@@ -9,7 +9,7 @@ import {
 	STAGE_PRISTINE,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
-import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
+import { activeGroundYAt, activeIsLavaAt } from 'src/shared/terrain/terrainCache'
 
 import { getDisplayedStage } from 'src/client/snow/snowModel'
 
@@ -33,6 +33,8 @@ export function getSnowStageAtWorld(
 ): SnowStage {
 	const key = worldToCellKey(x, z)
 	if (key === null) return STAGE_PRISTINE
+	// The lava lid covers the crater's snow; nobody wades there.
+	if (activeIsLavaAt(x, z)) return 0
 	const stage = getDisplayedStage(key)
 	if (stage === 0) return 0
 	const snowTopY = activeGroundYAt(x, z) + SNOW_STAGE_HEIGHT_M[stage]

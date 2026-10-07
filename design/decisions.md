@@ -6,6 +6,21 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-07 session — V1 MVP loop
+
+Shipped state: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
+
+- **2026-10-07 · Playtest on `playtest_52`, keep `full_100` · owner-directed** — smaller 52×52 envelope for a dense, completable loop.
+- **2026-10-07 · Tablet is knowledge, not a gate · owner-directed** — monuments can be lit in any order without reading the map.
+- **2026-10-07 · Monuments ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE MONUMENT within 3.5 m; lit monuments are eternal Warm fires.
+- **2026-10-07 · 3rd monument auto-thaws, no return-to-peak · owner-directed.**
+- **2026-10-07 · Thaw is a 45 s radial wave, rate-limited · bugfix** — melting all 2,704 tiles in one frame froze clients.
+- **2026-10-07 · No night cold after thaw; 3 warm days then new winter · owner-directed** — "Winter Approaches in N Days" replaces DAY X.
+- **2026-10-07 · Monuments burning out over time · parked** until after the playtest.
+- **2026-10-07 · Torch readability dropped for V1 · owner-directed.**
+
+---
+
 ## 2026-10-05 session — 100×100 authoring, fuel sync, mobile parcel clamp
 
 Shipped / investigated state: [`session-2026-10-05.md`](./session-2026-10-05.md).

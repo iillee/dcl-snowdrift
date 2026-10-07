@@ -25,6 +25,7 @@ import { playSurgeSfxLocal, playTorchSfxLocal } from 'src/client/audio'
 import { DEV_KEEP_TORCH_LIT } from 'src/client/devFlags'
 import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
+import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { syncTorchFlameNow } from 'src/client/torch'
 import {
@@ -81,6 +82,12 @@ export function tryRelightAtFire(): void {
 
 	if (isReadyToIgniteHidden()) {
 		requestHiddenIgnite()
+		return
+	}
+
+	if (isReadyToIgniteMonument()) {
+		requestMonumentIgnite()
+		relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
 		return
 	}
 

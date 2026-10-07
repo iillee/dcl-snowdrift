@@ -58,26 +58,59 @@ export const PAINT_BRUSH_SIZE_METERS = 3
 export const PAINT_BRUSH_LEAD_METERS = 1.2
 
 
-// MARK: Scene
+// MARK: Scene / world profile
+//
+// One generator, two envelopes. Flip WORLD_PROFILE to restore the
+// full Live World footprint without forking terrainGen.
 
-/** Scene X extent in meters (100 parcels × 16 m). Aligns with parcel X axis. */
-export const SCENE_WORLD_SIZE_X_METERS = 1600
+export type WorldProfile = 'playtest_52' | 'full_100'
 
-/** Scene Z extent in meters (100 parcels × 16 m). Aligns with parcel Y axis (world Z). */
-export const SCENE_WORLD_SIZE_Z_METERS = 1600
+/**
+ * Active world envelope.
+ * - playtest_52: 52×52 parcels (832 m). Padding squeezed to 0 so the
+ *   playfield sits against scene bounds; mountain band lives on the
+ *   terrain-grid rim itself.
+ * - full_100: 100×100 parcels (1600 m) with 16 m padding/side → 98×98 cells.
+ */
+export const WORLD_PROFILE: WorldProfile = 'playtest_52'
+
+const WORLD_PROFILE_SPEC: Record<WorldProfile, {
+	parcels: number
+	/** Meters of empty padding on each side between playfield and scene edge. */
+	paddingMeters: number
+}> = {
+	playtest_52: { parcels: 52, paddingMeters: 0 },
+	full_100:    { parcels: 100, paddingMeters: 16 },
+}
+
+const _world = WORLD_PROFILE_SPEC[WORLD_PROFILE]
+
+/** Parcel edge length in meters (one unscaled maze tile). */
+const PARCEL_METERS = 16
+
+/** Scene X extent in meters. Aligns with parcel X axis. */
+export const SCENE_WORLD_SIZE_X_METERS = _world.parcels * PARCEL_METERS
+
+/** Scene Z extent in meters. Aligns with parcel Y axis (world Z). */
+export const SCENE_WORLD_SIZE_Z_METERS = _world.parcels * PARCEL_METERS
 
 /**
  * Interior playfield extent in meters. The maze, paint grid, and
- * campfire live inside this playfield; the outer scene padding is
- * used by the mountain band / former perimeter ring.
+ * campfire live inside this playfield. With playtest_52 padding=0 the
+ * playfield fills the scene; the generated mountain band is the rim.
  *
- * Padding stays 16 m per side: (scene − playfield) / 2 = 16 with
- * scene=1600 and playfield=1568 → 98 × 98 terrain/snow cells.
- *
- * v1 target is 100 × 100. Live Worlds must deploy the full parcel
- * list — a truncated footprint leaves the hearth near the NE edge.
+ * full_100 keeps 16 m padding/side so scene=1600 → playfield=1568 →
+ * 98 × 98 terrain/snow cells.
  */
-export const MAZE_PLAYFIELD_METERS = 1568
+export const MAZE_PLAYFIELD_METERS =
+	SCENE_WORLD_SIZE_X_METERS - 2 * _world.paddingMeters
+
+/**
+ * Major grove destination sockets (Low + Mid + High). Hearth home is
+ * not a grove. The volcano landmark can share the High shelf with the
+ * High grove (separate socket) — it is still not itself a grove.
+ */
+export const MAJOR_GROVE_COUNT = 3
 
 /**
  * Back-compat alias for square-scene call sites. Use the axis-specific
@@ -170,14 +203,20 @@ export const TERRAIN_BASE_SURFACE_Y = 0.25
 export const TERRAIN_LEVEL_LOW      = 0
 /** Hearth level. One level above, one below. */
 export const TERRAIN_LEVEL_MID      = 1
-/** Highest walkable level (plateaus, ridges). */
+/** High plateaus / ridges (below the volcano summit). */
 export const TERRAIN_LEVEL_HIGH     = 2
 /**
- * Impassable mountain band base. Peak cells use this plus 1..PEAK_STEPS
- * so the rim can step for an organic horizon without becoming walkable.
+ * Volcano caldera rim — highest walkable (and highest overall) surface.
+ * One step above HIGH so ladders still connect High slopes ↔ rim.
  */
-export const TERRAIN_LEVEL_MOUNTAIN = 3
-/** Extra mountain peak steps above the base rim (levels 4, 5, …). */
+export const TERRAIN_LEVEL_VOLCANO_RIM = 3
+/**
+ * Impassable mountain band base. Starts above the volcano rim index so
+ * the summit stays walkable; heights are capped below the rim so the
+ * volcano reads as the high point of the map.
+ */
+export const TERRAIN_LEVEL_MOUNTAIN = 4
+/** Extra mountain peak steps above the base rim (levels 5, 6, …). */
 export const TERRAIN_MOUNTAIN_PEAK_STEPS = 2
 /** Highest mountain peak level index. */
 export const TERRAIN_LEVEL_MOUNTAIN_MAX =
@@ -187,12 +226,39 @@ export const TERRAIN_LEVEL_MOUNTAIN_MAX =
  * 16 m step so the horizon reads as jagged rock, not another plateau.
  */
 export const TERRAIN_MOUNTAIN_STEP_M = 8
+/**
+ * Volcano crown: the inner crater lip extruded above the rim. Levels
+ * CROWN..CROWN_MAX sit after the mountain tiers, so isMountainLevel()
+ * treats them as impassable (no routing, no props, no melt cap) while
+ * the slab renderer and snow tiles draw them at their true height.
+ */
+export const TERRAIN_LEVEL_CROWN      = TERRAIN_LEVEL_MOUNTAIN_MAX + 1
+/** Crown height tiers (jagged lip): rim + 5 / 6 / 7 m. */
+export const TERRAIN_CROWN_STEPS      = 3
+export const TERRAIN_LEVEL_CROWN_MAX  = TERRAIN_LEVEL_CROWN + TERRAIN_CROWN_STEPS - 1
+/** Lowest crown tier above the rim surface (m), then +1 m per tier. */
+export const TERRAIN_CROWN_BASE_M     = 5
+export const TERRAIN_CROWN_STEP_M     = 1
+/**
+ * Lava lid above the rim surface. Max snow stage is 1.5 m, so the lid
+ * hides any snow on the crater cells; ground queries on lava cells
+ * report this height (it is the surface you stand on).
+ */
+export const VOLCANO_LAVA_TOP_ABOVE_RIM_M = 1.7
+
+
+// MARK: isCrownLevel
+/** True for the extruded volcano crown tiers. */
+export function isCrownLevel(level: number): boolean {
+	return level >= TERRAIN_LEVEL_CROWN && level <= TERRAIN_LEVEL_CROWN_MAX
+}
 
 
 // MARK: isMountainLevel
 /**
- * True for the impassable rim and any peak tier above it. Walkable
- * gameplay (ladders, caps, regions) treats all of these as mountain.
+ * True for the impassable perimeter band and its peak tiers, plus the
+ * extruded volcano crown tiers. The volcano rim (VOLCANO_RIM) is
+ * walkable and is NOT mountain.
  */
 export function isMountainLevel(level: number): boolean {
 	return level >= TERRAIN_LEVEL_MOUNTAIN
@@ -201,20 +267,28 @@ export function isMountainLevel(level: number): boolean {
 
 // MARK: groundYForLevel
 /**
- * Surface height of a terrain level. Walkable levels use the 16 m step;
- * mountain peaks stack a finer step on top of the base mountain height
- * so the boundary wall can vary without matching plateau spacing.
+ * Surface height of a terrain level.
+ * Walkable 0..VOLCANO_RIM use the 16 m step (rim = 48.25 m).
+ * Mountain peaks sit between HIGH and the rim so the caldera lip is
+ * always the highest point on the map.
  */
 export function groundYForLevel(level: number): number {
-	if (level <= TERRAIN_LEVEL_HIGH) {
+	if (level <= TERRAIN_LEVEL_VOLCANO_RIM) {
 		return TERRAIN_BASE_SURFACE_Y + level * TERRAIN_LEVEL_STEP_M
 	}
-	const peak = Math.max(0, level - TERRAIN_LEVEL_MOUNTAIN)
-	return (
-		TERRAIN_BASE_SURFACE_Y +
-		TERRAIN_LEVEL_MOUNTAIN * TERRAIN_LEVEL_STEP_M +
-		peak * TERRAIN_MOUNTAIN_STEP_M
-	)
+	if (isCrownLevel(level)) {
+		// Crown: highest terrain on the map (rim + 5..7 m = 53.25..55.25).
+		return TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_VOLCANO_RIM * TERRAIN_LEVEL_STEP_M +
+			TERRAIN_CROWN_BASE_M + (level - TERRAIN_LEVEL_CROWN) * TERRAIN_CROWN_STEP_M
+	}
+	const highY = TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_HIGH * TERRAIN_LEVEL_STEP_M
+	const rimY  = TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_VOLCANO_RIM * TERRAIN_LEVEL_STEP_M
+	const peak  = Math.max(0, level - TERRAIN_LEVEL_MOUNTAIN)
+	const steps = Math.max(1, TERRAIN_MOUNTAIN_PEAK_STEPS)
+	// Spread peaks across (HIGH+step) .. (RIM - 2 m).
+	const lo = highY + TERRAIN_MOUNTAIN_STEP_M
+	const hi = rimY - 2
+	return lo + (peak / steps) * (hi - lo)
 }
 
 

@@ -10,15 +10,17 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 **Deploy target:** [`snowdrift.dcl.eth`](https://play.decentraland.org/?realm=snowdrift.dcl.eth) (Decentraland World)
 **Runtime:** SDK7 (`@dcl/sdk` 7.26.x, pinned exact) with authoritative headless server
-**Scene (playtest):** **100 × 100 parcels** (1600 m × 1600 m, 1568 m playfield, 16 m pad). Portrait-friendly mobile-first UI. **Known blocker:** mobile Explorer currently reports only **51 × 51** parcels for this World (desktop sees the full 100 × 100) — see H1-07 / [`design/session-2026-10-05.md`](design/session-2026-10-05.md).
+**Scene (playtest):** profile **`playtest_52`** — **52 × 52 parcels** (832 m, 0 pad); `full_100` is kept as an alternate. Previous playtest: **100 × 100 parcels** (1600 m × 1600 m, 1568 m playfield, 16 m pad). Portrait-friendly mobile-first UI. **Known blocker:** mobile Explorer currently reports only **51 × 51** parcels for this World (desktop sees the full 100 × 100) — see H1-07 / [`design/session-2026-10-05.md`](design/session-2026-10-05.md).
 
 ---
 
 ## Status
 
+**V1 MVP loop built (2026-10-07):** survive → explore → climb the volcano → read the engraved summit tablet → carry a lit torch to **ignite 3 monuments** (any order) → radial thaw wave → **WORLD THAWED** → 3 warm days ("Winter Approaches in N Days") → new winter. Details: [`design/session-2026-10-07-v1-loop.md`](design/session-2026-10-07-v1-loop.md).
+
 **v1 Systems in progress** (2026-10-05). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
 
-**In the current build:** torch, melt, branch/log pickup, choppable trees, home teaching fires + per-grove pits + generation-grown finds, fuel tiers (flame / melt / warmth move together; fuel updates coerced to Number on the wire), frost freeze + torch thaw with ice-melt SFX, chain-light, weather, **Dawn / Day / Dusk / Night**, run-end cards + fresh seed, Day N, black cold open, ? menu, phone mute / overhead zoom / face finder, **100 × 100** authored World with coarse far snow LOD, opt-in **xy** bounds debug chip beside the heat bar.
+**In the current build:** torch, melt, branch/log pickup, choppable trees, home teaching fires + per-grove pits + generation-grown finds, fuel tiers (flame / melt / warmth move together; fuel updates coerced to Number on the wire), frost freeze + torch thaw with ice-melt SFX, chain-light, weather, **Dawn / Day / Dusk / Night**, run-end cards + fresh seed, Day N, black cold open, ? menu, phone mute / overhead zoom / face finder, **100 × 100** authored World with coarse far snow LOD, ignition monuments + volcano + summit tablet + radial thaw + post-win countdown, invisible perimeter wall. (The **xy** bounds debug chip was removed.)
 
 **Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine, kiln, a communal wood pile. Reliable mobile traversal of the full 100 × 100 envelope (H1-07). Geography destinations for migration (Oct 7 checkpoint).
 
@@ -32,6 +34,7 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 
 ## Design documentation
 
+- [`design/session-2026-10-07-v1-loop.md`](design/session-2026-10-07-v1-loop.md) — V1 MVP loop: monuments, volcano, tablet, thaw, post-win reset, generation fixes.
 - [`design/gdd.md`](design/gdd.md) — full GDD.
 - [`design/summary.md`](design/summary.md) — plain-English overview.
 - [`design/decisions.md`](design/decisions.md) — running log of design decisions and rationale.
@@ -55,6 +58,8 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 - Melt snow, pick up a branch or a log, or chop a tree. One thing in the F slot. Feed the fire. Night starts at dusk: heavier weather, weaker flame, faster drain. The torch still melts 3-wide.
 - A full frost bar freezes you in the ice where you stand. Another player's lit torch can thaw you. If a fire is still lit, frozen players wake at it. The run ends only when everyone still connected is frozen and no fire is left. The cards are: **After N day/days, the world's flame goes out.** **Centuries pass in the cold.** **A new hearth is kindled.** / **Don't let the fire die.** Then a fresh seed, and dawn under that last card.
 
+- Find the volcano and read the stone tablet on its inner rim: a B&W engraved map (▲ volcano, ○ spawn, ✕ monuments). Carry a lit torch within 3.5 m of a monument and press **E** / tap **IGNITE MONUMENT**. Lit monuments burn forever as Warm fires. The third one thaws the world in a 45 s melt wave from the volcano; no night cold after that. Three days of **Winter Approaches in N Days**, then a new winter.
+
 **Still the v1 target, not in this build**
 
 - Seasons deepen toward a **winter solstice**. Empty-server persistence and a return screen are unbuilt. A live server keeps the world already in progress.
@@ -74,7 +79,7 @@ The full 10-pillar list lives in [`design/gdd.md`](design/gdd.md) \§3. Highligh
 
 ## Non-goals (v1)
 
-No combat / mobs, no leaderboards, no permadeath, no tool tiers, no personal gear, no NPCs, no world map, no crafting UI, no hunger/thirst, no wallet-gated content. Full list in [`design/gdd.md`](design/gdd.md) \§9.
+No combat / mobs, no leaderboards, no permadeath, no tool tiers, no personal gear, no NPCs, no world map (except the in-world summit tablet), no crafting UI, no hunger/thirst, no wallet-gated content. Full list in [`design/gdd.md`](design/gdd.md) \§9.
 
 ## Running locally
 
@@ -94,7 +99,7 @@ npm run deploy -- --target-content https://worlds-content-server.decentraland.or
 
 Keep Creator Hub **Layout** at **100 × 100** so the composite and CLI stay aligned (as of 2026-10-05 Layout was still 64 × 64 while `scene.json` was 100 × 100). If the CLI proxy errors out on Node 24, Creator Hub Publish still works for content — just confirm Layout matches before publishing.
 
-**Mobile note:** after deploy, confirm the **xy** chip (right of the heat bar) shows `live 100x100` on phones. If it shows `51x51 MISMATCH`, that is Explorer H1-07 — not a bad deploy (content server already has 10 000 parcels).
+**Mobile note:** (the **xy** chip has been removed from the build) previously: confirm the **xy** chip (right of the heat bar) shows `live 100x100` on phones. If it shows `51x51 MISMATCH`, that is Explorer H1-07 — not a bad deploy (content server already has 10 000 parcels).
 
 ## Repository layout
 

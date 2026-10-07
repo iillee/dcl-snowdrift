@@ -392,6 +392,35 @@ export const Messages = {
 	// Client → Server (DEV only): snuff every fire so we can playtest
 	// the ember-fail / game-over path without waiting out the tank.
 	devSnuffFires: Schemas.Map({}),
+
+	// Client -> Server: click-activate an ignition station stump. seed
+	// is the cycle seed (same pattern as hiddenCampfireIgnite). First
+	// valid request wins; no tablet / wood cost.
+	stationActivate: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+	}),
+
+	// Server -> Client: station active flag. active is 0/1 Int (Boolean
+	// over the wire is unreliable - see hiddenCampfireState). Sent on
+	// activate and to joiners for hydration. Clients play grow/spin +
+	// beam locally when active flips to 1.
+	stationState: Schemas.Map({
+		seed  : Schemas.Int,
+		index : Schemas.Int,
+		active: Schemas.Int,
+	}),
+
+	// Server -> Client: world thaw after all 3 stations. thawed 0/1.
+	// Fired once per cycle; joiners hydrate so they see cleared snow +
+	// lava + victory state. Clients also get weatherState CLEAR.
+	worldThawState: Schemas.Map({
+		seed  : Schemas.Int,
+		thawed: Schemas.Int,
+		// Day number (cycleId+1) the thaw happened on; 0 when not thawed.
+		// Winter returns at the sunrise of day thawDay + 4.
+		thawDay: Schemas.Int,
+	}),
 }
 
 export const room = registerMessages(Messages)

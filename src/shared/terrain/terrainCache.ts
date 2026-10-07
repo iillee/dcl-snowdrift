@@ -9,13 +9,14 @@
  * keeps its own cache and both agree because the generator is pure.
  */
 
+import { volcanoCrownCells, volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 import {
 	TERRAIN_HEARTH_SURFACE_Y,
 	TERRAIN_LEVEL_MID,
 	isMountainLevel,
 } from 'src/shared/settings'
 import { generateTerrain } from 'src/shared/terrain/terrainGen'
-import { groundYAtWorld, levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
+import { groundYAtWorld, isLavaAtWorld, levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 
 
 /** Maps kept before the oldest is dropped. */
@@ -80,6 +81,15 @@ export function activeGroundYAt(x: number, z: number): number {
 }
 
 
+// MARK: activeIsLavaAt
+/** True when a world position is over the volcano lava lake. */
+export function activeIsLavaAt(x: number, z: number): boolean {
+	const map = activeTerrain()
+	if (map === null) return false
+	return isLavaAtWorld(map, x, z)
+}
+
+
 // MARK: activeLevelAt
 /** Terrain level under a world position, or the hearth level if unseeded. */
 export function activeLevelAt(x: number, z: number): number {
@@ -112,7 +122,8 @@ export function offHearthCellsForMazeSeed(mazeSeed: number): Set<string> {
 // MARK: impassableCellsForMazeSeed
 /**
  * Cells a destination grove or foothold must not touch: mountain,
- * hearth-unreachable, and ladder feet/tops. Keyed `tx,tz,0`.
+ * hearth-unreachable, ladder feet/tops, and the volcano lava lake /
+ * crown blocks. Keyed `tx,tz,0`.
  */
 export function impassableCellsForMazeSeed(mazeSeed: number): Set<string> {
 	const map = getTerrain(mazeSeed)
@@ -128,6 +139,10 @@ export function impassableCellsForMazeSeed(mazeSeed: number): Set<string> {
 	for (const ladder of map.ladders) {
 		out.add(`${ladder.lowCx},${ladder.lowCz},0`)
 		out.add(`${ladder.highCx},${ladder.highCz},0`)
+	}
+	// Volcano summit: lava lake + crown blocks hold no props or wood.
+	for (const i of volcanoLavaCells(map).concat(volcanoCrownCells(map))) {
+		out.add(`${i % map.w},${Math.floor(i / map.w)},0`)
 	}
 	return out
 }

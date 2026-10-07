@@ -1,18 +1,18 @@
 /**
- * hiddenCampfire.ts — shared placement + tuning for the hidden campfires.
+ * hiddenCampfire.ts â€” shared placement + tuning for the hidden campfires.
  *
  * Placement layers (additive):
- *   1. Home teaching network — HIDDEN_HOME_COUNT pits grown in
+ *   1. Home teaching network â€” HIDDEN_HOME_COUNT pits grown in
  *      generations off the true hearth (dimple language for beginners).
- *   2. Per major grove — one centralish hub + satellites off that hub
- *      at each Low / Mid / High destination.
- *   3. Sparse world finds — extra pits across walkable shelves so the
+ *   2. Per major grove â€” one centralish hub + satellites off that hub
+ *      at each Low / Mid / High destination (volcano is not a grove).
+ *   3. Sparse world finds â€” extra pits across walkable shelves so the
  *      map has random discoveries beyond the authored territories.
  *
  * Every pit starts buried with a snow dimple; the composite hearth
  * remains the only lit start fire.
  *
- * A teaching/grove step is 48–80 m. World finds use a wider min sep so
+ * A teaching/grove step is 48â€“80 m. World finds use a wider min sep so
  * they stay sparse against the denser networks.
  */
 
@@ -20,6 +20,7 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { trunkDiscs } from 'src/shared/props/scatter'
 import {
+	MAJOR_GROVE_COUNT,
 	MAZE_GRID_HEIGHT,
 	MAZE_GRID_WIDTH,
 	MAZE_ORIGIN_OFFSET_METERS,
@@ -27,17 +28,20 @@ import {
 	TERRAIN_LEVEL_HIGH,
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
-	groundYForLevel,
 	isMountainLevel,
 } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
+import { volcanoCrownCells, volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 import {
 	LANDFORM_BASIN,
 	LANDFORM_CANYON,
 	LANDFORM_PLATEAU,
 	LANDFORM_RIDGE,
+	LANDFORM_VOLCANO,
 	cellCenterWorld,
 	cellIndex,
+	groundFlatWithin,
+	groundYAtWorld,
 	TerrainDestination,
 	TerrainMap,
 } from 'src/shared/terrain/terrainMap'
@@ -46,27 +50,29 @@ import {
 // MARK: Multi-fire count
 /**
  * Home satellite pits (generational off the true hearth). Teaching
- * ring — do not thin this for world scatter budget.
+ * ring â€” do not thin this for world scatter budget.
  */
 export const HIDDEN_HOME_COUNT = 6
 /**
  * Per major grove: total hidden pits (hub + satellites), inclusive
  * range. Hub is always one; the rest grow off it.
  */
-export const HIDDEN_DEST_PIT_MIN = 4
-export const HIDDEN_DEST_PIT_MAX = 6
+export const HIDDEN_DEST_PIT_MIN = 5
+export const HIDDEN_DEST_PIT_MAX = 7
 /**
- * Extra sparse pits scattered across the walkable world.
+ * Extra wilderness pits across the walkable world. Bumped for the
+ * 52Ã—52 playtest so dormant fires chain travel between groves.
  */
-export const HIDDEN_WORLD_COUNT = 8
+export const HIDDEN_WORLD_COUNT = 14
 /**
  * How many hidden bonfire slots per cycle (max budget). Server tracks
- * lit[] indexed by 0..HIDDEN_CAMPFIRE_COUNT-1. Grove budget assumes up
- * to three major destinations at HIDDEN_DEST_PIT_MAX each.
+ * lit[] indexed by 0..HIDDEN_CAMPFIRE_COUNT-1. Grove budget assumes
+ * MAJOR_GROVE_COUNT (Low + Mid + High) destinations at HIDDEN_DEST_PIT_MAX
+ * each â€” volcano is not a grove and gets no pit cluster.
  */
 export const HIDDEN_CAMPFIRE_COUNT =
 	HIDDEN_HOME_COUNT +
-	3 * HIDDEN_DEST_PIT_MAX +
+	MAJOR_GROVE_COUNT * HIDDEN_DEST_PIT_MAX +
 	HIDDEN_WORLD_COUNT
 
 /**
@@ -82,18 +88,19 @@ export const HIDDEN_HEARTH_BRANCHES = 3
  * Shortest step from the hearth or from another teaching/grove pit.
  * Keeps two heat rings from merging.
  */
-export const HIDDEN_LINK_MIN_M = 48
+export const HIDDEN_LINK_MIN_M = 40
 /**
- * Longest step. One 30 s torch at the melted jog (8 m/s) covers 80 m
- * with time left for a detour.
+ * Longest step. One 30 s torch at the melted jog (8 m/s) covers ~70 m
+ * with time left for a detour. Tightened for the 52 map travel chain.
  */
-export const HIDDEN_LINK_MAX_M = 80
+export const HIDDEN_LINK_MAX_M = 70
 
 /**
- * Min spacing for sparse world finds against every already-placed pit.
- * Wider than a teaching link so wilderness pits stay rare discoveries.
+ * Min spacing for wilderness finds against every already-placed pit.
+ * Was 160 m (tuned for 1600 m worlds) â€” too sparse on 832 m playtest_52.
+ * ~half keeps discoveries distinct without leaving dead travel gaps.
  */
-export const HIDDEN_WORLD_MIN_SEP_M = 160
+export const HIDDEN_WORLD_MIN_SEP_M = 80
 
 /** Keep world-scatter pits off the home melt pad. */
 const HIDDEN_HEARTH_KEEP_M = 40
@@ -101,7 +108,7 @@ const HIDDEN_HEARTH_KEEP_M = 40
 /**
  * Soft cap per walkable elevation for the world-scatter pass only.
  */
-const HIDDEN_WORLD_MAX_PER_LEVEL = 4
+const HIDDEN_WORLD_MAX_PER_LEVEL = 6
 
 /**
  * Log-pile radius. A pit is rejected when this disc touches a mountain
@@ -124,7 +131,7 @@ export const HIDDEN_IGNITE_RADIUS_SQ_M = HIDDEN_IGNITE_RADIUS_M * HIDDEN_IGNITE_
 /**
  * Milliseconds per placement cycle. Every peer that joins inside the
  * same bucket window computes the same tile. 24 h is the initial pitch;
- * we'll shorten this (2–6 h) once the retention loop is fleshed out.
+ * we'll shorten this (2â€“6 h) once the retention loop is fleshed out.
  */
 export const HIDDEN_CYCLE_MS = 24 * 60 * 60 * 1000
 
@@ -146,7 +153,7 @@ export interface HiddenCampfireSpot {
  * Because HIDDEN_CYCLE_MS = 24 h and the unix epoch sits on midnight
  * UTC, this always lands on the next midnight UTC. Used by the server
  * to compute the authoritative `cycleState.nextRebuildEpochMs` it
- * broadcasts to clients — clients subtract their local Date.now() to
+ * broadcasts to clients â€” clients subtract their local Date.now() to
  * render the countdown (see src/client/cycle.ts).
  */
 export function nextRebuildEpochMs(now: number = Date.now()): number {
@@ -157,7 +164,7 @@ export function nextRebuildEpochMs(now: number = Date.now()): number {
 // MARK: getHiddenCampfireSeed
 /**
  * Current cycle seed. Deterministic across peers that share a wall
- * clock — good enough for MVP; will be replaced by a server-broadcast
+ * clock â€” good enough for MVP; will be replaced by a server-broadcast
  * seed when we add the cycle system.
  */
 export function getHiddenCampfireSeed(): number {
@@ -167,7 +174,7 @@ export function getHiddenCampfireSeed(): number {
 
 // MARK: mulberry32
 /**
- * Tiny deterministic PRNG. Same seed → same sequence on every peer,
+ * Tiny deterministic PRNG. Same seed â†’ same sequence on every peer,
  * no dependency on native Math.random ordering.
  */
 function mulberry32(seed: number): () => number {
@@ -255,7 +262,7 @@ function placeHomeNetwork(
 			if (spot === null) continue
 			if (!spotClear(spot.x, spot.z, nodes, blocked, trees, map, preferLevel, HIDDEN_LINK_MIN_M)) continue
 			const level = levelAt(map, spot.x, spot.z)
-			const y     = groundYForLevel(level)
+			const y     = groundYAtWorld(map, spot.x, spot.z)
 			nodes.push({ x: spot.x, z: spot.z })
 			picks.push({ x: spot.x, y, z: spot.z, tx: spot.tx, tz: spot.tz })
 			const node = { x: spot.x, z: spot.z, level }
@@ -279,8 +286,8 @@ function placeHomeNetwork(
 
 // MARK: placeGroveClusters
 /**
- * 4–6 hidden pits at each major destination (Low / Mid / High): one
- * centralish hub plus satellites grown off that hub.
+ * 5â€“7 hidden pits at each major grove destination (Low / Mid / High):
+ * one centralish hub plus satellites grown off that hub. Skips volcano.
  */
 function placeGroveClusters(
 	rand   : () => number,
@@ -317,7 +324,7 @@ function placeGroveClusters(
 				if (spot === null) continue
 				if (!spotClear(spot.x, spot.z, nodes, blocked, trees, map, preferLevel, HIDDEN_LINK_MIN_M)) continue
 				const level = levelAt(map, spot.x, spot.z)
-				const y     = groundYForLevel(level)
+				const y     = groundYAtWorld(map, spot.x, spot.z)
 				nodes.push({ x: spot.x, z: spot.z })
 				picks.push({ x: spot.x, y, z: spot.z, tx: spot.tx, tz: spot.tz })
 				placedN++
@@ -368,7 +375,7 @@ function placeDestinationHub(
 		const level = levelAt(map, x, z)
 		return {
 			x,
-			y : groundYForLevel(level),
+			y : groundYAtWorld(map, x, z),
 			z,
 			tx: cell.tx,
 			tz: cell.tz,
@@ -385,7 +392,7 @@ function placeDestinationHub(
 	}
 	return {
 		x : centre.x,
-		y : groundYForLevel(dest.level),
+		y : groundYAtWorld(map, centre.x, centre.z),
 		z : centre.z,
 		tx: cell.tx,
 		tz: cell.tz,
@@ -431,7 +438,7 @@ function placeWorldScatter(
 			if (preferLevel !== null && level !== preferLevel && i < TRIES_PER_SLOT * 0.5) continue
 			if (preferGeo && c.weight <= 1 && rand() > 0.25) continue
 			if (!spotClear(world.x, world.z, nodes, blocked, trees, map, null, HIDDEN_WORLD_MIN_SEP_M)) continue
-			const y = groundYForLevel(level)
+			const y = groundYAtWorld(map, world.x, world.z)
 			nodes.push({ x: world.x, z: world.z })
 			picks.push({ x: world.x, y, z: world.z, tx: c.tx, tz: c.tz })
 			levelCount.set(level, (levelCount.get(level) ?? 0) + 1)
@@ -453,7 +460,7 @@ function placeWorldScatter(
 // MARK: buildWorldCandidates
 /**
  * Walkable cells with soft weight for useful geography. Grove cells
- * are not excluded — world finds may still land near territories —
+ * are not excluded â€” world finds may still land near territories â€”
  * but hubs/sats already occupy the dense teaching spots.
  */
 function buildWorldCandidates(
@@ -467,11 +474,13 @@ function buildWorldCandidates(
 	const ladderBiasSq = HIDDEN_LADDER_BIAS_M * HIDDEN_LADDER_BIAS_M
 	const hearthKeepSq = HIDDEN_HEARTH_KEEP_M * HIDDEN_HEARTH_KEEP_M
 	const out: Array<{ tx: number; tz: number; weight: number }> = []
+	const summit = new Set(volcanoLavaCells(map).concat(volcanoCrownCells(map)))
 	for (let cz = 0; cz < map.h; cz++) {
 		for (let cx = 0; cx < map.w; cx++) {
 			const i = cellIndex(cx, cz)
 			const level = map.levels[i]
 			if (isMountainLevel(level) || map.routeDist[i] < 0) continue
+			if (summit.has(i)) continue
 			const world = tileToWorld(cx, cz)
 			const hdx = world.x - CAMPFIRE_WORLD_X
 			const hdz = world.z - CAMPFIRE_WORLD_Z
@@ -482,7 +491,8 @@ function buildWorldCandidates(
 				lf === LANDFORM_CANYON ||
 				lf === LANDFORM_RIDGE ||
 				lf === LANDFORM_BASIN ||
-				lf === LANDFORM_PLATEAU
+				lf === LANDFORM_PLATEAU ||
+				lf === LANDFORM_VOLCANO
 			) {
 				weight += 2
 			}
@@ -541,7 +551,7 @@ export function tileToWorld(tx: number, tz: number): { x: number; z: number } {
 
 // MARK: getHiddenCampfireWorldPositions
 /**
- * Convenience — full world positions for every hidden bonfire in the
+ * Convenience â€” full world positions for every hidden bonfire in the
  * current cycle (as computed from local Date.now()). Y is the walkable
  * ground height of each pit's terrain level.
  *
@@ -636,6 +646,8 @@ function spotClear(
 		if (dx * dx + dz * dz < minSq) return false
 	}
 	if (preferLevel !== null && levelAt(map, x, z) !== preferLevel) return false
+	// Whole log pile on one shelf: no hanging over a cliff lip.
+	if (!groundFlatWithin(map, x, z, HIDDEN_PIT_RADIUS_M)) return false
 	return !pitOverlaps(x, z, blocked, trees)
 }
 
@@ -680,6 +692,10 @@ function blockedCellsForPits(map: TerrainMap): Set<string> {
 	for (const ladder of map.ladders) {
 		out.add(`${ladder.lowCx},${ladder.lowCz},0`)
 		out.add(`${ladder.highCx},${ladder.highCz},0`)
+	}
+	// Volcano summit: lava lake and crown blocks are not pit ground.
+	for (const i of volcanoLavaCells(map).concat(volcanoCrownCells(map))) {
+		out.add(`${i % map.w},${Math.floor(i / map.w)},0`)
 	}
 	return out
 }

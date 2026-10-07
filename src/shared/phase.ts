@@ -103,10 +103,14 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		meltBrushCap: null, torchFlameMul: 1.0,
 	},
 	{
+		// Day frost at half the prior rate: ambient uses 0.5 × day length
+		// (= 60 s to fill) instead of FROST_TIME_BASELINE_S (30 s), and
+		// snowFrostMul 0.5 halves the snow term. Dawn / dusk / night
+		// rows are unchanged.
 		name: 'DAY', durationSec: 120, drainMul: 0.5,
 		skyFrom: SKY_0715, skyTo: SKY_17,
-		ambientFreezePhases: null, torchLeakPhases: null,
-		snowFrostMul: 1.0, torchDrainMul: 1.0,
+		ambientFreezePhases: 0.5, torchLeakPhases: null,
+		snowFrostMul: 0.5, torchDrainMul: 1.0,
 		weatherHeavyBias: 0.30, weatherSpeedMul: 1.0,
 		weatherFloor: 0, weatherEnterLevel: null,
 		meltBrushCap: null, torchFlameMul: 1.0,

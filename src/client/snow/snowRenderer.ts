@@ -70,6 +70,8 @@ import {
 } from 'src/client/snow/snowModel'
 
 const CREATE_BUDGET_PER_FRAME = 150
+/** Max urgent (budget-exempt) tile rebuilds per frame, nearest first. */
+const URGENT_MAX_PER_FRAME = 6
 const CREATE_HARD_CAP         = 300
 const SYNC_FALLBACK_MS        = 8000
 const BOX_LIFT_M              = 0.01
@@ -322,20 +324,36 @@ function snowRenderSystem(dt: number): void {
 // MARK: processPendingRoots
 
 function processPendingRoots(): void {
-	const order: number[] = []
-	for (const k of urgentRoots) if (pendingRoots.has(k)) order.push(k)
-	urgentRoots.clear()
-
-	const rest: Array<{ k: number; d: number }> = []
 	const focus = readFocusXZ()
 	const px    = focus.x
 	const pz    = focus.z
-	for (const k of pendingRoots) {
-		if (order.indexOf(k) >= 0) continue
+	const distSq = (k: number): number => {
 		const { tx, tz } = tileCoordsFromKey(k)
 		const dx = SNOW_ORIGIN_M + (tx + 0.5) * SNOW_TILE_M - px
 		const dz = SNOW_ORIGIN_M + (tz + 0.5) * SNOW_TILE_M - pz
-		rest.push({ k, d: dx * dx + dz * dz })
+		return dx * dx + dz * dz
+	}
+
+	// Urgent = rebuild this frame regardless of budget. Only honour that
+	// for a handful of tiles nearest the player: a world thaw marks every
+	// tile urgent at once, and rebuilding all 2704 in one frame froze the
+	// scene. Overflow urgent tiles fall back to the budgeted queue.
+	const urgentList: Array<{ k: number; d: number }> = []
+	for (const k of urgentRoots) if (pendingRoots.has(k)) urgentList.push({ k, d: distSq(k) })
+	urgentRoots.clear()
+	urgentList.sort((a, b) => a.d - b.d)
+	const order: number[] = []
+	const inOrder = new Set<number>()
+	for (const u of urgentList) {
+		if (order.length >= URGENT_MAX_PER_FRAME) break
+		order.push(u.k)
+		inOrder.add(u.k)
+	}
+
+	const rest: Array<{ k: number; d: number }> = []
+	for (const k of pendingRoots) {
+		if (inOrder.has(k)) continue
+		rest.push({ k, d: distSq(k) })
 	}
 	rest.sort((a, b) => a.d - b.d)
 	for (const r of rest) order.push(r.k)

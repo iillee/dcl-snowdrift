@@ -29,6 +29,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
+import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { UI_THEME }                                   from 'src/client/ui/theme/settings'
 
 
@@ -61,7 +62,14 @@ const PADDING_X_DT    = 14
 
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
-	return isReadyToIgniteHidden()
+	return isReadyToIgniteHidden() || isReadyToIgniteMonument()
+}
+
+
+// MARK: onPromptPress
+function onPromptPress(): void {
+	if (isReadyToIgniteHidden()) { requestHiddenIgnite(); return }
+	requestMonumentIgnite()
 }
 
 
@@ -94,6 +102,7 @@ class HiddenCampfirePromptLayer extends Layer {
 		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
 		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
 		const labelH   = Math.round(fontPx * 1.6)
+		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : 'IGNITE MONUMENT'
 
 		return (
 			<UiEntity
@@ -114,14 +123,14 @@ class HiddenCampfirePromptLayer extends Layer {
 				// Clicking the tooltip also triggers the ignite on both
 				// platforms — the bubble is the primary tap target next
 				// to the button.
-				onMouseDown = {requestHiddenIgnite}
+				onMouseDown = {onPromptPress}
 			>
 				{/* Desktop uses <b> markup for a bolder read; mobile stays
 				   on the plain string to avoid the rich-text hitbox mismatch
 				   (see docs/bug-reports/react-ecs-richtext-hitbox-mismatch.md). */}
 				<Label
 					key         = "ui_HiddenCampfirePrompt_label"
-					value       = {mobile ? 'LIGHT CAMPFIRE' : '<b>LIGHT CAMPFIRE</b>'}
+					value       = {mobile ? text : `<b>${text}</b>`}
 					fontSize    = {fontPx}
 					color       = {FG_BLACK}
 					font        = "sans-serif"

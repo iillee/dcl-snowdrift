@@ -19,6 +19,7 @@ import {
 	TERRAIN_GRID_H,
 	TERRAIN_GRID_W,
 	TERRAIN_LEVEL_MOUNTAIN,
+	VOLCANO_LAVA_TOP_ABOVE_RIM_M,
 	groundYForLevel,
 } from 'src/shared/settings'
 
@@ -59,6 +60,10 @@ export const LANDFORM_CANYON  = 2
 export const LANDFORM_RIDGE   = 3
 export const LANDFORM_PLATEAU = 4
 export const LANDFORM_BASIN   = 5
+/** High stretched plateau stamped as the volcano caldera landmark. */
+export const LANDFORM_VOLCANO = 6
+/** Volcano crater interior: rim-level lava lake (visual lava on top). */
+export const LANDFORM_LAVA    = 7
 
 
 // MARK: Types
@@ -78,13 +83,42 @@ export interface TerrainLadder {
 	top      : { x: number; y: number; z: number }
 }
 
-/** A far Low / Mid / High region worth an expedition (major grove socket). */
+/** A far Low / Mid region worth an expedition (major grove socket). */
 export interface TerrainDestination {
 	region : number
 	level  : number
 	area   : number
 	cx     : number
 	cz     : number
+	/** Route steps from the hearth (cells, ladders and drops included). */
+	route  : number
+}
+
+/**
+ * Volcano landmark on a High / mountain-adjacent plateau. Not a grove —
+ * no wood pool, no grove pit cluster.
+ */
+export interface TerrainVolcano {
+	region : number
+	level  : number
+	area   : number
+	cx     : number
+	cz     : number
+	/** Route steps from the hearth (cells, ladders and drops included). */
+	route  : number
+}
+
+/**
+ * Ignition station socket — exploration landmark with line of sight to
+ * the volcano. Not a grove: no wood pool, no pit cluster. Beams /
+ * tablets / activation are a later pass; the generator only places the
+ * socket and validates LOS + separation.
+ */
+export interface TerrainStation {
+	cx     : number
+	cz     : number
+	level  : number
+	region : number
 	/** Route steps from the hearth (cells, ladders and drops included). */
 	route  : number
 }
@@ -109,7 +143,12 @@ export interface TerrainMap {
 	hearthCz      : number
 	hearthRegion  : number
 	ladders       : TerrainLadder[]
+	/** Major grove sockets only (Low + Mid). */
 	destinations  : TerrainDestination[]
+	/** High plateau volcano landmark, or null when placement failed. */
+	volcano       : TerrainVolcano | null
+	/** Ignition stations (3) with LOS to the volcano. Empty when placement failed. */
+	stations      : TerrainStation[]
 	/** Route steps from the hearth per cell, -1 when unreachable. */
 	routeDist     : Int32Array
 }
@@ -186,11 +225,63 @@ export function levelAtWorld(
 
 
 // MARK: groundYAtWorld
-/** Walkable surface height under world (x, z). */
+/**
+ * Walkable surface height under world (x, z). Crown cells report their
+ * extruded top; lava cells report the lava lid (rim + 1.7 m), which is
+ * the collider you actually stand on.
+ */
 export function groundYAtWorld(
 	map: TerrainMap,
 	x:   number,
 	z:   number,
 ): number {
-	return groundYForLevel(levelAtWorld(map, x, z))
+	const { cx, cz } = cellOfWorld(x, z)
+	const y = groundYForLevel(levelAt(map, cx, cz))
+	if (inGrid(cx, cz) && map.landforms[cellIndex(cx, cz)] === LANDFORM_LAVA) {
+		return y + VOLCANO_LAVA_TOP_ABOVE_RIM_M
+	}
+	return y
+}
+
+
+// MARK: isLavaAtWorld
+/** True when world (x, z) is over the volcano lava lake. */
+export function isLavaAtWorld(
+	map: TerrainMap,
+	x:   number,
+	z:   number,
+): boolean {
+	const { cx, cz } = cellOfWorld(x, z)
+	return inGrid(cx, cz) && map.landforms[cellIndex(cx, cz)] === LANDFORM_LAVA
+}
+
+
+// MARK: groundFlatWithin
+/**
+ * True when every cell a disc of radius `r` at world (x, z) touches has
+ * the same walkable surface height as the cell under its centre. Keeps
+ * props off cliff lips, where part of the footprint hangs over a drop.
+ */
+export function groundFlatWithin(
+	map: TerrainMap,
+	x:   number,
+	z:   number,
+	r:   number,
+): boolean {
+	const y   = groundYAtWorld(map, x, z)
+	const c0  = cellOfWorld(x - r, z - r)
+	const c1  = cellOfWorld(x + r, z + r)
+	const rSq = r * r
+	for (let cz = c0.cz; cz <= c1.cz; cz++) {
+		for (let cx = c0.cx; cx <= c1.cx; cx++) {
+			const x0 = TERRAIN_ORIGIN_M + cx * TERRAIN_CELL_M
+			const z0 = TERRAIN_ORIGIN_M + cz * TERRAIN_CELL_M
+			const dx = Math.max(x0 - x, 0, x - (x0 + TERRAIN_CELL_M))
+			const dz = Math.max(z0 - z, 0, z - (z0 + TERRAIN_CELL_M))
+			if (dx * dx + dz * dz >= rSq) continue
+			const c = cellCenterWorld(cx, cz)
+			if (Math.abs(groundYAtWorld(map, c.x, c.z) - y) > 0.01) return false
+		}
+	}
+	return true
 }

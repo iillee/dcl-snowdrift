@@ -30,7 +30,7 @@ import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
 import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
-import { LOGS_PICKUP_RADIUS_SQ, LOGS_PILE_WORLD_Y } from 'src/shared/logs'
+import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
 import {
@@ -153,7 +153,7 @@ export function setupWoodClient(): void {
 		// in pickupLogs(), so only play here when someone ELSE grabbed it.
 		// If we can't identify ourselves (getPlayer() null on early frames),
 		// skip the FX rather than risk spawning a remote-style bounce for
-		// our own pickup — that mis-attach orphans the rig at (0,0,0)
+		// our own pickup â€” that mis-attach orphans the rig at (0,0,0)
 		// and reads as a teleport bug (see logsPickupFx normalisation).
 		const me = getPlayer()?.userId.toLowerCase()
 		if (!me)                                    return
@@ -209,10 +209,10 @@ function spawnChunk(idx: number, armed: boolean): void {
 		return
 	}
 	const entity = engine.addEntity()
-	attachWoodModel(entity, c.kind, c.worldX, c.worldZ, (idx * 37) % 360)
+	attachWoodModel(entity, c.kind, c.worldX, c.worldZ, (idx * 37) % 360, c.worldY)
 
 	let beacon: Entity | null = null
-	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldZ)
+	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldY, c.worldZ)
 
 	chunkEntities.set(idx, { entity, beacon, x: c.worldX, z: c.worldZ, kind: c.kind, armed })
 }
@@ -224,9 +224,9 @@ function spawnChunk(idx: number, armed: boolean): void {
  * it from a distance. Dev-only visual aid; strip once discovery is
  * tuned and (eventually) the snow-hiding gate lands.
  */
-function spawnBeacon(x: number, z: number): Entity {
+function spawnBeacon(x: number, groundY: number, z: number): Entity {
 	const e       = engine.addEntity()
-	const yCentre = LOGS_PILE_WORLD_Y + BEACON_Y_OFFSET_M + BEACON_HEIGHT_M / 2
+	const yCentre = groundY + BEACON_Y_OFFSET_M + BEACON_HEIGHT_M / 2
 	Transform.create(e, {
 		position: Vector3.create(x, yCentre, z),
 		scale   : Vector3.create(BEACON_WIDTH_M, BEACON_HEIGHT_M, 1),

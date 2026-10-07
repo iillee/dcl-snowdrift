@@ -17,6 +17,8 @@ import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
 // CyclePanel is rendered inline by ClockButton (see layer.brushSize.tsx)
 // so it's anchored to the clock icon â€” not a top-level kit layer.
 import { daySplashLayer }     from 'src/client/ui/layers/layer.daySplash'
+import { thawSplashLayer }    from 'src/client/ui/layers/layer.thawSplash'
+import { summitMapLayer }    from 'src/client/ui/layers/layer.summitMap'
 import { deathFadeLayer }     from 'src/client/ui/layers/layer.deathFade'
 import { emberFailLayer }     from 'src/client/ui/layers/layer.emberFail'
 import { frostFlashLayer }    from 'src/client/ui/layers/layer.frostFlash'
@@ -87,6 +89,10 @@ export function setupUi() {
 			// Sunrise "Day X" sits above HUD chrome, below death / ember /
 			// loading so those still cover it.
 			daySplashLayer,
+			// Summit world-map popup (knowledge only).
+			summitMapLayer,
+			// World-thaw victory card (3/3 stations) — above day splash, below death.
+			thawSplashLayer,
 			// Death fade must sit above gameplay HUD but below the cold-open
 			// splash so a splash-during-death still covers the screen.
 			deathFadeLayer,

@@ -13,15 +13,11 @@ import { engine, Transform } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { TERRAIN_HEARTH_SURFACE_Y } from 'src/shared/settings'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
-// Dawn pad just off the hearth centre. Look stays on the playtest sunrise heading.
-const SPAWN_X = CAMPFIRE_WORLD_X + 2.1
-const SPAWN_Y = TERRAIN_HEARTH_SURFACE_Y + 0.25
-const SPAWN_Z = CAMPFIRE_WORLD_Z + 2.1
 /** Compass degrees from +Z (north), clockwise. 232.5 = SW of WSW. */
 const LOOK_SUNRISE_DEG = 232.5
 const LOOK_DIST_M      = 80
@@ -30,13 +26,39 @@ const LOOK_RAD         = (LOOK_SUNRISE_DEG * Math.PI) / 180
 const LOOK_DX          = Math.sin(LOOK_RAD) * LOOK_DIST_M
 const LOOK_DZ          = Math.cos(LOOK_RAD) * LOOK_DIST_M
 
+/**
+ * Dawn pad: PAD_DIST_M back from the fire along the sunrise heading, so
+ * the sunrise look runs straight over the campfire (spawn faces the fire)
+ * and the pad sits clear of the fire's collider. scene.json's static
+ * spawn mirrors this point.
+ */
+const PAD_DIST_M = 3
+const SPAWN_X    = CAMPFIRE_WORLD_X - Math.sin(LOOK_RAD) * PAD_DIST_M
+const SPAWN_Z    = CAMPFIRE_WORLD_Z - Math.cos(LOOK_RAD) * PAD_DIST_M
+/** Feet clearance above the walkable surface on arrival. */
+const FEET_LIFT_M = 0.25
+/** Treat the player as buried when this far below the ground under them. */
+const BURIED_TOLERANCE_M = 0.5
+
+
+// MARK: standY
+/**
+ * Arrival height at (x, z): the active terrain's walkable surface plus a
+ * small lift. Reads the per-seed map, so a Low / High fire or a future
+ * hearth level change lands on the right shelf. Before any seed lands
+ * activeGroundYAt falls back to the hearth surface.
+ */
+function standY(x: number, z: number): number {
+	return activeGroundYAt(x, z) + FEET_LIFT_M
+}
+
 
 // MARK: getHomePosition
 /** Feet on the dawn spawn pad. */
 export function getHomePosition(): { x: number, y: number, z: number } {
 	return {
 		x: SPAWN_X,
-		y: SPAWN_Y,
+		y: standY(SPAWN_X, SPAWN_Z),
 		z: SPAWN_Z,
 	}
 }
@@ -89,12 +111,33 @@ export function teleportNear(
 		console.log('player: teleportNear: leaving spectator so the arrival look can land')
 		toggleTopDownCamera()
 	}
-	const lookY = TERRAIN_HEARTH_SURFACE_Y + 1.2
+	const lookY = activeGroundYAt(lookX, lookZ) + 1.2
 	movePlayerTo({
-		newRelativePosition: { x, y: SPAWN_Y, z },
+		newRelativePosition: { x, y: standY(x, z), z },
 		cameraTarget       : { x: lookX, y: lookY, z: lookZ },
 		avatarTarget       : { x: lookX, y: lookY, z: lookZ },
 	}).catch(() => {})
+}
+
+
+// MARK: rescueIfBuried
+/**
+ * Called after every terrain (re)build. If the avatar is below the
+ * walkable surface under it — e.g. it was teleported before the slabs
+ * existed, fell to the engine floor, and the hearth slab then spawned
+ * around it — send it home to stand on the real ground.
+ */
+export function rescueIfBuried(): void {
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	if (!t) return
+	const { x, y, z } = t.position
+	const ground = activeGroundYAt(x, z)
+	if (y >= ground - BURIED_TOLERANCE_M) return
+	console.log(
+		`player: rescueIfBuried: avatar at y=${y.toFixed(2)} under ground ${ground.toFixed(2)} ` +
+		`at (${x.toFixed(1)}, ${z.toFixed(1)}) — teleporting home`,
+	)
+	teleportHome()
 }
 
 

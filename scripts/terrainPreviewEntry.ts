@@ -7,8 +7,9 @@
  *
  * Legend: Low = dark blue, Middle = grey-blue, High = white,
  * Mountain = brown, dark lines = cliffs, orange = hearth,
- * yellow = ladder, green = destination. Landform tint: canyon red,
- * ridge cyan, plateau green, basin violet.
+ * yellow = ladder, green = grove, red-orange = volcano, magenta = station.
+ * Landform tint:
+ * canyon red, ridge cyan, plateau green, basin violet, volcano lava.
  */
 
 import { writeFileSync } from 'fs'
@@ -20,6 +21,7 @@ import {
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
 	TERRAIN_LEVEL_MOUNTAIN,
+	TERRAIN_LEVEL_VOLCANO_RIM,
 	isMountainLevel,
 } from 'src/shared/settings'
 import { generateTerrain, mergeLevelRects, terrainPieceStats } from 'src/shared/terrain/terrainGen'
@@ -28,8 +30,11 @@ import {
 	LANDFORM_CANYON,
 	LANDFORM_PLATEAU,
 	LANDFORM_RIDGE,
+	LANDFORM_LAVA,
+	LANDFORM_VOLCANO,
 	TerrainMap,
 } from 'src/shared/terrain/terrainMap'
+import { volcanoCrownCells } from 'src/shared/terrain/volcanoCrown'
 import { encodePngRgb } from 'src/shared/utils/pngEncoder'
 
 declare const process: { argv: string[] }
@@ -39,16 +44,19 @@ const GAP     = 6
 const COLS    = 4
 
 const LEVEL_RGB: Record<number, [number, number, number]> = {
-	[TERRAIN_LEVEL_LOW]:      [70, 92, 135],
-	[TERRAIN_LEVEL_MID]:      [165, 180, 202],
-	[TERRAIN_LEVEL_HIGH]:     [240, 244, 250],
-	[TERRAIN_LEVEL_MOUNTAIN]: [110, 92, 80],
+	[TERRAIN_LEVEL_LOW]:         [70, 92, 135],
+	[TERRAIN_LEVEL_MID]:         [165, 180, 202],
+	[TERRAIN_LEVEL_HIGH]:        [240, 244, 250],
+	[TERRAIN_LEVEL_VOLCANO_RIM]: [255, 210, 160],
+	[TERRAIN_LEVEL_MOUNTAIN]:    [110, 92, 80],
 }
 const LANDFORM_TINT: Record<number, [number, number, number]> = {
 	[LANDFORM_CANYON]:  [200, 60, 60],
 	[LANDFORM_RIDGE]:   [60, 200, 220],
 	[LANDFORM_PLATEAU]: [80, 200, 90],
 	[LANDFORM_BASIN]:   [170, 90, 220],
+	[LANDFORM_VOLCANO]: [235, 70, 25],
+	[LANDFORM_LAVA]:    [255, 140, 0],
 }
 
 
@@ -79,6 +87,14 @@ function main(): void {
 		const destTag = (lv: number): string =>
 			lv === TERRAIN_LEVEL_HIGH ? 'H' : lv === TERRAIN_LEVEL_MID ? 'M' : 'L'
 		const dests = map.destinations.map(d => `${destTag(d.level)}${d.area}@${d.route}`).join(' ')
+		const crownN = volcanoCrownCells(map).length
+		const lavaN  = map.landforms.reduce((n, lf) => n + (lf === LANDFORM_LAVA ? 1 : 0), 0)
+		const vol = map.volcano
+			? `V${map.volcano.area}@${map.volcano.route} lava${lavaN} crown${crownN}`
+			: 'V-'
+		const stTag = (lv: number): string =>
+			lv === TERRAIN_LEVEL_HIGH ? 'H' : lv === TERRAIN_LEVEL_MID ? 'M' : 'L'
+		const stations = map.stations.map(s => `${stTag(s.level)}@${s.route}`).join(' ')
 
 		rows.push(
 			`run ${String(run).padStart(3)}  try ${map.attempts}  ` +
@@ -88,7 +104,7 @@ function main(): void {
 			`ladders ${String(pieces.ladders).padStart(2)}  ` +
 			`slabs ${String(mergeLevelRects(map).length).padStart(4)}  ` +
 			`kit o${pieces.outer} e${pieces.edge} i${pieces.inner} d${pieces.diag} = ${pieces.total}  ` +
-			`dest ${dests || '-'}  ${ms}ms`
+			`grove ${dests || '-'}  ${vol}  st ${stations || '-'}  ${ms}ms`
 		)
 		maxMs     = Math.max(maxMs, ms)
 		maxPieces = Math.max(maxPieces, pieces.total)
@@ -141,7 +157,11 @@ function renderSheet(maps: TerrainMap[]): Uint8Array {
 					: LEVEL_RGB[lv]
 				if (c === undefined) c = LEVEL_RGB[TERRAIN_LEVEL_MOUNTAIN]
 				const tint = LANDFORM_TINT[map.landforms[i]]
-				if (tint) c = mix(c, tint, 0.3)
+				if (tint) {
+					const amt = map.landforms[i] === LANDFORM_LAVA ? 0.95
+						: map.landforms[i] === LANDFORM_VOLCANO ? 0.55 : 0.3
+					c = mix(c, tint, amt)
+				}
 				for (let dy = 0; dy < PX; dy++) {
 					for (let dx = 0; dx < PX; dx++) {
 						const [x, y] = px(cx, cz, dx, dy)
@@ -159,6 +179,21 @@ function renderSheet(maps: TerrainMap[]): Uint8Array {
 			}
 		}
 
+		// Crown: raised blue rock outside, dark basalt edge on lava faces.
+		for (const ci of volcanoCrownCells(map)) {
+			const ccx = ci % map.w
+			const ccz = Math.floor(ci / map.w)
+			for (let dy = 0; dy < PX; dy++) {
+				for (let dx = 0; dx < PX; dx++) put(...px(ccx, ccz, dx, dy), [150, 170, 225])
+			}
+			const lavaAt = (nx: number, nz: number): boolean =>
+				nx >= 0 && nz >= 0 && nx < map.w && nz < map.h && map.landforms[nz * map.w + nx] === LANDFORM_LAVA
+			const basalt: [number, number, number] = [40, 30, 26]
+			if (lavaAt(ccx - 1, ccz)) for (let d = 0; d < PX; d++) put(...px(ccx, ccz, 0, d), basalt)
+			if (lavaAt(ccx + 1, ccz)) for (let d = 0; d < PX; d++) put(...px(ccx, ccz, PX - 1, d), basalt)
+			if (lavaAt(ccx, ccz + 1)) for (let d = 0; d < PX; d++) put(...px(ccx, ccz, d, 0), basalt)
+			if (lavaAt(ccx, ccz - 1)) for (let d = 0; d < PX; d++) put(...px(ccx, ccz, d, PX - 1), basalt)
+		}
 		for (const l of map.ladders) {
 			for (const [cx, cz] of [[l.lowCx, l.lowCz], [l.highCx, l.highCz]]) {
 				for (let dy = 0; dy < PX; dy++) {
@@ -171,6 +206,27 @@ function renderSheet(maps: TerrainMap[]): Uint8Array {
 				for (let dx = -1; dx <= 1; dx++) {
 					for (let y = 0; y < PX; y++) {
 						for (let x = 0; x < PX; x++) put(...px(d.cx + dx, d.cz + dz, x, y), [40, 210, 80])
+					}
+				}
+			}
+		}
+		for (const s of map.stations) {
+			for (let dz = -1; dz <= 1; dz++) {
+				for (let dx = -1; dx <= 1; dx++) {
+					if (Math.abs(dx) + Math.abs(dz) !== 1 && !(dx === 0 && dz === 0)) continue
+					for (let y = 0; y < PX; y++) {
+						for (let x = 0; x < PX; x++) put(...px(s.cx + dx, s.cz + dz, x, y), [220, 40, 200])
+					}
+				}
+			}
+		}
+
+		if (map.volcano) {
+			const v = map.volcano
+			for (let dz = -1; dz <= 1; dz++) {
+				for (let dx = -1; dx <= 1; dx++) {
+					for (let y = 0; y < PX; y++) {
+						for (let x = 0; x < PX; x++) put(...px(v.cx + dx, v.cz + dz, x, y), [230, 60, 30])
 					}
 				}
 			}

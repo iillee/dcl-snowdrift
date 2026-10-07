@@ -25,6 +25,7 @@
  */
 
 import { Transform, engine, Entity } from '@dcl/sdk/ecs'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
@@ -65,7 +66,7 @@ function spawnPileEntity(
 		return
 	}
 	const entity = engine.addEntity()
-	attachWoodModel(entity, kind, x, z, (id * 37) % 360)
+	attachWoodModel(entity, kind, x, z, (id * 37) % 360, activeGroundYAt(x, z))
 	piles.set(id, { entity, x, z, kind, armed })
 	console.log(
 		`logs: spawnPileEntity: pile #${id} kind=${kind} spawned at ` +

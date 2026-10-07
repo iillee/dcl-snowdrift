@@ -1,5 +1,5 @@
 /**
- * spawn.ts — client-side spawning of scattered props.
+ * spawn.ts ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â client-side spawning of scattered props.
  *
  * Converts the pure PropPlacement list produced by
  * src/shared/props/scatter.ts into live entities. Props follow the
@@ -17,7 +17,6 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
 import { scatterProps } from 'src/shared/props/scatter'
-import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 import { WOOD_LOGS_PER_TREE } from 'src/shared/woodScatter'
 
 
@@ -29,6 +28,13 @@ let onTreesSpawned: (() => void) | null = null
 
 const defsById = new Map<string, PropDef>(PROP_CATALOG.map(d => [d.id, d]))
 
+
+/**
+ * Metres each tree sinks below its ground height, per unit of scale.
+ * A slight overlap into the ground hides root/base gaps; 0.03 gives
+ * 0.12 m at scale 4 up to 0.24 m at scale 8, under the trunk flare.
+ */
+const TREE_SINK_PER_SCALE_M = 0.03
 
 // MARK: setupProps
 /**
@@ -51,13 +57,13 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 	for (const p of placements) {
 		const def = defsById.get(p.propId)
 		if (!def) {
-			console.log(`props: setupProps: unknown propId "${p.propId}" — skipping`)
+			console.log(`props: setupProps: unknown propId "${p.propId}" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping`)
 			continue
 		}
 		const e = engine.addEntity()
-		// scatterProps leaves worldY as the prop's own offset; the
-		// terrain surface under the prop is ours to add.
-		const groundY = activeGroundYAt(p.worldX, p.worldZ)
+		// worldY is the prop's own offset; groundY is the terrain surface
+		// scatterProps sampled for this seed's map.
+		const groundY = p.groundY - (p.propId === 'tree_4' ? p.scale * TREE_SINK_PER_SCALE_M : 0)
 		Transform.create(e, {
 			position: Vector3.create(p.worldX, groundY + p.worldY, p.worldZ),
 			rotation: Quaternion.fromEulerDegrees(0, p.yawDeg, 0),

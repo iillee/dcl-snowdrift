@@ -92,11 +92,15 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-10-05)
+## Where the build is (2026-10-07) — V1 MVP loop
+
+Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 monuments** in any order (E / **IGNITE MONUMENT** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s radial melt wave from the volcano (ground snow and cliff caps) → lava, clear weather, **WORLD THAWED**, no night cold → 3 days of **Winter Approaches in N Days** → new winter. Lit monuments are eternal Warm fires. The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
+
+## Where the build was (2026-10-05)
 
 Phase 1 **Systems** is underway. The authored / deployed World is **100 × 100 parcels** (1600 m) with coarse far snow LOD. Desktop joins that full footprint. **Mobile Explorer currently clamps the same World to 51 × 51** (hearth ~10–18 m from the NE edge) — reported upstream as **H1-07**; phone leave-scene playtests are blocked until that lands.
 
-**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; wire path coerces fuel to Number so clients stay in sync); melt-to-reveal branches and logs; choppable trees; home teaching fires + per-grove pits + generation-grown world finds; one carry slot; freeze in ice, torch thaw with ice-melt SFX (desktop elevates ice on mobile peers); a lit fire wakes the frozen; run-end cards + fresh seed; Day N; black cold open; ? menu; phone mute / overhead zoom / face finder; coarse far snow sheets; opt-in **xy** bounds debug chip beside the heat bar.
+**Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; wire path coerces fuel to Number so clients stay in sync); melt-to-reveal branches and logs; choppable trees; home teaching fires + per-grove pits + generation-grown world finds; one carry slot; freeze in ice, torch thaw with ice-melt SFX (desktop elevates ice on mobile peers); a lit fire wakes the frozen; run-end cards + fresh seed; Day N; black cold open; ? menu; phone mute / overhead zoom / face finder; coarse far snow sheets; opt-in **xy** bounds debug chip beside the heat bar (removed 2026-10-07).
 
 **Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. Reliable **mobile** play on 100 × 100 (H1-07). Geography / migration destinations — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).
 

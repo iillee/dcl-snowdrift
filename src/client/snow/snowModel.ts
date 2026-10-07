@@ -17,7 +17,9 @@
  * so late joiners do not draw pristine snow over the fire before
  * PaintTile CRDT arrives. When the hearth is out, that force-melt
  * stops and snowfall can bury the logs again. Hidden pits are never
- * force-cleared — they start buried and only melt when lit.
+ * force-cleared — they start buried and only melt when lit. The volcano
+ * crater is always force-cleared (Warm pad) so caldera heat reads before
+ * PaintTile CRDT arrives.
  *
  * Optimistic writes expire after OPTIMISTIC_TIMEOUT_MS: if the server has
  * not moved the cell by then, displayed snaps back to the server value.
@@ -44,6 +46,12 @@ import {
 } from 'src/shared/snowGrid'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { levelAtWorld } from 'src/shared/terrain/terrainMap'
+import {
+	CRATER_HEAT_RADIUS_M,
+	volcanoCraterHeatCenter,
+} from 'src/shared/terrain/volcanoCraterHeat'
+import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
+import { volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 
 import { getMainFireFuel } from 'src/client/hearthFuel'
 
@@ -118,6 +126,7 @@ function snowModelSystem(dt: number): void {
 	// After CRDT apply / prune: keep the lit spawn ring open for late
 	// joiners. Dead hearth / unlit hidden pits are left to snowfall.
 	ensureHearthClearing()
+	ensureCraterClearing()
 
 	if (!hydrated && synced) {
 		hydrated = true
@@ -183,6 +192,69 @@ function ensureHearthClearing(): void {
 	hearthClearingKeys.clear()
 	for (const key of next) hearthClearingKeys.add(key)
 }
+
+
+/** Cells held melted by ensureCraterClearing (displayed only). */
+const craterClearingKeys = new Set<number>()
+/** Cached crater melt footprint for the active terrain seed. */
+const craterClearingTemplate = new Set<number>()
+let craterClearingSeed = -1
+
+
+// MARK: ensureCraterClearing
+/**
+ * Always force-melt the volcano caldera (lava tiles + Warm bloom at the
+ * centroid + Warm pad at the summit map seat). Matches server
+ * meltVolcanoCraterHeat so late joiners see crater heat before CRDT.
+ * Displayed-only — does not poison serverStages.
+ */
+function ensureCraterClearing(): void {
+	const map = activeTerrain()
+	const next = new Set<number>()
+	if (map) {
+		if (map.usedSeed !== craterClearingSeed || craterClearingTemplate.size === 0) {
+			craterClearingSeed = map.usedSeed
+			craterClearingTemplate.clear()
+			for (const i of volcanoLavaCells(map)) {
+				const cx = i % map.w
+				const cz = (i - cx) / map.w
+				const tileKey = cz * SNOW_TILES_X + cx
+				for (let local = 0; local < SNOW_TILE_CELL_COUNT; local++) {
+					craterClearingTemplate.add(tileKey * SNOW_TILE_CELL_COUNT + local)
+				}
+			}
+			const centre = volcanoCraterHeatCenter(map)
+			if (centre) {
+				collectClearingKeys(centre.x, centre.z, CRATER_HEAT_RADIUS_M, craterClearingTemplate)
+			}
+			const seat = pickSummitMapSeat(map)
+			if (seat) {
+				collectClearingKeys(seat.x, seat.z, CRATER_HEAT_RADIUS_M, craterClearingTemplate)
+			}
+		}
+		for (const key of craterClearingTemplate) next.add(key)
+	}
+	for (const key of craterClearingKeys) {
+		if (next.has(key)) continue
+		pending.delete(key)
+		if (displayedStages[key] === serverStages[key]) continue
+		displayedStages[key] = serverStages[key]
+		const tileKey = tileKeyOfCell(key)
+		dirtyRoots.add(tileKey)
+		urgentRoots.add(tileKey)
+	}
+	for (const key of next) {
+		pending.delete(key)
+		if (displayedStages[key] === STAGE_MELTED) continue
+		displayedStages[key] = STAGE_MELTED
+		const tileKey = tileKeyOfCell(key)
+		dirtyRoots.add(tileKey)
+		urgentRoots.add(tileKey)
+	}
+	craterClearingKeys.clear()
+	for (const key of next) craterClearingKeys.add(key)
+}
+
 
 
 // MARK: collectClearingKeys

@@ -35,6 +35,11 @@ import {
 	sendHiddenCampfireStateTo,
 	setupHiddenCampfireServer,
 } from 'src/server/hiddenCampfire'
+import {
+	sendStationStateTo,
+	meltLitStationHeat,
+	setupStationsServer,
+} from 'src/server/stations'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
 import { armPhaseClock, isPhaseClockArmed, sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
 import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
@@ -43,6 +48,7 @@ import {
 	applyMelt,
 	clearAllSnow,
 	meltDisc,
+	meltVolcanoCraterHeat,
 	meltedCellCount,
 	meltRandomCells,
 	publishCoverageIfDirty,
@@ -107,10 +113,17 @@ export async function setupServer(): Promise<void> {
 	// Cycle clock BEFORE hiddenCampfire so both read the same authoritative
 	// bucket if we ever cross-wire them.
 	setupCycleServer()
+	// Caldera stays Warm-melted (lava tiles + Warm bloom + seat pad) from boot.
+	meltVolcanoCraterHeat()
+	meltLitStationHeat()
+	flushDirtySnowTiles()
 	// Day/night clock after cycle so it can subscribe to onCycleRoll
 	// (reset to DAWN when the world wipe fires).
 	setupPhaseServer()
 	setupHiddenCampfireServer()
+	// Ignition stations (click-activate → beam). After cycle + hidden
+	// campfire so we share the same authoritative seed.
+	setupStationsServer()
 	setupLogsServer()
 	setupWoodServer()
 	setupTorchServer()
@@ -137,6 +150,8 @@ export async function setupServer(): Promise<void> {
 		console.log('[Server] cycle: clearing snow + reseeding central ring')
 		clearAllSnow()
 		seedStartingArea()
+		meltVolcanoCraterHeat()
+		meltLitStationHeat()
 		seedHiddenCampfireDimples()
 	})
 
@@ -217,6 +232,8 @@ export async function setupServer(): Promise<void> {
 		// somebody already lit it should see smoke + hear crackle from
 		// the first frame instead of a cold pit.
 		sendHiddenCampfireStateTo(from)
+		// Ignition stations — latecomers see already-fired beams.
+		sendStationStateTo(from)
 		// Hydrate the joiner with every wood pile currently in the world so
 		// they see logs another player dropped before they connected.
 		sendLogPilesTo(from)
@@ -350,6 +367,20 @@ export async function setupServer(): Promise<void> {
 		const elapsedMs = regrowthClockMs
 		regrowthClockMs = 0
 		tickRegrowth(elapsedMs, level)
+	})
+
+	// Re-assert crater Warm heat + summit-table melt pad. Cheap when
+	// already melted (applyMelt no-ops); keeps protection after any
+	// accidental release. 2 Hz is enough — snowfall cannot refill
+	// protected cells between ticks.
+	const CRATER_HEAT_INTERVAL_S = 0.5
+	let craterHeatClock = 0
+	engine.addSystem((dt: number) => {
+		craterHeatClock += dt
+		if (craterHeatClock < CRATER_HEAT_INTERVAL_S) return
+		craterHeatClock = 0
+		meltVolcanoCraterHeat()
+		meltLitStationHeat()
 	})
 
 	// Dirty-tile flush — runs every engine tick, after all applyPaint /

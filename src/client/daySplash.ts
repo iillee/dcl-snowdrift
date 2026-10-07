@@ -10,6 +10,7 @@ import { engine } from '@dcl/sdk/ecs'
 
 import { playSunriseSfx } from 'src/client/audio'
 import { isEmberFailing } from 'src/client/emberFail'
+import { winterDaysLeft } from 'src/client/worldThaw'
 
 
 // MARK: Timing
@@ -45,6 +46,8 @@ export function getDaySplashOpacity(): number {
 /** Current sunrise line, or empty when hidden. */
 export function getDaySplashText(): string {
 	if (phase === Phase.IDLE) return ''
+	const left = winterDaysLeft(dayNumber)
+	if (left > 0) return `Winter Approaches in ${left} Day${left === 1 ? '' : 's'}`
 	return `Day ${dayNumber}`
 }
 
