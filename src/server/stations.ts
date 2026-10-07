@@ -7,6 +7,7 @@
  * Reset on cycle roll. Late joiners hydrate stations + thaw flag.
  */
 
+import { DEBUG_THAW_BUTTON } from 'src/client/devFlags'
 import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
@@ -15,7 +16,8 @@ import { meltAllSnow, meltDisc, publishCoverageIfDirty } from 'src/server/snowSt
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { CRATER_HEAT_RADIUS_M } from 'src/shared/terrain/volcanoCraterHeat'
-import { clearWeatherThawLock, forceWeatherClearForThaw } from 'src/server/weather'
+import { clearWeatherThawLock } from 'src/server/weather'
+import { POST_THAW_DAYS } from 'src/shared/terrain/thawWave'
 
 const STATION_COUNT = 3
 
@@ -24,18 +26,23 @@ const active: boolean[] = [false, false, false]
 let worldThawed = false
 /**
  * Day number the thaw happened on. Players get the rest of that day
- * plus 3 full days (countdown 3, 2, 1 at each sunrise); at the sunrise
- * of thawDay + THAW_WARM_DAYS + 1 the world rolls to a new winter.
+ * plus POST_THAW_DAYS full days (countdown at each sunrise); at the sunrise
+ * of thawDay + POST_THAW_DAYS + 1 the world rolls to a new winter.
  */
 let thawDay = 0
-const THAW_WARM_DAYS = 3
+/** Date.now() when the thaw fired (melt-wave origin time). */
+let thawStartMs = 0
+function thawWaveAgeMs(): number {
+	return worldThawed ? Math.max(0, Math.min(2147483647, Date.now() - thawStartMs)) : 0
+}
 
 
-function broadcastOne(index: number): void {
+function broadcastOne(index: number, fresh = false): void {
 	room.send('stationState', {
 		seed  : currentSeed,
 		index,
 		active: active[index] ? 1 : 0,
+		fresh : fresh ? 1 : 0,
 	})
 }
 
@@ -44,7 +51,7 @@ function broadcastThaw(): void {
 	room.send('worldThawState', {
 		seed  : currentSeed,
 		thawed: worldThawed ? 1 : 0,
-		thawDay: worldThawed ? thawDay : 0,
+		thawDay: worldThawed ? thawDay : 0, waveAgeMs: thawWaveAgeMs(),
 	})
 }
 
@@ -53,10 +60,12 @@ function triggerWorldThaw(reason: string): void {
 	if (worldThawed) return
 	worldThawed = true
 	thawDay = getDayNumber()
+	thawStartMs = Date.now()
 	console.log(`[Server] stations: WORLD THAW (${reason}) seed=${currentSeed}`)
 	meltAllSnow()
 	publishCoverageIfDirty()
-	forceWeatherClearForThaw()
+	// No global CLEAR lock any more: only the thaw zone is warm, and
+	// snowfall / regrowth must keep running outside it.
 	broadcastThaw()
 }
 
@@ -115,13 +124,13 @@ export function sendStationStateTo(userId: string): void {
 	for (let i = 0; i < STATION_COUNT; i++) {
 		room.send(
 			'stationState',
-			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0 },
+			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0 },
 			{ to: [userId] },
 		)
 	}
 	room.send(
 		'worldThawState',
-		{ seed: currentSeed, thawed: worldThawed ? 1 : 0, thawDay: worldThawed ? thawDay : 0 },
+		{ seed: currentSeed, thawed: worldThawed ? 1 : 0, thawDay: worldThawed ? thawDay : 0, waveAgeMs: thawWaveAgeMs() },
 		{ to: [userId] },
 	)
 }
@@ -163,19 +172,40 @@ export function setupStationsServer(): void {
 			`[Server] stations[${index}]: activated by ${from} ` +
 			`(seed=${currentSeed}, active=${getActiveStationCount()}/${STATION_COUNT})`,
 		)
-		broadcastOne(index)
+		broadcastOne(index, true)
 		meltLitStationHeat()
 		maybeThaw(`station ${index} by ${from}`)
 	})
 
+	// TEMPORARY debug thaw: same path as the 3rd monument (fresh station
+	// broadcasts -> grow/spin/beam/SFX on clients, then triggerWorldThaw).
+	room.onMessage('debugThaw', ({ seed }, context) => {
+		const from = context?.from ?? 'unknown'
+		if (!DEBUG_THAW_BUTTON) {
+			console.log(`[Server] stations: debugThaw from ${from} ignored (flag off)`)
+			return
+		}
+		if (worldThawed) return
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		console.log(`[Server] stations: DEBUG thaw requested by ${from}`)
+		for (let i = 0; i < STATION_COUNT; i++) {
+			if (active[i]) continue
+			active[i] = true
+			broadcastOne(i, true)
+		}
+		meltLitStationHeat()
+		maybeThaw(`debug button by ${from}`)
+		if (!worldThawed) triggerWorldThaw(`debug button by ${from}`)
+	})
+
 	onCycleRoll(({ newSeed }) => { resetForCycle(newSeed) })
 
-	// Post-win: after THAW_WARM_DAYS full days, winter returns via the
+	// Post-win: after POST_THAW_DAYS full days, winter returns via the
 	// normal cycle roll (fresh seed, snow, stations, thaw flag, phase).
 	onPhaseChange(() => {
 		if (!worldThawed) return
 		const day = getDayNumber()
-		if (day < thawDay + THAW_WARM_DAYS + 1) return
+		if (day < thawDay + POST_THAW_DAYS + 1) return
 		console.log(`[Server] stations: thaw warmth over (thawDay=${thawDay} day=${day}) - rolling to new winter`)
 		worldThawed = false
 		rollCycle()

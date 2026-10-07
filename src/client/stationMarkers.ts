@@ -4,8 +4,9 @@
  *
  * Monuments ignite with a carried flame: stand within IGNITE_RADIUS_M
  * holding a LIT torch and press E (or tap the IGNITE MONUMENT prompt),
- * same gate as lighting a hidden campfire. Once lit the stone glows
- * ember-red with an eternal Warm flame on top (heat + melt, no fuel).
+ * same gate as lighting a hidden campfire. Once lit the stone keeps its
+ * grey colour (red tint off, MONUMENT_LIT_RED_TINT) with an eternal Warm
+ * flame on top (heat + melt, no fuel).
  * On activate it grows to 1.5×
  * height while spinning 180° over ~2 s, then a magenta beam shoots
  * from its top toward the lava centre. State is server-authoritative
@@ -30,7 +31,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playSurgeSfxAt } from 'src/client/audio'
+import { playMonumentSfxAt } from 'src/client/audio'
 import { createFlameRig, FlameRig } from 'src/client/flameBillboards'
 import { isTorchLit } from 'src/client/torchEquip'
 import { beginVolcanoThaw, setVolcanoLavaVisible } from 'src/client/volcanoCrown'
@@ -107,6 +108,8 @@ const MONUMENT_HEAT_RADIUS_SQ_M        = MONUMENT_HEAT_RADIUS_M * MONUMENT_HEAT_
 const COLOR_STONE_LIT    = Color4.create(0.45, 0.10, 0.06, 1)
 const EMBER_EMISSIVE     = Color3.create(1.0, 0.22, 0.05)
 const EMBER_EMISSIVE_INTENSITY = 1.6
+/** Ember-red tint + glow on lit stone. Off for now: lit = normal stone + flame. */
+const MONUMENT_LIT_RED_TINT = false
 const STATION_COUNT_MAX = 3
 
 
@@ -136,6 +139,14 @@ let lastMap: TerrainMap | null = null
 let currentSeed = 0
 let installed = false
 let mobile = false
+
+
+// MARK: isStationLit
+/** True once station `i` (index into map.stations) is lit this cycle. */
+export function isStationLit(i: number): boolean {
+	if (i < 0 || i >= STATION_COUNT_MAX) return false
+	return pendingActive[i] || slots[i]?.active === true
+}
 
 
 // MARK: getActiveStationCount
@@ -356,7 +367,7 @@ function finishActivate(index: number, animate: boolean): void {
 
 // MARK: paintStump
 function paintStump(slot: Slot, lit: boolean): void {
-	if (!lit) {
+	if (!lit || !MONUMENT_LIT_RED_TINT) {
 		Material.setPbrMaterial(slot.stump, {
 			albedoColor      : COLOR_STONE,
 			roughness        : 1.0,
@@ -377,7 +388,7 @@ function paintStump(slot: Slot, lit: boolean): void {
 
 
 // MARK: applyLitVisuals
-/** Red-glow stone + campfire flame rig riding the stump top. Idempotent. */
+/** Lit stone paint + campfire flame rig riding the stump top. Idempotent. */
 function applyLitVisuals(slot: Slot, height: number): void {
 	paintStump(slot, true)
 	const c = cellCenterWorld(slot.cx, slot.cz)
@@ -385,7 +396,6 @@ function applyLitVisuals(slot: Slot, height: number): void {
 		const a = engine.addEntity()
 		Transform.create(a, { position: Vector3.create(c.x, slot.groundY + height, c.z) })
 		slot.flameAnchor = a
-		playSurgeSfxAt(Vector3.create(c.x, slot.groundY + height, c.z))
 	} else {
 		const tr = Transform.getMutableOrNull(slot.flameAnchor)
 		if (tr) tr.position = Vector3.create(c.x, slot.groundY + height, c.z)
@@ -447,12 +457,24 @@ export function getLitMonumentWarmthPositions(): { x: number; z: number; radiusS
 }
 
 
+// MARK: playIgnitionSfx
+/** One-shot monument.mp3 at the stump top. Only on a fresh ignite. */
+function playIgnitionSfx(index: number): void {
+	const map = activeTerrain()
+	const st  = map?.stations[index]
+	if (!st) return
+	const c = cellCenterWorld(st.cx, st.cz)
+	playMonumentSfxAt(Vector3.create(c.x, activeGroundYAt(c.x, c.z) + STUMP_H_M, c.z))
+}
+
+
 // MARK: requestActivate
 function requestActivate(index: number): void {
 	const slot = slots[index]
 	if (slot?.active || slot?.animating) return
 	if (pendingActive[index]) return
 	console.log(`stationMarkers[${index}]: activate requested (seed=${currentSeed})`)
+	playIgnitionSfx(index)
 	finishActivate(index, true)
 	room.send('stationActivate', { seed: currentSeed, index })
 }
@@ -624,7 +646,7 @@ export function setupStationMarkers(): void {
 	})
 	engine.addSystem(animSystem)
 
-	room.onMessage('stationState', ({ seed, index, active }) => {
+	room.onMessage('stationState', ({ seed, index, active, fresh }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(
 				`stationMarkers: ignore stationState seed=${seed} (have ${currentSeed})`,
@@ -633,10 +655,13 @@ export function setupStationMarkers(): void {
 		}
 		if (index < 0 || index >= STATION_COUNT_MAX) return
 		if (active !== 1) return
+		const wasActive = pendingActive[index]
 		pendingActive[index] = true
 		const slot = slots[index]
-		// Late join / already finished: snap. Fresh remote activate: animate.
-		const animate = !!slot && !slot.active
+		// Hydration (fresh=0): snap silently. Fresh ignite: animate + SFX,
+		// unless this client already played it (local igniter's echo).
+		const animate = fresh === 1 && !!slot && !slot.active
+		if (fresh === 1 && !wasActive) playIgnitionSfx(index)
 		finishActivate(index, animate)
 	})
 

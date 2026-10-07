@@ -34,6 +34,7 @@ const ICEMELT_SRC = 'assets/sounds/icemelt.mp3'
 const SUNRISE_SRC = 'assets/sounds/sunrise.wav'
 const PICKUP_SRC  = 'assets/sounds/pop.mp3'
 const DROP_SRC    = 'assets/sounds/droplogs.mp3'
+const MONUMENT_SRC = 'assets/sounds/monument.mp3'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -47,6 +48,7 @@ let pickupSfxEnt: Entity = 0 as Entity
 let dropSfxEnt: Entity = 0 as Entity
 let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
+let monumentSfxEnt: Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
 let healSfxEnt:  Entity = 0 as Entity
@@ -142,6 +144,7 @@ export function initAudio(): void {
 	dropSfxEnt    = makeCameraSfx(DROP_SRC, 0.7)
 	claimSfxEnt   = makeCameraSfx(CLAIM_SRC, 0.25)
 	surgeSfxEnt   = makeCameraSfx(SURGE_SRC, 0.7)
+	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
 	frostSfxEnt   = makeCameraSfx(FROST_SRC, 0.28)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
@@ -377,6 +380,34 @@ export function playTorchSfxLocal(): void {
  */
 export function playSurgeSfxLocal(): void {
 	playOneShot(surgeSfxEnt, SURGE_SRC, 0.7)
+}
+
+
+// MARK: playMonumentSfxAt
+/**
+ * Monument ignition cue at the monument (3D-positional, same pattern as
+ * playSurgeSfxAt). Mobile falls back to the global camera cue.
+ */
+export function playMonumentSfxAt(position: Vector3): void {
+	if (isMobile()) {
+		playOneShot(monumentSfxEnt, MONUMENT_SRC, 0.8)
+		return
+	}
+	unlockAudio()
+	const ent = engine.addEntity()
+	Transform.create(ent, { position })
+	AudioSource.create(ent, {
+		audioClipUrl: MONUMENT_SRC,
+		playing: true, loop: false, volume: 1.0, global: false,
+	})
+	const CLEANUP_MS = 12000
+	const spawnedAt = Date.now()
+	const cleanup = (): void => {
+		if (Date.now() - spawnedAt < CLEANUP_MS) return
+		engine.removeEntity(ent)
+		engine.removeSystem(cleanup)
+	}
+	engine.addSystem(cleanup)
 }
 
 

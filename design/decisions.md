@@ -15,7 +15,11 @@ Shipped state: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md
 - **2026-10-07 · Monuments ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE MONUMENT within 3.5 m; lit monuments are eternal Warm fires.
 - **2026-10-07 · 3rd monument auto-thaws, no return-to-peak · owner-directed.**
 - **2026-10-07 · Thaw is a 45 s radial wave, rate-limited · bugfix** — melting all 2,704 tiles in one frame froze clients.
-- **2026-10-07 · No night cold after thaw; 3 warm days then new winter · owner-directed** — "Winter Approaches in N Days" replaces DAY X.
+- **2026-10-07 · No night cold after thaw; 3 warm days then new winter · owner-directed** — "Winter Approaches in N Days" replaces DAY X. **[Revised same day:** `POST_THAW_DAYS = 1`; no night cold only inside the thaw ring.]
+- **2026-10-07 · Thaw covers a ring, not the whole map · owner-directed** — the volcano becomes a giant campfire; the wave stops at a radius covering `THAW_AREA_FRACTION = 0.55` of the map with a 48 m warm edge fade. Snow, cliff ice caps and scatter wood go inside; outside stays wintry. No global clear-weather lock.
+- **2026-10-07 · Lit monuments: no red tint for now; tablet X turns red instead · owner-directed.**
+- **2026-10-07 · Smoke: faint wisp at 1/3 and 2/3, big eruption plume at 3/3 · owner-directed.**
+- **2026-10-07 · Volcano lower ladder may sit on any of the 3 exposed sides, by seed · owner-directed.**
 - **2026-10-07 · Monuments burning out over time · parked** until after the playtest.
 - **2026-10-07 · Torch readability dropped for V1 · owner-directed.**
 

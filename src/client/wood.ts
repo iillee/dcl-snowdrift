@@ -48,6 +48,7 @@ import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { onPropTreesSpawned, syncTreeScales } from 'src/client/props/spawn'
 import { getDisplayedStage } from 'src/client/snow/snowModel'
 import { attachWoodModel } from 'src/client/woodVisual'
+import { thawWaveReachedAt } from 'src/client/worldThaw'
 
 
 // MARK: Dev beacon
@@ -291,6 +292,12 @@ function syncWoodReveal(): void {
 		// the server confirms is the flicker: the GLB pops back on the
 		// snow while the head bounce is still playing.
 		if (pendingPickup.has(idx)) {
+			if (chunkEntities.has(idx)) despawnChunk(idx)
+			continue
+		}
+		// Post-win: ground scatter wood vanishes as the thaw wave passes
+		// and stays gone until the new-winter reset clears the thaw.
+		if (thawWaveReachedAt(c.worldX, c.worldZ)) {
 			if (chunkEntities.has(idx)) despawnChunk(idx)
 			continue
 		}

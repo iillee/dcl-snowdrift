@@ -94,7 +94,7 @@ No individual gets stronger. Everyone shares the same starting capabilities. The
 
 ## Where the build is (2026-10-07) — V1 MVP loop
 
-Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 monuments** in any order (E / **IGNITE MONUMENT** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s radial melt wave from the volcano (ground snow and cliff caps) → lava, clear weather, **WORLD THAWED**, no night cold → 3 days of **Winter Approaches in N Days** → new winter. Lit monuments are eternal Warm fires. The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
+Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 monuments** in any order (E / **IGNITE MONUMENT** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s melt wave from the volcano over a ring covering ~55% of the map (ground snow, cliff ice caps, scatter wood) → eruption plume, lava, **WORLD THAWED**, no night cold inside the ring → 1 day of **Winter Approaches in 1 Day** → new winter. Lit monuments are eternal Warm fires (grey stone + flame; their tablet X turns red). The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
 
 ## Where the build was (2026-10-05)
 

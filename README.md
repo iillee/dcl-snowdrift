@@ -16,7 +16,7 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 ## Status
 
-**V1 MVP loop built (2026-10-07):** survive → explore → climb the volcano → read the engraved summit tablet → carry a lit torch to **ignite 3 monuments** (any order) → radial thaw wave → **WORLD THAWED** → 3 warm days ("Winter Approaches in N Days") → new winter. Details: [`design/session-2026-10-07-v1-loop.md`](design/session-2026-10-07-v1-loop.md).
+**V1 MVP loop built (2026-10-07):** survive → explore → climb the volcano → read the engraved summit tablet → carry a lit torch to **ignite 3 monuments** (any order) → thaw wave over a ring around the volcano (55% of the map) → **WORLD THAWED** → 1 warm day ("Winter Approaches in 1 Day") → new winter. Details: [`design/session-2026-10-07-v1-loop.md`](design/session-2026-10-07-v1-loop.md).
 
 **v1 Systems in progress** (2026-10-05). The World at `snowdrift.dcl.eth` is this slice when the latest deploy has finished.
 
@@ -58,7 +58,7 @@ The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \
 - Melt snow, pick up a branch or a log, or chop a tree. One thing in the F slot. Feed the fire. Night starts at dusk: heavier weather, weaker flame, faster drain. The torch still melts 3-wide.
 - A full frost bar freezes you in the ice where you stand. Another player's lit torch can thaw you. If a fire is still lit, frozen players wake at it. The run ends only when everyone still connected is frozen and no fire is left. The cards are: **After N day/days, the world's flame goes out.** **Centuries pass in the cold.** **A new hearth is kindled.** / **Don't let the fire die.** Then a fresh seed, and dawn under that last card.
 
-- Find the volcano and read the stone tablet on its inner rim: a B&W engraved map (▲ volcano, ○ spawn, ✕ monuments). Carry a lit torch within 3.5 m of a monument and press **E** / tap **IGNITE MONUMENT**. Lit monuments burn forever as Warm fires. The third one thaws the world in a 45 s melt wave from the volcano; no night cold after that. Three days of **Winter Approaches in N Days**, then a new winter.
+- Find the volcano and read the stone tablet on its inner rim: a B&W engraved map (▲ volcano, ○ spawn, ✕ monuments). Carry a lit torch within 3.5 m of a monument and press **E** / tap **IGNITE MONUMENT**. Lit monuments burn forever as Warm fires, and their X on the tablet turns red. The third one sends a 45 s melt wave out from the volcano over a ring covering ~55% of the map (snow, cliff ice caps and scatter wood go); inside it there is no night cold, outside winter carries on. One day of **Winter Approaches in 1 Day**, then a new winter.
 
 **Still the v1 target, not in this build**
 

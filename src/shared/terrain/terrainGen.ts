@@ -912,7 +912,10 @@ function stampVolcano(
 		const c0z = Math.floor(fz)
 		let k0 = 1
 		while (k0 < rMax && ellipseT(c0x + DIR_DX[dOut] * k0, c0z + DIR_DZ[dOut] * k0) < 0.40) k0++
-		const NOTCH: number[] = [RIM, RIM, HIGH, HIGH, MID, MID]
+		// High step is 3 deep so its two side faces are straight 3-cell
+		// cliffs too: the Mid->High ladder can then land on the front or
+		// either side (picked by the seeded spanning tree below).
+		const NOTCH: number[] = [RIM, RIM, HIGH, HIGH, HIGH, MID, MID]
 		for (let k = 0; k < NOTCH.length; k++) {
 			for (let p = -1; p <= 1; p++) {
 				const cx = c0x + DIR_DX[dOut] * (k0 + k) + DIR_DX[pd] * p
@@ -921,6 +924,33 @@ function stampVolcano(
 				const i = cz * W + cx
 				if (work.locked[i] && work.landforms[i] !== LANDFORM_LAVA) continue
 				work.levels[i]    = NOTCH[k]
+				work.landforms[i] = LANDFORM_VOLCANO
+				work.locked[i]    = 1
+			}
+		}
+		// Side aprons: 2 Mid cells either side of the High step give a side
+		// ladder foot standing room. Skipped per side when blocked (band,
+		// lava, map edge) - that side then has no straight site and the
+		// front ladder is used instead.
+		for (const sgn of [-1, 1]) {
+			const cells: number[] = []
+			let ok = true
+			for (let k = 2; k <= 4 && ok; k++) {
+				for (let p = 2; p <= 3; p++) {
+					const cx = c0x + DIR_DX[dOut] * (k0 + k) + DIR_DX[pd] * p * sgn
+					const cz = c0z + DIR_DZ[dOut] * (k0 + k) + DIR_DZ[pd] * p * sgn
+					if (cx < 1 || cz < 1 || cx >= W - 1 || cz >= H - 1) { ok = false; break }
+					const i = cz * W + cx
+					if (work.locked[i] || work.landforms[i] === LANDFORM_LAVA) { ok = false; break }
+					// Never open a Mid cell onto the lava lake (would expose the crater).
+					for (let d = 0; d < 4; d++) if (work.landforms[i + DIR_DZ[d] * W + DIR_DX[d]] === LANDFORM_LAVA) ok = false
+					if (!ok) break
+					cells.push(i)
+				}
+			}
+			if (!ok) continue
+			for (const i of cells) {
+				work.levels[i]    = MID
 				work.landforms[i] = LANDFORM_VOLCANO
 				work.locked[i]    = 1
 			}

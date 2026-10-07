@@ -43,6 +43,7 @@ import { mergeLevelRects } from 'src/shared/terrain/terrainGen'
 import { TERRAIN_ORIGIN_M } from 'src/shared/terrain/terrainMap'
 
 import { clearLadders, setupLadders } from 'src/client/terrain/ladders'
+import { thawWaveReachedRect } from 'src/client/worldThaw'
 
 
 // MARK: Tuning
@@ -215,7 +216,11 @@ function capLodSystem(): void {
 	const focus = readFocusXZ()
 	for (const g of rectGeoms) {
 		if (!g.wantsCap) continue
+		// After the world thaw the ice cap melts off as the wave reaches
+		// the rect: drop it and run the rock to the full walkable height
+		// (same as a distance-culled cap). Reset brings caps back.
 		const near = distSqToRect(focus.x, focus.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) < CAP_KEEP_M2
+			&& !thawWaveReachedRect(g.centerX, g.centerZ, g.sizeX, g.sizeZ)
 		if (near && g.cap === null) {
 			setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top - CAP_M)
 			g.cap = spawnSlab(g.centerX, g.centerZ, g.sizeX, g.sizeZ, g.top - CAP_M, g.top, COLOR_GROUND)

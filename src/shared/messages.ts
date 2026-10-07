@@ -396,6 +396,10 @@ export const Messages = {
 	// Client -> Server: click-activate an ignition station stump. seed
 	// is the cycle seed (same pattern as hiddenCampfireIgnite). First
 	// valid request wins; no tablet / wood cost.
+	// Client -> Server: TEMPORARY debug - light all stations + thaw.
+	// Ignored unless DEBUG_THAW_BUTTON (src/client/devFlags.ts) is true.
+	debugThaw: Schemas.Map({ seed: Schemas.Int }),
+
 	stationActivate: Schemas.Map({
 		seed : Schemas.Int,
 		index: Schemas.Int,
@@ -409,6 +413,8 @@ export const Messages = {
 		seed  : Schemas.Int,
 		index : Schemas.Int,
 		active: Schemas.Int,
+		/** 1 = just ignited (play ignition SFX), 0 = hydration / echo / reset. */
+		fresh : Schemas.Int,
 	}),
 
 	// Server -> Client: world thaw after all 3 stations. thawed 0/1.
@@ -418,8 +424,11 @@ export const Messages = {
 		seed  : Schemas.Int,
 		thawed: Schemas.Int,
 		// Day number (cycleId+1) the thaw happened on; 0 when not thawed.
-		// Winter returns at the sunrise of day thawDay + 4.
+		// Winter returns at the sunrise of day thawDay + POST_THAW_DAYS + 1.
 		thawDay: Schemas.Int,
+		// ms since the thaw started (server clock) at send time, so
+		// clients and late joiners place the melt wave correctly.
+		waveAgeMs: Schemas.Int,
 	}),
 }
 

@@ -6,7 +6,8 @@
  * summit map UI. Rebuilds when activeTerrain() changes.
  *
  * Flat black-and-white engraving: volcano = triangle, spawn = circle,
- * stations = X. Slate footprint matches the map face size.
+ * stations = X (red once that monument is lit, live + late join, reset
+ * on cycle roll). Slate footprint matches the map face size.
  */
 
 import {
@@ -23,6 +24,7 @@ import {
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { openSummitMap } from 'src/client/summitMap'
+import { isStationLit } from 'src/client/stationMarkers'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { MAZE_PLAYFIELD_METERS } from 'src/shared/settings'
 import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
@@ -48,6 +50,11 @@ const CLICK_MAX_DIST_M = 8
 const COLOR_STONE = Color4.create(0.42, 0.40, 0.36, 1)
 const COLOR_SLATE = Color4.create(0.55, 0.52, 0.46, 1)
 const COLOR_INK   = Color4.create(0.08, 0.07, 0.06, 1)
+const COLOR_LIT_X = Color4.create(0.85, 0.08, 0.05, 1)
+
+/** X bar entities per station index + the lit state they're painted with. */
+const stationBars: Entity[][] = []
+const stationPaintedLit: boolean[] = []
 
 const entities: Entity[] = []
 let clickTargets: Entity[] = []
@@ -128,7 +135,8 @@ function spawnCircleMark(root: Entity, worldX: number, worldZ: number, sizeM: nu
 
 
 /** Two crossed bars — X when viewed from above. */
-function spawnXMark(root: Entity, worldX: number, worldZ: number, sizeM: number): void {
+function spawnXMark(root: Entity, worldX: number, worldZ: number, sizeM: number): Entity[] {
+	const bars: Entity[] = []
 	const { x, z } = worldToMapLocal(worldX, worldZ)
 	const y = markY()
 	const barLen = sizeM * 1.15
@@ -144,6 +152,26 @@ function spawnXMark(root: Entity, worldX: number, worldZ: number, sizeM: number)
 		})
 		MeshRenderer.setBox(e)
 		Material.setPbrMaterial(e, engraveMaterial())
+		bars.push(e)
+	}
+	return bars
+}
+
+
+function paintStationX(i: number, lit: boolean): void {
+	for (const e of stationBars[i] ?? []) {
+		Material.setPbrMaterial(e, lit
+			? { albedoColor: COLOR_LIT_X, roughness: 0.95, metallic: 0 }
+			: engraveMaterial())
+	}
+	stationPaintedLit[i] = lit
+}
+
+
+function syncStationColors(): void {
+	for (let i = 0; i < stationBars.length; i++) {
+		const lit = isStationLit(i)
+		if (stationPaintedLit[i] !== lit) paintStationX(i, lit)
 	}
 }
 
@@ -188,6 +216,8 @@ function clearTable(): void {
 		try { pointerEventsSystem.removeOnPointerDown(e) } catch { /* gone */ }
 	}
 	clickTargets = []
+	stationBars.length = 0
+	stationPaintedLit.length = 0
 	for (const e of entities) {
 		try { engine.removeEntity(e) } catch { /* gone */ }
 	}
@@ -253,10 +283,12 @@ function buildTable(map: TerrainMap): void {
 
 	spawnCircleMark(root, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, 0.11)
 
-	for (const st of map.stations) {
+	map.stations.forEach((st, i) => {
 		const { x, z } = cellCenterWorld(st.cx, st.cz)
-		spawnXMark(root, x, z, 0.10)
-	}
+		stationBars[i] = spawnXMark(root, x, z, 0.10)
+		stationPaintedLit[i] = false
+	})
+	syncStationColors()
 
 	console.log(
 		`summitMapTable: placed at cell (${seat.cx},${seat.cz}) ` +
@@ -278,6 +310,9 @@ function syncToTerrain(): void {
 export function setupSummitMapTable(): void {
 	if (installed) return
 	installed = true
-	engine.addSystem(() => { syncToTerrain() })
+	engine.addSystem(() => {
+		syncToTerrain()
+		syncStationColors()
+	})
 	console.log('summitMapTable: setupSummitMapTable: installed')
 }

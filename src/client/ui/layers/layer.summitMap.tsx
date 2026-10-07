@@ -4,6 +4,7 @@
  * Opened from the summit map table. North = world +Z (top of map),
  * east = world +X (right). Knowledge only — Close to dismiss.
  *
+ * Station marks turn red once that monument is lit (read every render).
  * Flat black-and-white engraving: volcano ▲, spawn ○, stations ✕.
  * No world borders, groves, or color terrain.
  */
@@ -14,6 +15,7 @@ import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { closeSummitMap, isSummitMapOpen } from 'src/client/summitMap'
+import { isStationLit } from 'src/client/stationMarkers'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { alpha } from 'src/client/ui/utils/colors'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -35,6 +37,8 @@ const MAP_BG      = Color4.create(0.62, 0.58, 0.52, 1)
 const INK         = Color4.create(0.06, 0.05, 0.04, 1)
 const INK_FAINT   = Color4.create(0.28, 0.26, 0.22, 1)
 const STONE_LIGHT = Color4.create(0.78, 0.74, 0.68, 1)
+/** Station X once that monument is lit. */
+const INK_LIT     = Color4.create(0.85, 0.08, 0.05, 1)
 
 const MAP_SIZE_PX = 520
 const GLYPH_PX    = 28
@@ -47,6 +51,7 @@ type MapMark = {
 	topPct: number
 	glyph: string
 	size: number
+	color?: Color4
 }
 
 
@@ -89,6 +94,7 @@ function collectMarks(map: TerrainMap): MapMark[] {
 			...p,
 			glyph: '✕',
 			size: GLYPH_PX,
+			color: isStationLit(i) ? INK_LIT : INK,
 		})
 	})
 
@@ -235,7 +241,7 @@ class SummitMapLayer extends Layer {
 									key={`ui_SummitMap_mark_${m.key}`}
 									value={m.glyph}
 									fontSize={m.size * 0.72}
-									color={INK}
+									color={m.color ?? INK}
 									textAlign="middle-center"
 									uiTransform={{
 										positionType: 'absolute',

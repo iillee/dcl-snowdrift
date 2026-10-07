@@ -37,7 +37,8 @@ import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
 import { volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 
 import { noteComponentChange } from 'src/server/serverStats'
-import { fillAllSnowTilesMelted, publishSnowCoverage, writeSnowByte, zeroAllSnowTiles } from 'src/server/snowSync'
+import { fillAllSnowTilesMelted, isThawTileMelted, publishSnowCoverage, thawMeltedTileCount, writeSnowByte, zeroAllSnowTiles } from 'src/server/snowSync'
+import { thawWaveCentre } from 'src/shared/terrain/thawWave'
 
 // changedAtMs = server clock at the last stage transition (or melt refresh).
 type CellState = { stage: 0 | 1 | 2; changedAtMs: number }
@@ -50,8 +51,10 @@ const scarredCells   = new Set<number>()
 let serverClockMs = 0
 let coverageDirty = false
 
-/** After 3/3 thaw: entire playfield reads as melted until cycle wipe. */
-let worldFullyMelted = false
+/** After 3/3 thaw: cells in tiles the thaw wave reached read melted until cycle wipe. */
+function inThawZone(key: number): boolean {
+	return isThawTileMelted(tileKeyOfCell(key))
+}
 
 // Regrowth ms per stage, keyed by precipitation level. CLEAR (0) freezes.
 const STAGE_INTERVAL_MS: Record<number, number | null> = {
@@ -88,8 +91,8 @@ export function applyMelt(
 	key:         number,
 	targetStage: 0 | 1,
 ): boolean {
-	if (worldFullyMelted) return false
 	if (!isCellKeyValid(key)) return false
+	if (inThawZone(key)) return false
 	const prev = cells.get(key)
 
 	if (targetStage === 1) {
@@ -123,9 +126,9 @@ export function getStageAtWorld(
 	x: number,
 	z: number,
 ): SnowStage {
-	if (worldFullyMelted) return STAGE_MELTED
 	const key = worldToCellKey(x, z)
 	if (key === null) return STAGE_PRISTINE
+	if (inThawZone(key)) return STAGE_MELTED
 	const state = cells.get(key)
 	return state ? state.stage : STAGE_PRISTINE
 }
@@ -245,12 +248,16 @@ export function tickRegrowth(
 	dtMs:               number,
 	precipitationLevel: number,
 ): void {
-	if (worldFullyMelted) return
 	serverClockMs += dtMs
 	const intervalMs = STAGE_INTERVAL_MS[precipitationLevel] ?? null
 	if (intervalMs === null) return
 
 	for (const [key, state] of cells) {
+		// Thaw zone: the tile is held melted by the volcano campfire.
+		if (inThawZone(key)) {
+			cells.delete(key)
+			continue
+		}
 		if (protectedCells.has(key)) {
 			state.changedAtMs = serverClockMs
 			continue
@@ -311,10 +318,8 @@ export function meltRandomCells(count: number): number {
  * Does not reveal lava meshes; only snow stage + protect.
  * Also clears a Warm pad at the summit map table so the pillar is not
  * buried under 1.5 m pristine snow. Re-apply after clearAllSnow.
- * No-op while worldFullyMelted.
  */
 export function meltVolcanoCraterHeat(): number {
-	if (worldFullyMelted) return 0
 	const map = activeTerrain()
 	if (!map) return 0
 	const lava = volcanoLavaCells(map)
@@ -366,22 +371,16 @@ export function meltVolcanoCraterHeat(): number {
  * pristine snow for a cycle wipe.
  */
 export function meltAllSnow(): void {
-	worldFullyMelted = true
-	cells.clear()
+	// Only the thaw zone (volcano campfire radius, thawWave.ts) melts.
 	// Fill is queued nearest-first from the volcano and spread over ticks
-	// in snowSync (one-tick fill of every tile froze the game).
-	let centre: { tx: number; tz: number } | undefined
-	const map = activeTerrain()
-	const c = map ? volcanoCraterHeatCenter(map) : null
-	if (c) {
-		const key = worldToCellKey(c.x, c.z)
-		if (key !== null && isCellKeyValid(key)) centre = tileCoordsFromKey(tileKeyOfCell(key))
-	}
+	// in snowSync (one-tick fill of every tile froze the game). Outside
+	// the radius snow, regrowth and accumulation carry on as normal.
+	const centre = thawWaveCentre(activeTerrain())
 	const tiles = fillAllSnowTilesMelted(centre)
-	noteComponentChange(SNOW_CELLS_X * SNOW_CELLS_Z)
 	coverageDirty = true
 	console.log(
-		`[Server] snowState: meltAllSnow tiles=${tiles} cells=${SNOW_CELLS_X * SNOW_CELLS_Z}`,
+		`[Server] snowState: meltAllSnow (thaw zone) tiles=${tiles} ` +
+		`radius=${centre.radiusM.toFixed(0)}m from tile (${centre.tx},${centre.tz})`,
 	)
 }
 
@@ -389,7 +388,6 @@ export function meltAllSnow(): void {
 
 /** Cycle reset: every cell back to pristine, all protection dropped. */
 export function clearAllSnow(): void {
-	worldFullyMelted = false
 	const cleared = cells.size
 	cells.clear()
 	protectedCells.clear()
@@ -404,8 +402,7 @@ export function clearAllSnow(): void {
 
 /** Cells that are melted or regrowing (not pristine). */
 export function meltedCellCount(): number {
-	if (worldFullyMelted) return SNOW_CELLS_X * SNOW_CELLS_Z
-	return cells.size
+	return cells.size + thawMeltedTileCount() * SNOW_TILE_CELL_COUNT
 }
 
 

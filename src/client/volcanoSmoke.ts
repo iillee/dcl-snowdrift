@@ -52,9 +52,12 @@ const CONE_RADIUS_M  = 4
  * Smoke rate by activated station count. 0 = silent volcano (no plume).
  * 1/2/3 escalate: small → medium → strong. No base rate when dormant.
  */
-const RATE_BY_STATIONS = [0, 2.5, 6, 10] as const
+// 1/3 and 2/3 are a faint wisp; 3/3 is the eruption plume.
+const RATE_BY_STATIONS = [0, 0.4, 0.8, 14] as const
+/** Puff size multiplier by station count (wisps small, eruption big). */
+const SIZE_BY_STATIONS = [0, 0.35, 0.5, 1.3] as const
 const LIFETIME_S     = 12
-const MAX_PARTICLES  = 72
+const MAX_PARTICLES  = 140
 /**
  * Buoyant rise. Negative gravity multiplier accelerates puffs upward
  * (~0.8 m/s²). With 3.5–5 m/s launch over 12 s the plume tops out
@@ -191,6 +194,7 @@ function placeForMap(map: TerrainMap | null): void {
 	const y = Math.max(groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM), volcanoCrownTopY()) + ORIGIN_ABOVE_RIM_M
 	Transform.getMutable(emitter).position = Vector3.create(x, y, z)
 	ps.rate = RATE_BY_STATIONS[stationBoost]
+	applyStageSize(ps)
 	if (stationBoost <= 0) {
 		ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
 		console.log(
@@ -208,6 +212,13 @@ function placeForMap(map: TerrainMap | null): void {
 }
 
 
+// MARK: applyStageSize
+function applyStageSize(ps: { sizeOverTime?: { start: number; end: number } }): void {
+	const s = SIZE_BY_STATIONS[stationBoost]
+	ps.sizeOverTime = { start: SIZE_OVER_START * s, end: SIZE_OVER_END * s }
+}
+
+
 // MARK: setVolcanoSmokeBoost
 /**
  * Plume from activated ignition stations (0–3).
@@ -221,6 +232,7 @@ export function setVolcanoSmokeBoost(activeCount: number): void {
 	const ps = ParticleSystem.getMutable(emitter)
 	const rate = RATE_BY_STATIONS[stationBoost]
 	ps.rate = rate
+	applyStageSize(ps)
 	if (stationBoost <= 0) {
 		ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
 	} else if (lastMap !== null) {

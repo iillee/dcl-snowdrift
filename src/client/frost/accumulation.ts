@@ -39,7 +39,7 @@ import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getLitMonumentWarmthPositions } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
-import { isWorldThawed } from 'src/client/worldThaw'
+import { thawHeatAt } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
 import { activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -78,8 +78,6 @@ const FROST_WRITE_EPSILON = 0.5
  * time, about 21s to a full bar on bare ground.
  */
 function ambientColdPerSec(phase: PhaseConfig): number {
-	// After the world thaw there is no open-air / night cold.
-	if (isWorldThawed()) return 0
 	const ttf = ambientFreezeSec(phase, phase.durationSec, FROST_TIME_BASELINE_S)
 	return FROST_MAX / ttf
 }
@@ -151,6 +149,11 @@ export function initFrostAccumulation(): void {
 		let warmthPerSec = 0
 		let warmthFuel   = 0
 		let thawedByFire = false
+		// Post-thaw volcano campfire: 0..1 inside the thaw zone (soft
+		// edge). Blocks open-air / night cold in proportion and warms
+		// like a Warm campfire. Outside the zone (0) winter is normal.
+		const thawHeat = thawHeatAt(x, z)
+		const ambientCold = ambientColdPerSec(phase) * (1 - thawHeat)
 		if (mainMeltRSq > 0 && dx * dx + dz * dz <= mainMeltRSq) {
 			warmthFuel   = getMainFireFuel()
 			warmthPerSec = hearthWarmthPerSec(warmthFuel)
@@ -171,6 +174,14 @@ export function initFrostAccumulation(): void {
 					warmthPerSec = craterWarmth
 					warmthFuel   = CRATER_HEAT_FUEL
 				}
+			}
+		}
+		// Post-thaw volcano campfire zone (Warm, faded at the edge).
+		if (thawHeat > 0) {
+			const w = hearthWarmthPerSec(CRATER_HEAT_FUEL) * thawHeat
+			if (w > warmthPerSec) {
+				warmthPerSec = w
+				warmthFuel   = CRATER_HEAT_FUEL
 			}
 		}
 		// Lit monuments: eternal Warm campfires (no fuel decay).
@@ -206,7 +217,7 @@ export function initFrostAccumulation(): void {
 				warmingByFire = false
 			} else {
 				const before = frost
-				const net = ambientColdPerSec(phase) + snowColdPerSec(x, y, z, phase) - warmthPerSec
+				const net = ambientCold + snowColdPerSec(x, y, z, phase) - warmthPerSec
 				frost += net * step
 				if (frost < 0) frost = 0
 				if (frost > FROST_MAX) frost = FROST_MAX
@@ -221,10 +232,10 @@ export function initFrostAccumulation(): void {
 			const inTorchWarmth = isTorchProtecting()
 
 			if (!inTorchWarmth) {
-				ratePerSec += ambientColdPerSec(phase)
+				ratePerSec += ambientCold
 			} else {
 				const leak = torchLeakFreezeSec(phase, phase.durationSec)
-				if (leak !== null && !isWorldThawed()) ratePerSec += FROST_MAX / leak
+				if (leak !== null) ratePerSec += (FROST_MAX / leak) * (1 - thawHeat)
 			}
 
 			ratePerSec += snowColdPerSec(x, y, z, phase)

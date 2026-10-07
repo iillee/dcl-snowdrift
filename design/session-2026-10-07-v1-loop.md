@@ -4,7 +4,7 @@ Source of truth for what the playtest build does after the 10/06–10/07 pass. S
 
 ## Locked V1 MVP loop
 
-Survive → explore → find the volcano → climb → read the **summit tablet** (world map) → find the **3 ignition monuments** → **ignite** all three (**any order**) → volcano smoke ramps at **1/3** and **2/3** → the **3rd** auto-thaws the world → win → 3 warm days → new winter.
+Survive → explore → find the volcano → climb → read the **summit tablet** (world map) → find the **3 ignition monuments** → **ignite** all three (**any order**) → volcano smoke ramps at **1/3** and **2/3** → the **3rd** thaws a large ring around the volcano → win → 1 warm day → new winter.
 
 - Tablet = **where**; terrain = **how**; survival = **whether**. The tablet is knowledge, **not** a gate.
 - Monuments need no wood or puzzles — only a carried flame.
@@ -23,7 +23,9 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 - Grey stone stumps with colliders, tall enough to clear ~1.5 m snow; rebuilt when terrain changes.
 - `STATION_DEBUG_BEACONS = false` — debug beacons off; stumps and real beams remain.
 - **Ignite:** stand within **3.5 m** holding a **lit torch**. An **IGNITE MONUMENT** bubble appears in the campfire-prompt slot (`layer.hiddenCampfirePrompt.tsx`); press **E** or tap it. No flame → no prompt. Plain clicking does nothing.
-- On ignite: grow ~50% taller + spin 180° → beam to the volcano → stone glows **ember red** with a campfire flame on top.
+- On ignite: grow ~50% taller + spin 180° → beam to the volcano → a campfire flame burns on top. The stone keeps its normal grey (`MONUMENT_LIT_RED_TINT = false`; the ember-red tint + glow is off for now).
+- Ignition plays `assets/sounds/monument.mp3` at the monument for every nearby player, only on a fresh ignite (the server flags it `fresh`); late joiners, seed rebuilds and resets stay silent and snap to the lit pose.
+- The summit tablet X for a monument turns **red** once it is lit (in-world engraving + WORLD MAP UI), live and for late joiners; back to black on a new cycle.
 - Lit monuments are **eternal Warm campfires**: ~8 m warmth and snow melt, no fuel, never go out.
 - Lit state lives in server memory: a full server restart (or cycle roll) resets it.
 - Not built: relighting a torch from a monument; respawning at a monument.
@@ -32,7 +34,8 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 
 - Extruded caldera crown: **blue exterior** like other terrain; **dark inner walls** that extend below the snow / ice-cap level on the rim.
 - **Crater heat, always on** (`src/shared/terrain/volcanoCraterHeat.ts`): Warm-tier (~8 m) melt + frost warmth from scene start, even at 0/3. Server melt with periodic re-assert, client crater clearing, frost via the Warm radius.
-- 0/3: no smoke, no lava. 1–2/3: progressive smoke. 3/3: lava appears + thaw.
+- 0/3: no smoke, no lava. 1–2/3: a faint wisp of smoke. 3/3: a big eruption plume, lava appears + thaw.
+- Volcano ladders: the carved stair notch's lower step (Mid → High) is 3 deep with Mid side aprons, so the lower ladder can land on the front or either side, picked by seed; a blocked side falls back to the others. Check: `node scripts/volcanoLadderCheck.mjs [seeds]` (summit reachable + side distribution).
 
 ## Summit tablet (`src/client/summitMapTable.ts`, `src/shared/terrain/summitMapSeat.ts`, `src/client/summitMap.ts`, `layer.summitMap.tsx`)
 
@@ -41,20 +44,23 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 - Engraved, flat **black & white** map (in-world and UI): **▲ volcano**, **○ spawn**, **✕ monuments**. No worlds, no groves.
 - Click opens the **WORLD MAP** UI.
 
-## Thaw (`src/server/snowSync.ts`, `src/client/worldThaw.ts`, `src/client/thawSplash.ts`)
+## Thaw (`src/shared/terrain/thawWave.ts`, `src/server/snowSync.ts`, `src/server/snowState.ts`, `src/client/worldThaw.ts`, `src/client/thawSplash.ts`)
 
-- The 3rd monument starts a **radial melt wave** from the volcano over `THAW_WAVE_DURATION_S = 45` (tune in `src/server/snowSync.ts`).
-- Melts ground snow and the white cliff-top caps alike (they're the same snow); blue ice underneath stays.
-- Rate-limited — fixes the old freeze where all 2,704 tiles were sent and rebuilt in one frame (torch detached, ladders/fires/actions stopped).
-- Then: clear weather, lava, **WORLD THAWED** splash.
-- After thaw: **no night / open-air cold**. Only snow the wave hasn't reached yet still chills.
-- Late joiners get what has already melted, then the rest of the wave, plus the warm state.
+- At the 3rd monument the volcano becomes a giant eternal campfire. A **radial melt wave** grows from the crater over `THAW_WAVE_DURATION_S = 45` and **stops at the thaw radius**.
+- The radius is sized per map so the zone covers `THAW_AREA_FRACTION = 0.55` of the playfield's snow tiles (disc parts off the map edge count as lost). Works for any profile / volcano position. Check: `node scripts/thawRadiusCheck.mjs`.
+- Inside the zone: ground snow, cliff-top ice caps (the cap mesh drops as the wave reaches it) and scatter wood are removed and held gone until the new-winter reset. Outside it the world stays wintry: snowfall, regrowth and accumulation carry on.
+- Warmth: inside the zone the volcano warms like a Warm campfire and blocks open-air / night cold, fading to 0 over `THAW_EDGE_BAND_M = 48` m at the (growing) wave edge. Outside the zone night cold is normal.
+- **No global clear-weather lock** any more.
+- Rate-limited — fixes the old freeze where every tile was sent and rebuilt in one frame (torch detached, ladders/fires/actions stopped).
+- Lava + **WORLD THAWED** splash.
+- Late joiners get the wave's age from the server and see what has already melted, then the rest of the wave.
+- Debug: `DEBUG_THAW_BUTTON` in `src/client/devFlags.ts` (**false**; server handler gated on the same flag) shows a THAW button right of the frost bar that lights all monuments and runs this same path.
 
-## Post-win reset (`src/client/daySplash.ts`, server cycle)
+## Post-win reset (`src/client/daySplash.ts`, `src/server/stations.ts`)
 
 - The rest of the thaw day is a bonus.
-- The countdown starts at the next sunrise: the day splash reads **Winter Approaches in 3 Days**, then 2, then **in 1 Day**, instead of **DAY X**.
-- At the 4th sunrise the existing cycle roll starts a new winter: fresh seed, snow back, unlit monuments, night cold back on, splash back to Day 1.
+- Then `POST_THAW_DAYS = 1` (in `thawWave.ts`) full day: its sunrise splash reads **Winter Approaches in 1 Day** instead of **DAY X**.
+- At the next sunrise the existing cycle roll starts a new winter: fresh seed, snow back, unlit monuments, night cold back on, splash back to Day 1.
 
 ## Safety / UI
 
@@ -71,7 +77,7 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 ## Parked for after the playtest
 
 - Monuments burning out over time (winter creeping back) as an alternative to the fixed countdown.
-- Celebratory eruption VFX on thaw.
+- Fuller celebratory eruption (beyond the 3/3 smoke plume + lava).
 - Seasons, discoveries, fire network, staged thaw lighting.
 - Mid/Low monument LOS balance if placement skews High.
 - Torch readability; GitHub branches beyond `main`.

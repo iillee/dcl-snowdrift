@@ -15,11 +15,14 @@
 
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
-import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
+import { DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
+import { getCurrentCycleSeed } from 'src/client/cycle'
+import { isWorldThawed } from 'src/client/worldThaw'
+import { room } from 'src/shared/messages'
 import { FROST_BAR_SEGMENTS, getFrostLocal, visibleColdSegments } from 'src/client/frost/accumulation'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
@@ -124,6 +127,34 @@ const RADIUS_INNER_MB = 14
 // tiny 4 px chips floating inside a rounded window.
 const RADIUS_SEG_DT   = 10
 const RADIUS_SEG_MB   = 10
+
+
+// MARK: DebugThawButton
+/** TEMPORARY: forces the 3/3 world thaw. Gated by DEBUG_THAW_BUTTON. */
+function DebugThawButton() {
+	const done = isWorldThawed()
+	return (
+		<UiEntity
+			key          = "ui_FrostBar_debugThaw"
+			uiTransform  = {{
+				width: 72, height: 44, flexShrink: 0,
+				margin: { left: 8 },
+				justifyContent: 'center', alignItems: 'center',
+				borderRadius: 12, borderWidth: 3,
+				borderColor: Color4.create(1, 1, 1, 0.75),
+				pointerFilter: 'block',
+			}}
+			uiBackground = {{ color: done ? Color4.create(0.2, 0.2, 0.2, 0.6) : Color4.create(0.85, 0.25, 0.05, 0.9) }}
+			onMouseDown  = {() => {
+				if (isWorldThawed()) return
+				console.log('frostBar: DEBUG thaw button pressed')
+				room.send('debugThaw', { seed: getCurrentCycleSeed() })
+			}}
+		>
+			<Label value={done ? 'THAWED' : 'THAW'} fontSize={14} color={Color4.White()} textAlign="middle-center" />
+		</UiEntity>
+	)
+}
 
 
 // MARK: FrostBarLayer
@@ -324,6 +355,7 @@ class FrostBarLayer extends Layer {
 						{segments}
 					</UiEntity>
 				</UiEntity>
+				{DEBUG_THAW_BUTTON && <DebugThawButton />}
 				{/* Torch + Logs slots moved to layer.inventoryHotbar
 				   (bottom-center) - the frost bar now only owns the
 				   segmented cold gauge. */}

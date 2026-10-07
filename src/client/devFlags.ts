@@ -41,3 +41,12 @@ export const DEV_DISABLE_FROST = false
 
 /** Keep the local torch lit at full fuel (no drain). Flip off before deploy. */
 export const DEV_KEEP_TORCH_LIT = false
+
+
+// MARK: Thaw debug (TEMPORARY)
+/**
+ * TEMPORARY 'THAW' button right of the frost bar (desktop + mobile).
+ * Lights all 3 monuments server-side and runs the real 3/3 thaw path.
+ * The server handler is gated on this same flag. SET false BEFORE DEPLOY.
+ */
+export const DEBUG_THAW_BUTTON = false
