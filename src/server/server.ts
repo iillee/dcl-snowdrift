@@ -228,23 +228,27 @@ export async function setupServer(): Promise<void> {
 		// Hydrate the joiner with the current weather so their sky matches
 		// everyone else's from the first frame.
 		sendCurrentWeatherTo(from)
-		// Same for the hidden campfire — latecomers that arrive after
+		// Authoritative countdown for the ClockButton popover — hydrated
+		// on join so a fresh client's HUD shows a correct rebuild timer
+		// from the first frame instead of trusting local Date.now().
+		sendCycleStateTo(from)
+		sendPhaseStateTo(from)
+		// Seed-dependent hydrates go AFTER cycleState/phaseState (see stations note below).
+		// Hidden campfire — latecomers that arrive after
 		// somebody already lit it should see smoke + hear crackle from
 		// the first frame instead of a cold pit.
 		sendHiddenCampfireStateTo(from)
-		// Ignition stations — latecomers see already-fired beams.
-		sendStationStateTo(from)
 		// Hydrate the joiner with every wood pile currently in the world so
 		// they see logs another player dropped before they connected.
 		sendLogPilesTo(from)
 		// Same for the scattered wood chunks - the active/inactive set
 		// lives on the server, positions are seed-derived on the client.
 		sendWoodStateTo(from)
-		// Authoritative countdown for the ClockButton popover — hydrated
-		// on join so a fresh client's HUD shows a correct rebuild timer
-		// from the first frame instead of trusting local Date.now().
-		sendCycleStateTo(from)
-		sendPhaseStateTo(from)
+		// Ignition stations + thaw: AFTER cycleState so the joiner's client
+		// already holds the server seed. Before it, the client still has its
+		// local fallback seed (never equal to the server's fresh seed), so
+		// stationState was dropped and late joiners saw unlit monuments.
+		sendStationStateTo(from)
 		// Hydrate held-torch lit states for everyone already in the room so
 		// the joiner sees flames instead of dark sticks until each remote
 		// player's next lit-state change.

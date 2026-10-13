@@ -1,6 +1,9 @@
 /**
  * layer.summitMap.tsx — full-screen engraved stone world map popup.
  *
+ * No text at all (reads as an ancient artifact): no title, legend or
+ * north marker; a bare X closes it.
+ *
  * Opened from the summit map table. North = world +Z (top of map),
  * east = world +X (right). Knowledge only — Close to dismiss.
  *
@@ -10,13 +13,13 @@
  */
 
 import { Color4 } from '@dcl/sdk/math'
+import { isMobile } from '@dcl/sdk/platform'
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { closeSummitMap, isSummitMapOpen } from 'src/client/summitMap'
 import { isStationLit } from 'src/client/stationMarkers'
-import { UI_THEME } from 'src/client/ui/theme/settings'
 import { alpha } from 'src/client/ui/utils/colors'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { MAZE_PLAYFIELD_METERS } from 'src/shared/settings'
@@ -29,20 +32,20 @@ import {
 import { volcanoLavaCentroid } from 'src/shared/terrain/volcanoCrown'
 
 
-const { fontSizes, spacing } = UI_THEME
 
 /** Ancient stone tablet palette — flat, no color. */
 const PANEL_BG    = Color4.create(0.18, 0.17, 0.15, 0.96)
 const MAP_BG      = Color4.create(0.62, 0.58, 0.52, 1)
 const INK         = Color4.create(0.06, 0.05, 0.04, 1)
-const INK_FAINT   = Color4.create(0.28, 0.26, 0.22, 1)
 const STONE_LIGHT = Color4.create(0.78, 0.74, 0.68, 1)
 /** Station X once that monument is lit. */
 const INK_LIT     = Color4.create(0.85, 0.08, 0.05, 1)
 
-const MAP_SIZE_PX = 520
-const GLYPH_PX    = 28
-const GLYPH_LG_PX = 34
+const MAP_SIZE_PX    = 520
+/** Portrait phones: keep the square map inside the viewport. */
+const MAP_SIZE_MB_PX = 340
+const GLYPH_PX    = 40
+const GLYPH_LG_PX = 48
 
 
 type MapMark = {
@@ -102,31 +105,8 @@ function collectMarks(map: TerrainMap): MapMark[] {
 }
 
 
-function LegendItem(props: { glyph: string; label: string }) {
-	return (
-		<UiEntity
-			uiTransform={{
-				flexDirection: 'row',
-				alignItems: 'center',
-				margin: { right: spacing.md, bottom: spacing.xs },
-			}}
-		>
-			<Label
-				value={props.glyph}
-				fontSize={fontSizes.md}
-				color={STONE_LIGHT}
-				textAlign="middle-center"
-				uiTransform={{ width: 22, height: 20, margin: { right: 6 } }}
-			/>
-			<Label
-				value={props.label}
-				fontSize={fontSizes.sm}
-				color={STONE_LIGHT}
-				textAlign="middle-left"
-			/>
-		</UiEntity>
-	)
-}
+/** Faux-bold: the glyph stamped at small offsets so strokes read thicker. */
+const BOLD_OFFSETS: Array<[number, number]> = [[0, 0], [1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]]
 
 
 class SummitMapLayer extends Layer {
@@ -142,6 +122,11 @@ class SummitMapLayer extends Layer {
 			return <UiEntity key="ui_SummitMap_hidden" uiTransform={{ display: 'none' }} />
 		}
 
+		const mobile  = isMobile()
+		const mapPx   = mobile ? MAP_SIZE_MB_PX : MAP_SIZE_PX
+		const scale   = mapPx / MAP_SIZE_PX
+		const pad     = mobile ? 10 : 14
+		const closePx = mobile ? 40 : 44
 		const map = activeTerrain()
 		const marks = map ? collectMarks(map) : []
 
@@ -160,111 +145,66 @@ class SummitMapLayer extends Layer {
 				<UiEntity
 					key="ui_SummitMap_panel"
 					uiTransform={{
-						width: MAP_SIZE_PX + 48,
-						height: 'auto',
-						flexDirection: 'column',
+						width: mapPx + pad * 2,
+						height: mapPx + pad * 2,
 						alignItems: 'center',
-						padding: spacing.md,
+						justifyContent: 'center',
+						positionType: 'relative',
 					}}
 					uiBackground={{ color: PANEL_BG }}
 				>
 					<UiEntity
-						uiTransform={{
-							width: '100%',
-							flexDirection: 'row',
-							justifyContent: 'space-between',
-							alignItems: 'center',
-							margin: { bottom: spacing.sm },
-						}}
-					>
-						<Label
-							value="WORLD MAP"
-							fontSize={fontSizes.xl}
-							color={STONE_LIGHT}
-							font="sans-serif"
-							textAlign="middle-left"
-						/>
-						<UiEntity
-							uiTransform={{
-								width: 96,
-								height: 40,
-								alignItems: 'center',
-								justifyContent: 'center',
-							}}
-							uiBackground={{ color: Color4.create(0.32, 0.30, 0.26, 1) }}
-							onMouseDown={() => closeSummitMap()}
-						>
-							<Label
-								value="Close"
-								fontSize={fontSizes.md}
-								color={STONE_LIGHT}
-								textAlign="middle-center"
-							/>
-						</UiEntity>
-					</UiEntity>
-
-					<Label
-						value="+Z up (north)  ·  +X right (east)  ·  stone engraving"
-						fontSize={fontSizes.xs}
-						color={INK_FAINT}
-						textAlign="middle-center"
-						uiTransform={{ width: '100%', margin: { bottom: spacing.sm } }}
-					/>
-
-					<UiEntity
 						key="ui_SummitMap_canvas"
 						uiTransform={{
-							width: MAP_SIZE_PX,
-							height: MAP_SIZE_PX,
+							width: mapPx,
+							height: mapPx,
 							positionType: 'relative',
 						}}
 						uiBackground={{ color: MAP_BG }}
 					>
-						{/* N indicator */}
-						<Label
-							value="N"
-							fontSize={fontSizes.sm}
-							color={INK}
-							textAlign="middle-center"
-							uiTransform={{
-								positionType: 'absolute',
-								position: { top: 4, left: MAP_SIZE_PX / 2 - 8 },
-								width: 16,
-								height: 18,
-							}}
-						/>
-						{marks.map((m) => {
-							const left = (m.leftPct / 100) * MAP_SIZE_PX - m.size / 2
-							const top  = (m.topPct / 100) * MAP_SIZE_PX - m.size / 2
-							return (
+						{marks.flatMap((m) => {
+							const size = m.size * scale
+							const left = (m.leftPct / 100) * mapPx - size / 2
+							const top  = (m.topPct / 100) * mapPx - size / 2
+							return BOLD_OFFSETS.map(([ox, oy], k) => (
 								<Label
-									key={`ui_SummitMap_mark_${m.key}`}
+									key={`ui_SummitMap_mark_${m.key}_${k}`}
 									value={m.glyph}
-									fontSize={m.size * 0.72}
+									fontSize={size * 0.8}
 									color={m.color ?? INK}
 									textAlign="middle-center"
 									uiTransform={{
 										positionType: 'absolute',
-										position: { left, top },
-										width: m.size,
-										height: m.size,
+										position: { left: left + ox, top: top + oy },
+										width: size,
+										height: size,
 									}}
 								/>
-							)
+							))
 						})}
 					</UiEntity>
 
+					{/* Close: plain X glyph, upper-right corner, stone-styled. */}
 					<UiEntity
+						key="ui_SummitMap_close"
 						uiTransform={{
-							width: '100%',
-							flexDirection: 'row',
+							positionType: 'absolute',
+							position: { top: pad + 6, right: pad + 6 },
+							width: closePx,
+							height: closePx,
+							alignItems: 'center',
 							justifyContent: 'center',
-							margin: { top: spacing.sm },
 						}}
+						uiBackground={{ color: Color4.create(0.32, 0.30, 0.26, 0.92) }}
+						onMouseDown={() => closeSummitMap()}
 					>
-						<LegendItem glyph="▲" label="Volcano" />
-						<LegendItem glyph="○" label="Spawn" />
-						<LegendItem glyph="✕" label="Stations" />
+						<Label
+							value="✕"
+							fontSize={closePx * 0.6}
+							color={STONE_LIGHT}
+							textAlign="middle-center"
+							uiTransform={{ width: closePx, height: closePx }}
+						/>
 					</UiEntity>
 				</UiEntity>
 			</UiEntity>
