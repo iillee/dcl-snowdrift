@@ -72,7 +72,7 @@ function GiveUpButton() {
 		>
 			<Label
 				key       = "ui_GiveUp_label"
-				value     = {mobile ? 'Give up and respawn' : 'Give up and respawn  [F]'}
+				value     = {mobile ? 'Respawn' : 'Respawn  [F]'}
 				color     = {GIVE_UP_TEXT}
 				fontSize  = {mobile ? 30 : 24}
 				textAlign = "middle-center"
