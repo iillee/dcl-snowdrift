@@ -138,7 +138,14 @@ function spawnLadder(ladder: TerrainLadder): void {
 			z: ladder.top.z + dz * ARRIVE_LOOK_AHEAD_M,
 		},
 	}
-	placeLadderVisual(glbX, baseY, glbZ, yaw, dest)
+	// Volcano steps are 32 m: stack ladder2 segments (16 m each) up the
+	// cliff. Only the bottom segment carries the TriggerArea; it
+	// teleports straight to the top landing, so the pair climbs as one
+	// seamless double ladder (no mid handoff).
+	const segments = Math.max(1, Math.round((ladder.top.y - baseY) / TERRAIN_LEVEL_STEP_M))
+	for (let s = 0; s < segments; s++) {
+		placeLadderVisual(glbX, baseY + s * TERRAIN_LEVEL_STEP_M, glbZ, yaw, s === 0 ? dest : null)
+	}
 }
 
 
@@ -149,7 +156,7 @@ function placeLadderVisual(
 	baseY: number,
 	faceZ: number,
 	yaw:   number,
-	dest:  ClimbDest,
+	dest:  ClimbDest | null,
 ): void {
 	const heightScale = TERRAIN_LEVEL_STEP_M / MODEL_CLIMB_M
 	const yawQ        = Quaternion.fromEulerDegrees(0, yaw, 0)
@@ -167,7 +174,7 @@ function placeLadderVisual(
 		invisibleMeshesCollisionMask: 0,
 	})
 
-	attachClimbVolume(visual, heightScale, dest)
+	if (dest) attachClimbVolume(visual, heightScale, dest)
 }
 
 

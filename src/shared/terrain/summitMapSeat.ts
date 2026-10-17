@@ -9,8 +9,13 @@
 import {
 	TERRAIN_LEVEL_HIGH,
 	TERRAIN_LEVEL_VOLCANO_RIM,
+	VOLCANO_LAVA_TOP_ABOVE_RIM_M,
+	groundYForLevel,
 	isCrownLevel,
 } from 'src/shared/settings'
+
+/** Plinth top above the lava top, so the pillar never reads as buried. */
+export const SUMMIT_PLINTH_ABOVE_LAVA_M = 0.35
 import {
 	DIR_DX,
 	DIR_DZ,
@@ -29,6 +34,8 @@ import {
 
 
 export type SummitMapSeat = {
+	/** Crater floor under the plinth (rim level). */
+	floorY: number
 	cx: number
 	cz: number
 	x:  number
@@ -54,6 +61,27 @@ function touchesLava(map: TerrainMap, cx: number, cz: number): boolean {
  */
 export function pickSummitMapSeat(map: TerrainMap): SummitMapSeat | null {
 	if (!map.volcano) return null
+	// Crater centre: the lava cell nearest the lava centroid, on a plinth.
+	{
+		const lavaCells = volcanoLavaCells(map)
+		const c = volcanoLavaCentroid(map)
+		if (lavaCells.length > 0 && c) {
+			let best = lavaCells[0]
+			let bestD = Infinity
+			for (const i of lavaCells) {
+				const cx = i % map.w
+				const cz = (i - cx) / map.w
+				const d = (cx + 0.5 - c.fx) ** 2 + (cz + 0.5 - c.fz) ** 2
+				if (d < bestD) { bestD = d; best = i }
+			}
+			const cx = best % map.w
+			const cz = (best - cx) / map.w
+			const { x, z } = cellCenterWorld(cx, cz)
+			const floorY = groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM)
+			const y = floorY + VOLCANO_LAVA_TOP_ABOVE_RIM_M + SUMMIT_PLINTH_ABOVE_LAVA_M
+			return { cx, cz, x, y, z, floorY }
+		}
+	}
 	const W = map.w
 	const lava  = new Set(volcanoLavaCells(map))
 	const crown = new Set(volcanoCrownCells(map))
@@ -117,5 +145,5 @@ export function pickSummitMapSeat(map: TerrainMap): SummitMapSeat | null {
 	const cz = (best.i - cx) / W
 	const { x, z } = cellCenterWorld(cx, cz)
 	const y = groundYAtWorld(map, x, z)
-	return { cx, cz, x, y, z }
+	return { cx, cz, x, y, z, floorY: y }
 }

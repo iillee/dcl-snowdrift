@@ -28,6 +28,7 @@ import {
 	TERRAIN_LEVEL_HIGH,
 	TERRAIN_LEVEL_MID,
 	TERRAIN_LEVEL_VOLCANO_RIM,
+	sceneHeightLimitM,
 } from 'src/shared/settings'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { volcanoCrownTopY, volcanoLavaCentroid } from 'src/shared/terrain/volcanoCrown'
@@ -56,7 +57,7 @@ const CONE_RADIUS_M  = 4
 const RATE_BY_STATIONS = [0, 0.4, 0.8, 14] as const
 /** Puff size multiplier by station count (wisps small, eruption big). */
 const SIZE_BY_STATIONS = [0, 0.35, 0.5, 1.3] as const
-const LIFETIME_S     = 12
+const LIFETIME_MAX_S = 12
 const MAX_PARTICLES  = 140
 /**
  * Buoyant rise. Negative gravity multiplier accelerates puffs upward
@@ -78,6 +79,22 @@ const SIZE_INIT_MIN  = 1.0
 const SIZE_INIT_MAX  = 1.4
 const SIZE_OVER_START = 8
 const SIZE_OVER_END   = 22
+/**
+ * Puff lifetime capped so the plume (rise + half the final puff) stays
+ * PLUME_CEILING_MARGIN_M under the DCL scene height limit
+ * (log2(parcels + 1) * 20 m: 228 m on 52x52) now that the emitter sits
+ * on the taller volcano. Rise s = v t + a t^2 / 2 at SPEED_MAX.
+ */
+const PLUME_CEILING_MARGIN_M = 5
+const PLUME_ORIGIN_Y = Math.max(groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM), volcanoCrownTopY()) + ORIGIN_ABOVE_RIM_M
+const PLUME_MAX_RISE_M = sceneHeightLimitM() - PLUME_CEILING_MARGIN_M - SIZE_OVER_END / 2 - PLUME_ORIGIN_Y
+const PLUME_ACCEL = -GRAVITY_MULT * 9.81
+const LIFETIME_S = Math.min(
+	LIFETIME_MAX_S,
+	Math.max(2, (-SPEED_MAX + Math.sqrt(SPEED_MAX * SPEED_MAX + 2 * PLUME_ACCEL * Math.max(0, PLUME_MAX_RISE_M))) / PLUME_ACCEL),
+)
+/** Plume top estimate (m world Y), logged at setup. */
+const PLUME_TOP_Y = PLUME_ORIGIN_Y + SPEED_MAX * LIFETIME_S + 0.5 * PLUME_ACCEL * LIFETIME_S * LIFETIME_S + SIZE_OVER_END / 2
 /** Search radius (cells) around map.volcano for caldera cells. */
 const CALDERA_SEARCH_R = 12
 
@@ -191,7 +208,7 @@ function placeForMap(map: TerrainMap | null): void {
 	const x = base.x + (cell.fx - Math.floor(cell.fx)) * cellM
 	const z = base.z + (cell.fz - Math.floor(cell.fz)) * cellM
 	// Above the crown so puffs clear the crater lip.
-	const y = Math.max(groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM), volcanoCrownTopY()) + ORIGIN_ABOVE_RIM_M
+	const y = PLUME_ORIGIN_Y
 	Transform.getMutable(emitter).position = Vector3.create(x, y, z)
 	ps.rate = RATE_BY_STATIONS[stationBoost]
 	applyStageSize(ps)
@@ -257,6 +274,7 @@ export function setupVolcanoSmoke(): void {
 		return
 	}
 	installed = true
+	console.log(`volcanoSmoke: setupVolcanoSmoke: plume origin ${PLUME_ORIGIN_Y.toFixed(1)} m, lifetime ${LIFETIME_S.toFixed(1)} s, top ~${PLUME_TOP_Y.toFixed(0)} m (scene limit ${sceneHeightLimitM().toFixed(0)} m)`)
 
 	emitter = engine.addEntity()
 	Transform.create(emitter, {

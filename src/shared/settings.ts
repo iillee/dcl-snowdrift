@@ -206,16 +206,33 @@ export const TERRAIN_LEVEL_MID      = 1
 /** High plateaus / ridges (below the volcano summit). */
 export const TERRAIN_LEVEL_HIGH     = 2
 /**
+ * Volcano height multiplier (tunable, Luke: 2-3x). Measured as summit
+ * (crown top) above the hearth plain: 39 m at 1.0. Target rim height is
+ * 16.25 + 32 * scale m, quantised to VOLCANO_STEP_M cliffs above High,
+ * plus a crown of (5..7 m) * scale. 2.5 -> rim 96.25 m (one terrace at
+ * 64.25 m), 3 -> rim 128.25 m.
+ */
+export const VOLCANO_HEIGHT_SCALE = 2
+/**
+ * Cliff height of every volcano step above High (m). Double the 16 m
+ * world step: climbed by a double-height ladder (two ladder2 segments,
+ * one TriggerArea teleport) so the cone is steeper and narrower.
+ */
+export const VOLCANO_STEP_M = 16
+/** Walkable volcano-only terrace levels between HIGH and the rim. */
+export const VOLCANO_EXTRA_TERRACES = Math.max(0,
+	Math.round((16.25 + 32 * VOLCANO_HEIGHT_SCALE - (0.25 + 2 * 16)) / VOLCANO_STEP_M) - 1)
+/**
  * Volcano caldera rim — highest walkable (and highest overall) surface.
  * One step above HIGH so ladders still connect High slopes ↔ rim.
  */
-export const TERRAIN_LEVEL_VOLCANO_RIM = 3
+export const TERRAIN_LEVEL_VOLCANO_RIM = TERRAIN_LEVEL_HIGH + 1 + VOLCANO_EXTRA_TERRACES
 /**
  * Impassable mountain band base. Starts above the volcano rim index so
  * the summit stays walkable; heights are capped below the rim so the
  * volcano reads as the high point of the map.
  */
-export const TERRAIN_LEVEL_MOUNTAIN = 4
+export const TERRAIN_LEVEL_MOUNTAIN = TERRAIN_LEVEL_VOLCANO_RIM + 1
 /** Extra mountain peak steps above the base rim (levels 5, 6, …). */
 export const TERRAIN_MOUNTAIN_PEAK_STEPS = 2
 /** Highest mountain peak level index. */
@@ -233,21 +250,37 @@ export const TERRAIN_MOUNTAIN_STEP_M = 8
  * the slab renderer and snow tiles draw them at their true height.
  */
 export const TERRAIN_LEVEL_CROWN      = TERRAIN_LEVEL_MOUNTAIN_MAX + 1
-/** Crown height tiers (jagged lip): rim + 5 / 6 / 7 m. */
+/** Crown height tiers (jagged lip): rim + (5 / 6 / 7 m) * VOLCANO_HEIGHT_SCALE. */
 export const TERRAIN_CROWN_STEPS      = 3
 export const TERRAIN_LEVEL_CROWN_MAX  = TERRAIN_LEVEL_CROWN + TERRAIN_CROWN_STEPS - 1
 /** Lowest crown tier above the rim surface (m), then +1 m per tier. */
-export const TERRAIN_CROWN_BASE_M     = 5
-export const TERRAIN_CROWN_STEP_M     = 1
+export const TERRAIN_CROWN_BASE_M     = 5 * VOLCANO_HEIGHT_SCALE
+export const TERRAIN_CROWN_STEP_M     = 1 * VOLCANO_HEIGHT_SCALE
 /**
  * Lava lid above the rim surface. Max snow stage is 1.5 m, so the lid
  * hides any snow on the crater cells; ground queries on lava cells
  * report this height (it is the surface you stand on).
  */
-export const VOLCANO_LAVA_TOP_ABOVE_RIM_M = 1.7
+export const VOLCANO_LAVA_TOP_ABOVE_RIM_M = 0.15
 
 
 // MARK: isCrownLevel
+/** True for the volcano-only walkable terraces between High and the rim. */
+export function isVolcanoTerraceLevel(level: number): boolean {
+	return level > TERRAIN_LEVEL_HIGH && level < TERRAIN_LEVEL_VOLCANO_RIM
+}
+
+
+/**
+ * DCL scene height limit (m): log2(parcels + 1) * 20. Uses the scene
+ * size in parcels (16 m).
+ */
+export function sceneHeightLimitM(): number {
+	const parcels = (SCENE_WORLD_SIZE_X_METERS / 16) * (SCENE_WORLD_SIZE_Z_METERS / 16)
+	return Math.log2(parcels + 1) * 20
+}
+
+
 /** True for the extruded volcano crown tiers. */
 export function isCrownLevel(level: number): boolean {
 	return level >= TERRAIN_LEVEL_CROWN && level <= TERRAIN_LEVEL_CROWN_MAX
@@ -268,26 +301,33 @@ export function isMountainLevel(level: number): boolean {
 // MARK: groundYForLevel
 /**
  * Surface height of a terrain level.
- * Walkable 0..VOLCANO_RIM use the 16 m step (rim = 48.25 m).
+ * Walkable 0..HIGH use the 16 m step; volcano terraces and the rim
+ * climb VOLCANO_STEP_M (32 m) per level above High (rim = 96.25 m at
+ * VOLCANO_HEIGHT_SCALE 2.5).
  * Mountain peaks sit between HIGH and the rim so the caldera lip is
  * always the highest point on the map.
  */
 export function groundYForLevel(level: number): number {
-	if (level <= TERRAIN_LEVEL_VOLCANO_RIM) {
+	if (level <= TERRAIN_LEVEL_HIGH) {
 		return TERRAIN_BASE_SURFACE_Y + level * TERRAIN_LEVEL_STEP_M
 	}
+	if (level <= TERRAIN_LEVEL_VOLCANO_RIM) {
+		return TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_HIGH * TERRAIN_LEVEL_STEP_M +
+			(level - TERRAIN_LEVEL_HIGH) * VOLCANO_STEP_M
+	}
 	if (isCrownLevel(level)) {
-		// Crown: highest terrain on the map (rim + 5..7 m = 53.25..55.25).
-		return TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_VOLCANO_RIM * TERRAIN_LEVEL_STEP_M +
+		// Crown: highest terrain on the map (rim + 12.5..17.5 m at scale 2.5).
+		return groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM) +
 			TERRAIN_CROWN_BASE_M + (level - TERRAIN_LEVEL_CROWN) * TERRAIN_CROWN_STEP_M
 	}
 	const highY = TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_HIGH * TERRAIN_LEVEL_STEP_M
-	const rimY  = TERRAIN_BASE_SURFACE_Y + TERRAIN_LEVEL_VOLCANO_RIM * TERRAIN_LEVEL_STEP_M
 	const peak  = Math.max(0, level - TERRAIN_LEVEL_MOUNTAIN)
 	const steps = Math.max(1, TERRAIN_MOUNTAIN_PEAK_STEPS)
 	// Spread peaks across (HIGH+step) .. (RIM - 2 m).
 	const lo = highY + TERRAIN_MOUNTAIN_STEP_M
-	const hi = rimY - 2
+	// Pinned to the pre-terrace rim (HIGH + one step) so taller volcano
+	// terraces do not raise the perimeter band.
+	const hi = highY + TERRAIN_LEVEL_STEP_M - 2
 	return lo + (peak / steps) * (hi - lo)
 }
 

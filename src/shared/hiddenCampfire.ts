@@ -28,7 +28,9 @@ import {
 	TERRAIN_LEVEL_HIGH,
 	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MID,
+	TERRAIN_LEVEL_VOLCANO_RIM,
 	isMountainLevel,
+	isVolcanoTerraceLevel,
 } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { volcanoCrownCells, volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
@@ -71,7 +73,13 @@ export const HIDDEN_WORLD_COUNT = 14
  * MAJOR_GROVE_COUNT (Low + Mid + High) destinations at HIDDEN_DEST_PIT_MAX
  * each â€” volcano is not a grove and gets no pit cluster.
  */
+/**
+ * Guaranteed warm stop on the volcano: one pit on a slope terrace
+ * (between High and the rim), placed before every other layer.
+ */
+export const HIDDEN_VOLCANO_COUNT = 1
 export const HIDDEN_CAMPFIRE_COUNT =
+	HIDDEN_VOLCANO_COUNT +
 	HIDDEN_HOME_COUNT +
 	MAJOR_GROVE_COUNT * HIDDEN_DEST_PIT_MAX +
 	HIDDEN_WORLD_COUNT
@@ -215,15 +223,75 @@ export function pickHiddenCampfires(
 	const picks : HiddenCampfireSpot[] = []
 	const TRIES = 160
 
+	const volcN = placeVolcanoTerrace(seed, map, nodes, blocked, trees, picks)
 	const homeN = placeHomeNetwork(rand, map, nodes, blocked, trees, picks, hearth, TRIES)
 	const groveN = placeGroveClusters(rand, map, nodes, blocked, trees, picks, TRIES)
 	const worldN = placeWorldScatter(rand, map, nodes, blocked, trees, picks)
 
 	console.log(
 		`hiddenCampfire: pickHiddenCampfires: placed ${picks.length}/` +
-		`${HIDDEN_CAMPFIRE_COUNT} pits (home=${homeN} grove=${groveN} world=${worldN})`,
+		`${HIDDEN_CAMPFIRE_COUNT} pits (volcano=${volcN} home=${homeN} grove=${groveN} world=${worldN})`,
 	)
 	return picks
+}
+
+
+// MARK: Volcano terrace tuning
+/** Keep the volcano pit at least this far (Chebyshev cells) from ladder cells. */
+const HIDDEN_VOLCANO_LADDER_CLEAR_CELLS = 1
+/** Salt for the volcano pit's own PRNG so the other layers keep their draws. */
+const HIDDEN_VOLCANO_SALT = 0x7E44AC3D
+
+
+// MARK: placeVolcanoTerrace
+/**
+ * One pit on a volcano slope terrace (levels between High and the rim):
+ * a warm stop on the long cold climb. Deterministic per seed (own
+ * PRNG), reachable (route graph), flat (whole log pile on one ledge),
+ * and clear of ladder feet / landings. Prefers the middle terrace,
+ * then the others outward. Placed first so later layers space off it.
+ */
+export function placeVolcanoTerrace(
+	seed   : number,
+	map    : TerrainMap,
+	nodes  : { x: number; z: number }[],
+	blocked: ReadonlySet<string>,
+	trees  : ReadonlyArray<{ x: number; z: number; radius: number }>,
+	picks  : HiddenCampfireSpot[],
+): number {
+	if (!map.volcano) return 0
+	const rand = mulberry32((seed ^ HIDDEN_VOLCANO_SALT) >>> 0)
+	const ladderCells: Array<{ cx: number; cz: number }> = []
+	for (const l of map.ladders) {
+		ladderCells.push({ cx: l.lowCx, cz: l.lowCz }, { cx: l.highCx, cz: l.highCz })
+	}
+	const midLevel = (TERRAIN_LEVEL_HIGH + TERRAIN_LEVEL_VOLCANO_RIM) / 2
+	const cands: Array<{ tx: number; tz: number; key: number }> = []
+	for (let cz = 0; cz < map.h; cz++) {
+		for (let cx = 0; cx < map.w; cx++) {
+			const i = cellIndex(cx, cz)
+			const level = map.levels[i]
+			if (!isVolcanoTerraceLevel(level) || map.landforms[i] !== LANDFORM_VOLCANO) continue
+			if (map.routeDist[i] < 0) continue
+			let nearLadder = false
+			for (const l of ladderCells) {
+				if (Math.max(Math.abs(l.cx - cx), Math.abs(l.cz - cz)) <= HIDDEN_VOLCANO_LADDER_CLEAR_CELLS) { nearLadder = true; break }
+			}
+			if (nearLadder) continue
+			cands.push({ tx: cx, tz: cz, key: Math.abs(level - midLevel) + rand() * 0.9 })
+		}
+	}
+	cands.sort((a, b) => a.key - b.key || a.tx - b.tx || a.tz - b.tz)
+	for (const c of cands) {
+		const world = tileToWorld(c.tx, c.tz)
+		if (!spotClear(world.x, world.z, nodes, blocked, trees, map, null, 0)) continue
+		const y = groundYAtWorld(map, world.x, world.z)
+		nodes.push({ x: world.x, z: world.z })
+		picks.push({ x: world.x, y, z: world.z, tx: c.tx, tz: c.tz })
+		return 1
+	}
+	console.log(`hiddenCampfire: placeVolcanoTerrace: no clear terrace cell (${cands.length} candidates)`)
+	return 0
 }
 
 

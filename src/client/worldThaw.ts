@@ -19,10 +19,15 @@ import {
 	thawWaveCentre,
 	thawWaveRadiusTiles,
 	POST_THAW_DAYS,
+	THAW_SPLASH_AT_PROGRESS,
+	THAW_WAVE_DURATION_S,
 } from 'src/shared/terrain/thawWave'
+import { engine } from '@dcl/sdk/ecs'
 
 
 let thawed = false
+/** Card waits for the wave to reach THAW_SPLASH_AT_PROGRESS. */
+let splashPending = false
 /** Server day number of the thaw (0 = unknown / not thawed). */
 let thawDay = 0
 let currentSeed = 0
@@ -115,8 +120,9 @@ function applyThaw(fromHydrate: boolean): void {
 		`${fromHydrate ? ' (hydrate)' : ''}`,
 	)
 	beginVolcanoThaw()
-	if (!fromHydrate) beginThawSplash()
-	else beginThawSplash() // show card for late joiners too so they know
+	// Card at half-wave. Late joiners past that point see it at once
+	// (the poll below fires next frame); earlier joiners wait like everyone.
+	splashPending = true
 }
 
 
@@ -125,6 +131,7 @@ function resetForSeed(seed: number): void {
 	currentSeed = seed
 	thawed = false
 	thawDay = 0
+	splashPending = false
 }
 
 
@@ -153,7 +160,16 @@ export function setupWorldThaw(): void {
 		}
 		else {
 			thawed = false
+			splashPending = false
 		}
+	})
+
+	engine.addSystem(() => {
+		if (!splashPending || !thawed) return
+		const progress = (Date.now() - waveStartLocalMs) / (THAW_WAVE_DURATION_S * 1000)
+		if (progress < THAW_SPLASH_AT_PROGRESS) return
+		splashPending = false
+		beginThawSplash()
 	})
 
 	onCycleSeedChange(({ newSeed }) => {

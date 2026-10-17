@@ -34,6 +34,8 @@ import {
 	TERRAIN_LEVEL_MOUNTAIN,
 	TERRAIN_LEVEL_VOLCANO_RIM,
 	TERRAIN_MOUNTAIN_PEAK_STEPS,
+	VOLCANO_EXTRA_TERRACES,
+	VOLCANO_LAVA_TOP_ABOVE_RIM_M,
 	isCrownLevel,
 	isMountainLevel,
 } from 'src/shared/settings'
@@ -228,6 +230,11 @@ interface Work {
 	landforms : Uint8Array
 	/** 1 = generator must not change this cell's level. */
 	locked    : Uint8Array
+	/**
+	 * Low cell of the one ladder allowed onto the rim (the top spiral
+	 * pad), so the crater wall gets a single gap.
+	 */
+	rimPadLow : Set<number>
 }
 
 interface LadderSite {
@@ -271,6 +278,7 @@ function buildOnce(
 		levels    : new Uint8Array(N),
 		landforms : new Uint8Array(N),
 		locked    : new Uint8Array(N),
+		rimPadLow : new Set<number>(),
 	}
 
 	paintMountainBand(work)
@@ -810,6 +818,28 @@ function stampRidge(
 }
 
 
+// Volcano terrace widths (cells on the reference grid). Each ring is a
+// walkable 16 m step; the spiral ladder pads below make them 2 deep
+// where a ladder needs standing room.
+const VOLCANO_RIM_W_CELLS     = 1.0
+const VOLCANO_TERRACE_W_CELLS = 1.0
+const VOLCANO_HIGH_W_CELLS    = 1.0
+const VOLCANO_APRON_W_CELLS   = 1.0
+/** Lava lake = ellipse t below this (was 0.40); keeps the cone tight. */
+const VOLCANO_CRATER_T        = 0.30
+/**
+ * Per-side jitter: extra width (cells) added to the terrace and High
+ * rings by a smooth noise of bearing, so the rings are not perfectly
+ * concentric and the cone reads as a lumpy peak.
+ */
+const VOLCANO_SIDE_JITTER_CELLS = 0.35
+/** Side noise below this drops a level on that face (32 m cliff there). */
+const VOLCANO_RING_SKIP_BELOW = 0.38
+/** Side noise above this widens the level into a shoulder. */
+const VOLCANO_RING_WIDE_ABOVE = 0.75
+/** Shoulder width as a multiple of the normal ring width. */
+const VOLCANO_RING_W_WIDE     = 1.35
+
 // MARK: stampVolcano
 /**
  * Volcano cone + caldera landmark (not a grove).
@@ -836,13 +866,28 @@ function stampVolcano(
 	let fz = HEARTH_FZ + Math.sin(angle) * dist
 	// Mild oval (not a sausage) so it still reads as a cone from afar.
 	const stretch = angle + (work.rng() - 0.5) * 0.55
+	// majorR sizes the crater (lava = t < VOLCANO_CRATER_T); terraces are constant-
+	// width rings stacked outside it.
 	const majorR  = sc(5.2) + work.rng() * sc(2.2)
 	const minorR  = majorR * (0.70 + work.rng() * 0.22)
-	// Slide the cone toward the hearth until the crater + crest is clear
-	// of the locked mountain band (a band-swallowed core = no lava lake).
+	const spinSgn = work.rng() < 0.5 ? 1 : 3 // +90 or -90 deg per pad
+
+	const wRim   = Math.max(1, sc(VOLCANO_RIM_W_CELLS))
+	const tw     = Math.max(1, sc(VOLCANO_TERRACE_W_CELLS))
+	const wHigh  = Math.max(1.1, sc(VOLCANO_HIGH_W_CELLS))
+	const wApron = Math.max(1, sc(VOLCANO_APRON_W_CELLS))
+	const eT1    = wRim + VOLCANO_EXTRA_TERRACES * tw
+	// Widest possible ring stack (every level at its widest).
+	const eHigh  = wRim + (VOLCANO_EXTRA_TERRACES + 1) * VOLCANO_RING_W_WIDE * Math.max(1, sc(1))
+	const eApron = eHigh + wApron
+	const eOuter = eApron + 0.8
+	const craterR = majorR * VOLCANO_CRATER_T + 0.6
+
+	// Slide the cone toward the hearth until the crater and terraces are
+	// clear of the locked mountain band, but never into the hearth pad.
 	// Done after all rng draws so the rest of the layout is unchanged.
 	{
-		const coreR = majorR * 0.62 + 1
+		const coreR = craterR + eT1 + 0.5
 		const blocked = (x: number, z: number): boolean => {
 			const r = Math.ceil(coreR)
 			for (let dz = -r; dz <= r; dz++) {
@@ -857,7 +902,7 @@ function stampVolcano(
 			return false
 		}
 		let dd = dist
-		const minD = Math.round(sc(12))
+		const minD = Math.max(Math.round(sc(12)), Math.ceil(craterR + eApron + HEARTH_FORCE_R))
 		while (dd > minD && blocked(fx, fz)) {
 			dd -= 1
 			fx = HEARTH_FX + Math.cos(angle) * dd
@@ -866,7 +911,7 @@ function stampVolcano(
 	}
 	const cosA = Math.cos(stretch)
 	const sinA = Math.sin(stretch)
-	const rMax = Math.ceil(Math.max(majorR, minorR) + 4)
+	const rMax = Math.ceil(majorR * 0.45 + eOuter + 3)
 
 	const ellipseT = (cx: number, cz: number): number => {
 		const ex = cx + 0.5 - fx
@@ -878,49 +923,78 @@ function stampVolcano(
 		const v  = lz / (minorR + (n - 0.5) * 1.2)
 		return Math.sqrt(u * u + v * v)
 	}
+	/** Cells outward from the lava edge along this cell's bearing (< 0 = lava). */
+	const edgeDist = (cx: number, cz: number): number => {
+		const t = ellipseT(cx, cz)
+		if (t < VOLCANO_CRATER_T) return -1
+		const d = Math.hypot(cx + 0.5 - fx, cz + 0.5 - fz)
+		return d * (1 - VOLCANO_CRATER_T / t)
+	}
+	/** 0..1 smooth noise of bearing (per-side ring jitter). */
+	const sideJitter = (cx: number, cz: number, salt: number): number => {
+		const a = Math.atan2(cz + 0.5 - fz, cx + 0.5 - fx)
+		return valueNoise2(Math.cos(a) * 1.6 + 5, Math.sin(a) * 1.6 + 5, work.seed + salt)
+	}
+	/**
+	 * Per-side ring width (cells) of one level on this bearing: 0 (the
+	 * level is missing there, so the face drops a full 32 m cliff),
+	 * normal, or a wide shoulder. Smooth noise of bearing per level, so
+	 * each face of the cone gets its own mix of 16 m and 32 m steps.
+	 * Two levels in a row are never both missing (48 m is not climbable).
+	 */
+	const ringW = (level: number, cx: number, cz: number): number => {
+		const pick = (lv: number): number => {
+			const n = sideJitter(cx, cz, 313 + lv * 97)
+			return n < VOLCANO_RING_SKIP_BELOW ? 0 : n < VOLCANO_RING_WIDE_ABOVE ? tw : tw * VOLCANO_RING_W_WIDE
+		}
+		const w = pick(level)
+		if (w > 0) return w
+		// Missing: keep it if the level above (or the rim) is also missing.
+		if (level + 1 < RIM && pick(level + 1) === 0) return tw
+		return 0
+	}
+	const levelForEdge = (e: number, cx: number, cz: number): number => {
+		let acc = wRim
+		if (e < acc) return RIM
+		for (let lv = RIM - 1; lv >= HIGH; lv--) {
+			acc += ringW(lv, cx, cz)
+			if (e < acc) return lv
+		}
+		return MID
+	}
 
-	// Pass 1 — cone / caldera rings.
+	const cone: number[] = []
+	// Pass 1 - crater, rim, terraces, High, Mid apron.
 	for (let dz = -rMax; dz <= rMax; dz++) {
 		for (let dx = -rMax; dx <= rMax; dx++) {
 			const cx = Math.floor(fx) + dx
 			const cz = Math.floor(fz) + dz
 			if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
-			const t = ellipseT(cx, cz)
-			if (t > 1.15) continue
 			const i = cz * W + cx
 			if (work.locked[i]) continue
-
-			if (t < 0.40) {
-				// Crater interior: rim-level lava lake (was a 32 m-deep Mid
-				// bowl + High terrace that nobody could see). Locked so
-				// cleanup passes keep the crater shape.
+			const e = edgeDist(cx, cz)
+			if (e > eOuter) continue
+			if (e < 0) {
+				// Crater interior: rim-level lava lake, locked.
 				work.levels[i]    = RIM
 				work.landforms[i] = LANDFORM_LAVA
 				work.locked[i]    = 1
-			} else if (t < 0.58) {
-				// Rim crest — highest point on the map.
-				work.levels[i]    = RIM
-				work.landforms[i] = LANDFORM_VOLCANO
-			} else if (t < 0.82) {
-				// Outer High cone slopes (below the rim).
-				work.levels[i]    = HIGH
-				work.landforms[i] = LANDFORM_VOLCANO
-			} else if (t < 1.0) {
-				// Mid foothill apron.
-				work.levels[i]    = MID
-				work.landforms[i] = LANDFORM_VOLCANO
-			} else if (work.rng() < 0.45) {
-				work.levels[i]    = MID
-				work.landforms[i] = LANDFORM_VOLCANO
+				continue
 			}
+			if (e >= eApron && work.rng() >= 0.45) continue
+			work.levels[i]    = levelForEdge(e, cx, cz)
+			work.landforms[i] = LANDFORM_VOLCANO
+			cone.push(i)
 		}
 	}
 
-	// Stair notch — the rings are ~1 cell thick on a noisy ellipse, so
-	// straight 3-wide ladder sites rarely exist once the crater is a
-	// rim-level lava lake. Carve a locked 3-wide strip toward the hearth:
-	// Rim, Rim, High, High, Mid, Mid (outward), guaranteeing High→Rim
-	// and Mid→High ladder sites so the summit region stays reachable.
+	// Spiral ladder pads. Rings are ~1 cell deep and curved, so straight
+	// 3-wide runs are rare. Each step up gets a locked 3x2 pad (one low
+	// row, one high row) on a cardinal face; findLadderSites drops the
+	// 2-deep standing-room rule on volcano cells (a 16 m ledge is room
+	// enough). the bottom pad faces the hearth, each
+	// higher pad turns 90 deg the same way, so the climb winds around
+	// the cone. The spanning tree may still use any natural site.
 	{
 		const vx = HEARTH_FX - fx
 		const vz = HEARTH_FZ - fz
@@ -933,86 +1007,143 @@ function stampVolcano(
 				dOut    = d
 			}
 		}
-		const pd = (dOut + 1) % 4
 		const c0x = Math.floor(fx)
 		const c0z = Math.floor(fz)
-		let k0 = 1
-		while (k0 < rMax && ellipseT(c0x + DIR_DX[dOut] * k0, c0z + DIR_DZ[dOut] * k0) < 0.40) k0++
-		// High step is 3 deep so its two side faces are straight 3-cell
-		// cliffs too: the Mid->High ladder can then land on the front or
-		// either side (picked by the seeded spanning tree below).
-		const NOTCH: number[] = [RIM, RIM, HIGH, HIGH, HIGH, MID, MID]
-		for (let k = 0; k < NOTCH.length; k++) {
-			for (let p = -1; p <= 1; p++) {
-				const cx = c0x + DIR_DX[dOut] * (k0 + k) + DIR_DX[pd] * p
-				const cz = c0z + DIR_DZ[dOut] * (k0 + k) + DIR_DZ[pd] * p
-				if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
-				const i = cz * W + cx
-				if (work.locked[i] && work.landforms[i] !== LANDFORM_LAVA) continue
-				work.levels[i]    = NOTCH[k]
-				work.landforms[i] = LANDFORM_VOLCANO
-				work.locked[i]    = 1
-			}
-		}
-		// Side aprons: 2 Mid cells either side of the High step give a side
-		// ladder foot standing room. Skipped per side when blocked (band,
-		// lava, map edge) - that side then has no straight site and the
-		// front ladder is used instead.
-		for (const sgn of [-1, 1]) {
-			const cells: number[] = []
-			let ok = true
-			for (let k = 2; k <= 4 && ok; k++) {
-				for (let p = 2; p <= 3; p++) {
-					const cx = c0x + DIR_DX[dOut] * (k0 + k) + DIR_DX[pd] * p * sgn
-					const cz = c0z + DIR_DZ[dOut] * (k0 + k) + DIR_DZ[pd] * p * sgn
-					if (cx < 1 || cz < 1 || cx >= W - 1 || cz >= H - 1) { ok = false; break }
-					const i = cz * W + cx
-					if (work.locked[i] || work.landforms[i] === LANDFORM_LAVA) { ok = false; break }
-					// Never open a Mid cell onto the lava lake (would expose the crater).
-					for (let d = 0; d < 4; d++) if (work.landforms[i + DIR_DZ[d] * W + DIR_DX[d]] === LANDFORM_LAVA) ok = false
-					if (!ok) break
-					cells.push(i)
+		// Same-level 4-connected component of a cell, limited to the cone box.
+		const sameComp = (a: number, b: number): boolean => {
+			const lv = work.levels[a]
+			if (work.levels[b] !== lv) return false
+			const seen = new Set<number>([a])
+			const stack = [a]
+			while (stack.length > 0) {
+				const i = stack.pop()!
+				if (i === b) return true
+				const cx = i % W
+				const cz = (i - cx) / W
+				if (Math.abs(cx - c0x) > rMax + 2 || Math.abs(cz - c0z) > rMax + 2) continue
+				for (let d = 0; d < 4; d++) {
+					const nx = cx + DIR_DX[d]
+					const nz = cz + DIR_DZ[d]
+					if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+					const j = nz * W + nx
+					if (seen.has(j) || work.levels[j] !== lv || work.landforms[j] === LANDFORM_LAVA) continue
+					seen.add(j)
+					stack.push(j)
 				}
 			}
-			if (!ok) continue
-			for (const i of cells) {
-				work.levels[i]    = MID
+			return false
+		}
+		/**
+		 * Stamp the 3x2 pad for low -> low+1 on face d (lateral offset off).
+		 * The centre column must already sit on ring low / ring low+1 so
+		 * the pad joins both terraces, and the foot must share a terrace
+		 * with the previous landing so the climb chains. Returns the
+		 * landing cell, or -1.
+		 */
+		const tryPad = (low: number, d: number, off: number, prevLanding: number): { land: number; landLv: number } | null => {
+			const pd = (d + 1) % 4
+			const at = (k: number, p: number): number => {
+				const cx = c0x + DIR_DX[d] * k + DIR_DX[pd] * (p + off)
+				const cz = c0z + DIR_DZ[d] * k + DIR_DZ[pd] * (p + off)
+				if (cx < 1 || cz < 1 || cx >= W - 1 || cz >= H - 1) return -1
+				return cz * W + cx
+			}
+			let q = -1
+			for (let k = 1; k <= rMax; k++) {
+				const i = at(k, 0)
+				if (i < 0) return null
+				if (work.landforms[i] === LANDFORM_LAVA) continue
+				if (work.levels[i] <= low) { q = k; break }
+			}
+			if (q < 2) return null
+			const foot = at(q, 0)
+			const land = at(q - 1, 0)
+			if (foot < 0 || land < 0) return null
+			if (work.levels[foot] !== low) return null
+			// Land one or two levels up (16 m or 32 m face).
+			const landLava = work.landforms[land] === LANDFORM_LAVA
+			const landLv = landLava ? RIM : work.levels[land]
+			if (landLv !== low + 1 && landLv !== low + 2) return null
+			if (landLv > RIM || (landLava && low + 2 < RIM)) return null
+			if (prevLanding >= 0 && !sameComp(prevLanding, foot)) return null
+			const cells: Array<[number, number]> = []
+			for (let k = q - 1; k <= q; k++) {
+				const lv = k < q ? landLv : low
+				for (let p = -1; p <= 1; p++) {
+					const i = at(k, p)
+					if (i < 0) return null
+					const lf = work.landforms[i]
+					if (lf === LANDFORM_LAVA && lv !== RIM) return null
+					// Pads may share a cell with another pad at the same level
+					// (stacked steps); never overwrite band / hearth locks.
+					if (work.locked[i] && lf !== LANDFORM_LAVA && !(lf === LANDFORM_VOLCANO && work.levels[i] === lv)) return null
+					cells.push([i, lv])
+				}
+			}
+			for (const [i, lv] of cells) {
+				work.levels[i]    = lv
 				work.landforms[i] = LANDFORM_VOLCANO
 				work.locked[i]    = 1
 			}
+			if (landLv === RIM) work.rimPadLow.add(foot)
+			return { land, landLv }
+		}
+		let d = dOut
+		let prevLanding = -1
+		for (let low = MID; low < RIM;) {
+			const order = [d, (d + spinSgn) % 4, (d + 4 - spinSgn) % 4, (d + 2) % 4]
+			// Lateral offsets along each face give more slots than one
+			// pad per cardinal (5 steps, 4 faces, thin rings).
+			const offs = work.rng() < 0.5 ? [0, 2, -2, 3, -3, 1, -1] : [0, -2, 2, -3, 3, -1, 1]
+			let used = -1
+			let got: { land: number; landLv: number } | null = null
+			for (const cand of order) {
+				for (const off of offs) {
+					got = tryPad(low, cand, off, prevLanding)
+					if (got) { used = cand; break }
+				}
+				if (used >= 0) break
+			}
+			if (used < 0 || !got) {
+				console.log(`terrainGen: stampVolcano: no pad for level ${low} -> ${low + 1}`)
+				break
+			}
+			prevLanding = got.land
+			low = got.landLv
+			d = (used + spinSgn) % 4
 		}
 	}
 
-	// Pass 2 — silhouette teeth glued to the existing mountain band.
-	for (let dz = -rMax; dz <= rMax; dz++) {
-		for (let dx = -rMax; dx <= rMax; dx++) {
-			const cx = Math.floor(fx) + dx
-			const cz = Math.floor(fz) + dz
-			if (cx < 0 || cz < 0 || cx >= W || cz >= H) continue
-			const t = ellipseT(cx, cz)
-			if (t < 0.60 || t > 0.90) continue
-			const i = cz * W + cx
-			if (work.locked[i]) continue
-			if (work.levels[i] === RIM) continue
-			if (isMountainLevel(work.levels[i])) continue
-			if (hearthDist(cx, cz) < HEARTH_BLEND_R) continue
-			let touchesMountain = false
-			for (let d = 0; d < 4; d++) {
-				const nx = cx + DIR_DX[d]
-				const nz = cz + DIR_DZ[d]
-				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
-				if (isMountainLevel(work.levels[nz * W + nx])) {
-					touchesMountain = true
-					break
-				}
+	// Pass 2 - silhouette teeth glued to the existing mountain band,
+	// apron only so the terraces stay continuous.
+	for (const i of cone) {
+		if (work.locked[i]) continue
+		const cx = i % W
+		const cz = (i - cx) / W
+		const e = edgeDist(cx, cz)
+		if (e < eHigh || e > eOuter) continue
+		if (hearthDist(cx, cz) < HEARTH_BLEND_R) continue
+		let touchesMountain = false
+		for (let d = 0; d < 4; d++) {
+			const nx = cx + DIR_DX[d]
+			const nz = cz + DIR_DZ[d]
+			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+			if (isMountainLevel(work.levels[nz * W + nx])) {
+				touchesMountain = true
+				break
 			}
-			if (!touchesMountain) continue
-			if (work.rng() > 0.42) continue
-			work.levels[i]    = MOUNTAIN
-			work.locked[i]    = 1
-			work.landforms[i] = LANDFORM_VOLCANO
 		}
+		if (!touchesMountain) continue
+		if (work.rng() > 0.42) continue
+		work.levels[i] = MOUNTAIN
+		work.locked[i] = 1
 	}
+
+	// Thin rings on a curve leave corner-only touches; fix them while the
+	// ring cells can still move, then lock the cone so smoothing and
+	// region merging keep the terraces.
+	removeDiagonals(work)
+	for (const i of cone) work.locked[i] = 1
 }
 
 // MARK: stampBasin
@@ -1072,7 +1203,7 @@ function smooth(
 	work:   Work,
 	passes: number,
 ): void {
-	const counts = new Int32Array(4)
+	const counts = new Int32Array(16)
 	for (let p = 0; p < passes; p++) {
 		const next = work.levels.slice()
 		for (let cz = 1; cz < H - 1; cz++) {
@@ -1141,7 +1272,7 @@ function labelRegions(levels: Uint8Array): {
 /** Fold regions under MIN_REGION_CELLS into their most common neighbour level. */
 function mergeTinyRegions(work: Work): void {
 	const { regions, regionArea } = labelRegions(work.levels)
-	const counts = new Int32Array(4)
+	const counts = new Int32Array(16)
 	const members = new Map<number, number[]>()
 	for (let i = 0; i < N; i++) {
 		const r = regions[i]
@@ -1249,11 +1380,19 @@ function findLadderSites(
 				const hx = cx + DIR_DX[d]
 				const hz = cz + DIR_DZ[d]
 				const highLv = at(hx, hz)
-				if (highLv !== lowLv + 1 || isMountainLevel(highLv)) continue
+				const volcPair = landforms !== undefined &&
+					landforms[cz * W + cx] === LANDFORM_VOLCANO && landforms[hz * W + hx] === LANDFORM_VOLCANO
+				// Volcano faces may be 32 m (two levels): a double ladder.
+				if (isMountainLevel(highLv)) continue
+				if (highLv !== lowLv + 1 && !(volcPair && highLv === lowLv + 2)) continue
 				// No landings inside the lava lake.
 				if (landforms && landforms[hz * W + hx] === LANDFORM_LAVA) continue
-				if (at(cx - DIR_DX[d], cz - DIR_DZ[d]) !== lowLv) continue
-				if (at(hx + DIR_DX[d], hz + DIR_DZ[d]) !== highLv) continue
+				// Volcano terraces are one 16 m cell deep: the ledge itself is
+				// standing room, so skip the 2-deep check there.
+				const volc = landforms !== undefined &&
+					landforms[cz * W + cx] === LANDFORM_VOLCANO && landforms[hz * W + hx] === LANDFORM_VOLCANO
+				if (!volc && at(cx - DIR_DX[d], cz - DIR_DZ[d]) !== lowLv) continue
+				if (!volc && at(hx + DIR_DX[d], hz + DIR_DZ[d]) !== highLv) continue
 				let straight = true
 				for (const p of [(d + 1) % 4, (d + 3) % 4]) {
 					if (at(cx + DIR_DX[p], cz + DIR_DZ[p]) !== lowLv)  straight = false
@@ -1282,6 +1421,10 @@ function placeLadders(
 	const pairSites = new Map<string, LadderSite[]>()
 	const adjacency = new Map<number, Set<number>>()
 	for (const site of findLadderSites(work.levels, work.landforms)) {
+		// One crater-wall gap: the only ladder onto the volcano rim is the
+		// top spiral pad.
+		if (work.levels[site.high] === RIM && work.landforms[site.high] === LANDFORM_VOLCANO &&
+			!work.rimPadLow.has(site.low)) continue
 		const ra  = regions[site.low]
 		const rb  = regions[site.high]
 		const key = ra < rb ? `${ra},${rb}` : `${rb},${ra}`
@@ -1377,7 +1520,7 @@ function toLadder(
 		dir      : site.dir,
 		lowLevel : lowLv,
 		bottom   : { x: edgeX - dx * LADDER_FOOT_M, y: groundYForLevel(lowLv),     z: edgeZ - dz * LADDER_FOOT_M },
-		top      : { x: edgeX + dx * LADDER_LAND_M, y: groundYForLevel(lowLv + 1), z: edgeZ + dz * LADDER_LAND_M },
+		top      : { x: edgeX + dx * LADDER_LAND_M, y: groundYForLevel(levels[site.high]), z: edgeZ + dz * LADDER_LAND_M },
 	}
 }
 
@@ -1390,7 +1533,7 @@ function flattenRegions(
 	unreached: number[],
 ): void {
 	const set    = new Set(unreached)
-	const counts = new Int32Array(4)
+	const counts = new Int32Array(16)
 	const cellsOf = new Map<number, number[]>()
 	for (let i = 0; i < N; i++) {
 		const r = regions[i]
@@ -1443,6 +1586,14 @@ function sealUnreachable(
 	for (let i = 0; i < N; i++) {
 		if (isMountainLevel(work.levels[i])) continue
 		if (routeDist[i] >= 0) continue
+		// A rim fragment the single rim ladder cannot reach becomes crown
+		// rock (rim height), not a low mountain pit in the summit.
+		if (work.levels[i] === RIM && work.landforms[i] === LANDFORM_VOLCANO) {
+			work.levels[i] = crownLevelFor(i, work.seed)
+			work.locked[i] = 1
+			n++
+			continue
+		}
 		work.levels[i]    = MOUNTAIN
 		work.locked[i]    = 1
 		work.landforms[i] = LANDFORM_NONE
@@ -1759,7 +1910,7 @@ function stationLosTarget(
 		return {
 			fx: sx / n + 0.5,
 			fz: sz / n + 0.5,
-			endY: groundYForLevel(RIM) + 1.7, // matches VOLCANO_LAVA_TOP_ABOVE_RIM_M
+			endY: groundYForLevel(RIM) + VOLCANO_LAVA_TOP_ABOVE_RIM_M,
 		}
 	}
 	return {
@@ -1998,7 +2149,21 @@ function pickStations(
 	preset      : TerrainStation[] = [],
 ): TerrainStation[] {
 	if (!volcano) return []
-	const target = stationLosTarget(work.landforms, volcano)
+	// Beam LOS goes to any visible crater-rim / crown point (the tall
+	// terraced cone hides the lava centre from most of the map), from
+	// the lit stump top, with the same activation rises as the near one.
+	const rimPts = volcanoRimPoints(work, volcano)
+	const losFor = (cx: number, cz: number): { lift: number; rim: typeof rimPts[number] } | null => {
+		// Closest rim point first; the first clear one wins.
+		const byDist = rimPts.slice().sort((a, b) =>
+			Math.hypot(a.fx - cx - 0.5, a.fz - cz - 0.5) - Math.hypot(b.fx - cx - 0.5, b.fz - cz - 0.5))
+		for (const lift of NEAR_LIFT_STEPS_M) {
+			for (const p of byDist) {
+				if (hasStationLos(work.levels, cx, cz, p.fx, p.fz, p.endY, NEAR_BEAM_CLEAR_M + lift)) return { lift, rim: p }
+			}
+		}
+		return null
+	}
 
 	type Cand = TerrainStation & { ang: number; score: number }
 	const cands: Cand[] = []
@@ -2021,7 +2186,8 @@ function pickStations(
 			}
 		}
 		if (nearGrove) continue
-		if (!hasStationLos(work.levels, cx, cz, target.fx, target.fz, target.endY)) continue
+		const los = losFor(cx, cz)
+		if (!los) continue
 
 		const ang = Math.atan2(cz + 0.5 - HEARTH_FZ, cx + 0.5 - HEARTH_FX)
 		// Prefer farther route and a bit of interior (not cliff edge).
@@ -2031,9 +2197,13 @@ function pickStations(
 			const nz = cz + DIR_DZ[d]
 			if (nx < 0 || nz < 0 || nx >= W || nz >= H || work.levels[nz * W + nx] !== lv) edge++
 		}
-		const score = route * (1 + (4 - edge) * 0.05)
+		const score = route * (1 + (4 - edge) * 0.05) / (1 + los.lift * 0.1)
 		cands.push({
 			cx, cz, level: lv, region: regions[i], route, ang, score,
+			beamLiftM: los.lift,
+			aimX: TERRAIN_ORIGIN_M + los.rim.fx * TERRAIN_CELL_M,
+			aimY: los.rim.endY,
+			aimZ: TERRAIN_ORIGIN_M + los.rim.fz * TERRAIN_CELL_M,
 		})
 	}
 	cands.sort((a, b) => b.score - a.score || a.cx - b.cx || a.cz - b.cz)
@@ -2056,7 +2226,10 @@ function pickStations(
 		return true
 	}
 	const take = (c: Cand): void => {
-		out.push({ cx: c.cx, cz: c.cz, level: c.level, region: c.region, route: c.route })
+		out.push({
+			cx: c.cx, cz: c.cz, level: c.level, region: c.region, route: c.route,
+			beamLiftM: c.beamLiftM, aimX: c.aimX, aimY: c.aimY, aimZ: c.aimZ,
+		})
 	}
 
 	// Pass 1: one socket per elevation when a LOS candidate exists, so
@@ -2107,7 +2280,7 @@ function validate(map: TerrainMap): string {
 	if (!hasLow)  return 'no low region'
 	if (!hasHigh) return 'no high region'
 	for (let i = 0; i < N; i++) {
-		if (map.regions[i] >= 0 && map.routeDist[i] < 0) return 'unreachable cell'
+		if (map.regions[i] >= 0 && map.routeDist[i] < 0) return `unreachable cell ${i % W},${Math.floor(i / W)} lv ${map.levels[i]} lf ${map.landforms[i]}`
 	}
 	if (map.destinations.length < DEST_MAX) {
 		return `destinations ${map.destinations.length}/${DEST_MAX}`
@@ -2124,6 +2297,23 @@ function validate(map: TerrainMap): string {
 	if (map.volcano === null) return 'no volcano'
 	const vi = map.volcano.cz * W + map.volcano.cx
 	if (vi < 0 || vi >= N || map.routeDist[vi] < 0) return 'volcano unreachable'
+	{
+		// The crater lip must be climbable: some rim cell beside the lava
+		// is on the route graph (ladders up the terraces).
+		let summit = false
+		for (let i = 0; i < N && !summit; i++) {
+			if (map.levels[i] !== RIM || map.landforms[i] === LANDFORM_LAVA || map.routeDist[i] < 0) continue
+			const cx = i % W
+			const cz = (i - cx) / W
+			for (let d = 0; d < 4; d++) {
+				const nx = cx + DIR_DX[d]
+				const nz = cz + DIR_DZ[d]
+				if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				if (map.landforms[nz * W + nx] === LANDFORM_LAVA) { summit = true; break }
+			}
+		}
+		if (!summit) return 'summit unreachable'
+	}
 	if (map.volcano.level !== HIGH && map.volcano.level !== RIM) {
 		return `volcano level ${map.volcano.level}`
 	}
@@ -2142,7 +2332,10 @@ function validate(map: TerrainMap): string {
 			if (s.level !== LOW && s.level !== MID && s.level !== HIGH) {
 				return `bad station level ${s.level}`
 			}
-			if (!s.near && !hasStationLos(map.levels, s.cx, s.cz, target.fx, target.fz, target.endY)) {
+			const losOk = s.aimX !== undefined && s.aimY !== undefined && s.aimZ !== undefined
+				? hasStationLos(map.levels, s.cx, s.cz, (s.aimX - TERRAIN_ORIGIN_M) / TERRAIN_CELL_M, (s.aimZ - TERRAIN_ORIGIN_M) / TERRAIN_CELL_M, s.aimY, NEAR_BEAM_CLEAR_M + (s.beamLiftM ?? 0))
+				: hasStationLos(map.levels, s.cx, s.cz, target.fx, target.fz, target.endY)
+			if (!s.near && !losOk) {
 				return 'station no LOS'
 			}
 		}

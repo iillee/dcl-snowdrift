@@ -18,6 +18,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { canChopWood, tryChopWood } from 'src/client/wood'
 import { UI_THEME } from 'src/client/ui/theme/settings'
+import { isItemInputBlocked } from 'src/client/frost/frozenState'
 
 
 const { fontSizes, borderRadius } = UI_THEME
@@ -40,6 +41,7 @@ const PADDING_X_DT    = 14
 
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
+	if (isItemInputBlocked()) return false
 	return canChopWood()
 }
 

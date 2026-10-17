@@ -23,6 +23,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { feedFire, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { UI_THEME }                         from 'src/client/ui/theme/settings'
+import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { getUVsForAtlasTile }               from 'src/client/ui/utils/atlas'
 
 
@@ -63,6 +64,7 @@ const PADDING_X_DT    = 14
 
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
+	if (isItemInputBlocked()) return false
 	if (!hasLogs()) return false
 	return isInFeedRange()
 }

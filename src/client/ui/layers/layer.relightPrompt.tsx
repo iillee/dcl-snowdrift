@@ -28,6 +28,7 @@ import { isHiddenCampfirePromptVisible }                                   from 
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit }               from 'src/client/torchEquip'
 import { isTorchRelightOnCooldown, tryRelightAtFire }                      from 'src/client/torchInput'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
+import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
 
 
@@ -101,6 +102,7 @@ function canSparkMainHearth(): boolean {
  * common case).
  */
 function shouldShowPrompt(): boolean {
+	if (isItemInputBlocked()) return false
 	if (!isTorchEquipped()) return false
 	// Post-relight cooldown: hide the prompt for a few seconds after a
 	// successful ignition so the player isn't nagged to press E again

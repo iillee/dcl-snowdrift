@@ -47,6 +47,7 @@ import { teleportHome, teleportNear } from 'src/client/player'
 import { hasTerrainSpawned } from 'src/client/terrain/terrainRenderer'
 import { emptyTorch, extinguishTorch } from 'src/client/torchEquip'
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
+import { setFrozenFlags, setGiveUpHandler } from 'src/client/frost/frozenState'
 
 
 // MARK: Tuning
@@ -83,6 +84,10 @@ const TERRAIN_WAIT_CAP_S = 12
 const CLEAR_MOD_BEAT_S  = 0.5
 /** Stand this far from a fire's centre so the wake is not inside the mesh. */
 const STAND_OFF_M = 2.5
+/** Seconds in the cube (wall clock, not the paused respawn clock) before "Give up" shows. */
+const GIVE_UP_AFTER_S = 5
+/** Re-enable the button if the server never answers a give-up. */
+const GIVE_UP_REPLY_TIMEOUT_S = 3
 
 
 // MARK: FSM state
@@ -126,6 +131,12 @@ let meltStepLocal = 0
 let clockHeld = false
 /** A third of the cube actually came off, so a full cube restarts the clock. */
 let meltCut = false
+/** Wall-clock seconds in the cube this freeze (never paused or reset by melts). */
+let frozenElapsed = 0
+/** lifeSeconds deadline of an unanswered frostGiveUp; 0 = none pending. */
+let giveUpPendingUntil = 0
+/** F rising-edge tracking for the give-up key. */
+let giveUpKeyPrev = false
 
 
 // MARK: noteLocalMelt
@@ -366,6 +377,10 @@ function enterDying(): void {
 	resetMeltClock()
 	phase        = Phase.FROZEN
 	phaseTimer   = 0
+	frozenElapsed      = 0
+	giveUpPendingUntil = 0
+	// A held F at the moment of the freeze must not count as a press.
+	giveUpKeyPrev      = inputSystem.isPressed(InputAction.IA_SECONDARY)
 	// Stay standing. The ice cube is the frozen state; the sleep emote
 	// is only for the dawn-pad arrival later in this FSM.
 	lockPlayer()
@@ -428,6 +443,55 @@ function resolveFreeze(): void {
 }
 
 
+// MARK: canGiveUp
+/**
+ * The button shows 5 s into the freeze, only while a lit fire exists:
+ * giving up runs the same resolve as the timeout, and with every fire
+ * dark that resolve keeps the player frozen.
+ */
+function canGiveUp(): boolean {
+	if (phase !== Phase.FROZEN) return false
+	if (rescued || isEmberFailing()) return false
+	if (frozenElapsed < GIVE_UP_AFTER_S) return false
+	if (giveUpPendingUntil > 0) return false
+	return nearestLitFire() !== null
+}
+
+
+// MARK: requestGiveUpNow
+function requestGiveUpNow(): void {
+	if (!canGiveUp()) return
+	giveUpPendingUntil = lifeSeconds + GIVE_UP_REPLY_TIMEOUT_S
+	room.send('frostGiveUp', { userId: localAddress() })
+	console.log('frost/death: give up requested')
+}
+
+
+// MARK: onGiveUpResult
+function onGiveUpResult(ok: boolean, reason: string): void {
+	giveUpPendingUntil = 0
+	if (phase !== Phase.FROZEN) {
+		console.log('frost/death: give up reply ignored, no longer frozen')
+		return
+	}
+	if (ok) {
+		console.log('frost/death: give up accepted, resolving like the ice timeout')
+		resolveFreeze()
+		return
+	}
+	console.log(`frost/death: give up refused (${reason})`)
+	if (reason === 'not frozen') {
+		// The server lost this freeze (went quiet / reconnect). Put it
+		// back so a rescue, the timeout and the next give-up all work.
+		const fd = FrostDeath.getOrNull(engine.PlayerEntity)
+		if (fd) {
+			room.send('frostFreeze', { userId: localAddress(), x: fd.deathX, z: fd.deathZ })
+			console.log('frost/death: re-sent frostFreeze after a refused give up')
+		}
+	}
+}
+
+
 // MARK: setupFrostDeath
 /**
  * Register the death FSM system. Idempotent. Watches FrostLevel each
@@ -439,6 +503,35 @@ export function setupFrostDeath(): void {
 		return
 	}
 	installed = true
+
+	setGiveUpHandler(requestGiveUpNow)
+	room.onMessage('frostGiveUpResult', ({ userId, ok, reason }) => {
+		const me = localAddress().toLowerCase()
+		if (!me || userId.toLowerCase() !== me) return
+		onGiveUpResult(ok === 1, reason)
+	})
+
+	// Late join / reload while frozen: the server still lists us in a
+	// cube (hydrate sends our own body), but this fresh client is not
+	// frozen and shows no button. Tell the server we are up so the
+	// stale cube and frozen-set entry do not linger.
+	room.onMessage('frostFrozen', ({ userId, frozen }) => {
+		if (frozen !== 1) return
+		const me = localAddress().toLowerCase()
+		if (!me || userId.toLowerCase() !== me) return
+		if (phase === Phase.FROZEN || phase === Phase.FADE_OUT || phase === Phase.DROP_ICE) return
+		room.send('frostThaw', { userId: localAddress() })
+		console.log('frost/death: server had us frozen but this client is not, sent frostThaw')
+	})
+
+	// Publish the freeze flags for input handlers and HUD layers. Added
+	// before the FSM system, so they see last frame's phase; one frame
+	// of lag is harmless and avoids a gap on the freeze frame itself
+	// because enterDying runs before the input systems either way.
+	engine.addSystem(() => {
+		const blocked = phase !== Phase.IDLE && phase !== Phase.WAKE_WAIT
+		setFrozenFlags(blocked, canGiveUp())
+	})
 
 	onCycleSeedChange(({ oldSeed }) => {
 		if (oldSeed === null) return
@@ -472,6 +565,16 @@ export function setupFrostDeath(): void {
 		if (phase === Phase.FROZEN) {
 			fadeOpacity = 0
 			lockPlayer()
+			frozenElapsed += dt
+			if (giveUpPendingUntil > 0 && lifeSeconds >= giveUpPendingUntil) {
+				giveUpPendingUntil = 0
+				console.log('frost/death: give up got no reply, button back')
+			}
+			// F gives up (same as tapping the button) once it is showing.
+			const fHeld = inputSystem.isPressed(InputAction.IA_SECONDARY)
+			const fRise = fHeld && !giveUpKeyPrev
+			giveUpKeyPrev = fHeld
+			if (fRise && canGiveUp()) requestGiveUpNow()
 			const melting = meltLiveLocal || meltStepLocal > 0
 			if (melting) {
 				phaseTimer -= dt

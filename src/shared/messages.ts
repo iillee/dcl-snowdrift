@@ -381,6 +381,22 @@ export const Messages = {
 		userId: Schemas.String,
 	}),
 
+	// Client -> Server: the frozen player pressed "Give up and respawn".
+	// The server checks they are frozen (and that a fire burns, the same
+	// condition the ice timeout needs) and answers with frostGiveUpResult.
+	frostGiveUp: Schemas.Map({
+		userId: Schemas.String,
+	}),
+
+	// Server -> Client (sender only): ok 1 = run the normal ice-timeout
+	// respawn now. ok 0 = refused (not frozen on the server, no fire lit,
+	// or the run is ending); reason is for logs.
+	frostGiveUpResult: Schemas.Map({
+		userId: Schemas.String,
+		ok    : Schemas.Int,
+		reason: Schemas.String,
+	}),
+
 	// Server → Client: the run is over. Clients fade to black and hold
 	// a game-over title. The server then rollCycles with a fresh seed
 	// so a new winter starts. Fired by the dev snuff, and when every

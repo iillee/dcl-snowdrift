@@ -522,5 +522,20 @@ export function setupFrostLifeServer(): void {
 		console.log(`[Server] frostLife: ${from} thawed ${target}`)
 	})
 
+	room.onMessage('frostGiveUp', ({ userId }, context) => {
+		const from = senderId(context?.from, userId, 'frostGiveUp')
+		if (!from) return
+		notePlayerPresent(from)
+		let reason = ''
+		if (isEmberFailing())        reason = 'run is ending'
+		else if (!frozen.has(from))  reason = 'not frozen'
+		else if (!anyLivingFire())   reason = 'no lit fire'
+		const ok = reason === ''
+		room.send('frostGiveUpResult', { userId: from, ok: ok ? 1 : 0, reason }, { to: [from] })
+		// Same path as the ice timeout: the client fades out, then its
+		// frostThaw clears it from the frozen set. Nothing else changes.
+		console.log(`[Server] frostLife: ${from} give up ${ok ? 'accepted' : `refused (${reason})`}`)
+	})
+
 	console.log('[Server] frostLife: installed')
 }

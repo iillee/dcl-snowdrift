@@ -36,6 +36,16 @@ export const POST_THAW_DAYS = 1
  */
 export const THAW_AREA_FRACTION = 0.55
 
+/**
+ * Final thaw radius multiplier applied to the area-fraction radius.
+ * 0.5 halves the post-victory ring (~1/4 of the area). Wave duration is
+ * unchanged, so the edge spreads at half the speed. Tune here.
+ */
+export const THAW_RADIUS_SCALE = 0.5
+
+/** Wave progress (0..1) at which the "World Thawed" card shows. */
+export const THAW_SPLASH_AT_PROGRESS = 0.5
+
 /** Soft heat edge: warmth / cold-block fade over this many metres inside the radius. */
 export const THAW_EDGE_BAND_M = 48
 
@@ -66,7 +76,7 @@ export function thawWaveCentre(map: TerrainMap | null): ThawWaveCentre {
 	}
 	d.sort((a, b) => a - b)
 	const need   = Math.min(d.length - 1, Math.ceil(THAW_AREA_FRACTION * d.length) - 1)
-	const radius = Math.max(1, d[Math.max(0, need)])
+	const radius = Math.max(1, d[Math.max(0, need)] * THAW_RADIUS_SCALE)
 	return {
 		tx, tz,
 		x: SNOW_ORIGIN_M + (tx + 0.5) * SNOW_TILE_M,

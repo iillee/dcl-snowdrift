@@ -37,7 +37,7 @@ export { VOLCANO_LAVA_TOP_ABOVE_RIM_M }
 
 
 // MARK: volcanoRimY
-/** Walkable surface of the rim level (48.25 m with the 16 m step). */
+/** Walkable surface of the rim level (96.25 m at VOLCANO_HEIGHT_SCALE 2.5). */
 export function volcanoRimY(): number {
 	return groundYForLevel(TERRAIN_LEVEL_VOLCANO_RIM)
 }
@@ -131,7 +131,7 @@ export function volcanoCrownCells(map: TerrainMap): number[] {
 
 
 // MARK: volcanoCrownTopY
-/** Highest world Y the crown can reach (rim + 7 m). */
+/** Highest world Y the crown can reach (rim + 7 m * VOLCANO_HEIGHT_SCALE). */
 export function volcanoCrownTopY(): number {
 	return groundYForLevel(TERRAIN_LEVEL_CROWN_MAX)
 }

@@ -43,6 +43,9 @@ const SLAB_W_M   = MAP_FACE_M
 const BLOCK_SINK_M = 0.20
 const PILLAR_H_M = 1.00
 const SLAB_H_M   = 0.09
+/** Stone plinth under the pillar when it stands on the crater floor. */
+const PLINTH_W_M = 2.4
+const COLOR_PLINTH = Color4.create(0.30, 0.28, 0.27, 1)
 const MARKER_H_M = 0.045
 
 const CLICK_MAX_DIST_M = 8
@@ -271,6 +274,19 @@ function buildTable(map: TerrainMap): void {
 		true,
 	)
 	bindClick(block)
+
+	// Stone plinth from the crater floor up to the seat (crater centre).
+	const plinthH = seat.y - seat.floorY
+	if (plinthH > 0.05) {
+		const bottom = -plinthH - 0.05
+		spawnBox(
+			root,
+			{ x: 0, y: bottom / 2, z: 0 },
+			{ x: PLINTH_W_M, y: -bottom, z: PLINTH_W_M },
+			COLOR_PLINTH,
+			false,
+		)
+	}
 
 	const lava = volcanoLavaCentroid(map)
 	if (lava) {

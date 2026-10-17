@@ -28,6 +28,7 @@ import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } fr
 import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { syncTorchFlameNow } from 'src/client/torch'
+import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
 	TORCH_FUEL_MAX_S,
 	consumeTorchFuel,
@@ -166,6 +167,8 @@ export function setupTorchInput(): void {
 		eHeldPrev = eHeld
 
 		if (!risingEdge) return
+		// Frozen: items do nothing.
+		if (isItemInputBlocked()) return
 		tryRelightAtFire()
 	})
 

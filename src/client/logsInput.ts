@@ -23,6 +23,7 @@ import { revertOptimisticFeed } from 'src/client/hearthFuel'
 import { spawnLogsFeed } from 'src/client/logsFeedFx'
 import { dropLogs, feedFire, getCarriedKind, hasLogs, isInFeedRange, restoreRejectedFeed } from 'src/client/logsInventory'
 import { tryChopWood } from 'src/client/wood'
+import { isItemInputBlocked } from 'src/client/frost/frozenState'
 
 
 let installed = false
@@ -86,6 +87,8 @@ export function setupLogsInput(): void {
 		fHeldPrev    = fHeld
 
 		if (!rising) return
+		// Frozen: F is the give-up key (frost/death.ts), never an item action.
+		if (isItemInputBlocked()) return
 		if (!hasLogs()) {
 			tryChopWood()
 			return
