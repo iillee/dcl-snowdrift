@@ -6,7 +6,7 @@
  * holding a LIT torch and press E (or tap the IGNITE MONUMENT prompt),
  * same gate as lighting a hidden campfire. Once lit the stone keeps its
  * grey colour (red tint off, MONUMENT_LIT_RED_TINT) with an eternal Warm
- * flame on top (heat + melt, no fuel).
+ * flame on top (visual only: no warmth, no snow melt, no fuel).
  * On activate it grows to 1.5×
  * height while spinning 180° over ~2 s, then a magenta beam shoots
  * from its top toward the lava centre. State is server-authoritative
@@ -38,7 +38,6 @@ import { beginVolcanoThaw, setVolcanoLavaVisible } from 'src/client/volcanoCrown
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
-import { CRATER_HEAT_FUEL, CRATER_HEAT_RADIUS_M } from 'src/shared/terrain/volcanoCraterHeat'
 import { TERRAIN_CELL_M } from 'src/shared/settings'
 import { SNOW_STAGE_HEIGHT_M, STAGE_PRISTINE } from 'src/shared/snowGrid'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -101,9 +100,6 @@ const BEAM_EMISSIVE_INTENSITY = 5
 /** XZ distance (m) from stump centre within which a lit torch can ignite it. */
 const IGNITE_RADIUS_M    = 3.5
 const IGNITE_RADIUS_SQ_M = IGNITE_RADIUS_M * IGNITE_RADIUS_M
-/** Warm-tier heat ring around a lit monument (same as crater / opening hearth). */
-export const MONUMENT_HEAT_RADIUS_M    = CRATER_HEAT_RADIUS_M
-const MONUMENT_HEAT_RADIUS_SQ_M        = MONUMENT_HEAT_RADIUS_M * MONUMENT_HEAT_RADIUS_M
 /** Lit stone: ember red, glowing. */
 const COLOR_STONE_LIT    = Color4.create(0.45, 0.10, 0.06, 1)
 const EMBER_EMISSIVE     = Color3.create(1.0, 0.22, 0.05)
@@ -450,19 +446,6 @@ export function requestMonumentIgnite(): void {
 	const index = getReadyIgniteIndex()
 	if (index === -1) return
 	requestActivate(index)
-}
-
-
-// MARK: getLitMonumentWarmthPositions
-/** Lit monuments as eternal Warm campfires for frost warmth. */
-export function getLitMonumentWarmthPositions(): { x: number; z: number; radiusSq: number; fuel: number }[] {
-	const out: { x: number; z: number; radiusSq: number; fuel: number }[] = []
-	for (const s of slots) {
-		if (!s || !s.active) continue
-		const c = cellCenterWorld(s.cx, s.cz)
-		out.push({ x: c.x, z: c.z, radiusSq: MONUMENT_HEAT_RADIUS_SQ_M, fuel: CRATER_HEAT_FUEL })
-	}
-	return out
 }
 
 

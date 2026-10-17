@@ -37,7 +37,6 @@ import {
 } from 'src/server/hiddenCampfire'
 import {
 	sendStationStateTo,
-	meltLitStationHeat,
 	setupStationsServer,
 } from 'src/server/stations'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
@@ -115,7 +114,6 @@ export async function setupServer(): Promise<void> {
 	setupCycleServer()
 	// Caldera stays Warm-melted (lava tiles + Warm bloom + seat pad) from boot.
 	meltVolcanoCraterHeat()
-	meltLitStationHeat()
 	flushDirtySnowTiles()
 	// Day/night clock after cycle so it can subscribe to onCycleRoll
 	// (reset to DAWN when the world wipe fires).
@@ -151,7 +149,6 @@ export async function setupServer(): Promise<void> {
 		clearAllSnow()
 		seedStartingArea()
 		meltVolcanoCraterHeat()
-		meltLitStationHeat()
 		seedHiddenCampfireDimples()
 	})
 
@@ -399,7 +396,6 @@ export async function setupServer(): Promise<void> {
 		if (craterHeatClock < CRATER_HEAT_INTERVAL_S) return
 		craterHeatClock = 0
 		meltVolcanoCraterHeat()
-		meltLitStationHeat()
 	})
 
 	// Dirty-tile flush — runs every engine tick, after all applyPaint /

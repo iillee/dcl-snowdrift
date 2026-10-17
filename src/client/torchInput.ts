@@ -28,13 +28,10 @@ import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } fr
 import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { syncTorchFlameNow } from 'src/client/torch'
-import { FROST_REDUCES_TORCH_CAPACITY } from 'src/shared/frost/tuning'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
 	TORCH_FUEL_MAX_S,
-	clampTorchFuelToCap,
 	consumeTorchFuel,
-	isTorchFull,
 	extinguishTorch,
 	getTorchFuelSeconds,
 	isTorchEquipped,
@@ -133,7 +130,7 @@ export function tryRelightAtFire(): void {
 	// torch doesn't flip lit false->true, so an edge-based trigger would
 	// silently skip every relight except the one after a full burnout.
 	playTorchSfxLocal()
-	console.log(`torchInput: tryRelightAtFire: torch relit (fuel ${getTorchFuelSeconds().toFixed(1)}s of ${TORCH_FUEL_MAX_S}s max)`)
+	console.log(`torchInput: tryRelightAtFire: torch relit (fuel restored to ${TORCH_FUEL_MAX_S}s)`)
 }
 
 
@@ -152,14 +149,12 @@ export function setupTorchInput(): void {
 	engine.addSystem((dt: number) => {
 		// \u2500\u2500 Fuel drain \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 		if (DEV_KEEP_TORCH_LIT) {
-			if (!isTorchLit() || !isTorchFull()) {
+			if (!isTorchLit() || getTorchFuelSeconds() < TORCH_FUEL_MAX_S) {
 				relightTorch()
 				syncTorchFlameNow()
 			}
 		} else if (isTorchLit()) {
-			let remaining = consumeTorchFuel(dt * getLivePhaseConfig().torchDrainMul)
-			// Safety: frost cannot rise while lit, but keep fuel <= cap.
-			if (FROST_REDUCES_TORCH_CAPACITY) remaining = clampTorchFuelToCap()
+			const remaining = consumeTorchFuel(dt * getLivePhaseConfig().torchDrainMul)
 			if (remaining <= 0) {
 				extinguishTorch()
 				console.log('torchInput: torch burnt out (fuel=0)')

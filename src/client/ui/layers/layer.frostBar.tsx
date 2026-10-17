@@ -1,12 +1,12 @@
 /**
  * layer.frostBar.tsx - top-centre survival gauge, one continuous bar.
  *
- * Fixed width, three colours left to right: White | Yellow | Blue.
- *   Blue   = frost fraction, anchored RIGHT, grows right -> left.
- *   Yellow = torch fuel fraction * (1 - frost), sitting just left of
- *            the blue; it shrinks from its left edge as fuel burns.
- *            0 while the torch is out.
- *   White  = whatever is left, on the LEFT.
+ * Fixed width: [White+Yellow pill] | gap | [Blue pill].
+ *   Blue   = frost (FrostLevel / FROST_MAX), anchored RIGHT.
+ *   Yellow = warmth reserve (accumulation getWarmthLocal), right-
+ *            anchored inside the white pill. Cold drains it before
+ *            frost can grow; a lit torch or a fire refills it.
+ *   White  = the rest: unprotected health.
  * Displayed values ease toward the real ones (wall-clock time constant,
  * so frame-rate independent); gameplay never reads the eased values.
  *
@@ -25,12 +25,12 @@ import { DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_D
 import { getCurrentCycleSeed } from 'src/client/cycle'
 import { isWorldThawed } from 'src/client/worldThaw'
 import { room } from 'src/shared/messages'
-import { getFrostLocal } from 'src/client/frost/accumulation'
-import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
-import { FROST_MAX, FROST_REDUCES_TORCH_CAPACITY } from 'src/shared/frost/tuning'
+import { getFrostLocal, getWarmthLocal } from 'src/client/frost/accumulation'
+import { isGiveUpVisible, isItemInputBlocked, requestGiveUp } from 'src/client/frost/frozenState'
+import { playUiClick } from 'src/client/audio'
+import { FROST_MAX } from 'src/shared/frost/tuning'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { getUVsForAtlasTile } from 'src/client/ui/utils/atlas'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
 // while the timer lives in the HelpPanel. Flip to `true` to restore the
@@ -39,21 +39,9 @@ const SHOW_CLOCK_BUTTON = false
 
 
 
-// Font-awesome atlas from the UI component kit — same asset the
-// relight prompt uses. The kit indexes tiles as 1-based (xStart, yStart)
-// with yStart counting from the BOTTOM, so `fire: {xStart:2, yStart:15}`
-// in atlases.ts converts to 0-indexed from top-left as (col 1, row 1).
-// Preferred over a standalone flame.png because the atlas is already
-// fetched by the kit at boot, so the icon renders on the first frame
-// with no cold-CDN pop-in.
-const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
-const ATLAS_COLS    = 16
-const ATLAS_ROWS    = 16
-const FIRE_TILE_COL = 1
-const FIRE_TILE_ROW = 1
-// Outline heart for the white pill. The font-awesome atlas only has a
-// solid heart, so this 128 px PNG is that atlas heart turned into an
-// even ~10 px stroke (white glyph, transparent middle, tinted black).
+// Heart on the white+yellow pill: always the outline heart (black
+// ~10 px stroke, transparent middle so the pill colour shows through).
+// 128 px PNG derived from the font-awesome atlas heart.
 const HEART_OUTLINE_SRC = 'assets/images/heart_outline.png'
 const COL_HEART         = Color4.create(0, 0, 0, 1)
 
@@ -127,6 +115,39 @@ function easeDisplay(frostFrac: number, fuelFrac: number): void {
 // rises. Deliberately a hard fill (not a ghost slot) so the bar never
 // reads as "empty", only as "warm vs cold".
 const COL_COLD    = Color4.create(0.42, 0.60, 0.98, 1.00) // paint-blue ice
+// Frozen solid (in the ice block): the ice pill sinks to a deep blue.
+// Eased in/out over FROZEN_TAU_S so the shift reads as a transition.
+const COL_COLD_DEEP  = Color4.create(0.09, 0.20, 0.58, 1.00)
+// Hover on the clickable "Respawn" bar: a touch lighter than deep.
+const COL_COLD_HOVER = Color4.create(0.14, 0.28, 0.70, 1.00)
+const FROZEN_TAU_S   = 0.35
+const COL_RESPAWN_TEXT = Color4.create(1, 1, 1, 1)
+let dispDeep   = 0
+let dispHover  = 0
+let deepLastMs = 0
+let barHovered = false
+
+function easeDeep(frozen: boolean, hover: boolean): void {
+	const now = Date.now()
+	const dt  = deepLastMs > 0 ? Math.min(0.25, Math.max(0, (now - deepLastMs) / 1000)) : 0
+	deepLastMs = now
+	const k = 1 - Math.exp(-dt / FROZEN_TAU_S)
+	const tDeep  = frozen ? 1 : 0
+	const tHover = hover  ? 1 : 0
+	dispDeep  += (tDeep  - dispDeep)  * k
+	dispHover += (tHover - dispHover) * Math.min(1, k * 2)
+	if (Math.abs(tDeep  - dispDeep)  < 0.002) dispDeep  = tDeep
+	if (Math.abs(tHover - dispHover) < 0.002) dispHover = tHover
+}
+
+function lerpColor(a: Color4, b: Color4, t: number): Color4 {
+	return Color4.create(
+		a.r + (b.r - a.r) * t,
+		a.g + (b.g - a.g) * t,
+		a.b + (b.b - a.b) * t,
+		a.a + (b.a - a.a) * t,
+	)
+}
 // Background fills. Desktop uses a single-layer look: outer frame
 // carries the whole tint (0.80) and the inner frame is transparent,
 // so there is no lighter grey band between the white outline and the
@@ -145,6 +166,7 @@ const COL_BORDER_MB = Color4.create(0, 0, 0, 0.80)
 // TORCH_BORDER_OFF in layer.brushSize.tsx) so the frost bar reads
 // as part of the same HUD system.
 const COL_BORDER_WHITE = Color4.create(1, 1, 1, 0.75)
+const COL_BORDER_WHITE_HOVER = Color4.create(1, 1, 1, 1)
 const BORDER_WHITE_W   = 4
 
 // Corner radii — outer frame a hair larger than the inner, and segments
@@ -212,19 +234,18 @@ class FrostBarLayer extends Layer {
 
 	body() {
 		const frostFrac  = Math.max(0, Math.min(1, getFrostLocal() / FROST_MAX))
-		// Torch out (or not carried) = no yellow, even if fuel is kept.
-		// dispFuel is yellow's share of the NON-blue region:
-		//  cap on:  yellow = fuel / max of the total (fuel <= max * (1 - frost)),
-		//           so the share is fuel / max / (1 - frost) and a full
-		//           torch exactly fills the non-blue region.
-		//  cap off: yellow = fuel / max * (1 - frost) of the total.
-		const tankFrac   = isTorchLit() ? Math.max(0, Math.min(1, getTorchFuelFraction())) : 0
-		const nonBlue    = 1 - frostFrac
-		const fuelFrac   = FROST_REDUCES_TORCH_CAPACITY
-			? (nonBlue > 0.0001 ? Math.min(1, tankFrac / nonBlue) : 0)
-			: tankFrac
-		easeDisplay(frostFrac, fuelFrac)
+		// Yellow's share of the non-blue region = reserve / (max - frost).
+		const nonBlueF  = FROST_MAX - getFrostLocal()
+		const warmShare = nonBlueF > 0.01 ? Math.max(0, Math.min(1, getWarmthLocal() / nonBlueF)) : 0
+		easeDisplay(frostFrac, warmShare)
 		const mobile     = isMobile()
+		// Frozen in the ice block: deep-blue ice; once the give-up window
+		// opens (GIVE_UP_AFTER_S in frost/death.ts) the snowflake becomes
+		// "Respawn" and the whole bar takes the click (F still works).
+		const frozen     = isItemInputBlocked()
+		const respawn    = frozen && isGiveUpVisible()
+		if (!respawn) barHovered = false
+		easeDeep(frozen, respawn && barHovered)
 		const segSize    = mobile ? SEG_SIZE_MB     : SEG_SIZE_DT
 		const segGap     = mobile ? SEG_GAP_MB      : SEG_GAP_DT
 		const framePad   = mobile ? FRAME_PAD_MB    : FRAME_PAD_DT
@@ -276,14 +297,16 @@ class FrostBarLayer extends Layer {
 		// never wider than the region (full = exactly covers the white).
 		const warmTrue = Math.min(regionW, Math.round(rawWarm * scale))
 		const warmW    = visWarm > 0.001 ? Math.min(regionW, Math.max(warmTrue, fadeW)) : 0
-		// Heart sits in the white still showing left of yellow.
-		const whiteVisW = Math.max(0, regionW - warmTrue)
 
 		const flameSize     = Math.round(segSize * 1.0)
 		const snowSize      = Math.round(flameSize * 0.85)
-		const showHeartIcon = whiteVisW >= flameSize + 4 && visLeft > 0.5
-		const showFlameIcon = warmW >= flameSize + 4 && visWarm > 0.5
-		const showSnowIcon  = coldW >= snowSize + 4 && visCold > 0.5
+		// One heart centred on the whole white+yellow pill.
+		const showHeartIcon = regionW >= flameSize + 4 && visLeft > 0.5
+		const heartX        = Math.round((regionW - flameSize) / 2)
+		const heartY        = Math.round((segSize - flameSize) / 2)
+		const showSnowIcon  = !respawn && coldW >= snowSize + 4 && visCold > 0.5
+		const respawnLabel  = mobile ? 'Respawn' : 'Respawn  [F]'
+		const colCold       = lerpColor(lerpColor(COL_COLD, COL_COLD_DEEP, dispDeep), COL_COLD_HOVER, dispHover)
 
 		const alpha = (c: Color4, v: number) => Color4.create(c.r, c.g, c.b, c.a * v)
 
@@ -298,30 +321,6 @@ class FrostBarLayer extends Layer {
 				}}
 				uiBackground = {{ color: alpha(COL_WHITE, visLeft) }}
 			>
-				{/* Heart: centred in the white left of the yellow. */}
-				<UiEntity
-					key         = "ui_FrostBar_heartBox"
-					uiTransform = {{
-						positionType  : 'absolute',
-						position      : { left: 0, top: 0 },
-						width         : whiteVisW,
-						height        : segSize,
-						justifyContent: 'center',
-						alignItems    : 'center',
-					}}
-				>
-					{showHeartIcon && (
-						<UiEntity
-							key          = "ui_FrostBar_heart"
-							uiTransform  = {{ width: flameSize, height: flameSize }}
-							uiBackground = {{
-								textureMode: 'stretch',
-								texture    : { src: HEART_OUTLINE_SRC },
-								color      : COL_HEART,
-							}}
-						/>
-					)}
-				</UiEntity>
 				{/* Yellow pill on top, anchored to the region's right end. */}
 				<UiEntity
 					key          = "ui_FrostBar_warm"
@@ -337,18 +336,28 @@ class FrostBarLayer extends Layer {
 					}}
 					uiBackground = {{ color: alpha(COL_WARM, visWarm) }}
 				>
-					{showFlameIcon && (
-						<UiEntity
-							key          = "ui_FrostBar_flame"
-							uiTransform  = {{ width: flameSize, height: flameSize }}
-							uiBackground = {{
-								textureMode: 'stretch',
-								texture    : { src: ATLAS_SRC },
-								uvs        : getUVsForAtlasTile(FIRE_TILE_COL, FIRE_TILE_ROW, ATLAS_COLS, ATLAS_ROWS),
-								color      : Color4.White(),
-							}}
-						/>
-					)}
+				</UiEntity>
+				{/* Heart: fixed in the centre of the whole pill, drawn over
+				    white and yellow. Always the black outline heart. */}
+				<UiEntity
+					key         = "ui_FrostBar_heartBox"
+					uiTransform = {{
+						positionType  : 'absolute',
+						position      : { left: 0, top: 0 },
+						width         : regionW,
+						height        : segSize,
+						display       : showHeartIcon ? 'flex' : 'none',
+					}}
+				>
+					<UiEntity
+						key          = "ui_FrostBar_heart"
+						uiTransform  = {{ width: flameSize, height: flameSize, positionType: 'absolute', position: { left: heartX, top: heartY } }}
+						uiBackground = {{
+							textureMode: 'stretch',
+							texture    : { src: HEART_OUTLINE_SRC },
+							color      : COL_HEART,
+						}}
+					/>
 				</UiEntity>
 			</UiEntity>,
 			<UiEntity
@@ -362,10 +371,22 @@ class FrostBarLayer extends Layer {
 					justifyContent: 'center',
 					alignItems    : 'center',
 				}}
-				uiBackground = {{ color: alpha(COL_COLD, visCold) }}
+				uiBackground = {{ color: alpha(colCold, visCold) }}
 			>
 				{showSnowIcon && (
 					<SnowflakeIcon color = {Color4.White()} size = {snowSize} />
+				)}
+				{/* Plain Label, no <b>: rich-text tags inside clickable
+				    elements misalign mobile taps. */}
+				{respawn && (
+					<Label
+						key         = "ui_FrostBar_respawn"
+						value       = {respawnLabel}
+						color       = {COL_RESPAWN_TEXT}
+						fontSize    = {mobile ? 28 : 26}
+						textAlign   = "middle-center"
+						uiTransform = {{ width: '100%', height: '100%' }}
+					/>
 				)}
 			</UiEntity>,
 		]
@@ -422,9 +443,14 @@ class FrostBarLayer extends Layer {
 						margin         : { left: sideMargin, right: sideMargin },
 						borderRadius   : radOuter,
 						borderWidth    : BORDER_WHITE_W,
-						borderColor    : COL_BORDER_WHITE,
+						borderColor    : respawn && barHovered ? COL_BORDER_WHITE_HOVER : COL_BORDER_WHITE,
+						// Only takes pointer input during the respawn window.
+						pointerFilter  : respawn ? 'block' : 'none',
 					}}
 					uiBackground = {{ color: colBorder }}
+					onMouseDown  = {respawn ? () => { playUiClick(); requestGiveUp() } : undefined}
+					onMouseEnter = {respawn ? () => { barHovered = true } : undefined}
+					onMouseLeave = {respawn ? () => { barHovered = false } : undefined}
 				>
 					{/* Dark inner frame. Segments sit inside with FRAME_PAD gutter. */}
 					<UiEntity

@@ -12,10 +12,7 @@ import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
-import { meltAllSnow, meltDisc, publishCoverageIfDirty } from 'src/server/snowState'
-import { activeTerrain } from 'src/shared/terrain/terrainCache'
-import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
-import { CRATER_HEAT_RADIUS_M } from 'src/shared/terrain/volcanoCraterHeat'
+import { meltAllSnow, publishCoverageIfDirty } from 'src/server/snowState'
 import { clearWeatherThawLock } from 'src/server/weather'
 import { POST_THAW_DAYS } from 'src/shared/terrain/thawWave'
 
@@ -87,27 +84,6 @@ function resetForCycle(seed: number): void {
 }
 
 
-// MARK: meltLitStationHeat
-/**
- * Lit monuments are eternal Warm campfires: melt + heat-protect a
- * CRATER_HEAT_RADIUS_M disc around each. No fuel, never snuffs.
- * Called on ignite and from the server's 2 Hz crater-heat tick.
- */
-export function meltLitStationHeat(): number {
-	const map = activeTerrain()
-	if (!map) return 0
-	let changed = 0
-	const n = Math.min(map.stations.length, STATION_COUNT)
-	for (let i = 0; i < n; i++) {
-		if (!active[i]) continue
-		const st = map.stations[i]
-		const c = cellCenterWorld(st.cx, st.cz)
-		changed += meltDisc(c.x, c.z, CRATER_HEAT_RADIUS_M)
-	}
-	return changed
-}
-
-
 export function getActiveStationCount(): number {
 	let n = 0
 	for (const a of active) if (a) n++
@@ -173,7 +149,6 @@ export function setupStationsServer(): void {
 			`(seed=${currentSeed}, active=${getActiveStationCount()}/${STATION_COUNT})`,
 		)
 		broadcastOne(index, true)
-		meltLitStationHeat()
 		maybeThaw(`station ${index} by ${from}`)
 	})
 
@@ -193,7 +168,6 @@ export function setupStationsServer(): void {
 			active[i] = true
 			broadcastOne(i, true)
 		}
-		meltLitStationHeat()
 		maybeThaw(`debug button by ${from}`)
 		if (!worldThawed) triggerWorldThaw(`debug button by ${from}`)
 	})

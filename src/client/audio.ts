@@ -41,6 +41,10 @@ const MONUMENT_SRC = 'assets/sounds/monument.mp3'
 // This does NOT gate the next cue — a bar step can land well inside
 // the window, and that step still has to be heard.
 const FROST_SFX_WINDOW_S = 3.0
+const FROST_SFX_VOLUME   = 0.28
+// Fade applied when frost stops rising (warmed up, or back on safe
+// ground) so the cue tails off instead of cutting mid-hiss.
+const FROST_SFX_FADE_S   = 0.4
 
 let musicEnt: Entity = 0 as Entity
 let muteClickEnt: Entity = 0 as Entity
@@ -66,6 +70,9 @@ let unlockSfxEnt: Entity = 0 as Entity
 let frostSfxPlaying  = false
 let frostSfxElapsedS = 0
 let frostSfxPending  = false
+/** Seconds into a fade-out, or -1 when not fading. */
+let frostSfxFadeS    = -1
+let frostSfxLastVol  = FROST_SFX_VOLUME
 // Music starts muted by default; player unmutes via the mute button.
 let musicMuted = true
 let playStartMs = 0
@@ -146,7 +153,7 @@ export function initAudio(): void {
 	surgeSfxEnt   = makeCameraSfx(SURGE_SRC, 0.7)
 	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
-	frostSfxEnt   = makeCameraSfx(FROST_SRC, 0.28)
+	frostSfxEnt   = makeCameraSfx(FROST_SRC, FROST_SFX_VOLUME)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
 	iceSfxEnt     = makeCameraSfx(ICECUBE_SRC, 0.7)
 	iceMeltSfxEnt = makeCameraSfx(ICEMELT_SRC, 0.65)
@@ -160,14 +167,28 @@ export function initAudio(): void {
 			frostSfxPending  = false
 			frostSfxPlaying  = true
 			frostSfxElapsedS = 0
-			playOneShot(frostSfxEnt, FROST_SRC, 0.28)
+			frostSfxFadeS    = -1
+			frostSfxLastVol  = FROST_SFX_VOLUME
+			playOneShot(frostSfxEnt, FROST_SRC, FROST_SFX_VOLUME)
 			return
 		}
 		if (!frostSfxPlaying) return
 		frostSfxElapsedS += dt
-		if (frostSfxElapsedS < FROST_SFX_WINDOW_S) return
+		if (frostSfxFadeS >= 0) {
+			frostSfxFadeS += dt
+			const k   = Math.max(0, 1 - frostSfxFadeS / FROST_SFX_FADE_S)
+			const vol = Math.round(FROST_SFX_VOLUME * k * 100) / 100
+			// Volume writes only on change (same rule as the campfire loop).
+			if (vol !== frostSfxLastVol) {
+				const a = AudioSource.getMutableOrNull(frostSfxEnt)
+				if (a) a.volume = vol
+				frostSfxLastVol = vol
+			}
+			if (k > 0 && frostSfxElapsedS < FROST_SFX_WINDOW_S) return
+		} else if (frostSfxElapsedS < FROST_SFX_WINDOW_S) return
 		frostSfxPlaying  = false
 		frostSfxElapsedS = 0
+		frostSfxFadeS    = -1
 		AudioSource.stopSound(frostSfxEnt, true)
 	})
 
@@ -247,10 +268,10 @@ export function playDropSfx(): void {
 
 // MARK: playFrostChunkSfx
 /**
- * Fire the frost SFX once as a discrete cue. Call on the rising edge
- * of a new blue chunk on the frost bar (when the visible cold segment
- * count increments). Shallow snow that never fills a segment stays
- * silent. Stops the voice now and plays it next frame, so a step that
+ * Fire the frost SFX once as a discrete cue. Called the moment frost
+ * starts rising (first sliver of blue after the warmth reserve runs
+ * out) and again on each new blue chunk while it keeps rising.
+ * fadeOutFrostSfx() tails it off once frost stops rising. Stops the voice now and plays it next frame, so a step that
  * lands while the previous cue is still ringing still restarts from
  * the top. The auto-silencer cuts the clip at FROST_SFX_WINDOW_S so
  * the trailing dead air never plays.
@@ -261,7 +282,21 @@ export function playFrostChunkSfx(): void {
 	AudioSource.stopSound(frostSfxEnt, true)
 	frostSfxPlaying  = false
 	frostSfxElapsedS = 0
+	frostSfxFadeS    = -1
 	frostSfxPending  = true
+}
+
+
+// MARK: fadeOutFrostSfx
+/**
+ * Frost stopped rising: tail the current freeze cue off over
+ * FROST_SFX_FADE_S. No-op when nothing is playing or already fading.
+ * A pending (not yet started) cue is dropped.
+ */
+export function fadeOutFrostSfx(): void {
+	frostSfxPending = false
+	if (!frostSfxPlaying || frostSfxFadeS >= 0) return
+	frostSfxFadeS = 0
 }
 
 

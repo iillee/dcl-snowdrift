@@ -8,9 +8,9 @@
  * player does nothing. A campfire removes frost at its tier's rate,
  * and the cold still applies. Ember holds the bar still through the
  * day and loses from dusk onward. Warm and above still clear you.
- * Your lit torch stops ALL frost gain, day and night, in or out of a
- * fire ring; it never removes frost (only fires do). Night is harder
- * through the torchless night rate and faster torch drain.
+ * Your lit torch blocks ambient
+ * during day and leaks at night, but only outside a fire. Snow
+ * always chills.
  *
  * Writes are debounced by FROST_WRITE_EPSILON so the CRDT doesn't
  * chatter every frame with sub-percent changes.
@@ -27,25 +27,24 @@ import { FrostDeath, FrostLevel } from 'src/shared/frost/components'
 import {
 	FROST_MAX,
 	FROST_SAMPLE_INTERVAL_S,
-	RESCUE_WARMTH_FRAC,
-	WAKE_WARMTH_FRAC,
 	FROST_TIME_BASELINE_S,
 	FROST_TIME_SNOW_STAGE_S,
+	WARMTH_DAY_IDLE_DRAIN_S,
+	WARMTH_DRAIN_S,
+	WARMTH_REFILL_DELAY_S,
+	WARMTH_REFILL_S,
 } from 'src/shared/frost/tuning'
 import { EMBER_MIN_NET_WARMTH_FRAC, TIER_WARMTH_PER_S, hearthTierFromFuel, hearthWarmthPerSec } from 'src/shared/hearthFuel'
-import { DAILY_PHASES, ambientFreezeSec, type PhaseConfig } from 'src/shared/phase'
+import { DAILY_PHASES, ambientFreezeSec, torchLeakFreezeSec, type PhaseConfig } from 'src/shared/phase'
 
-import { playHealChunkSfx, playFrostChunkSfx } from 'src/client/audio'
+import { fadeOutFrostSfx, playHealChunkSfx, playFrostChunkSfx } from 'src/client/audio'
 import { DEV_DISABLE_FROST } from 'src/client/devFlags'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
-import { getLitMonumentWarmthPositions } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { thawHeatAt } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
-import { clampTorchFuelToCap, setTorchCapProvider } from 'src/client/torchEquip'
-import { FROST_REDUCES_TORCH_CAPACITY } from 'src/shared/frost/tuning'
 import { activeGroundYAt, activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
 import { SNOW_STAGE_HEIGHT_M } from 'src/shared/snowGrid'
 import {
@@ -64,8 +63,92 @@ let frost            = 0
 let lastWrittenFrost = 0
 /** True while a fire is actively thawing remaining frost. */
 let warmingByFire    = false
-// Cue grid only: the frost SFX and the blue screen flash fire each time
-// frost crosses another tenth. The bar itself is continuous now.
+/**
+ * Warmth reserve (frost points). 0..FROST_MAX - frost. Cold drains it
+ * before frost can grow; a lit torch (with no cold on it) or a fire
+ * ring refills it. Client-side, display + gating only.
+ */
+let warmth           = FROST_MAX
+
+
+/** Seconds continuously safe (no cold applied); gates the refill. */
+let safeFor = 0
+
+
+// MARK: Frost-rising state
+/**
+ * "Taking frost damage" = the blue grew on the last sample (the reserve
+ * is empty and cold is landing on frost). The screen tint and the
+ * freeze cue key off this, not off the 10% bar segments, so they start
+ * on the very first sliver of blue.
+ *
+ * Hysteresis: a gain re-arms FROST_RISING_HOLD_S of "still rising", so
+ * a sample that lands exactly on the empty-reserve boundary (or one
+ * skipped by a 0-gain frame) does not flicker the effect. Any warming
+ * sample (reserve refilling or frost falling) clears it at once.
+ */
+const FROST_RISING_HOLD_S = 0.5
+let frostRisingHoldS = 0
+let frostRising      = false
+
+
+// MARK: applyCold
+/**
+ * Exposed for `step` s to `ratePerSec` of cold. The reserve drains at a
+ * fixed rate (full bar in WARMTH_DRAIN_S); the rest of the step, once
+ * it is empty, adds frost at main's rate.
+ */
+function applyCold(ratePerSec: number, step: number): void {
+	if (ratePerSec <= 0) return
+	safeFor = 0
+	const drainPerSec = FROST_MAX / WARMTH_DRAIN_S
+	const tEmpty = warmth / drainPerSec
+	if (tEmpty >= step) {
+		warmth -= drainPerSec * step
+		return
+	}
+	warmth = 0
+	frost += ratePerSec * (step - tEmpty)
+	if (frost > FROST_MAX) frost = FROST_MAX
+}
+
+
+// MARK: refillWarmth
+/**
+ * Safe / warming for `step` s. The reserve refills to full
+ * (FROST_MAX - frost) FIRST, at a full bar per WARMTH_REFILL_S, after
+ * WARMTH_REFILL_DELAY_S of continuous safety. Only the time left once
+ * it is full lowers frost at `recoverPerSec` (fire rings only; a lit
+ * torch passes 0), with W tracking the rising cap so it stays full.
+ */
+function refillWarmth(step: number, recoverPerSec = 0): void {
+	const prevSafe = safeFor
+	safeFor += step
+	let t = step
+	if (warmth < FROST_MAX - frost) {
+		// Delay portion of this sample: nothing happens yet.
+		const d = Math.min(t, Math.max(0, WARMTH_REFILL_DELAY_S - prevSafe))
+		t -= d
+		if (t <= 0) return
+		const ratePerSec = FROST_MAX / WARMTH_REFILL_S
+		const tFill = (FROST_MAX - frost - warmth) / ratePerSec
+		if (tFill >= t) {
+			warmth += ratePerSec * t
+			return
+		}
+		t -= tFill
+	}
+	// Full: the rest of the sample recovers frost; W follows the cap.
+	if (recoverPerSec > 0) {
+		frost -= recoverPerSec * t
+		if (frost < 0) frost = 0
+	}
+	warmth = FROST_MAX - frost
+}
+// Layout width of the frost bar. The bar and the cold flash both read
+// this so a step on screen, the blue flash, and the freeze cue share
+// one grid. Kept here (not in the UI layer) so the accumulator does
+// not depend downward on a layer.
 export const FROST_BAR_SEGMENTS = 10
 let lastColdSegments = 0
 
@@ -159,7 +242,6 @@ export function initFrostAccumulation(): void {
 	frost = 0
 	lastWrittenFrost = 0
 	sampleAccum = 0
-	if (FROST_REDUCES_TORCH_CAPACITY) setTorchCapProvider(() => 1 - frost / FROST_MAX)
 
 	engine.addSystem((dt: number) => {
 		sampleAccum += dt
@@ -175,16 +257,20 @@ export function initFrostAccumulation(): void {
 				warmingByFire    = false
 				FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 			}
+			warmth = FROST_MAX
+			setFrostRising(false)
 			return
 		}
 
 		// Frozen in place: the bar holds until a thaw or a fire wake.
 		const held = FrostDeath.getOrNull(engine.PlayerEntity)
-		if (held !== null && !held.awake) return
+		if (held !== null && !held.awake) { warmth = 0; setFrostRising(false); return }
 
 		const t = Transform.getOrNull(engine.PlayerEntity)
 		if (t === null) return
 		const { x, y, z } = t.position
+		const frostBefore  = frost
+		const warmthBefore = warmth
 
 		// Strongest fire ring the player is standing in. A dead hearth
 		// reports radius 0. Overlapping rings keep the hotter tier.
@@ -230,16 +316,7 @@ export function initFrostAccumulation(): void {
 				warmthFuel   = CRATER_HEAT_FUEL
 			}
 		}
-		// Lit monuments: eternal Warm campfires (no fuel decay).
-		for (const mp of getLitMonumentWarmthPositions()) {
-			const mdx = x - mp.x
-			const mdz = z - mp.z
-			if (mdx * mdx + mdz * mdz > mp.radiusSq) continue
-			const w = hearthWarmthPerSec(mp.fuel)
-			if (w <= warmthPerSec) continue
-			warmthPerSec = w
-			warmthFuel   = mp.fuel
-		}
+		// Lit monuments give no heat and melt no snow (visual only).
 		if (isHiddenCampfireLit()) {
 			for (const hp of getHiddenCampfireWarmthPositions()) {
 				if (hp.radiusSq <= 0) continue
@@ -255,52 +332,84 @@ export function initFrostAccumulation(): void {
 		if (warmthPerSec > 0) {
 			// Every tier nets its warmth against the cold. Ember (the
 			// strongest ring here is tier 1) never loses: whatever the
-			// phase, snow or torch, frost falls at least the ember floor.
-			// The torch does not add heat inside a ring.
+			// phase or snow, frost falls at least the ember floor.
+			// The torch does not add or cancel inside a ring.
 			const ember = hearthTierFromFuel(warmthFuel) === 1
 			{
 				const before = frost
 				let net = ambientCold + snowColdPerSec(x, y, z, phase) - warmthPerSec
 				if (ember) net = Math.min(net, -emberMinNetWarmthPerSec())
-				// A lit torch never lets frost grow. Recovery is the
-				// fire's normal net rate (the torch adds no heat).
-				if (isTorchProtecting() && net > 0) net = 0
-				frost += net * step
-				if (frost < 0) frost = 0
-				if (frost > FROST_MAX) frost = FROST_MAX
+				if (net > 0) {
+					// A ring that loses to the cold drains the reserve first.
+					applyCold(net, step)
+				} else {
+					// Warming or holding ring: the reserve refills to full
+					// first, then the rest of the sample recovers frost.
+					refillWarmth(step, -net)
+				}
 				warmingByFire = net < 0 && frost > 0
 				thawedByFire  = net < 0 && frost < before
 			}
 		} else {
 			warmingByFire = false
-			// Ambient + snow, torchless only. A lit torch blocks every
-			// frost source in every phase (no night leak, no snow chill).
+			// Ambient + snow. A lit torch blocks ambient only when
+			// torchLeakPhases is null (day). At dusk and night it leaks.
 			let ratePerSec = 0
 			const inTorchWarmth = isTorchProtecting()
 
+			// Day rule: torchless and not touching snow = no frost at all.
+			const snowOnly = !inTorchWarmth && SNOW_CONTACT_ONLY_PHASES.includes(phase.name)
+			const touching = snowOnly ? isTouchingSnow(x, y, z) : true
+
 			if (!inTorchWarmth) {
-				// Day rule: torchless and not touching snow = no frost at all.
-				const snowOnly = SNOW_CONTACT_ONLY_PHASES.includes(phase.name)
-				const touching = snowOnly ? isTouchingSnow(x, y, z) : true
-				if (touching) ratePerSec += ambientCold + snowColdPerSec(x, y, z, phase)
+				if (touching) ratePerSec += ambientCold
+			} else {
+				const leak = torchLeakFreezeSec(phase, phase.durationSec)
+				if (leak !== null) ratePerSec += (FROST_MAX / leak) * (1 - thawHeat)
 			}
+
+			if (touching) ratePerSec += snowColdPerSec(x, y, z, phase)
 
 			if (ratePerSec > 0) {
-				frost += ratePerSec * step
-				if (frost > FROST_MAX) frost = FROST_MAX
+				// Cold (incl. the night torch leak and snow under a lit
+				// torch) drains the reserve first, then adds frost.
+				applyCold(ratePerSec, step)
+			} else if (snowOnly && !touching) {
+				// Day idle: torchless, off snow, no ring. W drains slowly and
+				// does not refill; frost is never added here (day snow rule).
+				safeFor = 0
+				warmth = Math.max(0, warmth - (FROST_MAX / WARMTH_DAY_IDLE_DRAIN_S) * step)
+			} else if (inTorchWarmth) {
+				// Lit torch and nothing chilling you: the reserve refills.
+				refillWarmth(step)
 			}
 		}
-		// Play the frost SFX only when the bar grows a new blue segment.
-		// Same count the bar draws, so each visible step gets a cue.
-		// Shallow snow that never fills a segment stays silent. Thaw
-		// shrinks the count; we only fire on the upward edge.
+		// Reserve never exceeds the non-frost share of the bar.
+		if (warmth > FROST_MAX - frost) warmth = FROST_MAX - frost
+		if (warmth < 0) warmth = 0
+
+		// Frost-rising onset / release (see Frost-rising state).
+		const wasRising = frostRising
+		if (frost > frostBefore + 1e-6) {
+			frostRisingHoldS = FROST_RISING_HOLD_S
+		} else if (frost < frostBefore - 1e-6 || warmth > warmthBefore + 1e-6) {
+			frostRisingHoldS = 0
+		} else {
+			frostRisingHoldS = Math.max(0, frostRisingHoldS - step)
+		}
+		setFrostRising(frostRisingHoldS > 0)
+		const onset = frostRising && !wasRising
+
+		// Freeze cue: once the moment blue starts growing, then again on
+		// each new blue segment while it keeps growing (the bar's own
+		// count, so each visible step still gets a hit). The onset cue
+		// covers a segment that lands on the same sample. Thaw shrinks
+		// the count; we only fire on the upward edge.
 		const coldSegments = visibleColdSegments(frost)
-		if (coldSegments > lastColdSegments) playFrostChunkSfx()
+		if (onset) playFrostChunkSfx()
+		else if (coldSegments > lastColdSegments) playFrostChunkSfx()
 		else if (thawedByFire && coldSegments < lastColdSegments) playHealChunkSfx()
 		lastColdSegments = coldSegments
-
-		// Frost sets the torch cap; stored fuel above it is lost.
-		if (FROST_REDUCES_TORCH_CAPACITY) clampTorchFuelToCap()
 
 		// Debounced CRDT write.
 		if (Math.abs(frost - lastWrittenFrost) >= FROST_WRITE_EPSILON) {
@@ -311,6 +420,25 @@ export function initFrostAccumulation(): void {
 }
 
 
+// MARK: setFrostRising
+/** Flip the rising flag; fades the freeze cue out on the falling edge. */
+function setFrostRising(next: boolean): void {
+	if (!next) frostRisingHoldS = 0
+	if (frostRising && !next) fadeOutFrostSfx()
+	frostRising = next
+}
+
+
+// MARK: isFrostRising
+/**
+ * True while the player is actively taking frost damage (blue growing,
+ * with a short hold so it does not flicker). Drives the frost tint.
+ */
+export function isFrostRising(): boolean {
+	return frostRising
+}
+
+
 // MARK: resetFrostLocal
 /**
  * Zero the local accumulator AND the synced component. Called by the
@@ -318,50 +446,69 @@ export function initFrostAccumulation(): void {
  * warmth instead of carrying frost into the new run.
  */
 export function resetFrostLocal(): void {
+	warmth            = FROST_MAX
 	frost             = 0
 	lastWrittenFrost  = 0
 	lastColdSegments  = 0
 	warmingByFire     = false
+	setFrostRising(false)
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 }
 
 
-// MARK: seedWarmth
+// Gold segments left after waking at a fire. Cold end of that bucket.
+const WAKE_WARM_SEGMENTS = 3
+/** Gold segments left after a teammate melts you out of ice. */
+const RESCUE_WARM_SEGMENTS = 5
+
+
+// MARK: seedWarmSegments
 /**
- * Leave `warmthFrac` (0..1) of warmth on the heat bar, i.e. frost at
- * (1 - warmthFrac) of max. Shared by fire-wake and rescue thaw.
+ * Leave `warmSegments` gold blocks on the heat bar. Shared by fire-wake
+ * and rescue thaw so both use the same edge-bucket math.
  */
-function seedWarmth(warmthFrac: number, label: string): void {
-	const w          = Math.max(0.01, Math.min(1, warmthFrac))
-	const value      = Math.round(FROST_MAX * (1 - w) * 100) / 100
+function seedWarmSegments(warmSegments: number, label: string): void {
+	const clamped    = Math.max(1, Math.min(FROST_BAR_SEGMENTS, warmSegments | 0))
+	const edge       = FROST_MAX * (1 - (clamped - 1) / FROST_BAR_SEGMENTS)
+	const value      = edge - 1
 	frost            = value
+	// Wake / rescue: the warmth left is all reserve (reads warm).
+	warmth           = FROST_MAX - value
 	lastWrittenFrost = value
 	lastColdSegments = visibleColdSegments(value)
 	warmingByFire    = false
+	setFrostRising(false)
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
-	console.log(`frost/accumulation: ${label}: frost ${value} (warmth ${(w * 100).toFixed(0)}%)`)
+	console.log(`frost/accumulation: ${label}: bar at ${value}, ${clamped} gold`)
 }
 
 
 // MARK: seedWakeWarmth
 /**
- * Leave 21% warmth (the old three segments). A fire wake uses this
+ * Leave three gold segments on the heat bar. A fire wake uses this
  * so there is time to stand and feed an ember at night. The
  * cold-segment count is primed so the seed itself does not chirp.
  */
 export function seedWakeWarmth(): void {
-	seedWarmth(WAKE_WARMTH_FRAC, 'seedWakeWarmth')
+	seedWarmSegments(WAKE_WARM_SEGMENTS, 'seedWakeWarmth')
 }
 
 
 // MARK: seedRescueWarmth
 /**
- * Leave 41% warmth (the old five segments) after a torch thaw. Full warmth on rescue
+ * Leave five gold segments after a torch thaw. Full warmth on rescue
  * made freeze→thaw a free heat refill; half a bar keeps the player
  * standing but still hungry for fire.
  */
 export function seedRescueWarmth(): void {
-	seedWarmth(RESCUE_WARMTH_FRAC, 'seedRescueWarmth')
+	seedWarmSegments(RESCUE_WARM_SEGMENTS, 'seedRescueWarmth')
+}
+
+
+// MARK: getWarmthLocal
+/** Warmth reserve in frost points (0..FROST_MAX - frost). Heat bar yellow. */
+export function getWarmthLocal(): number {
+	return warmth
 }
 
 
@@ -377,9 +524,10 @@ export function getFrostLocal(): number {
 
 // MARK: visibleColdSegments
 /**
- * Tenths of frost crossed, for the frost SFX and the cold flash cue
- * (the bar itself is continuous). The first sliver returns 0; only a
- * full bar returns every step.
+ * Blue segments the frost bar is showing for this frost value.
+ * Warmth rounds up, so the first sliver of frost still reads as a
+ * full warm bar and this returns 0. Only a full bar returns every
+ * segment. The freeze cue and the cold flash both use this count.
  */
 export function visibleColdSegments(value: number): number {
 	if (value <= 0) return 0

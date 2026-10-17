@@ -1,6 +1,18 @@
 /**
- * frostFlash.ts — brief full-screen blue flash each time the frost bar
- * grows a new blue segment.
+ * frostFlash.ts — full-screen frost tint while the player is taking
+ * frost damage, plus a brief blue flash at onset and on each new blue
+ * segment.
+ *
+ * Two parts, composited into one alpha:
+ *   - Pulse: FLASH_PEAK_ALPHA, fades over FLASH_DURATION_S. Fires the
+ *     moment frost starts rising (isFrostRising() false -> true) and on
+ *     each new visible blue segment.
+ *   - Sustain: while frost is rising, a steady tint of at least
+ *     SUSTAIN_MIN_ALPHA that grows with frost toward SUSTAIN_MAX_ALPHA.
+ *     Eases in over SUSTAIN_ATTACK_S and out over SUSTAIN_RELEASE_S once
+ *     frost stops rising (warmed, or off the snow), so the boundary
+ *     does not flicker. accumulation.ts already holds "rising" for a
+ *     short window after the last gain.
  *
  * Modelled on flagtag's hitFlashState.ts (red flash on hit): a global
  * alpha value that decays linearly toward zero over a fixed duration.
@@ -16,7 +28,8 @@
 
 import { engine } from '@dcl/sdk/ecs'
 
-import { getFrostLocal, visibleColdSegments } from 'src/client/frost/accumulation'
+import { getFrostLocal, isFrostRising, visibleColdSegments } from 'src/client/frost/accumulation'
+import { FROST_MAX } from 'src/shared/frost/tuning'
 
 
 // MARK: Tuning
@@ -29,12 +42,21 @@ const FLASH_PEAK_ALPHA = 0.28
 // gains produce distinct pulses; long enough to actually register on
 // mobile where the eye may miss a sub-200 ms flicker.
 const FLASH_DURATION_S = 0.6
+// Steady tint while frost is rising: floor at the first sliver of
+// blue, rising linearly with frost to the max at a full bar.
+const SUSTAIN_MIN_ALPHA = 0.10
+const SUSTAIN_MAX_ALPHA = 0.22
+// Ease times for the steady tint (seconds to cover the full range).
+const SUSTAIN_ATTACK_S  = 0.15
+const SUSTAIN_RELEASE_S = 0.6
 
 
 // MARK: State
 let flashAlpha    = 0
 let flashElapsed  = 0
 let lastBlueCount = 0
+let sustainAlpha  = 0
+let wasRising     = false
 
 
 // MARK: triggerFrostFlash
@@ -50,9 +72,10 @@ export function triggerFrostFlash(): void {
 
 
 // MARK: getFrostFlashAlpha
-/** Current overlay alpha in [0, FLASH_PEAK_ALPHA]. Zero = don't draw. */
+/** Current overlay alpha (pulse over steady tint). Zero = don't draw. */
 export function getFrostFlashAlpha(): number {
-	return flashAlpha
+	const a = 1 - (1 - flashAlpha) * (1 - sustainAlpha)
+	return a < 0.001 ? 0 : a
 }
 
 
@@ -73,9 +96,22 @@ export function initFrostFlash(): void {
 			if (flashAlpha < 0.001) flashAlpha = 0
 		}
 
-		const cold = visibleColdSegments(getFrostLocal())
-		if (cold > lastBlueCount) triggerFrostFlash()
+		const frost  = getFrostLocal()
+		const rising = isFrostRising()
+		const cold   = visibleColdSegments(frost)
+		if ((rising && !wasRising) || cold > lastBlueCount) triggerFrostFlash()
 		lastBlueCount = cold
+		wasRising     = rising
+
+		const frac   = Math.max(0, Math.min(1, frost / FROST_MAX))
+		const target = rising
+			? SUSTAIN_MIN_ALPHA + (SUSTAIN_MAX_ALPHA - SUSTAIN_MIN_ALPHA) * frac
+			: 0
+		if (sustainAlpha < target) {
+			sustainAlpha = Math.min(target, sustainAlpha + (SUSTAIN_MAX_ALPHA / SUSTAIN_ATTACK_S) * dt)
+		} else if (sustainAlpha > target) {
+			sustainAlpha = Math.max(target, sustainAlpha - (SUSTAIN_MAX_ALPHA / SUSTAIN_RELEASE_S) * dt)
+		}
 	})
 
 	console.log('frostFlash: initFrostFlash: cold flash armed')
