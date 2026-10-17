@@ -25,6 +25,39 @@
  */
 export const TORCH_FUEL_MAX_S = 30
 
+/**
+ * 0..1 share of TORCH_FUEL_MAX_S the torch may hold right now. Wired by
+ * frost/accumulation (1 - frost) when FROST_REDUCES_TORCH_CAPACITY is
+ * on. Injected so this module keeps no imports (avoids a cycle).
+ */
+let capFracProvider: () => number = () => 1
+
+export function setTorchCapProvider(fn: () => number): void {
+	capFracProvider = fn
+}
+
+// MARK: getTorchCapSeconds
+/** Current max fuel in seconds (TORCH_FUEL_MAX_S scaled by the cap). */
+export function getTorchCapSeconds(): number {
+	const f = capFracProvider()
+	return TORCH_FUEL_MAX_S * (f > 1 ? 1 : f < 0 ? 0 : f)
+}
+
+// MARK: clampTorchFuelToCap
+/** Drop stored fuel to the current cap (lit or not). Returns fuel. */
+export function clampTorchFuelToCap(): number {
+	const cap = getTorchCapSeconds()
+	if (fuel > cap) fuel = cap
+	return fuel
+}
+
+// MARK: isTorchFull
+/** Fuel is at (within 2% of) the current cap. */
+export function isTorchFull(): boolean {
+	const cap = getTorchCapSeconds()
+	return fuel >= cap - TORCH_FUEL_MAX_S * 0.02
+}
+
 
 // MARK: State
 let equipped = true
@@ -74,7 +107,7 @@ export function isTorchLit(): boolean {
 export function relightTorch(): void {
 	if (!equipped) return
 	lit  = true
-	fuel = TORCH_FUEL_MAX_S
+	fuel = getTorchCapSeconds()
 }
 
 
@@ -114,7 +147,8 @@ export function emptyTorch(): void {
 export function relightTorchPartial(fuelSeconds: number): void {
 	if (!equipped) return
 	lit  = true
-	fuel = fuelSeconds > TORCH_FUEL_MAX_S ? TORCH_FUEL_MAX_S : fuelSeconds
+	const cap = getTorchCapSeconds()
+	fuel = fuelSeconds > cap ? cap : fuelSeconds
 }
 
 
@@ -129,7 +163,7 @@ export function getTorchFuelSeconds(): number {
 
 
 // MARK: getTorchFuelFraction
-/** Fuel remaining as a 0..1 fraction of TORCH_FUEL_MAX_S. */
+/** Fuel remaining as a 0..1 fraction of TORCH_FUEL_MAX_S (not of the cap). */
 export function getTorchFuelFraction(): number {
 	return fuel / TORCH_FUEL_MAX_S
 }

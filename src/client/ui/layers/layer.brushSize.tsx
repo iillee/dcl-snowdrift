@@ -19,7 +19,7 @@ import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON, SH
 import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
+import { isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { feedFire, getCarriedKind, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { isChopPromptVisible }    from 'src/client/ui/layers/layer.chopPrompt'
 import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
@@ -759,7 +759,6 @@ export function TorchButton() {
 	// dimming the unlit one made it near-invisible on the dark panel
 	// especially on mobile.
 	const iconTint    = WHITE
-	const fuelFrac    = Math.max(0, Math.min(1, getTorchFuelFraction()))
 	// Border: white by default, warm gold only while the Relight tooltip
 	// is up — the gold reads as "this slot is being pointed at by the
 	// prompt/bridge", not as "the torch is lit". Torch lit-state is
@@ -772,15 +771,6 @@ export function TorchButton() {
 		? TORCH_BORDER_ON
 		: TORCH_BORDER_OFF
 
-	// Fuel height as a percentage so it scales with the button when the
-	// UI canvas rescales (small windows, mobile). Previously computed as
-	// raw px against BTN_SIZE — that math only held at the reference
-	// canvas size, so the fill drifted out of the button on resize.
-	const fuelHeightPct = `${Math.round(fuelFrac * 100)}%` as const
-	// Constant warm gold across the whole drain — the fill height alone
-	// communicates remaining fuel. A low-fuel warning colour was tried
-	// and rejected; if we bring it back, prefer a pulse over a hard swap.
-	const fuelColor     = TORCH_FUEL_COLOR_FULL
 
 	return (
 		<UiEntity
@@ -801,49 +791,8 @@ export function TorchButton() {
 			// tryRelightAtFire, so this is a safe no-op anywhere else.
 			onMouseDown  = {tryRelightAtFire}
 		>
-			{/* Fuel fill — anchored bottom, drains from top as fuel depletes.
-			   Rendered as an outer frame + inner bar so the horizontal gap
-			   stays symmetric. Putting the insets on the outer frame (which
-			   has no sibling flex children) sidesteps a DCL quirk where an
-			   absolute child with `left` + `right` insets rendered
-			   asymmetrically when the parent had a borderWidth + a
-			   flex-centred sibling (the torch icon), pushing the fill a few
-			   px to the right of centre. The inner bar handles the drain. */}
-			{lit && fuelFrac > 0 ? (
-				<UiEntity
-					key         = "ui_TorchBtn_fuelFrame"
-					uiTransform = {{
-						// Fill the button's content box via width/height 100% + a
-						// padding ring equal to the desired inset. This lets the
-						// inner bar use percentage sizing so it rescales with the
-						// parent when the UI canvas scales (window resize / mobile
-						// aspect changes). Previously the frame used absolute px
-						// math against BTN_SIZE, which drifted out of the button
-						// on any canvas rescale.
-						positionType   : 'absolute',
-						width          : '100%',
-						height         : '100%',
-						padding        : {
-							top   : TORCH_FUEL_INSET,
-							bottom: TORCH_FUEL_INSET,
-							left  : TORCH_FUEL_INSET,
-							right : TORCH_FUEL_INSET,
-						},
-						flexDirection  : 'column',
-						justifyContent : 'flex-end',
-					}}
-				>
-					<UiEntity
-						key         = "ui_TorchBtn_fuelBar"
-						uiTransform = {{
-							width       : '100%',
-							height      : fuelHeightPct,
-							borderRadius: borderRadius.sm,
-						}}
-						uiBackground = {{ color: fuelColor }}
-					/>
-				</UiEntity>
-			) : null}
+			{/* Fuel now reads on the top heat bar (yellow); the slot is
+			   just the item indicator (lit / unlit torch icon). */}
 			<KeyHintBadge label="E" />
 			{/* Torch glyph — centred on top of the fuel fill. */}
 			<UiEntity

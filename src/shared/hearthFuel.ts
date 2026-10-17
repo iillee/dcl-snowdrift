@@ -127,10 +127,10 @@ export const TIER_VOLUME: readonly number[] = [0.25, 0.45, 0.70, 0.90, 1.00] as 
  *
  * Day bare cold is ~3.3/s. Dusk and night share one bare cold, ~4.8/s.
  *
- *   Ember    4    holds the bar through dawn and day (the cold is
- *                 not applied). Loses to dusk/night: a 60s night on
- *                 bare ground fills about half the bar from warm,
- *                 instead of freezing you in ~21s outside.
+ *   Ember    4    never lets you freeze: in every phase the net is
+ *                 at least a tiny warming (EMBER_MIN_NET_WARMTH_FRAC),
+ *                 even where night / solstice cold or snow would beat
+ *                 the 4/s. Where 4/s already wins, it nets as before.
  *   Low      6    beats dusk/night. A full bar clears in ~80s.
  *   Warm     7    the opening fire. Night recovery matches the old
  *                 45s thaw.
@@ -138,6 +138,15 @@ export const TIER_VOLUME: readonly number[] = [0.25, 0.45, 0.70, 0.90, 1.00] as 
  *   Roaring  13   night recovery ~12s.
  */
 export const TIER_WARMTH_PER_S: readonly number[] = [4, 6, 7, 9.5, 13] as const
+
+/**
+ * Ember floor: inside an Ember ring (main hearth or hidden pit) frost
+ * always falls at least this fraction of the Low tier's NIGHT recovery
+ * (Low warmth minus bare night cold, ~1.24/s), so ~0.155 frost/s at
+ * 0.125: a full bar clears in ~11 min. Applies day, dusk, night,
+ * solstice, torch lit or out, snow or not. Stronger tiers unchanged.
+ */
+export const EMBER_MIN_NET_WARMTH_FRAC = 0.125
 
 
 // MARK: fuelSecondsForKind

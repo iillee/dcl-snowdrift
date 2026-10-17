@@ -25,7 +25,7 @@ import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from
 import { getMainFireFuel }                                                 from 'src/client/hearthFuel'
 import { isInHiddenRelightRange }                                          from 'src/client/hiddenCampfire'
 import { isHiddenCampfirePromptVisible }                                   from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit }               from 'src/client/torchEquip'
+import { getTorchFuelFraction, isTorchEquipped, isTorchFull, isTorchLit } from 'src/client/torchEquip'
 import { isTorchRelightOnCooldown, tryRelightAtFire }                      from 'src/client/torchInput'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
@@ -116,7 +116,8 @@ function shouldShowPrompt(): boolean {
 	// A full torch has nothing to take from a living fire, but it can
 	// still pass its flame to a dead hearth.
 	if (canSparkMainHearth()) return true
-	if (isTorchLit() && getTorchFuelFraction() >= TOP_OFF_HIDE_THRESHOLD) return false
+	// Full = at the current (frost-limited) cap, not the 30 s tank.
+	if (isTorchLit() && (isTorchFull() || getTorchFuelFraction() >= TOP_OFF_HIDE_THRESHOLD)) return false
 	// Dead hearth, dark torch: no flame on either side.
 	if (isNearMainHearth() && getMainFireFuel() <= 0) return false
 	if (isNearMainHearth()) return true

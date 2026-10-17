@@ -1,3 +1,5 @@
+import { TORCH_NIGHT_DRAIN_MULT } from 'src/shared/frost/tuning'
+
 /**
  * phase.ts — shared day/night phase table and helpers.
  *
@@ -38,9 +40,8 @@ export interface PhaseConfig {
 	 */
 	ambientFreezePhases : number | null
 	/**
-	 * Ambient freeze time WITH a lit torch, as a multiple of this
-	 * phase's duration. `null` means the torch fully blocks ambient
-	 * (day). Campfire warmth still cancels everything.
+	 * Retired: a lit torch now blocks all frost in every phase. Kept in
+	 * the table (no schema churn) but no longer read by accumulation.
 	 */
 	torchLeakPhases     : number | null
 	snowFrostMul        : number
@@ -119,7 +120,7 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		name: 'DUSK', durationSec: 15, drainMul: 2.0,
 		skyFrom: SKY_17, skyTo: SKY_19,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
-		snowFrostMul: 1.6, torchDrainMul: 1.0,
+		snowFrostMul: 1.6, torchDrainMul: TORCH_NIGHT_DRAIN_MULT,
 		weatherHeavyBias: 0.40, weatherSpeedMul: 1.6,
 		weatherFloor: 1, weatherEnterLevel: 3,
 		meltBrushCap: 1, torchFlameMul: 0.65,
@@ -128,7 +129,7 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		name: 'NIGHT', durationSec: 60, drainMul: 2.0,
 		skyFrom: SKY_19, skyTo: SKY_0620,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
-		snowFrostMul: 1.6, torchDrainMul: 1.0,
+		snowFrostMul: 1.6, torchDrainMul: TORCH_NIGHT_DRAIN_MULT,
 		weatherHeavyBias: 0.40, weatherSpeedMul: 1.6,
 		weatherFloor: 1, weatherEnterLevel: 3,
 		meltBrushCap: 1, torchFlameMul: 0.65,
@@ -144,7 +145,7 @@ export const SOLSTICE_PHASES: readonly PhaseConfig[] = [
 		name: 'SOLSTICE_WARN', durationSec: 120, drainMul: 2.0,
 		skyFrom: SKY_19, skyTo: SKY_21,
 		ambientFreezePhases: 0.40, torchLeakPhases: 0.90,
-		snowFrostMul: 1.6, torchDrainMul: 1.0,
+		snowFrostMul: 1.6, torchDrainMul: TORCH_NIGHT_DRAIN_MULT,
 		weatherHeavyBias: 0.40, weatherSpeedMul: 1.6,
 		weatherFloor: 2, weatherEnterLevel: 3,
 		meltBrushCap: 1, torchFlameMul: 0.65,
@@ -153,7 +154,7 @@ export const SOLSTICE_PHASES: readonly PhaseConfig[] = [
 		name: 'SOLSTICE', durationSec: 360, drainMul: 3.0,
 		skyFrom: SKY_21, skyTo: SKY_03,
 		ambientFreezePhases: 0.30, torchLeakPhases: 0.70,
-		snowFrostMul: 2.0, torchDrainMul: 1.0,
+		snowFrostMul: 2.0, torchDrainMul: TORCH_NIGHT_DRAIN_MULT,
 		weatherHeavyBias: 0.50, weatherSpeedMul: 2.0,
 		weatherFloor: 2, weatherEnterLevel: 3,
 		meltBrushCap: 1, torchFlameMul: 0.65,

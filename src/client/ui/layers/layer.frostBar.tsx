@@ -1,12 +1,14 @@
 /**
- * layer.frostBar.tsx — bottom-center survival gauge, retro segmented style.
+ * layer.frostBar.tsx - top-centre survival gauge, one continuous bar.
  *
- * Ten discrete blocks in a chunky black-outlined rectangle, no rounded
- * corners. Full = warm/safe, empty = frozen. As frost rises, segments
- * drop off from the right one at a time — the classic Game Boy /
- * Zelda hearts feel. Threshold colours shift the remaining blocks from
- * warm gold -> amber -> danger red so the player reads urgency at a
- * glance without needing a number.
+ * Fixed width, three colours left to right: White | Yellow | Blue.
+ *   Blue   = frost fraction, anchored RIGHT, grows right -> left.
+ *   Yellow = torch fuel fraction * (1 - frost), sitting just left of
+ *            the blue; it shrinks from its left edge as fuel burns.
+ *            0 while the torch is out.
+ *   White  = whatever is left, on the LEFT.
+ * Displayed values ease toward the real ones (wall-clock time constant,
+ * so frame-rate independent); gameplay never reads the eased values.
  *
  * Reads the local player's frost value from src/client/frost/accumulation.
  * The Layer.body() closure re-runs every frame so no explicit signal
@@ -23,7 +25,9 @@ import { DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_D
 import { getCurrentCycleSeed } from 'src/client/cycle'
 import { isWorldThawed } from 'src/client/worldThaw'
 import { room } from 'src/shared/messages'
-import { FROST_BAR_SEGMENTS, getFrostLocal, visibleColdSegments } from 'src/client/frost/accumulation'
+import { getFrostLocal } from 'src/client/frost/accumulation'
+import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
+import { FROST_MAX, FROST_REDUCES_TORCH_CAPACITY } from 'src/shared/frost/tuning'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { getUVsForAtlasTile } from 'src/client/ui/utils/atlas'
@@ -47,10 +51,16 @@ const ATLAS_COLS    = 16
 const ATLAS_ROWS    = 16
 const FIRE_TILE_COL = 1
 const FIRE_TILE_ROW = 1
+// Outline heart for the white pill. The font-awesome atlas only has a
+// solid heart, so this 128 px PNG is that atlas heart turned into an
+// even ~10 px stroke (white glyph, transparent middle, tinted black).
+const HEART_OUTLINE_SRC = 'assets/images/heart_outline.png'
+const COL_HEART         = Color4.create(0, 0, 0, 1)
 
 
 // MARK: Layout
-const SEGMENT_COUNT = FROST_BAR_SEGMENTS
+// Old 10-block grid, kept only to size the continuous bar the same.
+const SEGMENT_COUNT = 10
 // True squares. Desktop segment size is picked so the frost bar's
 // outer frame (the white-bordered rectangle behind the segments)
 // matches the neighbouring buttons' BTN_SIZE = 72 in height, keeping
@@ -86,6 +96,32 @@ const BAR_TOP_MB = 4
 // the growing ice bar on the right, not from a colour shift. Keeps the
 // palette calm and coherent with the campfire glow.
 const COL_WARM   = Color4.create(1.00, 0.80, 0.30, 1.00)
+// Left remainder: neither torch fuel nor frost.
+const COL_WHITE  = Color4.create(0.96, 0.96, 0.96, 1.00)
+
+// Display easing: time constant (s) for the drawn widths to follow the
+// real values. Small so the bar stays accurate; snaps when close.
+const DISPLAY_TAU_S = 0.12
+let dispFrost = -1
+let dispFuel  = -1
+let dispLastMs = 0
+
+function easeDisplay(frostFrac: number, fuelFrac: number): void {
+	const now = Date.now()
+	if (dispFrost < 0) {
+		dispFrost  = frostFrac
+		dispFuel   = fuelFrac
+		dispLastMs = now
+		return
+	}
+	const dt = Math.min(0.25, Math.max(0, (now - dispLastMs) / 1000))
+	dispLastMs = now
+	const k = 1 - Math.exp(-dt / DISPLAY_TAU_S)
+	dispFrost += (frostFrac - dispFrost) * k
+	dispFuel  += (fuelFrac  - dispFuel)  * k
+	if (Math.abs(frostFrac - dispFrost) < 0.001) dispFrost = frostFrac
+	if (Math.abs(fuelFrac  - dispFuel)  < 0.001) dispFuel  = fuelFrac
+}
 
 // Cold fill — ice-blue block that takes over from the right as frost
 // rises. Deliberately a hard fill (not a ghost slot) so the bar never
@@ -175,10 +211,19 @@ class FrostBarLayer extends Layer {
 	}
 
 	body() {
-		const frost      = getFrostLocal()
-		// Warm blocks are whatever the shared cold-segment count has not
-		// taken yet, so the drawn bar and the freeze cue stay on one grid.
-		const warmBlocks = SEGMENT_COUNT - visibleColdSegments(frost)
+		const frostFrac  = Math.max(0, Math.min(1, getFrostLocal() / FROST_MAX))
+		// Torch out (or not carried) = no yellow, even if fuel is kept.
+		// dispFuel is yellow's share of the NON-blue region:
+		//  cap on:  yellow = fuel / max of the total (fuel <= max * (1 - frost)),
+		//           so the share is fuel / max / (1 - frost) and a full
+		//           torch exactly fills the non-blue region.
+		//  cap off: yellow = fuel / max * (1 - frost) of the total.
+		const tankFrac   = isTorchLit() ? Math.max(0, Math.min(1, getTorchFuelFraction())) : 0
+		const nonBlue    = 1 - frostFrac
+		const fuelFrac   = FROST_REDUCES_TORCH_CAPACITY
+			? (nonBlue > 0.0001 ? Math.min(1, tankFrac / nonBlue) : 0)
+			: tankFrac
+		easeDisplay(frostFrac, fuelFrac)
 		const mobile     = isMobile()
 		const segSize    = mobile ? SEG_SIZE_MB     : SEG_SIZE_DT
 		const segGap     = mobile ? SEG_GAP_MB      : SEG_GAP_DT
@@ -198,47 +243,99 @@ class FrostBarLayer extends Layer {
 		const innerW = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap + framePad * 2
 		const innerH = segSize + framePad * 2
 
-		// Consolidated two-panel fill. Adjacent same-type blocks used to
-		// render as individual UiEntities; we now render one warm rect on
-		// the left and one cold rect on the right, separated by a single
-		// segGap-wide breather so both sides can carry full rounded
-		// corners. Growth still snaps to the 10-step grid so the
-		// transition feel matches the segmented version.
-		//
-		// Total strip width matches the old (N-1)-gap version so the
-		// outer frame doesn't resize. When both panels are present we
-		// reserve one segGap between them; when a side is fully drained
-		// the surviving side gets the whole strip (no phantom gap).
-		const stripW    = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap
-		const bothSides = warmBlocks > 0 && warmBlocks < SEGMENT_COUNT
-		const fillW     = bothSides ? stripW - segGap : stripW
-		const warmW     = Math.round(fillW * (warmBlocks / SEGMENT_COUNT))
-		const coldW     = fillW - warmW
+		// Two pills: [White with Yellow on top] | gap | Blue.
+		// The white pill spans the white+yellow region. Yellow is its own
+		// pill (same radius on every corner) drawn over the white pill's
+		// right end, so its rounded left edge overlaps white with no
+		// straight divider. Blue keeps segGap to its left, only while
+		// blue is visible. Total width stays stripW.
+		const stripW   = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap
+		const rawCold  = stripW * dispFrost
+		const rawWarm  = Math.min(stripW - rawCold, stripW * dispFuel * (1 - dispFrost))
+		const rawLeft  = Math.max(0, stripW - rawCold)            // white + yellow
+		// Visibility 0..1, eased over 2x the corner radius.
+		const fadeW = radSeg * 2
+		const ease  = (w: number) => {
+			const t = Math.max(0, Math.min(1, w / fadeW))
+			return t * t * (3 - 2 * t)
+		}
+		const visLeft = ease(rawLeft)
+		const visCold = ease(rawCold)
+		const visWarm = ease(rawWarm)
+		// Gap only between two visible pills; collapses smoothly.
+		const gap   = segGap * Math.min(visLeft, visCold)
+		// Gap comes out of the fill; proportions stay true.
+		const scale = (stripW - gap) / stripW
+		const regionF = rawLeft * scale
+		const regionW = Math.round(regionF)
+		const coldX   = Math.round(regionF + gap)
+		const coldW   = stripW - coldX
+		const coldGap = coldX - regionW
+		// Yellow: fuel * (1 - frost) of the total, mapped into the region.
+		// Never narrower than one corner diameter (it fades instead), and
+		// never wider than the region (full = exactly covers the white).
+		const warmTrue = Math.min(regionW, Math.round(rawWarm * scale))
+		const warmW    = visWarm > 0.001 ? Math.min(regionW, Math.max(warmTrue, fadeW)) : 0
+		// Heart sits in the white still showing left of yellow.
+		const whiteVisW = Math.max(0, regionW - warmTrue)
 
-		// Flame icon lives centered inside the warm panel. Sized to ~60%
-		// of segment height so it reads clearly without crowding the pill
-		// edges, and only rendered when the warm panel is wide enough to
-		// contain it (otherwise it would overflow into the cold half).
-		// ~full segment height — flame is the dominant warm icon and
-		// fills the block cleanly. Snowflake is scaled down from this
-		// below for visual parity.
 		const flameSize     = Math.round(segSize * 1.0)
-		const showFlameIcon = warmW >= flameSize + 4
+		const snowSize      = Math.round(flameSize * 0.85)
+		const showHeartIcon = whiteVisW >= flameSize + 4 && visLeft > 0.5
+		const showFlameIcon = warmW >= flameSize + 4 && visWarm > 0.5
+		const showSnowIcon  = coldW >= snowSize + 4 && visCold > 0.5
 
-		const segments = []
-		if (warmW > 0) {
-			segments.push(
+		const alpha = (c: Color4, v: number) => Color4.create(c.r, c.g, c.b, c.a * v)
+
+		const segments = [
+			<UiEntity
+				key          = "ui_FrostBar_left"
+				uiTransform  = {{
+					width       : regionW,
+					height      : segSize,
+					flexShrink  : 0,
+					borderRadius: Math.min(radSeg, regionW / 2),
+				}}
+				uiBackground = {{ color: alpha(COL_WHITE, visLeft) }}
+			>
+				{/* Heart: centred in the white left of the yellow. */}
 				<UiEntity
-					key          = "ui_FrostBar_warm"
-					uiTransform  = {{
-						width         : warmW,
+					key         = "ui_FrostBar_heartBox"
+					uiTransform = {{
+						positionType  : 'absolute',
+						position      : { left: 0, top: 0 },
+						width         : whiteVisW,
 						height        : segSize,
-						margin        : { right: bothSides ? segGap : 0 },
-						borderRadius  : radSeg,
 						justifyContent: 'center',
 						alignItems    : 'center',
 					}}
-					uiBackground = {{ color: COL_WARM }}
+				>
+					{showHeartIcon && (
+						<UiEntity
+							key          = "ui_FrostBar_heart"
+							uiTransform  = {{ width: flameSize, height: flameSize }}
+							uiBackground = {{
+								textureMode: 'stretch',
+								texture    : { src: HEART_OUTLINE_SRC },
+								color      : COL_HEART,
+							}}
+						/>
+					)}
+				</UiEntity>
+				{/* Yellow pill on top, anchored to the region's right end. */}
+				<UiEntity
+					key          = "ui_FrostBar_warm"
+					uiTransform  = {{
+						positionType  : 'absolute',
+						position      : { right: 0, top: 0 },
+						width         : warmW,
+						height        : segSize,
+						borderRadius  : Math.min(radSeg, warmW / 2),
+						justifyContent: 'center',
+						alignItems    : 'center',
+						display       : warmW > 0 ? 'flex' : 'none',
+					}}
+					uiBackground = {{ color: alpha(COL_WARM, visWarm) }}
 				>
 					{showFlameIcon && (
 						<UiEntity
@@ -252,35 +349,26 @@ class FrostBarLayer extends Layer {
 							}}
 						/>
 					)}
-				</UiEntity>,
-			)
-		}
-		if (coldW > 0) {
-			// Snowflake mirrors the flame: same target size, same visibility
-			// gate so the icon vanishes rather than overflowing as the cold
-			// panel shrinks to a sliver.
-			// Snowflake reads a touch large next to the flame at matched size,
-			// so nudge it down ~15% for visual parity.
-			const snowSize     = Math.round(flameSize * 0.85)
-			const showSnowIcon = coldW >= snowSize + 4
-			segments.push(
-				<UiEntity
-					key          = "ui_FrostBar_cold"
-					uiTransform  = {{
-						width         : coldW,
-						height        : segSize,
-						borderRadius  : radSeg,
-						justifyContent: 'center',
-						alignItems    : 'center',
-					}}
-					uiBackground = {{ color: COL_COLD }}
-				>
-					{showSnowIcon && (
-						<SnowflakeIcon color = {Color4.White()} size = {snowSize} />
-					)}
-				</UiEntity>,
-			)
-		}
+				</UiEntity>
+			</UiEntity>,
+			<UiEntity
+				key          = "ui_FrostBar_cold"
+				uiTransform  = {{
+					width         : coldW,
+					height        : segSize,
+					flexShrink    : 0,
+					margin        : { left: coldGap },
+					borderRadius  : Math.min(radSeg, coldW / 2),
+					justifyContent: 'center',
+					alignItems    : 'center',
+				}}
+				uiBackground = {{ color: alpha(COL_COLD, visCold) }}
+			>
+				{showSnowIcon && (
+					<SnowflakeIcon color = {Color4.White()} size = {snowSize} />
+				)}
+			</UiEntity>,
+		]
 
 		return (
 			<UiEntity
@@ -356,9 +444,8 @@ class FrostBarLayer extends Layer {
 					</UiEntity>
 				</UiEntity>
 				{DEBUG_THAW_BUTTON && <DebugThawButton />}
-				{/* Torch + Logs slots moved to layer.inventoryHotbar
-				   (bottom-center) - the frost bar now only owns the
-				   segmented cold gauge. */}
+				{/* Torch + Logs slots live in layer.inventoryHotbar
+				   (bottom-center); this layer owns the heat bar. */}
 			</UiEntity>
 		)
 	}
