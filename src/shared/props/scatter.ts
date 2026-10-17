@@ -38,6 +38,7 @@ import {
 	groundYAtWorld,
 	TerrainDestination,
 	TerrainMap,
+	nearStation,
 } from 'src/shared/terrain/terrainMap'
 
 
@@ -270,6 +271,7 @@ const TREE_WALL_CLEAR_M = 1.0
 function treeFootprintClear(map: TerrainMap, def: PropDef, x: number, z: number): boolean {
 	const s = def.scale * (1 + (def.scaleJitter ?? 0))
 	if (!groundFlatWithin(map, x, z, s * TREE_ROOT_RADIUS_M)) return false
+	if (nearStation(map, x, z, s * TREE_WALL_CLEAR_M)) return false
 	const y = groundYAtWorld(map, x, z)
 	const r = s * TREE_WALL_CLEAR_M
 	const C = MAZE_TILE_WORLD_METERS

@@ -170,7 +170,7 @@ class LoadingSplashLayer extends Layer {
 						{lines.map((text, i) => (
 							<Label
 								key         = {`ui_LoadingSplash_line_${i}`}
-								value       = {text}
+								value       = {`<b>${text}</b>`}
 								fontSize    = {fontSizes.display}
 								color       = {Color4.White()}
 								font        = "sans-serif"

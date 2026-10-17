@@ -155,7 +155,7 @@ function applyOptimisticFeed(
 	if (target === -1) {
 		if (currentFuel <= 0) return
 		const next = Math.min(FUEL_MAX, Math.max(currentFuel, targetFuel) + add)
-		currentFuel = next
+		// Target only: the lerp eases the visual grow (~0.5-0.75 s).
 		targetFuel  = next
 		return
 	}
@@ -165,7 +165,6 @@ function applyOptimisticFeed(
 		FUEL_MAX,
 		Math.max(hiddenCurrent[target], hiddenTarget[target]) + add,
 	)
-	hiddenCurrent[target] = next
 	hiddenTarget[target]  = next
 }
 

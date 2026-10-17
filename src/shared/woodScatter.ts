@@ -32,7 +32,7 @@ import {
 	getTerrain,
 	impassableCellsForMazeSeed,
 } from 'src/shared/terrain/terrainCache'
-import { cellCenterWorld, groundFlatWithin, groundYAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
+import { cellCenterWorld, groundFlatWithin, groundYAtWorld, nearStation, TerrainMap } from 'src/shared/terrain/terrainMap'
 import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
@@ -258,6 +258,7 @@ function onCliff(
 	}
 	// Footprint must sit on one shelf, or the piece hangs over a lip.
 	if (scatterMap !== null && !groundFlatWithin(scatterMap, x, z, WOOD_CLIFF_REACH_M)) return true
+	if (scatterMap !== null && nearStation(scatterMap, x, z, WOOD_CLIFF_REACH_M)) return true
 	return false
 }
 

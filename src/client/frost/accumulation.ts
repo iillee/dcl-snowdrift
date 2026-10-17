@@ -42,7 +42,8 @@ import { getLivePhaseConfig } from 'src/client/phase'
 import { thawHeatAt } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
-import { activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import { activeGroundYAt, activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import { SNOW_STAGE_HEIGHT_M } from 'src/shared/snowGrid'
 import {
 	CRATER_HEAT_FUEL,
 	CRATER_HEAT_RADIUS_SQ_M,
@@ -69,6 +70,28 @@ let lastColdSegments = 0
 // Any change bigger than this triggers a CRDT write. 0.5% chosen so a
 // full 0->100 sweep produces ~200 writes over minutes, not thousands.
 const FROST_WRITE_EPSILON = 0.5
+
+
+// MARK: Day snow-contact rule
+/**
+ * Phases where a torchless player only freezes while touching snow:
+ * grounded AND on an uncleared cell. Airborne or on cleared ground the
+ * bar pauses (no gain; existing recovery rules unchanged). Dusk and
+ * night keep full open-air cold.
+ */
+const SNOW_CONTACT_ONLY_PHASES: readonly string[] = ['DAWN', 'DAY']
+/** Feet may sit this far above the snow top (m) and still count as grounded. */
+const SNOW_CONTACT_GROUNDED_TOL_M = 0.15
+
+
+// MARK: isTouchingSnow
+/** Grounded on the terrain (within tolerance of the snow top) on a snow-covered cell. */
+function isTouchingSnow(x: number, y: number, z: number): boolean {
+	const stage = getSnowStageAtWorld(x, y, z)
+	if (stage === 0) return false
+	const snowTopY = activeGroundYAt(x, z) + SNOW_STAGE_HEIGHT_M[stage]
+	return y <= snowTopY + SNOW_CONTACT_GROUNDED_TOL_M
+}
 
 
 // MARK: ambientColdPerSec
@@ -231,14 +254,18 @@ export function initFrostAccumulation(): void {
 			let ratePerSec = 0
 			const inTorchWarmth = isTorchProtecting()
 
+			// Day rule: torchless and not touching snow = no frost at all.
+			const snowOnly = !inTorchWarmth && SNOW_CONTACT_ONLY_PHASES.includes(phase.name)
+			const touching = snowOnly ? isTouchingSnow(x, y, z) : true
+
 			if (!inTorchWarmth) {
-				ratePerSec += ambientCold
+				if (touching) ratePerSec += ambientCold
 			} else {
 				const leak = torchLeakFreezeSec(phase, phase.durationSec)
 				if (leak !== null) ratePerSec += (FROST_MAX / leak) * (1 - thawHeat)
 			}
 
-			ratePerSec += snowColdPerSec(x, y, z, phase)
+			if (touching) ratePerSec += snowColdPerSec(x, y, z, phase)
 
 			if (ratePerSec > 0) {
 				frost += ratePerSec * step

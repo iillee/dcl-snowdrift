@@ -150,11 +150,16 @@ export function setupCampfireSmoke(): void {
 	// Height and density step with the tier. Puff size stays put so a
 	// strong fire is a thicker column, not a bigger blob.
 	let lastTier = -2
+	let lastKey  = ''
 	engine.addSystem(() => {
 		const tier = getMainFireTier()
-		if (tier === lastTier) return
+		const h = Math.round(getMainFireSmokeHeight() * 50) / 50
+		const d = Math.round(getMainFireSmokeDensity() * 50) / 50
+		const key = h + ':' + d
+		if (key === lastKey) return
+		lastKey = key
+		applyHearthSmoke(emitter, h, d)
+		if (tier !== lastTier) console.log(`campfireSmoke: plume tier ${tier}`)
 		lastTier = tier
-		applyHearthSmoke(emitter, getMainFireSmokeHeight(), getMainFireSmokeDensity())
-		console.log(`campfireSmoke: plume tier ${tier}`)
 	})
 }

@@ -178,6 +178,12 @@ export async function setupServer(): Promise<void> {
 	// Trust model: userId comes from context.from (authenticated by hammurabi),
 	// NOT from the payload's userId field — payload is redundant but useful
 	// for logging early-connect diagnostics.
+	// Per-wallet time of the last full join hydrate. A stalled client
+	// retries joinRoster every 2 s and can flush 10+ in one tick; on
+	// 2026-10-13 that burst (x9 full hydrates at once) broke the runtime
+	// and the restart wiped the world back to day 1.
+	const lastJoinHydrateMs = new Map<string, number>()
+	const JOIN_HYDRATE_DEBOUNCE_MS = 5000
 	room.onMessage('joinRoster', ({ userId }, context) => {
 		// Bevy preview often omits context.from. The payload wallet is
 		// what the client is actually sending. Dropping the join here
@@ -199,6 +205,15 @@ export async function setupServer(): Promise<void> {
 		// state now hydrates via CRDT tile replication automatically; the
 		// joiner-specific hydrations below cover everything else (weather,
 		// wood, cycle, torches, fuel, hidden campfire).
+		const joinKey = from.toLowerCase()
+		const joinNow = Date.now()
+		const lastJoin = lastJoinHydrateMs.get(joinKey)
+		if (lastJoin !== undefined && joinNow - lastJoin < JOIN_HYDRATE_DEBOUNCE_MS && getTeam(from) !== null) {
+			// Duplicate retry: re-ack only, skip the full hydrate.
+			room.send('teamAssigned', { team: assignTeam(from) })
+			return
+		}
+		lastJoinHydrateMs.set(joinKey, joinNow)
 		console.log(`[Server] joinRoster from ${from}`)
 		notePlayerJoined(from)
 		if (from !== userId) {

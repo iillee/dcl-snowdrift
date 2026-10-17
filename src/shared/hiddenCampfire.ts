@@ -44,6 +44,7 @@ import {
 	groundYAtWorld,
 	TerrainDestination,
 	TerrainMap,
+	nearStation,
 } from 'src/shared/terrain/terrainMap'
 
 
@@ -648,6 +649,7 @@ function spotClear(
 	if (preferLevel !== null && levelAt(map, x, z) !== preferLevel) return false
 	// Whole log pile on one shelf: no hanging over a cliff lip.
 	if (!groundFlatWithin(map, x, z, HIDDEN_PIT_RADIUS_M)) return false
+	if (nearStation(map, x, z, HIDDEN_PIT_RADIUS_M)) return false
 	return !pitOverlaps(x, z, blocked, trees)
 }
 

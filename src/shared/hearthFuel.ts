@@ -8,9 +8,9 @@
  * (frost accumulation).
  *
  * Design (see PLAN.md v2.14 / this session's design chat):
- *   - 1 log         = LOG_FUEL_SECONDS (+60 s)
- *   - 1 branch      = BRANCH_FUEL_SECONDS (+30 s)
- *   - Hard cap      = FUEL_MAX (600 s -> 10 logs banked)
+ *   - 1 log         = LOG_FUEL_SECONDS (+90 s; was 60, +50% 2026-10-16)
+ *   - 1 branch      = BRANCH_FUEL_SECONDS (+45 s; was 30)
+ *   - Hard cap      = FUEL_MAX (600 s -> ~6.7 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
  *                     and can burn to 0. A lit torch sparks it back
  *                     to the same 30 s Ember a hidden pit starts at.
@@ -38,11 +38,11 @@ import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 
 // MARK: Tuning constants
 /** Total seconds one log adds to a fire's fuel tank. */
-export const LOG_FUEL_SECONDS    = 60
+export const LOG_FUEL_SECONDS    = 90
 /** Kindling. Half a log so a near-ring trip still matters. */
-export const BRANCH_FUEL_SECONDS = 30
+export const BRANCH_FUEL_SECONDS = 45
 
-/** Hard ceiling. 10 logs = one full tank. Prevents infinite hoarding
+/** Hard ceiling. ~6.7 logs (90 s each) = one full tank. Prevents infinite hoarding
  *  from making the UI unreadable and gives Roaring a defined peak. */
 export const FUEL_MAX          = 600
 
@@ -168,15 +168,35 @@ export function hearthTierFromFuel(fuel: number): number {
 // MARK: tierAnchor
 
 /**
- * The anchor for whichever tier `fuel` is in. Dead fire is 0.
- * Flame, smoke, light, crackle, and the melt ring share this so they
- * change together.
+ * Stepped: the anchor for whichever tier fuel is in. Dead = 0.
+ * Gameplay (warmth rate, melt ring) uses this so balance stays on tiers.
  */
 function tierAnchor(fuel: number, anchors: readonly number[]): number {
 	const tier = hearthTierFromFuel(fuel)
 	if (tier <= 0) return 0
 	return anchors[tier - 1]
 }
+
+
+/**
+ * Smooth variant of tierAnchor for light / smoke / crackle: lerps
+ * between tier anchors (anchor k at TIER_FUEL[k]), Roaring held past 450.
+ */
+function smoothAnchor(fuel: number, anchors: readonly number[]): number {
+	if (fuel <= 0) return 0
+	const last = anchors.length - 1
+	if (fuel >= TIER_FUEL[last]) return anchors[last]
+	for (let k = 0; k < last; k++) {
+		const lo = TIER_FUEL[k]
+		const hi = TIER_FUEL[k + 1]
+		if (fuel < hi) {
+			const t = (fuel - lo) / (hi - lo)
+			return anchors[k] + (anchors[k + 1] - anchors[k]) * t
+		}
+	}
+	return anchors[last]
+}
+
 
 
 // MARK: hearthRadiusFromFuel
@@ -189,28 +209,28 @@ export function hearthRadiusFromFuel(fuel: number): number {
 // MARK: hearthSmokeHeightFromFuel
 /** Smoke-column multiplier for the active tier. Dead fire = 0. */
 export function hearthSmokeHeightFromFuel(fuel: number): number {
-	return tierAnchor(fuel, TIER_SMOKE_HEIGHT)
+	return smoothAnchor(fuel, TIER_SMOKE_HEIGHT)
 }
 
 
 // MARK: hearthSmokeDensityFromFuel
 /** Smoke emission multiplier for the active tier. Dead fire = 0. */
 export function hearthSmokeDensityFromFuel(fuel: number): number {
-	return tierAnchor(fuel, TIER_SMOKE_DENSITY)
+	return smoothAnchor(fuel, TIER_SMOKE_DENSITY)
 }
 
 
 // MARK: hearthLightRangeFromFuel
 /** Point-light range (m) for the active tier. Dead fire = 0. */
 export function hearthLightRangeFromFuel(fuel: number): number {
-	return tierAnchor(fuel, TIER_LIGHT_RANGE_M)
+	return smoothAnchor(fuel, TIER_LIGHT_RANGE_M)
 }
 
 
 // MARK: hearthVolumeFromFuel
 /** Crackle multiplier for the active tier. Dead fire = 0. */
 export function hearthVolumeFromFuel(fuel: number): number {
-	return tierAnchor(fuel, TIER_VOLUME)
+	return smoothAnchor(fuel, TIER_VOLUME)
 }
 
 
@@ -243,8 +263,22 @@ export function feedFitsFire(
 // MARK: hearthFlameScaleFromFuel
 /** Flame scale for the active tier. Out = 0. */
 export function hearthFlameScaleFromFuel(fuel: number): number {
-	return tierAnchor(fuel, TIER_FLAME_SCALE)
+	if (fuel <= 0) return 0
+	const t = Math.min(1, fuel / FUEL_MAX)
+	return FLAME_SCALE_MIN + (FLAME_SCALE_MAX - FLAME_SCALE_MIN) * Math.pow(t, FLAME_SCALE_EXP)
 }
+
+/**
+ * Flame "stopwatch": scale is a continuous, strictly increasing curve
+ * over the whole 0..FUEL_MAX tank (no Roaring plateau), so every feed
+ * grows the flame and decay visibly shrinks it. min + (max-min)*t^exp:
+ * ~0.35 just lit, ~1.05 at 150 s (opening Warm), ~1.6 at 300, 2.2 full.
+ * One 90 s log is >= ~0.2 scale at any level. Gameplay (warmth, melt
+ * ring) stays on the stepped tiers.
+ */
+export const FLAME_SCALE_MIN = 0.35
+export const FLAME_SCALE_MAX = 2.2
+export const FLAME_SCALE_EXP = 0.7
 
 
 // MARK: hearthDecayRate

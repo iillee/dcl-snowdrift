@@ -40,6 +40,7 @@ import { ICE_RESCUE_RADIUS_M, ICE_THAW_S } from 'src/shared/frost/tuning'
 import { room } from 'src/shared/messages'
 
 import { playIceCubeSfxAt, playIceMeltSfx, playIceMeltSfxAt } from 'src/client/audio'
+import { onCycleSeedChange } from 'src/client/cycle'
 import { grantFrostRescue, noteLocalMelt } from 'src/client/frost/death'
 import { isTorchLit } from 'src/client/torchEquip'
 
@@ -434,6 +435,19 @@ export function setupFrostRescue(): void {
 		return
 	}
 	installed = true
+
+	// A new run (cycle roll, ember fail, or a server restart that lost the
+	// frozen set) never sends frozen=0 for old cubes. Drop them all here so
+	// a remote ice block cannot outlive the world it froze in.
+	onCycleSeedChange(({ oldSeed }) => {
+		if (oldSeed === null) return
+		const n = remoteFrozen.size
+		remoteFrozen.clear()
+		meltStep.clear()
+		sentFor = ''
+		for (const id of Array.from(iceByUser.keys())) dropIce(id)
+		console.log(`frost/rescue: onCycleSeedChange: cleared ${n} remote ice cube(s)`)
+	})
 
 	room.onMessage('playerPlatform', ({ userId, mobile }) => {
 		const id = userId.toLowerCase()

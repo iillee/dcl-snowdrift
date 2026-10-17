@@ -104,19 +104,20 @@ export function setupCampfire(): void {
 	engine.addSystem(() => {
 		try {
 			const tier  = getMainFireTier()
-			const scale = getMainFireFlameScale()
-			if (tier !== lastTier || scale !== lastScale) {
+			// Stopwatch flame: write whenever it moves 0.001 (effectively
+			// every frame while burning) so decay reads as a smooth shrink.
+			const scale = Math.round(getMainFireFlameScale() * 1000) / 1000
+			if (tier !== lastTier) console.log(`campfire: tier ${tier} flame=${scale.toFixed(2)}x`)
+			lastTier = tier
+			if (scale !== lastScale) {
 				flame.setScale(scale)
-				lastTier  = tier
 				lastScale = scale
-				console.log(`campfire: tier ${tier} flame=${scale.toFixed(2)}x`)
 			}
 
-			const vol = CAMPFIRE_VOLUME * getMainFireVolume()
+			const vol = Math.round(CAMPFIRE_VOLUME * getMainFireVolume() * 100) / 100
 			if (vol !== lastVolume) {
 				AudioSource.getMutable(root).volume = vol
 				lastVolume = vol
-				console.log(`campfire: crackle=${vol.toFixed(2)}`)
 			}
 
 			// Closest lit fire uses three shadow spots; other lit fires keep

@@ -707,6 +707,7 @@ export function setupHiddenCampfire(): void {
 	// Flame scale per hidden pit. Same tier snap as the main hearth
 	// card rig. Per-pit tier cache avoids scanning fuel every frame.
 	const lastFlameTier: number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
+	const lastFlameScale: number[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
 	engine.addSystem(() => {
 		const nearest = nearestLitFireIndex(collectLitCampfirePositions())
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -721,12 +722,16 @@ export function setupHiddenCampfire(): void {
 			}
 			if (flame === null) {
 				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1
+				lastFlameScale[i] = -1
 				continue
 			}
+			// Smooth gradient, written only when it moves 0.01.
 			const tier = hearthTierFromFuel(fuel)
-			if (tier === lastFlameTier[i]) continue
+			const s = Math.round(hearthFlameScaleFromFuel(fuel) * 1000) / 1000
+			if (s === lastFlameScale[i]) continue
+			const tierChanged = tier !== lastFlameTier[i]
 			lastFlameTier[i] = tier
-			const s = hearthFlameScaleFromFuel(fuel)
+			lastFlameScale[i] = s
 			flame.setScale(s)
 			const smoke = smokeEntity[i]
 			if (smoke !== null) {
@@ -740,7 +745,7 @@ export function setupHiddenCampfire(): void {
 			if (pit !== null && AudioSource.has(pit)) {
 				AudioSource.getMutable(pit).volume = CAMPFIRE_VOLUME * hearthVolumeFromFuel(fuel)
 			}
-			console.log(`hiddenCampfire[${i}]: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
+			if (tierChanged) console.log(`hiddenCampfire[${i}]: flame scale -> ${s.toFixed(2)}x (tier ${tier})`)
 		}
 	})
 }

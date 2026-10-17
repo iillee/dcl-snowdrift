@@ -61,7 +61,7 @@ class DaySplashLayer extends Layer {
 					}}
 				>
 					<Label
-						value     = {line}
+						value     = {`<b>${line}</b>`}
 						fontSize  = {fontSizes.hero}
 						color     = {GOLD}
 						font      = "sans-serif"

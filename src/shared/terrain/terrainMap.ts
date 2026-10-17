@@ -94,6 +94,26 @@ export interface TerrainDestination {
 	route  : number
 }
 
+/** Clutter keep-out radius (m) around every monument cell centre. */
+export const STATION_CLEAR_M = 4
+
+/** True when (x, z) is within STATION_CLEAR_M + extraM of any monument. */
+export function nearStation(
+	map   : TerrainMap,
+	x     : number,
+	z     : number,
+	extraM: number,
+): boolean {
+	const r = STATION_CLEAR_M + extraM
+	for (const s of map.stations) {
+		const c  = cellCenterWorld(s.cx, s.cz)
+		const dx = x - c.x
+		const dz = z - c.z
+		if (dx * dx + dz * dz < r * r) return true
+	}
+	return false
+}
+
 /**
  * Volcano landmark on a High / mountain-adjacent plateau. Not a grove —
  * no wood pool, no grove pit cluster.
@@ -121,6 +141,14 @@ export interface TerrainStation {
 	region : number
 	/** Route steps from the hearth (cells, ladders and drops included). */
 	route  : number
+	/** True for the guaranteed near-spawn monument (always index 0 when present). */
+	near?  : boolean
+	/** Extra rise (m) on activation so the beam clears terrain. 0/undefined = none. */
+	beamLiftM?: number
+	/** World point the beam aims at (visible rim point). Undefined = lava centroid. */
+	aimX?  : number
+	aimY?  : number
+	aimZ?  : number
 }
 
 export interface TerrainMap {

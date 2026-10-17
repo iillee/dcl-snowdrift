@@ -65,9 +65,9 @@ export const STATION_DEBUG_BEACONS = false
 // MARK: Tuning
 const SNOW_MAX_DEPTH_M   = SNOW_STAGE_HEIGHT_M[STAGE_PRISTINE]
 const STUMP_ABOVE_SNOW_M = 2
-/** Idle stump height above ground (m): snow max + 2 m clear. */
-const STUMP_H_M      = SNOW_MAX_DEPTH_M + STUMP_ABOVE_SNOW_M
-/** Activated stump height = idle × 1.5 (~5.25 m). */
+/** Idle stump height above ground (m): (snow max + 2 m clear) x 1.5 (~5.25 m). */
+const STUMP_H_M      = (SNOW_MAX_DEPTH_M + STUMP_ABOVE_SNOW_M) * 1.5
+/** Activated stump height = idle × 1.5 (~7.9 m). */
 const STUMP_ACTIVE_H_M = STUMP_H_M * 1.5
 const STUMP_XZ_M     = 0.85
 const STUMP_SINK_M   = 0.05
@@ -129,6 +129,15 @@ type Slot = {
 	/** Eternal flame on the stump top (null until lit). */
 	flame   : FlameRig | null
 	flameAnchor: Entity | null
+	/** Extra activation rise (m) from the terrain station (near monument). */
+	lift    : number
+	/** Beam aim point (rim) when the station carries one. */
+	aim     : { x: number; y: number; z: number } | null
+}
+
+/** Lit height for a slot: the usual active stump plus its extra rise. */
+function activeH(slot: Slot): number {
+	return STUMP_ACTIVE_H_M + slot.lift
 }
 
 
@@ -298,10 +307,10 @@ function paintBeamSegment(e: Entity, strength: number): void {
  */
 function spawnBeam(slot: Slot, map: TerrainMap): void {
 	clearBeams(slot)
-	const target = volcanoBeamTarget(map)
+	const target = slot.aim ?? volcanoBeamTarget(map)
 	if (!target) return
 	const c = cellCenterWorld(slot.cx, slot.cz)
-	const start = Vector3.create(c.x, slot.groundY + STUMP_ACTIVE_H_M, c.z)
+	const start = Vector3.create(c.x, slot.groundY + activeH(slot), c.z)
 	const end   = Vector3.create(target.x, target.y, target.z)
 	const dx = end.x - start.x
 	const dy = end.y - start.y
@@ -349,8 +358,8 @@ function finishActivate(index: number, animate: boolean): void {
 		slot.active = true
 		slot.animating = false
 		slot.animT = 1
-		applyStumpPose(slot, STUMP_ACTIVE_H_M, slot.baseYaw + ANIM_YAW_RAD)
-		applyLitVisuals(slot, STUMP_ACTIVE_H_M)
+		applyStumpPose(slot, activeH(slot), slot.baseYaw + ANIM_YAW_RAD)
+		applyLitVisuals(slot, activeH(slot))
 		setBeaconDim(slot, true)
 		const map = activeTerrain()
 		if (map) spawnBeam(slot, map)
@@ -564,15 +573,19 @@ function buildForMap(map: TerrainMap | null): void {
 			baseYaw  : 0,
 			flame    : null,
 			flameAnchor: null,
+			lift     : st.beamLiftM ?? 0,
+			aim      : st.aimX !== undefined && st.aimY !== undefined && st.aimZ !== undefined
+				? { x: st.aimX, y: st.aimY, z: st.aimZ }
+				: null,
 		}
 		slots[i] = slot
 		applyStumpPose(
 			slot,
-			wantActive ? STUMP_ACTIVE_H_M : STUMP_H_M,
+			wantActive ? activeH(slot) : STUMP_H_M,
 			wantActive ? ANIM_YAW_RAD : 0,
 		)
 		paintStump(slot, false)
-		if (wantActive) applyLitVisuals(slot, STUMP_ACTIVE_H_M)
+		if (wantActive) applyLitVisuals(slot, activeH(slot))
 
 
 		if (wantActive) {
@@ -596,7 +609,7 @@ function animSystem(dt: number): void {
 		if (!slot || !slot.animating) continue
 		slot.animT = Math.min(1, slot.animT + dt / ANIM_DURATION_S)
 		const e = smoothstep(slot.animT)
-		const h = STUMP_H_M + (STUMP_ACTIVE_H_M - STUMP_H_M) * e
+		const h = STUMP_H_M + (activeH(slot) - STUMP_H_M) * e
 		const yaw = slot.baseYaw + ANIM_YAW_RAD * e
 		applyStumpPose(slot, h, yaw)
 		applyLitVisuals(slot, h)

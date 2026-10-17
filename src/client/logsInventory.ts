@@ -1,7 +1,7 @@
 /**
  * logsInventory.ts - client-local state for the F-slot wood carry.
  *
- * Single item: a branch (kindling, 30 s) or a log (60 s). Pickup,
+ * Single item: a branch (kindling, 45 s) or a log (90 s). Pickup,
  * drop, and feed all keep the kind so the matching GLB and fuel
  * amount round-trip through the server.
  */
