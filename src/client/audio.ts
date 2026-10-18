@@ -377,7 +377,7 @@ export function playIceCubeSfxAt(position: Vector3): void {
  * Play icemelt at a world position so nearby players hear each thaw
  * phase on someone else's cube. Mobile falls back to the global cue.
  */
-export function playIceMeltSfxAt(position: Vector3): void {
+export function playIceMeltSfxAt(position: Vector3, volume = 0.8): void {
 	if (isMobile()) {
 		playIceMeltSfx()
 		return
@@ -386,7 +386,7 @@ export function playIceMeltSfxAt(position: Vector3): void {
 	Transform.create(ent, { position })
 	AudioSource.create(ent, {
 		audioClipUrl: ICEMELT_SRC,
-		playing: true, loop: false, volume: 0.8, global: false,
+		playing: true, loop: false, volume, global: false,
 	})
 	const MELT_CLEANUP_MS = 2500
 	const spawnedAt = Date.now()

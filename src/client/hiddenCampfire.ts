@@ -78,6 +78,8 @@ import {
 	HIDDEN_IGNITE_RADIUS_SQ_M,
 } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
+import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import type { TerrainMap } from 'src/shared/terrain/terrainMap'
 
 
 // MARK: Assets
@@ -612,9 +614,73 @@ function handleCycleSeedChange(newSeed: number): void {
 		removeLocatorBeacon(i)
 		applyUnlitVisuals(i)
 		worldX[i] = spot.x
-		worldY[i] = spot.y
+		worldY[i] = groundedPitY(spot.x, spot.z, spot.y)
 		worldZ[i] = spot.z
 		relocatePit(i)
+	}
+	seatedMap = activeTerrain()
+}
+
+
+/** Terrain map the pits' Y was last taken from (null = none yet). */
+let seatedMap: TerrainMap | null = null
+
+
+// MARK: groundedPitY
+/**
+ * Y for a pit: the walkable surface of the terrain that is actually
+ * drawn (activeTerrain, the SeedHolder layout — the same source wood,
+ * logs and the player use), falling back to the placement Y before any
+ * layout has landed. Placement Y comes from the cycle seed's own map;
+ * whenever the drawn layout is a different one (offline seed fallback,
+ * dev reroll, a SeedHolder from another client), that baked height
+ * left a pit hanging in the air, e.g. the volcano-terrace pit ~50-65 m
+ * up over low ground.
+ */
+function groundedPitY(x: number, z: number, fallbackY: number): number {
+	return activeTerrain() === null ? fallbackY : activeGroundYAt(x, z)
+}
+
+
+// MARK: shiftEntityY
+function shiftEntityY(e: Entity | null, dy: number): void {
+	if (e === null) return
+	const tr = Transform.getMutableOrNull(e)
+	if (tr === null) return
+	tr.position = Vector3.create(tr.position.x, tr.position.y + dy, tr.position.z)
+}
+
+
+// MARK: reseatPitsOnTerrain
+/**
+ * System: when the drawn layout changes (seed watcher in index.ts
+ * calls setActiveTerrain), drop / raise every pit and its lit rig
+ * (pit, smoke, beacon, fuel bar) onto the new surface. Flame + light
+ * are parented to the pit and follow it. Cheap: one identity check per
+ * frame, work only on a layout change.
+ */
+function reseatPitsOnTerrain(): void {
+	const map = activeTerrain()
+	if (map === seatedMap) return
+	seatedMap = map
+	if (map === null) return
+	let moved = 0
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (firePitEntity[i] === null) continue
+		const y  = activeGroundYAt(worldX[i], worldZ[i])
+		const dy = y - worldY[i]
+		if (Math.abs(dy) < 0.01) continue
+		worldY[i] = y
+		shiftEntityY(firePitEntity[i], dy)
+		shiftEntityY(smokeEntity[i], dy)
+		shiftEntityY(beaconInnerEntity[i], dy)
+		shiftEntityY(beaconOuterEntity[i], dy)
+		const bb = billboardHandle[i]
+		if (bb) shiftEntityY(bb.root, dy)
+		moved++
+	}
+	if (moved > 0) {
+		console.log(`hiddenCampfire: reseatPitsOnTerrain: layout ${map.usedSeed} — moved ${moved} pits onto the drawn terrain`)
 	}
 }
 
@@ -636,7 +702,7 @@ export function setupHiddenCampfire(): void {
 			continue
 		}
 		worldX[i] = spot.x
-		worldY[i] = spot.y
+		worldY[i] = groundedPitY(spot.x, spot.z, spot.y)
 		worldZ[i] = spot.z
 		console.log(
 			`hiddenCampfire[${i}]: tile=(${spot.tx},${spot.tz}) ` +
@@ -685,6 +751,11 @@ export function setupHiddenCampfire(): void {
 	// pits that are still supposed to be lit in the new cycle (none,
 	// on a real roll).
 	onCycleSeedChange(({ newSeed }) => handleCycleSeedChange(newSeed))
+
+	// Keep every pit on the terrain that is actually drawn (see
+	// reseatPitsOnTerrain).
+	seatedMap = activeTerrain()
+	engine.addSystem(reseatPitsOnTerrain)
 
 	// Locator beacon pulse. Runs every frame until every fire lights;
 	// the early-outs keep the cost to a tight loop once beacons are

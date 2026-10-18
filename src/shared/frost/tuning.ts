@@ -90,9 +90,15 @@ export const WARMTH_DRAIN_S = 7
 export const WARMTH_REFILL_S = 3
 /**
  * Day/dawn, torch out, no fire ring, NOT on snow: W drains slowly
- * (full bar in this many s) but never adds frost; it just empties.
+ * (full bar in this many s). Once it is empty, frost creeps up at
+ * FROST_DAY_IDLE_FILL_S. On snow the normal fast drain + cold apply.
  */
 export const WARMTH_DAY_IDLE_DRAIN_S = 60
+/**
+ * Same day-idle case, once W is empty: seconds from 0 to full frost
+ * (100) at this slow creep. Reaching 100 freezes you as normal.
+ */
+export const FROST_DAY_IDLE_FILL_S = 180
 /** Safe this long (continuous) before W starts refilling: no flicker at snow edges. */
 export const WARMTH_REFILL_DELAY_S = 0.5
 

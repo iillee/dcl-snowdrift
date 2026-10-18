@@ -10,7 +10,8 @@
  * day and loses from dusk onward. Warm and above still clear you.
  * Your lit torch blocks ambient
  * during day and leaks at night, but only outside a fire. Snow
- * always chills.
+ * always chills. By day with the torch out and off snow, the reserve
+ * drains slowly, then frost creeps up slowly (FROST_DAY_IDLE_FILL_S).
  *
  * Writes are debounced by FROST_WRITE_EPSILON so the CRDT doesn't
  * chatter every frame with sub-percent changes.
@@ -25,6 +26,7 @@ import { engine, Transform } from '@dcl/sdk/ecs'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { FrostDeath, FrostLevel } from 'src/shared/frost/components'
 import {
+	FROST_DAY_IDLE_FILL_S,
 	FROST_MAX,
 	FROST_SAMPLE_INTERVAL_S,
 	FROST_TIME_BASELINE_S,
@@ -46,7 +48,8 @@ import { thawHeatAt } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
 import { activeGroundYAt, activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
-import { SNOW_STAGE_HEIGHT_M } from 'src/shared/snowGrid'
+import { SNOW_STAGE_HEIGHT_M, worldToCellKey } from 'src/shared/snowGrid'
+import { getSnowCellLiftM } from 'src/client/snow/snowRenderer'
 import {
 	CRATER_HEAT_FUEL,
 	CRATER_HEAT_RADIUS_SQ_M,
@@ -113,6 +116,29 @@ function applyCold(ratePerSec: number, step: number): void {
 }
 
 
+// MARK: applyDayIdleCold
+/**
+ * Day/dawn, torch out, no fire ring, off snow, for `step` s. The
+ * reserve drains slowly (full bar in WARMTH_DAY_IDLE_DRAIN_S) and never
+ * refills; once it is empty, the rest of the step adds frost at the
+ * slow creep (0 -> full in FROST_DAY_IDLE_FILL_S). Frost grows through
+ * the same `frost` accumulator as applyCold, so the rising cue, CRDT
+ * write and the freeze at FROST_MAX all behave normally.
+ */
+function applyDayIdleCold(step: number): void {
+	safeFor = 0
+	const drainPerSec = FROST_MAX / WARMTH_DAY_IDLE_DRAIN_S
+	const tEmpty = warmth / drainPerSec
+	if (tEmpty >= step) {
+		warmth -= drainPerSec * step
+		return
+	}
+	warmth = 0
+	frost += (FROST_MAX / FROST_DAY_IDLE_FILL_S) * (step - tEmpty)
+	if (frost > FROST_MAX) frost = FROST_MAX
+}
+
+
 // MARK: refillWarmth
 /**
  * Safe / warming for `step` s. The reserve refills to full
@@ -174,7 +200,10 @@ const SNOW_CONTACT_GROUNDED_TOL_M = 0.15
 function isTouchingSnow(x: number, y: number, z: number): boolean {
 	const stage = getSnowStageAtWorld(x, y, z)
 	if (stage === 0) return false
-	const snowTopY = activeGroundYAt(x, z) + SNOW_STAGE_HEIGHT_M[stage]
+	// Snow lying on monument ice sits higher by the ice height.
+	const key = worldToCellKey(x, z)
+	const lift = key === null ? 0 : getSnowCellLiftM(key)
+	const snowTopY = activeGroundYAt(x, z) + lift + SNOW_STAGE_HEIGHT_M[stage]
 	return y <= snowTopY + SNOW_CONTACT_GROUNDED_TOL_M
 }
 
@@ -357,7 +386,8 @@ export function initFrostAccumulation(): void {
 			let ratePerSec = 0
 			const inTorchWarmth = isTorchProtecting()
 
-			// Day rule: torchless and not touching snow = no frost at all.
+			// Day rule: torchless and not touching snow = no ambient/snow
+			// cold; only the slow day-idle drain + creep below.
 			const snowOnly = !inTorchWarmth && SNOW_CONTACT_ONLY_PHASES.includes(phase.name)
 			const touching = snowOnly ? isTouchingSnow(x, y, z) : true
 
@@ -376,9 +406,8 @@ export function initFrostAccumulation(): void {
 				applyCold(ratePerSec, step)
 			} else if (snowOnly && !touching) {
 				// Day idle: torchless, off snow, no ring. W drains slowly and
-				// does not refill; frost is never added here (day snow rule).
-				safeFor = 0
-				warmth = Math.max(0, warmth - (FROST_MAX / WARMTH_DAY_IDLE_DRAIN_S) * step)
+				// does not refill; once empty, frost creeps up slowly.
+				applyDayIdleCold(step)
 			} else if (inTorchWarmth) {
 				// Lit torch and nothing chilling you: the reserve refills.
 				refillWarmth(step)

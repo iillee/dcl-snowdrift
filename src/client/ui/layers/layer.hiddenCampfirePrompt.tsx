@@ -29,7 +29,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
-import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
+import { getMonumentPromptText, isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { UI_THEME }                                   from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 
@@ -64,14 +64,16 @@ const PADDING_X_DT    = 14
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
 	if (isItemInputBlocked()) return false
-	return isReadyToIgniteHidden() || isReadyToIgniteMonument()
+	return isReadyToIgniteHidden() || getMonumentPromptText() !== null
 }
 
 
 // MARK: onPromptPress
 function onPromptPress(): void {
 	if (isReadyToIgniteHidden()) { requestHiddenIgnite(); return }
-	requestMonumentIgnite()
+	// Monument ice melts by proximity; the bubble ignites once it is gone
+	// ("IGNITE MONUMENT"), otherwise it is just a status readout.
+	if (isReadyToIgniteMonument()) requestMonumentIgnite()
 }
 
 
@@ -104,7 +106,7 @@ class HiddenCampfirePromptLayer extends Layer {
 		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
 		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
 		const labelH   = Math.round(fontPx * 1.6)
-		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : 'IGNITE MONUMENT'
+		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : (getMonumentPromptText() ?? '')
 
 		return (
 			<UiEntity

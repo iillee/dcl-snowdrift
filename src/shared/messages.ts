@@ -433,6 +433,25 @@ export const Messages = {
 		fresh : Schemas.Int,
 	}),
 
+	// Client -> Server: the sender's lit torch melted one ice chunk of a
+	// monument pit (src/shared/monumentIce.ts). seed = cycle seed, index
+	// = station, chunk = chunk index. Idempotent; the server sets the bit,
+	// clears the snow over the chunk and broadcasts monumentIceState.
+	monumentIceMelt: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+		chunk: Schemas.Int,
+	}),
+
+	// Server -> Client: melted-chunk bitmask for one monument (bit i =
+	// chunk i melted). Broadcast on change and on cycle reset, sent to
+	// joiners for hydration. stationActivate is refused until full.
+	monumentIceState: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+		mask : Schemas.Int,
+	}),
+
 	// Server -> Client: world thaw after all 3 stations. thawed 0/1.
 	// Fired once per cycle; joiners hydrate so they see cleared snow +
 	// lava + victory state. Clients also get weatherState CLEAR.

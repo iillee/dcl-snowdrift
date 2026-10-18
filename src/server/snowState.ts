@@ -12,6 +12,7 @@
  */
 
 import {
+	SNOW_CELL_M,
 	SNOW_CELLS_X,
 	SNOW_CELLS_Z,
 	SNOW_TILE_CELL_COUNT,
@@ -361,6 +362,52 @@ export function meltVolcanoCraterHeat(): number {
 	return changed
 }
 
+
+// MARK: meltMonumentIceSquare
+
+/**
+ * Melt + heat-protect every 1 m snow cell inside the axis-aligned square
+ * of edge `sizeM` centred on world (cx, cz). Used when a monument ice
+ * chunk melts (stations.ts): the snow that lay on that chunk goes with
+ * it and never regrows over the now-empty hole this cycle. Snow over
+ * frozen ice is left alone, so pits are buried like any other ground.
+ * Gives no heat. Returns cells changed.
+ */
+export function meltMonumentIceSquare(cx: number, cz: number, sizeM: number): number {
+	const half = sizeM / 2
+	let changed = 0
+	for (let dz = -half + SNOW_CELL_M / 2; dz < half; dz += SNOW_CELL_M) {
+		for (let dx = -half + SNOW_CELL_M / 2; dx < half; dx += SNOW_CELL_M) {
+			const key = worldToCellKey(cx + dx, cz + dz)
+			if (key === null) continue
+			protectedCells.add(key)
+			if (applyMelt(key, 0)) changed++
+		}
+	}
+	return changed
+}
+
+// MARK: releaseMonumentPitSquare
+
+/**
+ * Drop heat protection on every 1 m snow cell inside the square of edge
+ * `sizeM` centred on world (cx, cz). Called once a monument activates
+ * (stations.ts): the empty pit is no longer kept clear, so its cells
+ * keep their current stage and regrow with snowfall like any other
+ * ground (clients draw the double-depth pit fill). Returns cells released.
+ */
+export function releaseMonumentPitSquare(cx: number, cz: number, sizeM: number): number {
+	const half = sizeM / 2
+	let released = 0
+	for (let dz = -half + SNOW_CELL_M / 2; dz < half; dz += SNOW_CELL_M) {
+		for (let dx = -half + SNOW_CELL_M / 2; dx < half; dx += SNOW_CELL_M) {
+			const key = worldToCellKey(cx + dx, cz + dz)
+			if (key === null) continue
+			if (protectedCells.delete(key)) released++
+		}
+	}
+	return released
+}
 
 // MARK: meltAllSnow
 

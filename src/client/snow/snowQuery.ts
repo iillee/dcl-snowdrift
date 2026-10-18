@@ -12,6 +12,7 @@ import {
 import { activeGroundYAt, activeIsLavaAt } from 'src/shared/terrain/terrainCache'
 
 import { getDisplayedStage } from 'src/client/snow/snowModel'
+import { getSnowCellLiftM } from 'src/client/snow/snowRenderer'
 
 // Feet may ride slightly above the visible snow top without counting as airborne.
 const FOOT_ABOVE_TOP_TOLERANCE_M = 0.35
@@ -37,7 +38,8 @@ export function getSnowStageAtWorld(
 	if (activeIsLavaAt(x, z)) return 0
 	const stage = getDisplayedStage(key)
 	if (stage === 0) return 0
-	const snowTopY = activeGroundYAt(x, z) + SNOW_STAGE_HEIGHT_M[stage]
+	// Snow lying on monument ice sits higher by the ice height.
+	const snowTopY = activeGroundYAt(x, z) + getSnowCellLiftM(key) + SNOW_STAGE_HEIGHT_M[stage]
 	if (y > snowTopY + FOOT_ABOVE_TOP_TOLERANCE_M) return 0
 	return stage
 }

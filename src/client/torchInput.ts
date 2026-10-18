@@ -86,6 +86,8 @@ export function tryRelightAtFire(): void {
 		return
 	}
 
+	// Monument ice melts by proximity (stationMarkers meltSystem); once
+	// it is all gone, E / the torch button ignites the monument.
 	if (isReadyToIgniteMonument()) {
 		requestMonumentIgnite()
 		relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS

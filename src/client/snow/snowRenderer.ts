@@ -10,10 +10,14 @@
  *
  * Snow: one quadtree per 16 m root. A node renders as a single mesh when
  * every cell under it shares a stage; otherwise it splits (16 -> 8 -> 4 ->
- * 2 -> 1). Distant 16 m nodes that do not touch melt are shadow-receiving
- * planes (no cast). Cubes stay under the player, around any melt lip,
- * and on anything smaller than 16 m, so a runner cannot look under a
- * paper-thin sheet. Stage 0 renders nothing, so the blue ground shows.
+ * 2 -> 1). Distant 16 m nodes are LOD boxes: the same full-height box
+ * as near snow, but they do not cast shadows (the only real cost the old
+ * LOD saved). Every snow node is a box, so wherever the snow height
+ * changes (bare / melted ground, a lower stage, a cliff lip, the
+ * near/far LOD seam) the taller node's own side face closes the step.
+ * The old LOD drew a top-only plane, which floated as a sideless sheet
+ * next to any lower neighbour. Stage 0 renders nothing, so the blue
+ * ground shows.
  *
  * Far from melt, pristine roots coalesce into larger multi-tile boxes
  * (32 / 64 / 128 / 256 m) so a bigger playfield does not pay one entity
@@ -21,8 +25,7 @@
  * one level. Covered roots skip their fine quadtree until the player or
  * a melt lip approaches. Coarse sheets are always thick boxes (never
  * paper planes) so cliff lips keep vertical snow faces — a sheet never
- * spans two elevations, and single-tile LOD planes are refused on any
- * level boundary.
+ * spans two elevations.
  *
  * A dirty root is rebuilt create-first: new nodes spawn before old ones
  * leave, and replaced parents stay for RETIRE_FRAMES (sunk so their
@@ -31,6 +34,16 @@
  *
  * Only 1 m leaves animate: melts drop, regrowth rises. Coarser nodes
  * appear at their final height.
+ *
+ * Cell offsets (setSnowCellOffsets): per-cell signed base offset (m)
+ * from the monuments. Such cells always render as 1 m leaves whose
+ * underside sits at ground + offset:
+ *   - offset > 0: snow lying on top of a frozen monument ice chunk
+ *     (raised by the ice height), normal stage height on top.
+ *   - offset < 0: an activated monument's empty recess, depth d = -offset
+ *     below the ground. Any snow (stage > 0) fills the recess back to
+ *     ground level plus the normal stage height on top.
+ * Tiles holding offset cells never coalesce into coarse sheets.
  */
 
 import {
@@ -60,6 +73,7 @@ import {
 	SNOW_TILES_Z,
 	STAGE_PRISTINE,
 	tileCoordsFromKey,
+	tileKeyOfCell,
 } from 'src/shared/snowGrid'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
 
@@ -81,12 +95,14 @@ const LEAF_RISE_MS            = 400
 const RETIRE_FRAMES           = 2
 const RETIRE_SINK_M           = 0.08
 const ROOT_COUNT              = SNOW_TILES_X * SNOW_TILES_Z
-// Only a full 16 m tile far from the player and from melt becomes a plane.
+// Only a full 16 m tile far from the player becomes an LOD box (a
+// normal box with sides that does not cast shadows). Never a top-only
+// plane: a plane has no side faces, so any height step next to it
+// (melt, lower stage, cliff, LOD seam) read as a floating sheet.
 const PLANE_MIN_M             = 16
 const PLANE_MELT_PAD_CELLS    = 16
 const PLANE_PLAYER_KEEP_M     = 48
 const PLANE_PLAYER_KEEP_M2    = PLANE_PLAYER_KEEP_M * PLANE_PLAYER_KEEP_M
-const PLANE_ROT               = Quaternion.fromEulerDegrees(-90, 0, 0)
 // Node id = size * stride + local cell index; stride must exceed SNOW_TILE_CELL_COUNT.
 const NODE_SIZE_STRIDE        = 1024
 // Multi-tile LOD: largest first. Further from melt/player → bigger sheets.
@@ -150,6 +166,10 @@ let liveNodeCount     = 0
 let tileLevel         = new Uint8Array(ROOT_COUNT).fill(TERRAIN_LEVEL_MID)
 let coarseCovered     = new Uint8Array(ROOT_COUNT)
 let coarseDirty       = true
+/** Signed base offset (m) per snow cell key at a monument (see header). */
+let cellOffset        = new Map<number, number>()
+/** Roots (tile keys) holding at least one offset cell. */
+let pitTiles          = new Set<number>()
 
 
 // MARK: initSnowRenderer
@@ -226,6 +246,75 @@ export function applyTerrainLevels(mazeSeed: number): void {
 	console.log(
 		`snowRenderer: applyTerrainLevels: ${dirty} roots changed level and are rebuilding`,
 	)
+}
+
+
+// MARK: setSnowCellOffsets
+/**
+ * Replace the monument cell-offset layer (cell key -> signed offset in
+ * m, see header). Only roots holding a cell whose offset changed are
+ * rebuilt from scratch (heights are baked into node transforms), and
+ * coarse sheets are repacked so none spans a monument. Empty map = no
+ * offsets (cycle reset / no monument).
+ */
+export function setSnowCellOffsets(next: Map<number, number>): void {
+	const nextTiles = new Set<number>()
+	for (const key of next.keys()) nextTiles.add(tileKeyOfCell(key))
+	const touched = new Set<number>()
+	for (const [key, v] of next) if (cellOffset.get(key) !== v) touched.add(tileKeyOfCell(key))
+	for (const key of cellOffset.keys()) if (!next.has(key)) touched.add(tileKeyOfCell(key))
+	cellOffset = next
+	pitTiles   = nextTiles
+	for (const k of touched) {
+		if (k < 0 || k >= ROOT_COUNT) continue
+		dropRootNodes(k)
+		pendingRoots.add(k)
+		urgentRoots.add(k)
+	}
+	if (touched.size > 0) coarseDirty = true
+	console.log(`snowRenderer: setSnowCellOffsets: ${next.size} offset cells in ${nextTiles.size} roots (${touched.size} rebuilt)`)
+}
+
+
+// MARK: getSnowCellLiftM
+/** How far (m, >= 0) the snow on cell `key` is raised (lying on monument ice). */
+export function getSnowCellLiftM(key: number): number {
+	const v = cellOffset.get(key)
+	return v !== undefined && v > 0 ? v : 0
+}
+
+
+// MARK: cellOffsetOf
+/** Signed base offset (m) of local cell i of a root, 0 when none. */
+function cellOffsetOf(tileKey: number, i: number): number {
+	if (!pitTiles.has(tileKey)) return 0
+	return cellOffset.get(tileKey * SNOW_TILE_CELL_COUNT + i) ?? 0
+}
+
+
+// MARK: leafHeight
+/**
+ * Leaf box height for a stage over base offset `off` (melted = thin
+ * leaf). In an empty recess (off < 0) any snow fills it to ground level.
+ */
+function leafHeight(stage: number, off: number): number {
+	if (stage <= 0) return MELTED_LEAF_HEIGHT_M
+	// Snow on monument ice: one section max (the mound's snow cap).
+	if (off > 0) return SNOW_STAGE_HEIGHT_M[1]
+	return SNOW_STAGE_HEIGHT_M[stage] + (off < 0 ? -off : 0)
+}
+
+
+// MARK: nodeHasOffset
+/** True when any cell under this node carries a base offset. */
+function nodeHasOffset(tileKey: number, lx: number, lz: number, size: number): boolean {
+	if (!pitTiles.has(tileKey)) return false
+	for (let r = lz; r < lz + size; r++) {
+		for (let c = lx; c < lx + size; c++) {
+			if (cellOffsetOf(tileKey, r * SNOW_TILE_CELLS + c) !== 0) return true
+		}
+	}
+	return false
 }
 
 
@@ -417,6 +506,15 @@ function buildDesired(
 	}
 
 	const emit = (lx: number, lz: number, size: number): void => {
+		// Offset cells each have their own base: always 1 m leaves.
+		if (size > 1 && nodeHasOffset(tileKey, lx, lz, size)) {
+			const h = size / 2
+			emit(lx,     lz,     h)
+			emit(lx + h, lz,     h)
+			emit(lx,     lz + h, h)
+			emit(lx + h, lz + h, h)
+			return
+		}
 		const u = uniform(lx, lz, size)
 		if (u >= 0) {
 			if (u > 0) {
@@ -507,7 +605,9 @@ function rebuildRoot(
 		const lx       = i % SNOW_TILE_CELLS
 		const lz       = Math.floor(i / SNOW_TILE_CELLS)
 		const id       = nodeId(lx, lz, 1)
-		const prevH    = rs.snapshot[i] > 0 ? SNOW_STAGE_HEIGHT_M[rs.snapshot[i]] : MELTED_LEAF_HEIGHT_M
+		const off      = cellOffsetOf(tileKey, i)
+		const leafY    = baseY + off
+		const prevH    = leafHeight(rs.snapshot[i], off)
 		const newStage = stages[base + i]
 		const x        = rootX + (lx + 0.5) * SNOW_CELL_M
 		const z        = rootZ + (lz + 0.5) * SNOW_CELL_M
@@ -521,9 +621,9 @@ function rebuildRoot(
 				rs.nodes.delete(id)
 				liveNodeCount--
 			} else {
-				e = createBox(x, z, baseY, SNOW_CELL_M, prevH)
+				e = createBox(x, z, leafY, SNOW_CELL_M, prevH)
 			}
-			startLeafAnim(e, x, z, baseY, MELTED_LEAF_HEIGHT_M, LEAF_DROP_MS, true)
+			startLeafAnim(e, x, z, leafY, MELTED_LEAF_HEIGHT_M, LEAF_DROP_MS, true)
 			continue
 		}
 
@@ -532,11 +632,11 @@ function rebuildRoot(
 		if (live !== undefined) {
 			live.stage = newStage
 		} else {
-			const e = createBox(x, z, baseY, SNOW_CELL_M, prevH)
+			const e = createBox(x, z, leafY, SNOW_CELL_M, prevH)
 			rs.nodes.set(id, { entity: e, stage: newStage, plane: false })
 			liveNodeCount++
 		}
-		startLeafAnim(rs.nodes.get(id)!.entity, x, z, baseY, SNOW_STAGE_HEIGHT_M[newStage], durationMs, false)
+		startLeafAnim(rs.nodes.get(id)!.entity, x, z, leafY, leafHeight(newStage, off), durationMs, false)
 		animatedIds.add(id)
 	}
 
@@ -551,7 +651,9 @@ function rebuildRoot(
 		const lx   = rem - lz * SNOW_TILE_CELLS
 		const x    = rootX + (lx + size / 2) * SNOW_CELL_M
 		const z    = rootZ + (lz + size / 2) * SNOW_CELL_M
-		const h     = SNOW_STAGE_HEIGHT_M[stage]
+		const off   = size === 1 ? cellOffsetOf(tileKey, lz * SNOW_TILE_CELLS + lx) : 0
+		const nodeY = baseY + off
+		const h     = off !== 0 ? leafHeight(stage, off) : SNOW_STAGE_HEIGHT_M[stage]
 		const sizeM = size * SNOW_CELL_M
 		const plane = wantsLodPlane(tileKey, lx, lz, size, stages, x, z)
 		if (live !== undefined) {
@@ -561,13 +663,13 @@ function rebuildRoot(
 				liveNodeCount--
 			} else {
 				if (live.stage !== stage) {
-					setBoxPose(live.entity, x, z, baseY, sizeM, h, plane)
+					setBoxPose(live.entity, x, z, nodeY, sizeM, h, plane)
 					live.stage = stage
 				}
 				continue
 			}
 		}
-		const e = createBox(x, z, baseY, sizeM, h, plane)
+		const e = createBox(x, z, nodeY, sizeM, h, plane)
 		rs.nodes.set(id, { entity: e, stage, plane })
 		liveNodeCount++
 	}
@@ -727,6 +829,7 @@ function coarseBlockEligible(
 		for (let tx = tx0; tx < tx0 + tiles; tx++) {
 			const k = tz * SNOW_TILES_X + tx
 			if (tileLevel[k] !== blockLevel) return false
+			if (pitTiles.has(k)) return false
 			if (!tileIsUniformPristine(k, stages)) return false
 		}
 	}
@@ -868,44 +971,26 @@ function nodeTouchesMelt(
 // MARK: wantsLodPlane
 
 /**
- * 16 m sheet only when far from the player, not near a melt lip, and
- * not on a cliff edge. A plane has no sides, so on a lip it leaves the
- * snow looking like paper laid over bare rock from any angle that can
- * see the drop.
+ * LOD (non-shadow-casting box) for a full 16 m node far from the player.
+ * The LOD node is still a full box with side faces, so it is safe on a
+ * melt lip, next to lower stages and on a cliff edge; no neighbour scan
+ * is needed (the old top-only plane had to scan a 48x48-cell melt pad
+ * per node and still went stale when a neighbour melted later).
  */
 function wantsLodPlane(
-	tileKey  : number,
-	lx       : number,
-	lz       : number,
+	_tileKey : number,
+	_lx      : number,
+	_lz      : number,
 	sizeCells: number,
-	stages   : Uint8Array,
+	_stages  : Uint8Array,
 	worldX   : number,
 	worldZ   : number,
 ): boolean {
 	if (sizeCells * SNOW_CELL_M < PLANE_MIN_M) return false
-	if (tileOnLevelBoundary(tileKey)) return false
 	const focus = readFocusXZ()
 	const dx    = worldX - focus.x
 	const dz    = worldZ - focus.z
-	if (dx * dx + dz * dz < PLANE_PLAYER_KEEP_M2) return false
-	return !nodeTouchesMelt(tileKey, lx, lz, sizeCells, stages)
-}
-
-
-// MARK: tileOnLevelBoundary
-// True when any 4-neighbour tile sits at a different elevation, i.e.
-// this tile owns a cliff edge. Off-grid neighbours count, since the
-// playfield edge is a drop too.
-function tileOnLevelBoundary(tileKey: number): boolean {
-	const { tx, tz } = tileCoordsFromKey(tileKey)
-	const here = tileLevel[tileKey]
-	for (let i = 0; i < 4; i++) {
-		const nx = tx + (i === 0 ? 1 : i === 1 ? -1 : 0)
-		const nz = tz + (i === 2 ? 1 : i === 3 ? -1 : 0)
-		if (nx < 0 || nz < 0 || nx >= SNOW_TILES_X || nz >= SNOW_TILES_Z) return true
-		if (tileLevel[nz * SNOW_TILES_X + nx] !== here) return true
-	}
-	return false
+	return dx * dx + dz * dz >= PLANE_PLAYER_KEEP_M2
 }
 
 
@@ -919,21 +1004,13 @@ function createBox(
 	heightM: number,
 	plane:   boolean = false,
 ): Entity {
+	// `plane` = distant LOD node: same box (with sides), no shadow cast.
 	const e = engine.addEntity()
-	if (plane) {
-		Transform.create(e, {
-			position: Vector3.create(x, baseY + heightM, z),
-			rotation: PLANE_ROT,
-			scale   : Vector3.create(size, size, 1),
-		})
-		MeshRenderer.setPlane(e)
-	} else {
-		Transform.create(e, {
-			position: Vector3.create(x, baseY + heightM / 2, z),
-			scale   : Vector3.create(size, heightM, size),
-		})
-		MeshRenderer.setBox(e)
-	}
+	Transform.create(e, {
+		position: Vector3.create(x, baseY + heightM / 2, z),
+		scale   : Vector3.create(size, heightM, size),
+	})
+	MeshRenderer.setBox(e)
 	Material.setPbrMaterial(e, {
 		albedoColor:       SNOW_WHITE,
 		roughness:         1.0,
@@ -961,12 +1038,7 @@ function setBoxPose(
 		console.log('snowRenderer: setBoxPose: missing transform, skipping pose write')
 		return
 	}
-	if (plane) {
-		tr.position = Vector3.create(x, baseY + heightM, z)
-		tr.rotation = PLANE_ROT
-		tr.scale    = Vector3.create(size, size, 1)
-		return
-	}
+	void plane // LOD nodes are boxes too; only their shadow flag differs.
 	tr.position = Vector3.create(x, baseY + heightM / 2, z)
 	tr.scale    = Vector3.create(size, heightM, size)
 }

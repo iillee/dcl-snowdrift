@@ -117,9 +117,9 @@ function easeDisplay(frostFrac: number, fuelFrac: number): void {
 const COL_COLD    = Color4.create(0.42, 0.60, 0.98, 1.00) // paint-blue ice
 // Frozen solid (in the ice block): the ice pill sinks to a deep blue.
 // Eased in/out over FROZEN_TAU_S so the shift reads as a transition.
-const COL_COLD_DEEP  = Color4.create(0.09, 0.20, 0.58, 1.00)
+const COL_COLD_DEEP  = COL_COLD // no deep-blue shift while frozen
 // Hover on the clickable "Respawn" bar: a touch lighter than deep.
-const COL_COLD_HOVER = Color4.create(0.14, 0.28, 0.70, 1.00)
+const COL_COLD_HOVER = Color4.create(0.50, 0.67, 1.00, 1.00) // subtle lighten of normal blue
 const FROZEN_TAU_S   = 0.35
 const COL_RESPAWN_TEXT = Color4.create(1, 1, 1, 1)
 let dispDeep   = 0

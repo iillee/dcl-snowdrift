@@ -58,6 +58,7 @@ import {
 	TerrainLadder,
 	TerrainMap,
 	TerrainVolcano,
+	monumentHoverBottomY,
 	cellCenterWorld,
 	groundYForLevel,
 } from 'src/shared/terrain/terrainMap'
@@ -164,7 +165,9 @@ const VOLCANO_MIN_SEP_CELLS  = Math.round(sc(10))
 /** Prefer opposite half of the map from the farther grove (radians). */
 const VOLCANO_OPPOSITE_RAD   = Math.PI / 2
 
-// Ignition stations — three exploration sockets with LOS to the volcano.
+// Ignition stations (monuments) — three exploration sockets. They rise to
+// hover ~20 m above the crater rim and beam down from the bottom tip, so the socket itself needs
+// no line of sight: low ground and canyons are valid (and preferred).
 // Not groves. Scaled so playtest_52 and full_100 share the same feel.
 const STATION_COUNT            = 3
 /** Min Chebyshev cells between any two stations. */
@@ -188,21 +191,50 @@ const STATION_LOS_CLEAR_M      = 1.0
 /** Last N cells before the target ignore blockers (crater lip / crown). */
 const STATION_LOS_NEAR_TARGET  = 2
 
-// Near-spawn monument: one station always sits in a ring around the
-// hearth, past the Roaring melt ring (17 m) but findable on day one.
-/** Inner edge of the near ring (m from the hearth). Roaring ring 17 m + margin. */
-export const NEAR_STATION_MIN_M        = 25
-/** Outer edge of the preferred ring (m). */
-export const NEAR_STATION_MAX_M        = 60
-/** Outer edge when the preferred ring has no usable cell (m). */
-export const NEAR_STATION_RELAX_MAX_M  = 110
+// Near-spawn monument: one station always sits on the OUTER side of the
+// starting grove: the far side of the hearth from the volcano, ~160 m out
+// at the outer edge of the starting grove (tip visible from the campfire).
+// The grove is the hearth tree ring (catalog radiiM 64 / 88 / 96 / 104 m
+// core, 144 / 168 m far trees) on the forced hearth terrace
+// (HEARTH_FORCE_R 4.5 cells = 72 m, blended to 9 cells = 144 m).
+/** Preferred distance from the hearth (m): between the two far hearth trees (144 / 168 m). */
+export const NEAR_STATION_TARGET_M       = 160
+/** Inner edge of the preferred band (m). */
+export const NEAR_STATION_MIN_M          = 136
+/** Outer edge of the preferred band (m). */
+export const NEAR_STATION_MAX_M          = 192
+/** Relaxed band when the preferred band has no usable cell (m). */
+export const NEAR_STATION_RELAX_MIN_M    = 48
+/** Relaxed outer edge (m). */
+export const NEAR_STATION_RELAX_MAX_M    = 256
+/** Max angle (deg) between hearth->socket and "directly away from the volcano". */
+export const NEAR_STATION_AWAY_MAX_DEG   = 75
+/** Relaxed away cone (deg). Past this the side is ignored (last resort only). */
+export const NEAR_STATION_AWAY_RELAX_DEG = 110
+/** Score weights: facing away from the volcano vs closeness to the target distance. */
+const NEAR_W_AWAY = 2
+const NEAR_W_DIST = 1.5
+/** Ranked near sockets tried in turn when one blocks the far picks. */
+const NEAR_STATION_TRIES = 8
+/** Hearth line of sight: eye height above the hearth ground (m). */
+export const NEAR_LOS_EYE_M = 1.7
 /**
- * Beam origin above ground for the near monument's LOS (m). Slightly
- * under the lit stump top (~7.9 m with the 50%-taller stumps).
+ * Hearth line of sight: aim point above the socket ground (m) = the
+ * seated pyramid tip (4 m pyramid, base flush with the ground; see
+ * stationMarkers FROZEN_TIP_Y_M). Kept local so terrainGen does not
+ * import the client / monumentIce chain.
  */
-const NEAR_BEAM_CLEAR_M        = 7.5
-/** Extra activation rises tried, smallest first (m). */
-const NEAR_LIFT_STEPS_M: readonly number[] = [0, 3, 6]
+export const NEAR_LOS_TIP_M = 4
+/** Ray samples per cell (16 m cells -> one sample every 2 m). */
+const NEAR_LOS_SAMPLES_PER_CELL = 8
+/**
+ * Extra hover heights tried, smallest first (m on top of
+ * monumentHoverBottomY), until the bottom-tip beam to a rim point
+ * clears terrain. If none clears the socket is still valid (last step).
+ */
+const MONUMENT_LIFT_STEPS_M: readonly number[] = [0, 10, 20]
+/** Chebyshev radius (cells) for the canyon / enclosure score. */
+const STATION_ENCLOSE_R = 2
 /** Beam aims this far above a rim cell's surface (m). */
 const NEAR_RIM_AIM_ABOVE_M     = 1.0
 /** Max rim points sampled for LOS (evenly by angle). */
@@ -350,21 +382,21 @@ function buildOnce(
 		routeDist[i] = -1
 	}
 
-	// Stations need the final heights (crown extruded) so LOS matches
-	// what the player sees. Empty when the volcano is missing or no
-	// three sockets clear LOS + separation.
-	const near = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion)
-	let stations = pickStations(
-		work,
-		regions,
-		routeDist,
-		destinations,
-		volcano,
-		near ? [near] : [],
-	)
-	if (near && stations.length < STATION_COUNT) {
+	// Stations need the final heights (crown extruded) so the hover beam
+	// check matches what the player sees. Empty when the volcano is
+	// missing or no three sockets clear separation.
+	const nearPicks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion)
+	let stations: TerrainStation[] = []
+	for (let k = 0; k < nearPicks.length; k++) {
+		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [nearPicks[k].station])
+		if (stations.length >= STATION_COUNT) {
+			console.log('terrainGen: ' + nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : ''))
+			break
+		}
+	}
+	if (stations.length < STATION_COUNT) {
 		console.log('terrainGen: near monument blocked the far picks - falling back to far-only stations')
-		stations = pickStations(work, regions, routeDist, destinations, volcano, [])
+		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [])
 	}
 
 	return {
@@ -2011,14 +2043,104 @@ function volcanoRimPoints(
 }
 
 
+// MARK: stationEnclosure
+/**
+ * Canyon / hollow score: how many cells within STATION_ENCLOSE_R
+ * (Chebyshev) stand higher than `lv`. Off-grid counts as higher. 0..24.
+ */
+function stationEnclosure(levels: Uint8Array, cx: number, cz: number, lv: number): number {
+	let n = 0
+	for (let dz = -STATION_ENCLOSE_R; dz <= STATION_ENCLOSE_R; dz++) {
+		for (let dx = -STATION_ENCLOSE_R; dx <= STATION_ENCLOSE_R; dx++) {
+			if (dx === 0 && dz === 0) continue
+			const x = cx + dx
+			const z = cz + dz
+			if (x < 0 || z < 0 || x >= W || z >= H || levels[z * W + x] > lv) n++
+		}
+	}
+	return n
+}
+
+type RimPoint = { cx: number; cz: number; fx: number; fz: number; endY: number }
+
+// MARK: stationBeam
+/**
+ * Hover beam for a socket: from the hovering bottom tip
+ * (monumentHoverBottomY: rim aim + MONUMENT_HOVER_ABOVE_TARGET_M + lift) to the closest crater
+ * rim point the line clears, smallest lift first. `clear` false means no
+ * lift cleared; the highest lift + nearest rim is returned anyway.
+ */
+function stationBeam(
+	levels: Uint8Array,
+	cx    : number,
+	cz    : number,
+	rimPts: RimPoint[],
+): { lift: number; rim: RimPoint; clear: boolean } {
+	const byDist = rimPts.slice().sort((a, b) =>
+		Math.hypot(a.fx - cx - 0.5, a.fz - cz - 0.5) - Math.hypot(b.fx - cx - 0.5, b.fz - cz - 0.5)
+		|| a.cx - b.cx || a.cz - b.cz)
+	for (const lift of MONUMENT_LIFT_STEPS_M) {
+		for (const p of byDist) {
+			const groundY = groundYForLevel(levels[cz * W + cx])
+			const startClear = monumentHoverBottomY(groundY, p.endY, lift) - groundY
+			if (hasStationLos(levels, cx, cz, p.fx, p.fz, p.endY, startClear)) {
+				return { lift, rim: p, clear: true }
+			}
+		}
+	}
+	return { lift: MONUMENT_LIFT_STEPS_M[MONUMENT_LIFT_STEPS_M.length - 1], rim: byDist[0], clear: false }
+}
+
+
+// MARK: nearStationHasHearthLos
+/**
+ * True when a player standing at the spawn campfire (eye NEAR_LOS_EYE_M
+ * above the hearth ground) can see the frozen monument tip
+ * (NEAR_LOS_TIP_M above the socket cell's ground). Terrain only: the ray
+ * is sampled NEAR_LOS_SAMPLES_PER_CELL times per cell and blocked where a
+ * cell's surface (groundYForLevel: terraces, cliffs, mountains, volcano
+ * crown are all flat-topped columns, so a step is caught at the first
+ * sample past it) rises above the ray. Trees / snow are not counted.
+ */
+export function nearStationHasHearthLos(levels: Uint8Array, cx: number, cz: number): boolean {
+	const x0 = HEARTH_FX
+	const z0 = HEARTH_FZ
+	const x1 = cx + 0.5
+	const z1 = cz + 0.5
+	const y0 = groundYForLevel(levels[HEARTH_CZ * W + HEARTH_CX]) + NEAR_LOS_EYE_M
+	const y1 = groundYForLevel(levels[cz * W + cx]) + NEAR_LOS_TIP_M
+	const len = Math.hypot(x1 - x0, z1 - z0)
+	const steps = Math.max(2, Math.ceil(len * NEAR_LOS_SAMPLES_PER_CELL))
+	for (let k = 1; k < steps; k++) {
+		const t  = k / steps
+		const sx = Math.floor(x0 + (x1 - x0) * t)
+		const sz = Math.floor(z0 + (z1 - z0) * t)
+		if (sx < 0 || sz < 0 || sx >= W || sz >= H) return false
+		if (sx === cx && sz === cz) continue
+		if (groundYForLevel(levels[sz * W + sx]) > y0 + (y1 - y0) * t) return false
+	}
+	return true
+}
+
+
 // MARK: pickNearStation
 /**
- * One monument in a ring around the hearth (NEAR_STATION_MIN_M..MAX_M),
- * flat, off ladders and the map border, preferring the hearth terrace
- * and the side facing the volcano. LOS targets any visible crater-rim
- * point from the lit stump top, trying small activation rises.
- * Fallbacks, in order (each logged): any terrace, relaxed ring, then
- * no LOS. Null only when no flat cell exists out to the relaxed ring.
+ * Ranked sockets for the one monument near spawn (best first, up to
+ * NEAR_STATION_TRIES). It belongs on the outer side of the starting
+ * grove: the hearth->socket bearing within NEAR_STATION_AWAY_MAX_DEG of
+ * directly away from the volcano, at about NEAR_STATION_TARGET_M.
+ * Candidates are walkable Low/Mid/High cells, off ladder ends, the map
+ * border and the volcano / lava. Score = facing away (cos of the angle
+ * off "away") * NEAR_W_AWAY - distance error * NEAR_W_DIST, plus small
+ * hearth-terrace / hollow / low-ground bonuses. Every pass but the last
+ * two requires terrain line of sight from the campfire to the frozen tip
+ * (nearStationHasHearthLos). No pass needs a clear volcano beam. Passes,
+ * in order: band+cone+LOS, relaxed band+cone+LOS, relaxed band+relaxed
+ * cone+LOS, relaxed any side+LOS, then (last resort, logged) relaxed cone
+ * without LOS, relaxed any side without LOS. The
+ * station spacing / angle fan-out is enforced by pickStations with this
+ * pick as the preset; buildOnce tries the next pick if one blocks it.
+ * Empty only when no walkable cell lies in the relaxed band.
  */
 function pickNearStation(
 	work        : Work,
@@ -2027,19 +2149,20 @@ function pickNearStation(
 	volcano     : TerrainVolcano | null,
 	ladders     : TerrainLadder[],
 	hearthRegion: number,
-): TerrainStation | null {
-	if (!volcano) return null
+): Array<{ station: TerrainStation; log: string }> {
+	if (!volcano) return []
 	const rimPts  = volcanoRimPoints(work, volcano)
 	const centre  = stationLosTarget(work.landforms, volcano)
 	const volcAng = Math.atan2(centre.fz - HEARTH_FZ, centre.fx - HEARTH_FX)
+	const awayAng = volcAng + Math.PI
 	const ladderCells = new Set<number>()
 	for (const l of ladders) {
 		ladderCells.add(l.lowCz * W + l.lowCx)
 		ladderCells.add(l.highCz * W + l.highCx)
 	}
-	const midM = (NEAR_STATION_MIN_M + NEAR_STATION_MAX_M) / 2
+	const hearthLv = work.levels[HEARTH_CZ * W + HEARTH_CX]
 
-	type NearCand = { cx: number; cz: number; i: number; distM: number; sameTerrace: boolean; score: number }
+	type NearCand = { cx: number; cz: number; i: number; distM: number; offDeg: number; sameTerrace: boolean; score: number; los?: boolean }
 	const cands: NearCand[] = []
 	const maxCells = Math.ceil(NEAR_STATION_RELAX_MAX_M / TERRAIN_CELL_M) + 1
 	for (let cz = HEARTH_CZ - maxCells; cz <= HEARTH_CZ + maxCells; cz++) {
@@ -2047,98 +2170,95 @@ function pickNearStation(
 			if (cx < 2 || cz < 2 || cx >= W - 2 || cz >= H - 2) continue
 			const i = cz * W + cx
 			const distM = Math.hypot(cx + 0.5 - HEARTH_FX, cz + 0.5 - HEARTH_FZ) * TERRAIN_CELL_M
-			if (distM < NEAR_STATION_MIN_M || distM > NEAR_STATION_RELAX_MAX_M) continue
+			if (distM < NEAR_STATION_RELAX_MIN_M || distM > NEAR_STATION_RELAX_MAX_M) continue
 			if (routeDist[i] < 0) continue
 			const lv = work.levels[i]
 			if (lv !== LOW && lv !== MID && lv !== HIGH) continue
 			const lf = work.landforms[i]
-			if (lf === LANDFORM_VOLCANO || lf === LANDFORM_LAVA) continue // hearth disc IS the spawn terrace; the 25 m min keeps it off the fire
-			let ok = true
-			for (let dz = -1; dz <= 1 && ok; dz++) {
-				for (let dx = -1; dx <= 1; dx++) {
-					const j = (cz + dz) * W + (cx + dx)
-					if (work.levels[j] !== lv || ladderCells.has(j)) { ok = false; break }
-				}
-			}
-			if (!ok) continue
+			if (lf === LANDFORM_VOLCANO || lf === LANDFORM_LAVA) continue // hearth disc IS the spawn terrace; the min distance keeps it off the fire
+			if (ladderCells.has(i)) continue
 			const ang = Math.atan2(cz + 0.5 - HEARTH_FZ, cx + 0.5 - HEARTH_FX)
-			const facing = Math.cos(ang - volcAng)
+			let off = Math.abs(ang - awayAng) % (Math.PI * 2)
+			if (off > Math.PI) off = Math.PI * 2 - off
+			const away = Math.cos(off)
 			const sameTerrace = regions[i] === hearthRegion
-			const score = facing * 2 - Math.abs(distM - midM) / midM + (sameTerrace ? 1 : 0)
-			cands.push({ cx, cz, i, distM, sameTerrace, score })
+			const enclose = stationEnclosure(work.levels, cx, cz, lv) / 24
+			const lower = lv < hearthLv ? 1 : 0
+			const score = away * NEAR_W_AWAY
+				- Math.abs(distM - NEAR_STATION_TARGET_M) / NEAR_STATION_TARGET_M * NEAR_W_DIST
+				+ (sameTerrace ? 0.2 : 0) + enclose * 0.3 + lower * 0.15
+			cands.push({ cx, cz, i, distM, offDeg: off * 180 / Math.PI, sameTerrace, score })
 		}
 	}
 	cands.sort((a, b) => b.score - a.score || a.cx - b.cx || a.cz - b.cz)
 
-	const losFor = (c: NearCand): { lift: number; rim: typeof rimPts[number] } | null => {
-		for (const lift of NEAR_LIFT_STEPS_M) {
-			// Closest rim point first so the beam lands on the near lip.
-			let best: typeof rimPts[number] | null = null
-			let bestD = Infinity
-			for (const p of rimPts) {
-				if (!hasStationLos(work.levels, c.cx, c.cz, p.fx, p.fz, p.endY, NEAR_BEAM_CLEAR_M + lift)) continue
-				const d = Math.hypot(p.fx - c.cx - 0.5, p.fz - c.cz - 0.5)
-				if (d < bestD) { bestD = d; best = p }
-			}
-			if (best) return { lift, rim: best }
-		}
-		return null
+	const beams = new Map<number, ReturnType<typeof stationBeam>>()
+	const beamOf = (c: NearCand): ReturnType<typeof stationBeam> => {
+		let b = beams.get(c.i)
+		if (!b) { b = stationBeam(work.levels, c.cx, c.cz, rimPts); beams.set(c.i, b) }
+		return b
 	}
-	const nearestRim = (c: NearCand): typeof rimPts[number] => {
-		let best = rimPts[0]
-		let bestD = Infinity
-		for (const p of rimPts) {
-			const d = Math.hypot(p.fx - c.cx - 0.5, p.fz - c.cz - 0.5)
-			if (d < bestD) { bestD = d; best = p }
-		}
-		return best
+
+	const losOf = (c: NearCand): boolean => {
+		if (c.los === undefined) c.los = nearStationHasHearthLos(work.levels, c.cx, c.cz)
+		return c.los
 	}
-	const make = (c: NearCand, lift: number, rim: typeof rimPts[number], pass: string): TerrainStation => {
-		console.log(
-			'terrainGen: near monument pass=' + pass + ' cell=(' + c.cx + ',' + c.cz + ') dist=' +
-			c.distM.toFixed(0) + 'm lift=' + lift + 'm sameTerrace=' + c.sameTerrace,
-		)
-		return {
-			cx: c.cx, cz: c.cz, level: work.levels[c.i], region: regions[c.i], route: routeDist[c.i],
-			near: true, beamLiftM: lift,
-			aimX: TERRAIN_ORIGIN_M + rim.fx * TERRAIN_CELL_M,
-			aimY: rim.endY,
-			aimZ: TERRAIN_ORIGIN_M + rim.fz * TERRAIN_CELL_M,
-		}
-	}
-	type Pass = { name: string; maxM: number; terrace: boolean; los: boolean }
+
+	type Pass = { name: string; minM: number; maxM: number; maxOffDeg: number; clear: boolean; los: boolean }
+	// No volcano line of sight needed any more (the obelisk hovers above
+	// the rim), so no pass requires a clear beam; the beam lift is still
+	// computed for the hover height.
 	const passes: Pass[] = [
-		{ name: 'ring+terrace+rimLOS',  maxM: NEAR_STATION_MAX_M,       terrace: true,  los: true  },
-		{ name: 'ring+anyTerrace+rimLOS', maxM: NEAR_STATION_MAX_M,     terrace: false, los: true  },
-		{ name: 'relaxedRing+rimLOS',   maxM: NEAR_STATION_RELAX_MAX_M, terrace: false, los: true  },
-		{ name: 'ring+terrace+noLOS',   maxM: NEAR_STATION_MAX_M,       terrace: true,  los: false },
-		{ name: 'relaxedRing+noLOS',    maxM: NEAR_STATION_RELAX_MAX_M, terrace: false, los: false },
+		{ name: 'band+away+los',        minM: NEAR_STATION_MIN_M,       maxM: NEAR_STATION_MAX_M,       maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
+		{ name: 'relaxed+away+los',     minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
+		{ name: 'relaxed+wideAway+los', minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_RELAX_DEG, clear: false, los: true  },
+		{ name: 'relaxed+anySide+los',  minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: 180,                          clear: false, los: true  },
+		// Last resort: no campfire line of sight (logged when picked).
+		{ name: 'relaxed+wideAway+NOLOS', minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_RELAX_DEG, clear: false, los: false },
+		{ name: 'relaxed+anySide+NOLOS',  minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: 180,                          clear: false, los: false },
 	]
+	const out: Array<{ station: TerrainStation; log: string }> = []
+	const used = new Set<number>()
 	for (const p of passes) {
-		let pick: { c: NearCand; lift: number; rim: typeof rimPts[number] } | null = null
 		for (const c of cands) {
-			if (c.distM > p.maxM) continue
-			if (p.terrace && !c.sameTerrace) continue
-			if (!p.los) { pick = { c, lift: NEAR_LIFT_STEPS_M[NEAR_LIFT_STEPS_M.length - 1], rim: nearestRim(c) }; break }
-			const r = losFor(c)
-			if (!r) continue
-			// Prefer the smallest rise; cands are score-sorted within a lift.
-			if (!pick || r.lift < pick.lift) pick = { c, lift: r.lift, rim: r.rim }
-			if (pick.lift === 0) break
+			if (out.length >= NEAR_STATION_TRIES) break
+			if (used.has(c.i)) continue
+			if (c.distM < p.minM || c.distM > p.maxM || c.offDeg > p.maxOffDeg) continue
+			if (p.los && !losOf(c)) continue
+			const beam = beamOf(c)
+			if (p.clear && !beam.clear) continue
+			used.add(c.i)
+			out.push({
+				station: {
+					cx: c.cx, cz: c.cz, level: work.levels[c.i], region: regions[c.i], route: routeDist[c.i],
+					near: true, beamLiftM: beam.lift,
+					aimX: TERRAIN_ORIGIN_M + beam.rim.fx * TERRAIN_CELL_M,
+					aimY: beam.rim.endY,
+					aimZ: TERRAIN_ORIGIN_M + beam.rim.fz * TERRAIN_CELL_M,
+				},
+				log: 'near monument pass=' + p.name + ' cell=(' + c.cx + ',' + c.cz + ') dist=' +
+					c.distM.toFixed(0) + 'm offAway=' + c.offDeg.toFixed(0) + 'deg lift=' + beam.lift +
+					'm beamClear=' + beam.clear + ' sameTerrace=' + c.sameTerrace +
+					(p.los ? ' hearthLos=true' : ' hearthLos=false (LAST RESORT: no campfire line of sight)'),
+			})
 		}
-		if (pick) return make(pick.c, pick.lift, pick.rim, p.name)
 	}
-	console.log('terrainGen: near monument: no flat cell within ' + NEAR_STATION_RELAX_MAX_M + 'm - far-only stations')
-	return null
+	if (out.length === 0) {
+		console.log('terrainGen: near monument: no cell within ' + NEAR_STATION_RELAX_MAX_M + 'm - far-only stations')
+	}
+	return out
 }
 
 
 // MARK: pickStations
 /**
  * Place STATION_COUNT ignition sockets on walkable Low/Mid/High cells
- * with reachability, separation from each other / hearth / volcano /
- * grove cores, and line of sight to the volcano. Prefers different
- * regions and elevations, and fans them out around the hearth.
+ * with reachability and separation from each other / hearth / volcano /
+ * grove cores / ladder ends. No line of sight needed: the obelisk
+ * hovers above the rim (monumentHoverBottomY) and the hover height is raised
+ * (beamLiftM) until the beam clears; sockets whose beam never clears
+ * are only used as a last resort. Prefers low ground, hollows and
+ * canyons, one socket per elevation, fanned out around the hearth.
  */
 function pickStations(
 	work        : Work,
@@ -2146,26 +2266,18 @@ function pickStations(
 	routeDist   : Int32Array,
 	groves      : TerrainDestination[],
 	volcano     : TerrainVolcano | null,
+	ladders     : TerrainLadder[],
 	preset      : TerrainStation[] = [],
 ): TerrainStation[] {
 	if (!volcano) return []
-	// Beam LOS goes to any visible crater-rim / crown point (the tall
-	// terraced cone hides the lava centre from most of the map), from
-	// the lit stump top, with the same activation rises as the near one.
 	const rimPts = volcanoRimPoints(work, volcano)
-	const losFor = (cx: number, cz: number): { lift: number; rim: typeof rimPts[number] } | null => {
-		// Closest rim point first; the first clear one wins.
-		const byDist = rimPts.slice().sort((a, b) =>
-			Math.hypot(a.fx - cx - 0.5, a.fz - cz - 0.5) - Math.hypot(b.fx - cx - 0.5, b.fz - cz - 0.5))
-		for (const lift of NEAR_LIFT_STEPS_M) {
-			for (const p of byDist) {
-				if (hasStationLos(work.levels, cx, cz, p.fx, p.fz, p.endY, NEAR_BEAM_CLEAR_M + lift)) return { lift, rim: p }
-			}
-		}
-		return null
+	const ladderCells = new Set<number>()
+	for (const l of ladders) {
+		ladderCells.add(l.lowCz * W + l.lowCx)
+		ladderCells.add(l.highCz * W + l.highCx)
 	}
 
-	type Cand = TerrainStation & { ang: number; score: number }
+	type Cand = TerrainStation & { ang: number; score: number; i: number }
 	const cands: Cand[] = []
 	for (let i = 0; i < N; i++) {
 		const route = routeDist[i]
@@ -2174,8 +2286,10 @@ function pickStations(
 		if (lv !== LOW && lv !== MID && lv !== HIGH) continue
 		const lf = work.landforms[i]
 		if (lf === LANDFORM_VOLCANO || lf === LANDFORM_LAVA || lf === LANDFORM_HEARTH) continue
+		if (ladderCells.has(i)) continue
 		const cx = i % W
 		const cz = (i - cx) / W
+		if (cx < 1 || cz < 1 || cx >= W - 1 || cz >= H - 1) continue
 		if (Math.max(Math.abs(cx - HEARTH_CX), Math.abs(cz - HEARTH_CZ)) < STATION_MIN_HEARTH_CELLS) continue
 		if (Math.max(Math.abs(cx - volcano.cx), Math.abs(cz - volcano.cz)) < STATION_MIN_VOLCANO_CELLS) continue
 		let nearGrove = false
@@ -2186,27 +2300,25 @@ function pickStations(
 			}
 		}
 		if (nearGrove) continue
-		const los = losFor(cx, cz)
-		if (!los) continue
 
 		const ang = Math.atan2(cz + 0.5 - HEARTH_FZ, cx + 0.5 - HEARTH_FX)
-		// Prefer farther route and a bit of interior (not cliff edge).
-		let edge = 0
-		for (let d = 0; d < 4; d++) {
-			const nx = cx + DIR_DX[d]
-			const nz = cz + DIR_DZ[d]
-			if (nx < 0 || nz < 0 || nx >= W || nz >= H || work.levels[nz * W + nx] !== lv) edge++
-		}
-		const score = route * (1 + (4 - edge) * 0.05) / (1 + los.lift * 0.1)
-		cands.push({
-			cx, cz, level: lv, region: regions[i], route, ang, score,
-			beamLiftM: los.lift,
-			aimX: TERRAIN_ORIGIN_M + los.rim.fx * TERRAIN_CELL_M,
-			aimY: los.rim.endY,
-			aimZ: TERRAIN_ORIGIN_M + los.rim.fz * TERRAIN_CELL_M,
-		})
+		// Farther route, then hollows / canyons (higher cells around) and
+		// lower ground: the obelisk rising out of a pit in a gorge is the
+		// money shot now that it no longer has to see the volcano.
+		const enclose = stationEnclosure(work.levels, cx, cz, lv) / 24
+		const levelBias = lv === LOW ? 1.3 : lv === MID ? 1.15 : 1
+		const score = route * (1 + enclose * 0.8) * levelBias
+		cands.push({ cx, cz, i, level: lv, region: regions[i], route, ang, score })
 	}
 	cands.sort((a, b) => b.score - a.score || a.cx - b.cx || a.cz - b.cz)
+
+	// Beam check is lazy (only for sockets that pass spacing) and cached.
+	const beams = new Map<number, ReturnType<typeof stationBeam>>()
+	const beamOf = (c: Cand): ReturnType<typeof stationBeam> => {
+		let b = beams.get(c.i)
+		if (!b) { b = stationBeam(work.levels, c.cx, c.cz, rimPts); beams.set(c.i, b) }
+		return b
+	}
 
 	const out: TerrainStation[] = preset.slice()
 	const oAng = (st: TerrainStation): number =>
@@ -2225,41 +2337,42 @@ function pickStations(
 		}
 		return true
 	}
+	const taken = (c: Cand): boolean => out.some(o => o.cx === c.cx && o.cz === c.cz)
 	const take = (c: Cand): void => {
+		const b = beamOf(c)
 		out.push({
 			cx: c.cx, cz: c.cz, level: c.level, region: c.region, route: c.route,
-			beamLiftM: c.beamLiftM, aimX: c.aimX, aimY: c.aimY, aimZ: c.aimZ,
+			beamLiftM: b.lift,
+			aimX: TERRAIN_ORIGIN_M + b.rim.fx * TERRAIN_CELL_M,
+			aimY: b.rim.endY,
+			aimZ: TERRAIN_ORIGIN_M + b.rim.fz * TERRAIN_CELL_M,
 		})
 	}
 
-	// Pass 1: one socket per elevation when a LOS candidate exists, so
-	// stations fan across Low / Mid / High instead of clustering on High.
-	for (const want of [HIGH, MID, LOW]) {
+	// Pass 1: one socket per elevation (low ground first) with a clear
+	// hover beam, so stations fan across Low / Mid / High.
+	for (const want of [LOW, MID, HIGH]) {
 		if (out.length >= STATION_COUNT) break
 		for (const c of cands) {
 			if (c.level !== want) continue
-			if (!sepOk(c) || !angOk(c.ang)) continue
+			if (taken(c) || !sepOk(c) || !angOk(c.ang)) continue
+			if (!beamOf(c).clear) continue
 			take(c)
 			break
 		}
 	}
-	// Pass 2: fill remaining with angle + separation.
-	if (out.length < STATION_COUNT) {
-		for (const c of cands) {
-			if (out.length >= STATION_COUNT) break
-			if (!sepOk(c) || !angOk(c.ang)) continue
-			if (out.some(o => o.cx === c.cx && o.cz === c.cz)) continue
-			take(c)
-		}
+	// Pass 2: fill remaining with angle + separation + clear beam.
+	for (const c of cands) {
+		if (out.length >= STATION_COUNT) break
+		if (taken(c) || !sepOk(c) || !angOk(c.ang)) continue
+		if (!beamOf(c).clear) continue
+		take(c)
 	}
-	// Pass 3: relax angle (keep separation).
-	if (out.length < STATION_COUNT) {
-		for (const c of cands) {
-			if (out.length >= STATION_COUNT) break
-			if (!sepOk(c)) continue
-			if (out.some(o => o.cx === c.cx && o.cz === c.cz)) continue
-			take(c)
-		}
+	// Pass 3: relax angle and the beam check (keep separation).
+	for (const c of cands) {
+		if (out.length >= STATION_COUNT) break
+		if (taken(c) || !sepOk(c)) continue
+		take(c)
 	}
 	return out
 }
@@ -2321,7 +2434,8 @@ function validate(map: TerrainMap): string {
 		return `stations ${map.stations.length}/${STATION_COUNT}`
 	}
 	{
-		const target = stationLosTarget(map.landforms, map.volcano)
+		// No line-of-sight rule: monuments hover above the rim and beam from
+		// there (terrain gen raises beamLiftM until it clears).
 		const seen = new Set<string>()
 		for (const s of map.stations) {
 			const key = `${s.cx},${s.cz}`
@@ -2331,12 +2445,6 @@ function validate(map: TerrainMap): string {
 			if (i < 0 || i >= N || map.routeDist[i] < 0) return 'station unreachable'
 			if (s.level !== LOW && s.level !== MID && s.level !== HIGH) {
 				return `bad station level ${s.level}`
-			}
-			const losOk = s.aimX !== undefined && s.aimY !== undefined && s.aimZ !== undefined
-				? hasStationLos(map.levels, s.cx, s.cz, (s.aimX - TERRAIN_ORIGIN_M) / TERRAIN_CELL_M, (s.aimZ - TERRAIN_ORIGIN_M) / TERRAIN_CELL_M, s.aimY, NEAR_BEAM_CLEAR_M + (s.beamLiftM ?? 0))
-				: hasStationLos(map.levels, s.cx, s.cz, target.fx, target.fz, target.endY)
-			if (!s.near && !losOk) {
-				return 'station no LOS'
 			}
 		}
 		for (let a = 0; a < map.stations.length; a++) {

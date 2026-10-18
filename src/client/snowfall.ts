@@ -1,10 +1,16 @@
 /**
  * snowfall.ts — ambient snowfall across the entire scene.
  *
- * A single Box-shaped ParticleSystem, anchored high above the scene
- * center, spawns small white flakes that drift downward under gentle
- * gravity. Lifetime is tuned so particles die at roughly ground level,
- * so the effect is continuous but no flake ever "pops out" of view.
+ * A single Box-shaped ParticleSystem spawns small white flakes through a
+ * tall column (SNOW_BOTTOM_Y .. SNOW_TOP_Y) that follows the player in XZ
+ * (SNOW_COLUMN_HALF_M each way). Particles simulate in WORLD space, so
+ * moving the column only moves where new flakes appear. The column top
+ * sits near the scene ceiling, above every hovering monument, so no spawn
+ * plane is visible against the mountains / volcano; spawning through the
+ * whole column means density ramps in softly from the top (no edge) and
+ * is uniform below SNOW_BOTTOM_Y. Fall speed is capped per level
+ * (terminalSpeed, ~the old ground-level speed) and lifetime is derived so
+ * a flake from the very top always reaches the lowest ground.
  *
  * Four precipitation levels are supported (see PrecipitationLevel):
  *   0 CLEAR  — emitter stopped, no flakes
@@ -20,14 +26,16 @@
  * fill. Emission arms once the splash would release.
  */
 
-import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
+import { PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, PBParticleSystem_SimulationSpace, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Vector3 } from '@dcl/sdk/math'
 
 import {
 	SCENE_WORLD_SIZE_X_METERS,
 	SCENE_WORLD_SIZE_Z_METERS,
+	TERRAIN_LEVEL_LOW,
 	TERRAIN_LEVEL_MOUNTAIN_MAX,
 	groundYForLevel,
+	sceneHeightLimitM,
 } from 'src/shared/settings'
 
 import { hasTerrainSpawned, isTerrainReady } from 'src/client/terrain/terrainRenderer'
@@ -46,13 +54,25 @@ export enum PrecipitationLevel {
 
 
 // MARK: Tuning
-// Spawn box height above the scene ground. Particles fall from here.
-// Raised for the larger scene footprint so snow reads as coming from
-// far overhead instead of just clearing the cliff line. If flakes
-// disappear mid-air, bump the per-level `lifetime` in PROFILES so
-// particles survive long enough to reach the ground from this height.
-// Above the mountain band so snow falls on the whole elevation stack.
-const SPAWN_Y       = groundYForLevel(TERRAIN_LEVEL_MOUNTAIN_MAX) + 40
+/**
+ * Column top (m): this far under the scene height limit. Hovering monument
+ * tops are capped 24 m under the limit (stationMarkers
+ * HOVER_CEILING_MARGIN_M, bob included), so flakes always start above them.
+ */
+const SNOW_CEILING_MARGIN_M = 6
+const SNOW_TOP_Y    = sceneHeightLimitM() - SNOW_CEILING_MARGIN_M
+/**
+ * Column bottom (m): flakes spawn anywhere between here and the top, so
+ * none pop in right next to a player on Low / Mid / High or mountain-top
+ * ground. Below this the falling flakes are uniform all the way down.
+ */
+const SNOW_BOTTOM_Y = Math.min(SNOW_TOP_Y - 20, groundYForLevel(TERRAIN_LEVEL_MOUNTAIN_MAX) + 4)
+/** Lowest ground a flake must reach (m). */
+const SNOW_FLOOR_Y  = groundYForLevel(TERRAIN_LEVEL_LOW) - 2
+/** Column half-width around the player (m). Wider = farther snow, more particles. */
+const SNOW_COLUMN_HALF_M = 160
+/** Move the column once the player is this far (XZ) from its centre (m). */
+const SNOW_FOLLOW_STEP_M = 4
 // Downward drift accelerated by mild gravity. See per-level tables for
 // the level-specific overrides that make heavier snow feel weightier.
 const WIND_FORCE    = Vector3.create(0.05, 0, 0.02)
@@ -74,6 +94,8 @@ type LevelProfile = {
 	sizeMin      : number
 	sizeMax      : number
 	alphaBirth   : number
+	/** Fall speed cap (m/s), about what flakes reached at the ground before. */
+	terminalSpeed: number
 }
 
 const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
@@ -82,24 +104,26 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 	// LIGHT, old HEAVY becomes MEDIUM, and HEAVY is a new true-whiteout
 	// tier above anything we had before.
 	[PrecipitationLevel.LIGHT ]: {
-		rate       : 280,
-		lifetime   : 22,
+		rate       : 60,
+		lifetime   : 22, // derived below (flakeLifetime)
 		gravityMult: 0.08,
 		speedMin   : 1.0,
 		speedMax   : 1.8,
 		sizeMin    : 0.16,
 		sizeMax    : 0.36,
 		alphaBirth : 0.95,
+		terminalSpeed: 11,
 	},
 	[PrecipitationLevel.MEDIUM]: {
-		rate       : 1200,
-		lifetime   : 12,
+		rate       : 160,
+		lifetime   : 12, // derived below (flakeLifetime)
 		gravityMult: 0.28,
 		speedMin   : 2.4,
 		speedMax   : 3.6,
 		sizeMin    : 0.56,
 		sizeMax    : 1.10,
 		alphaBirth : 1.0,
+		terminalSpeed: 20,
 	},
 	[PrecipitationLevel.HEAVY ]: {
 		// True whiteout tier. Rate + size pushed past the old HEAVY, and
@@ -107,15 +131,36 @@ const PROFILES: Record<PrecipitationLevel, LevelProfile | null> = {
 		// ~1000-particle engine cap per second — the net effect is more
 		// screen coverage, not fewer visible flakes. Fall speed cranked
 		// so the storm feels driven, not floaty.
-		rate       : 2200,
-		lifetime   : 8,
+		rate       : 300,
+		lifetime   : 8, // derived below (flakeLifetime)
 		gravityMult: 0.45,
 		speedMin   : 3.6,
 		speedMax   : 5.2,
 		sizeMin    : 0.62,
 		sizeMax    : 1.15,
 		alphaBirth : 1.0,
+		terminalSpeed: 26,
 	},
+}
+
+
+// MARK: flakeLifetime
+/**
+ * Seconds for a flake born at SNOW_TOP_Y to fall past SNOW_FLOOR_Y, worst
+ * case (launched straight up at speedMax), with gravity capped at
+ * terminalSpeed, plus 10 %. Rates above are per-column (so alive count =
+ * rate * lifetime stays ~1-4k, well under MAX_PARTICLES).
+ */
+function flakeLifetime(p: LevelProfile): number {
+	const g    = Math.max(0.05, p.gravityMult * 9.81)
+	const v0   = p.speedMax
+	const vMax = Math.max(v0 + 0.5, p.terminalSpeed)
+	const tUp  = (2 * v0) / g
+	const tAcc = (vMax - v0) / g
+	const dAcc = (vMax * vMax - v0 * v0) / (2 * g)
+	const fall = SNOW_TOP_Y - SNOW_FLOOR_Y
+	const tRun = Math.max(0, fall - dAcc) / vMax
+	return Math.ceil((tUp + tAcc + tRun) * 1.1)
 }
 
 
@@ -145,7 +190,8 @@ function applyProfile(level: PrecipitationLevel): void {
 	const p = PROFILES[level]!
 
 	ps.rate                 = p.rate
-	ps.lifetime             = p.lifetime
+	ps.lifetime             = flakeLifetime(p)
+	ps.limitVelocity        = { speed: p.terminalSpeed, dampen: 1 }
 	ps.gravity              = p.gravityMult
 	ps.initialVelocitySpeed = { start: p.speedMin, end: p.speedMax }
 	ps.initialSize          = { start: p.sizeMin,  end: p.sizeMax  }
@@ -197,13 +243,12 @@ export function setupSnowfall(): void {
 	const emitter = engine.addEntity()
 	emitterEntity = emitter as unknown as number
 
-	// Emitter sits at the geometric center of the scene, high overhead.
-	// Box shape spans the full scene footprint so flakes cover every
-	// parcel uniformly rather than clustering at center.
+	// Column starts at the scene centre; followSnowColumn moves it with
+	// the player. Box spans SNOW_BOTTOM_Y..SNOW_TOP_Y vertically.
 	Transform.create(emitter, {
 		position: Vector3.create(
 			SCENE_WORLD_SIZE_X_METERS / 2,
-			SPAWN_Y,
+			(SNOW_TOP_Y + SNOW_BOTTOM_Y) / 2,
 			SCENE_WORLD_SIZE_Z_METERS / 2,
 		),
 	})
@@ -211,11 +256,13 @@ export function setupSnowfall(): void {
 	const p = PROFILES[PrecipitationLevel.LIGHT]!
 	ParticleSystem.create(emitter, {
 		shape                : ParticleSystem.Shape.Box({
-			size: Vector3.create(SCENE_WORLD_SIZE_X_METERS, 0.5, SCENE_WORLD_SIZE_Z_METERS),
+			size: Vector3.create(SNOW_COLUMN_HALF_M * 2, SNOW_TOP_Y - SNOW_BOTTOM_Y, SNOW_COLUMN_HALF_M * 2),
 		}),
 		rate                 : p.rate,
 		maxParticles         : MAX_PARTICLES,
-		lifetime             : p.lifetime,
+		lifetime             : flakeLifetime(p),
+		limitVelocity        : { speed: p.terminalSpeed, dampen: 1 },
+		simulationSpace      : PBParticleSystem_SimulationSpace.PSS_WORLD,
 		gravity              : p.gravityMult,
 		initialVelocitySpeed : { start: p.speedMin, end: p.speedMax },
 		additionalForce      : WIND_FORCE,
@@ -239,7 +286,27 @@ export function setupSnowfall(): void {
 
 	currentLevel = PrecipitationLevel.LIGHT
 	engine.addSystem(tryArmSnowfall)
+	engine.addSystem(followSnowColumn)
 	console.log('snowfall: setupSnowfall: emitter spawned stopped until cold-open settles')
+}
+
+
+// MARK: followSnowColumn
+/**
+ * Keep the snow column centred on the player in XZ (inside the scene
+ * footprint). Written only after a SNOW_FOLLOW_STEP_M move. World-space
+ * simulation keeps live flakes where they are.
+ */
+function followSnowColumn(): void {
+	if (emitterEntity === null) return
+	const pl = Transform.getOrNull(engine.PlayerEntity)
+	if (!pl) return
+	const x = Math.max(0, Math.min(SCENE_WORLD_SIZE_X_METERS, pl.position.x))
+	const z = Math.max(0, Math.min(SCENE_WORLD_SIZE_Z_METERS, pl.position.z))
+	const cur = Transform.getOrNull(emitterEntity as any)
+	if (!cur) return
+	if (Math.abs(cur.position.x - x) < SNOW_FOLLOW_STEP_M && Math.abs(cur.position.z - z) < SNOW_FOLLOW_STEP_M) return
+	Transform.getMutable(emitterEntity as any).position = Vector3.create(x, (SNOW_TOP_Y + SNOW_BOTTOM_Y) / 2, z)
 }
 
 

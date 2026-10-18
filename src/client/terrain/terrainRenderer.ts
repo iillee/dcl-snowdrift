@@ -39,8 +39,15 @@ import {
 	isMountainLevel,
 } from 'src/shared/settings'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
-import { mergeLevelRects } from 'src/shared/terrain/terrainGen'
-import { TERRAIN_ORIGIN_M } from 'src/shared/terrain/terrainMap'
+import { LevelRect, mergeLevelRects } from 'src/shared/terrain/terrainGen'
+import {
+	MONUMENT_PIT_DEPTH_M,
+	MONUMENT_PIT_SIZE_M,
+	MONUMENT_SOCKET_DEPTH_M,
+	MONUMENT_SOCKET_SIZE_M,
+	TERRAIN_ORIGIN_M,
+	TerrainMap,
+} from 'src/shared/terrain/terrainMap'
 
 import { clearLadders, setupLadders } from 'src/client/terrain/ladders'
 import { thawWaveReachedRect } from 'src/client/worldThaw'
@@ -76,6 +83,11 @@ const COLOR_ROCK = Color4.create(0.2525, 0.3354, 0.6314, 1)
 
 /** Melt-blue ground the snow lies on, at every playable level. */
 const COLOR_GROUND = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
+
+/** Monument recess floor: darker than the cliff rock so the hole reads deep. */
+const COLOR_PIT = Color4.create(0.11, 0.13, 0.22, 1)
+/** Monument socket bottom: darker still, so the seat reads as a deep slot. */
+const COLOR_SOCKET = Color4.create(0.05, 0.06, 0.1, 1)
 
 
 // MARK: State
@@ -157,31 +169,16 @@ export function setupTerrain(): void {
 	const focus = readFocusXZ()
 	let   caps  = 0
 
-	for (const r of rects) {
-		const top      = groundYForLevel(r.level)
-		const centerX  = TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * TERRAIN_CELL_M
-		const centerZ  = TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * TERRAIN_CELL_M
-		const sizeX    = r.w * TERRAIN_CELL_M
-		const sizeZ    = r.h * TERRAIN_CELL_M
-		const wantsCap = !isMountainLevel(r.level)
-		const showCap  = wantsCap && distSqToRect(focus.x, focus.z, centerX, centerZ, sizeX, sizeZ) < CAP_KEEP_M2
-		const rockTop  = showCap ? top - CAP_M : top
-		const rock     = spawnSlab(centerX, centerZ, sizeX, sizeZ, SLAB_BASE_Y, rockTop, COLOR_ROCK)
-		let   cap: Entity | null = null
-		if (showCap) {
-			cap = spawnSlab(centerX, centerZ, sizeX, sizeZ, top - CAP_M, top, COLOR_GROUND)
-			caps++
-		}
-		rectGeoms.push({
-			centerX,
-			centerZ,
-			sizeX,
-			sizeZ,
-			top,
-			wantsCap,
-			rock,
-			cap,
-		})
+	for (const r of carveStationCells(map, rects)) {
+		const top     = groundYForLevel(r.level)
+		const centerX = TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * TERRAIN_CELL_M
+		const centerZ = TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * TERRAIN_CELL_M
+		if (addRect(centerX, centerZ, r.w * TERRAIN_CELL_M, r.h * TERRAIN_CELL_M, top, !isMountainLevel(r.level), focus)) caps++
+	}
+	let pits = 0
+	for (const st of map.stations) {
+		caps += addMonumentPit(st.cx, st.cz, groundYForLevel(map.levels[st.cz * map.w + st.cx]), focus)
+		pits++
 	}
 
 	setupLadders(map)
@@ -189,12 +186,132 @@ export function setupTerrain(): void {
 
 	console.log(
 		`terrainRenderer: setupTerrain: seed ${map.usedSeed} (try ${map.attempts}), ` +
-		`${rects.length} rock slabs, ${caps} caps (keep=${CAP_KEEP_M}m), ` +
+		`${rects.length} rock slabs, ${caps} caps (keep=${CAP_KEEP_M}m), ${pits} monument pits, ` +
 		`${map.ladders.length} ladders, ${map.regionLevel.length} regions, ` +
 		`${map.destinations.length} destinations`
 	)
 }
 
+
+// MARK: addRect
+/** One walkable / mountain rect: rock body plus a near cap. True when a cap spawned. */
+function addRect(
+	centerX : number,
+	centerZ : number,
+	sizeX   : number,
+	sizeZ   : number,
+	top     : number,
+	wantsCap: boolean,
+	focus   : { x: number; z: number },
+): boolean {
+	const showCap = wantsCap && distSqToRect(focus.x, focus.z, centerX, centerZ, sizeX, sizeZ) < CAP_KEEP_M2
+	const rockTop = showCap ? top - CAP_M : top
+	const rock    = spawnSlab(centerX, centerZ, sizeX, sizeZ, SLAB_BASE_Y, rockTop, COLOR_ROCK)
+	let   cap: Entity | null = null
+	if (showCap) cap = spawnSlab(centerX, centerZ, sizeX, sizeZ, top - CAP_M, top, COLOR_GROUND)
+	rectGeoms.push({ centerX, centerZ, sizeX, sizeZ, top, wantsCap, rock, cap })
+	return cap !== null
+}
+
+
+// MARK: carveStationCells
+/**
+ * Split merged rects so every monument cell stands alone (it is drawn
+ * by addMonumentPit instead). A rect holding a station cell becomes up
+ * to four strips around it; repeated per station. Deterministic.
+ */
+function carveStationCells(map: TerrainMap, rects: LevelRect[]): LevelRect[] {
+	let out = rects
+	for (const st of map.stations) {
+		const next: LevelRect[] = []
+		for (const r of out) {
+			const inside = st.cx >= r.cx && st.cx < r.cx + r.w && st.cz >= r.cz && st.cz < r.cz + r.h
+			if (!inside) { next.push(r); continue }
+			const left  = st.cx - r.cx
+			const right = r.cx + r.w - st.cx - 1
+			const below = st.cz - r.cz
+			const above = r.cz + r.h - st.cz - 1
+			if (left  > 0) next.push({ cx: r.cx,        cz: r.cz,        w: left,  h: r.h,   level: r.level })
+			if (right > 0) next.push({ cx: st.cx + 1,   cz: r.cz,        w: right, h: r.h,   level: r.level })
+			if (below > 0) next.push({ cx: st.cx,       cz: r.cz,        w: 1,     h: below, level: r.level })
+			if (above > 0) next.push({ cx: st.cx,       cz: st.cz + 1,   w: 1,     h: above, level: r.level })
+		}
+		out = next
+	}
+	return out
+}
+
+
+// MARK: addMonumentPit
+/**
+ * A station cell drawn with a square MONUMENT_PIT_SIZE_M recess in the
+ * middle: four ground strips around it (normal rock + cap, so its edge is
+ * a rock face), ONE shallow step down to a MONUMENT_PIT_DEPTH_M floor
+ * (under the 0.3 m DCL auto-step), and a MONUMENT_SOCKET_SIZE_M square
+ * socket MONUMENT_SOCKET_DEPTH_M deep in the centre of the floor that the
+ * obelisk sits in. While frozen the recess is filled by the ice mound
+ * (stationMarkers). All boxes collide. Returns caps spawned.
+ */
+function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number; z: number }): number {
+	const cell = TERRAIN_CELL_M
+	const x0   = TERRAIN_ORIGIN_M + (cx + 0.5) * cell
+	const z0   = TERRAIN_ORIGIN_M + (cz + 0.5) * cell
+	// Ground right up to a MONUMENT_PIT_SIZE_M square; inside it a dark
+	// perimeter band drawn as full-height dark slabs (bedrock to ground
+	// top, same height as the cap beside it: flush, no lip, and no
+	// coplanar faces so no z-fight), then the plain socket in the middle.
+	void MONUMENT_PIT_DEPTH_M
+	const pit  = MONUMENT_PIT_SIZE_M
+	const band = (cell - pit) / 2
+	let caps = 0
+	// South + north strips span the full cell; west + east fill between.
+	if (addRect(x0, z0 - pit / 2 - band / 2, cell, band, top, true, focus)) caps++
+	if (addRect(x0, z0 + pit / 2 + band / 2, cell, band, top, true, focus)) caps++
+	if (addRect(x0 - pit / 2 - band / 2, z0, band, pit, top, true, focus)) caps++
+	if (addRect(x0 + pit / 2 + band / 2, z0, band, pit, top, true, focus)) caps++
+
+	const socket  = MONUMENT_SOCKET_SIZE_M
+	const socketY = top - MONUMENT_SOCKET_DEPTH_M
+	// Dark perimeter band, flush with the ground.
+	spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)
+	// Plain socket: dark bottom, walls are the band's inner faces.
+	spawnSlab(x0, z0, socket, socket, SLAB_BASE_Y, socketY, COLOR_SOCKET)
+	// Invisible physics plug filling the socket to ground level, so a
+	// player can never drop into the empty 1.5 m socket and get stuck
+	// after the obelisk rises. Physics only (not pointer/camera).
+	const plug = engine.addEntity()
+	terrainEntities.push(plug)
+	Transform.create(plug, {
+		position: Vector3.create(x0, socketY + MONUMENT_SOCKET_DEPTH_M / 2, z0),
+		scale   : Vector3.create(socket, MONUMENT_SOCKET_DEPTH_M, socket),
+	})
+	MeshCollider.setBox(plug, ColliderLayer.CL_PHYSICS)
+	return caps
+}
+
+
+// MARK: spawnFrame
+/**
+ * Square ring of four slabs centred on (x0, z0): `outer` edge, with an
+ * `inner` square hole, spanning bottomY..topY. North + south strips span
+ * the full outer width; west + east fill between them.
+ */
+function spawnFrame(
+	x0     : number,
+	z0     : number,
+	outer  : number,
+	inner  : number,
+	bottomY: number,
+	topY   : number,
+	color  : Color4,
+): void {
+	const w = (outer - inner) / 2
+	if (w <= 0) return
+	spawnSlab(x0, z0 - inner / 2 - w / 2, outer, w, bottomY, topY, color)
+	spawnSlab(x0, z0 + inner / 2 + w / 2, outer, w, bottomY, topY, color)
+	spawnSlab(x0 - inner / 2 - w / 2, z0, w, inner, bottomY, topY, color)
+	spawnSlab(x0 + inner / 2 + w / 2, z0, w, inner, bottomY, topY, color)
+}
 
 // MARK: ensureCapLodSystem
 
