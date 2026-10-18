@@ -10,7 +10,11 @@
  * Import setupUi from 'src/client/ui'.
  */
 
-import { SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
+import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import { Layer, SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
+
+import { isMonumentCinematicActive } from 'src/client/monumentCinematic'
+import { cinematicLayer }     from 'src/client/ui/layers/layer.cinematic'
 
 import { SHOW_SERVER_STATS } from 'src/client/devFlags'
 import { actionBarLayer }     from 'src/client/ui/layers/layer.brushSize'
@@ -42,6 +46,38 @@ import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
 // help panel footer (see layer.helpPanel > ui_HelpPanel_version).
 
 
+// MARK: hideDuringCinematic
+/**
+ * Wrap gameplay HUD layers so they collapse (display: 'none') while the
+ * monument cinematic runs. The wrapper is always rendered and the layer's
+ * own tree stays mounted (unmounting lets ReactEcs recycle UiEntities into
+ * other layers, see the kit's Layer.keepContentMounted note).
+ */
+function hideDuringCinematic(layers: Layer[]): Layer[] {
+	for (const layer of layers) {
+		const orig = layer.render.bind(layer)
+		layer.render = () => (
+			<UiEntity
+				key         = {`ui_cineHide_${layer.id}`}
+				uiTransform = {{
+					width         : '100%',
+					height        : '100%',
+					display       : isMonumentCinematicActive() ? 'none' : 'flex',
+					flexDirection : 'column',
+					alignItems    : 'center',
+					justifyContent: 'center',
+					flexShrink    : 0,
+					pointerFilter : 'none',
+				}}
+			>
+				{orig()}
+			</UiEntity>
+		)
+	}
+	return layers
+}
+
+
 // MARK: setupUi
 /**
  * Register every HUD layer with the UI Component Kit. Zone order in the
@@ -61,14 +97,13 @@ export function setupUi() {
 			// at scene boot rather than the first frame each icon renders.
 			// Invisible, off-screen; no z-order or interaction impact.
 			preloadLayer,
-			topDownPanLayer,
+			...hideDuringCinematic([topDownPanLayer]),
 			// Frost segment-gain flash renders BELOW HUD chrome so the bar,
 			// buttons, and prompts stay legible while the blue tint bleeds
 			// across the world. ZoneType.FullScreen but sits early in the
 			// z-stack; deathFade / splash still cover it.
 			frostFlashLayer,
-			actionBarLayer,
-			frostBarLayer,
+			...hideDuringCinematic([actionBarLayer, frostBarLayer]),
 			// Bottom-center hotbar hosting the Torch (E) + Wood (F) slots.
 			// Previously inlined into frostBarLayer; pulled out so the top
 			// row stays status-only and the inventory reads as a classic
@@ -76,22 +111,26 @@ export function setupUi() {
 			// Bridge sits BEFORE the hotbar + prompts so its gold strip
 			// renders BEHIND both, hiding the seam between button and
 			// tooltip. Pointer-inert; taps still hit button / tooltip.
-			hotbarBridgeLayer,
-			inventoryHotbarLayer,
-			relightPromptLayer,
-			feedPromptLayer,
-			chopPromptLayer,
-			hiddenCampfirePromptLayer,
+			...hideDuringCinematic([
+				hotbarBridgeLayer,
+				inventoryHotbarLayer,
+				relightPromptLayer,
+				feedPromptLayer,
+				chopPromptLayer,
+				hiddenCampfirePromptLayer,
+			]),
 			// Help panel â€” slides down from the top when the HelpButton (?)
 			// is clicked. Registered above HUD chrome so its border isn't
 			// clipped by lower layers, but below deathFade / splash.
-			helpPanelLayer,
+			...hideDuringCinematic([helpPanelLayer]),
+			// Monument cinematic letterbox: above HUD chrome, below splashes.
+			cinematicLayer,
 			// Sunrise "Day X" sits above HUD chrome, below death / ember /
 			// loading so those still cover it.
 			daySplashLayer,
 			// Summit world-map popup (knowledge only).
 			summitMapLayer,
-			// World-thaw victory card (3/3 stations) — above day splash, below death.
+			// World-thaw victory card (3/3 stations) ï¿½ above day splash, below death.
 			thawSplashLayer,
 			// Death fade must sit above gameplay HUD but below the cold-open
 			// splash so a splash-during-death still covers the screen.

@@ -6,13 +6,31 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-18 session — Monuments rework, ignition cinematic, isometric overview
+
+Shipped state: [`session-2026-10-18-monuments-cinematic.md`](./session-2026-10-18-monuments-cinematic.md) (`main` `7cfaf4b` + `cinematic` branch, not merged).
+
+- **2026-10-18 · Monuments are socketed obelisks · owner-directed** — no pit steps; flush dark border; invisible collider fills the socket; seated so the top pyramid's base is flush with the ground (only the 4 m pyramid shows).
+- **2026-10-18 · Only one monument has the ice test, never the near one · owner-directed** — 4 corner blocks, 6 s each with a lit torch; chosen by seed among the far stations.
+- **2026-10-18 · One prompt only: IGNITE MONUMENT, needs no ice + a lit torch · owner-directed** — melt prompt and torch hints removed.
+- **2026-10-18 · Near monument on the side away from the volcano, visible from the campfire · owner-directed** — ~160 m out (band 136–192 m), within 75° of "away", campfire→tip terrain LOS required except in the logged last-resort passes. Old scoring had a facing term that pulled it toward the volcano. No station needs volcano LOS any more (hover + beam lift instead).
+- **2026-10-18 · Monuments hover higher and move more · owner-directed** — rise 10 s (was 6); bottom tip max(volcano aim + 35, ground + 70) (was +20 / +50); bob ±2.5 m over 10 s, spin 5°/s.
+- **2026-10-18 · Volcano beam endpoint fixed in the world · owner-directed** — re-aimed from the bobbing bottom tip every frame.
+- **2026-10-18 · Crystal hum from the ground + gaze hum · owner-directed** — positional loop from 2 m above the socket; soft 2D loop while looking at a lit obelisk.
+- **2026-10-18 · Frost bar: no dark-blue shift while frozen · owner-directed.**
+- **2026-10-18 · Local-only ignition cinematic · owner-directed** — ~19 s of shots for the igniting player only, letterbox + HUD hidden, skippable; phase stretches are client-side only. On the `cinematic` branch.
+- **2026-10-18 · Overview camera becomes angled isometric · owner-directed** — pitch 35.26°, yaw 45°, FOV 30°, distant camera; pan follows the rotated frame. On the `cinematic` branch.
+- **Open:** is a lit torch at night safe enough with monuments giving no heat? Partial volcano thaw per beam (instead of only at 3/3)?
+
+---
+
 ## 2026-10-07 session — V1 MVP loop
 
 Shipped state: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
 
 - **2026-10-07 · Playtest on `playtest_52`, keep `full_100` · owner-directed** — smaller 52×52 envelope for a dense, completable loop.
 - **2026-10-07 · Tablet is knowledge, not a gate · owner-directed** — monuments can be lit in any order without reading the map.
-- **2026-10-07 · Monuments ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE MONUMENT within 3.5 m; lit monuments are eternal Warm fires.
+- **2026-10-07 · Monuments ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE MONUMENT within 3.5 m; lit monuments are eternal Warm fires. **[Superseded:** monuments give no heat / melt; prompt range is now the 5.5 m monument radius; see 2026-10-18.]
 - **2026-10-07 · 3rd monument auto-thaws, no return-to-peak · owner-directed.**
 - **2026-10-07 · Thaw is a 45 s radial wave, rate-limited · bugfix** — melting all 2,704 tiles in one frame froze clients.
 - **2026-10-07 · No night cold after thaw; 3 warm days then new winter · owner-directed** — "Winter Approaches in N Days" replaces DAY X. **[Revised same day:** `POST_THAW_DAYS = 1`; no night cold only inside the thaw ring.]

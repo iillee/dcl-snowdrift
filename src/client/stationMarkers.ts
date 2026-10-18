@@ -69,6 +69,13 @@ import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { setOptimisticStage } from 'src/client/snow/snowModel'
 import { setSnowCellOffsets } from 'src/client/snow/snowRenderer'
+import {
+	CINE_SETTLE_S,
+	CINE_SKY_DROP_S,
+	CINE_VOLCANO_DRAW_S,
+	abortMonumentCinematic,
+	startMonumentCinematic,
+} from 'src/client/monumentCinematic'
 import { isTorchLit } from 'src/client/torchEquip'
 import { beginVolcanoThaw, setVolcanoLavaVisible } from 'src/client/volcanoCrown'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
@@ -170,8 +177,8 @@ const ICE_DROP_S = 0.3
 const ICE_RESEND_MS = 3000
 
 // MARK: Tuning - rise / hover
-/** Rise out of the ground (s). */
-export const MONUMENT_RISE_S = 6
+/** Rise out of the ground (s). Applies to every client's rise animation. Was 6. */
+export const MONUMENT_RISE_S = 10
 /** Pause once stationary before the sky beam drops (s). */
 export const MONUMENT_SETTLE_S = 0.6
 /** Hover bob amplitude (m) and period (s). Was 0.6 m / 12 s. */
@@ -274,6 +281,8 @@ type Beam = {
 type Slot = {
 	/** True for the one monument with the ice test (icedStationIndex). */
 	iced: boolean,
+	/** True while the local ignite cinematic runs for this slot (stretched beam phases). */
+	cine: boolean,
 	index   : number
 	/** Ice chunk entities by chunk index (null = melted / obelisk column). */
 	chunks  : Array<Entity | null>
@@ -959,11 +968,44 @@ function requestActivate(index: number): void {
 	playIgnitionSfx(index)
 	finishActivate(index, true)
 	room.send('stationActivate', { seed: currentSeed, index })
+	startIgniteCinematic(index)
+}
+
+
+// MARK: startIgniteCinematic
+/**
+ * Local-only cinematic for the player who just ignited monument `index`.
+ * Never called from stationState (remote ignites / hydration), so late
+ * joiners and reloads never replay it. Stretches this slot's settle /
+ * sky-beam / volcano-beam phases (client-side only) until it ends.
+ */
+function startIgniteCinematic(index: number): void {
+	const slot = slots[index]
+	if (!slot || slot.phase !== 'rising') return
+	const map = activeTerrain()
+	const aim = slot.aim ?? (map ? volcanoBeamTarget(map) : null)
+	if (!aim) return
+	slot.cine = true
+	startMonumentCinematic({
+		x           : slot.x,
+		z           : slot.z,
+		groundY     : slot.groundY,
+		hoverCentreY: hoverCentreY(slot),
+		halfLen     : OB_TOTAL_M / 2,
+		aim         : Vector3.create(aim.x, aim.y, aim.z),
+		riseS       : MONUMENT_RISE_S,
+		rigPos      : () => {
+			const tr = Transform.getOrNull(slot.rig)
+			return tr ? Vector3.clone(tr.position) : Vector3.create(slot.x, hoverCentreY(slot), slot.z)
+		},
+		onEnd       : () => { slot.cine = false },
+	})
 }
 
 
 // MARK: clearAll
 function clearAll(): void {
+	abortMonumentCinematic()
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots[i]
 		if (!s) continue
@@ -1008,6 +1050,7 @@ function buildForMap(map: TerrainMap | null): void {
 		const slot: Slot = {
 			index: i,
 			iced: stationHasIce(map, i),
+			cine: false,
 			chunks: new Array<Entity | null>(MONUMENT_ICE_SLOTS).fill(null),
 			heat: new Array<number>(MONUMENT_ICE_SLOTS).fill(0),
 			iceMask: 0,
@@ -1372,16 +1415,18 @@ function animSystem(dt: number): void {
 		applyHover(slot)
 
 		if (slot.phase === 'settle') {
-			if (slot.phaseT >= MONUMENT_SETTLE_S) {
+			if (slot.phaseT >= (slot.cine ? CINE_SETTLE_S : MONUMENT_SETTLE_S)) {
 				ensureBeams(slot, map)
 				setPhase(slot, 'skyBeam')
 			}
 		} else if (slot.phase === 'skyBeam') {
-			revealBeam(slot.sky, slot.phaseT / SKY_BEAM_DROP_S, SKY_BEAM_SEGMENTS)
-			if (slot.phaseT >= SKY_BEAM_DROP_S) setPhase(slot, 'volcanoBeam')
+			const dropS = slot.cine ? CINE_SKY_DROP_S : SKY_BEAM_DROP_S
+			revealBeam(slot.sky, slot.phaseT / dropS, SKY_BEAM_SEGMENTS)
+			if (slot.phaseT >= dropS) setPhase(slot, 'volcanoBeam')
 		} else if (slot.phase === 'volcanoBeam') {
-			revealBeam(slot.volcano, slot.phaseT / VOLCANO_BEAM_DRAW_S, BEAM_SEGMENTS)
-			if (slot.phaseT >= VOLCANO_BEAM_DRAW_S) {
+			const drawS = slot.cine ? CINE_VOLCANO_DRAW_S : VOLCANO_BEAM_DRAW_S
+			revealBeam(slot.volcano, slot.phaseT / drawS, BEAM_SEGMENTS)
+			if (slot.phaseT >= drawS) {
 				setPhase(slot, 'done')
 				syncVolcanoFromStations()
 				console.log(`stationMarkers[${i}]: activation complete, beam redirected to volcano`)

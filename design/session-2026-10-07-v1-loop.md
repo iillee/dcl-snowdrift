@@ -19,6 +19,8 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 
 ## Ignition monuments (`src/server/stations.ts`, `src/client/stationMarkers.ts`)
 
+> **Superseded 2026-10-18:** the monument look, ice test, ignite rules, hover, beams, sound and placement below are out of date. Current state: [`session-2026-10-18-monuments-cinematic.md`](./session-2026-10-18-monuments-cinematic.md). In particular monuments no longer give warmth or melt snow, there is no flame on top, and no station needs volcano line of sight.
+
 - 3 sockets generated per seed, line-of-sight validated to the volcano.
 - Grey stone stumps with colliders, tall enough to clear ~1.5 m snow; rebuilt when terrain changes.
 - `STATION_DEBUG_BEACONS = false` — debug beacons off; stumps and real beams remain.

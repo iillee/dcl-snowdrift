@@ -133,7 +133,9 @@ export const MONUMENT_OBELISK_WIDTH_M = 3
 export const MONUMENT_SOCKET_SIZE_M = MONUMENT_OBELISK_WIDTH_M + 0.1
 /**
  * Socket depth below the ground (m). Deeper than a default DCL jump
- * (~1 m); no stair any more: the client fills it with an invisible collider plug\n * at ground level so nobody can drop in. While frozen the obelisk shaft\n * runs on down through the socket floor.
+ * (~1 m); no stair any more: the client fills it with an invisible collider plug
+ * at ground level so nobody can drop in. While frozen the obelisk shaft
+ * runs on down through the socket floor.
  */
 export const MONUMENT_SOCKET_DEPTH_M = 1.5
 /** Clutter margin (m) kept clear around the ice edge (room to walk round and melt it). */
@@ -143,14 +145,14 @@ export const MONUMENT_PIT_RIM_CLEAR_M = 2
  * The real hover height is target-relative (monumentHoverBottomY); this
  * only matters if a station's ground ever sat close to the volcano rim.
  */
-export const MONUMENT_HOVER_BOTTOM_H_M = 50
+export const MONUMENT_HOVER_BOTTOM_H_M = 70
 /**
  * Hovering bottom tip sits this far ABOVE the beam's target height (the
  * crater rim aim point, ~81 m world) so every monument's volcano beam
  * descends slightly toward the volcano, whatever the local ground (m).
- * Tune 15..25.
+ * Was 20 (floor ground + 50); raised so monuments hover higher.
  */
-export const MONUMENT_HOVER_ABOVE_TARGET_M = 20
+export const MONUMENT_HOVER_ABOVE_TARGET_M = 35
 
 // MARK: monumentHoverBottomY
 /**
