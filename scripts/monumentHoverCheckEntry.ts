@@ -6,7 +6,7 @@ import { cellCenterWorld, monumentHoverBottomY } from 'src/shared/terrain/terrai
 
 // Mirrors stationMarkers: OB_TOTAL_M (14 + 2*4), HOVER_BOB_M, HOVER_CEILING_MARGIN_M.
 const OB_TOTAL_M = 22
-const BOB_M = 2.5
+const BOB_M = 0.3
 const CEIL_MARGIN_M = 24
 const SNOW_TOP_MARGIN_M = 6
 

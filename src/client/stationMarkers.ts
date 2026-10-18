@@ -53,6 +53,7 @@ import {
 	ColliderLayer,
 	Entity,
 	GltfContainer,
+	GltfNodeModifiers,
 	Material,
 	MaterialTransparencyMode,
 	MeshCollider,
@@ -64,7 +65,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playIceMeltSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
+import { playBeamSfx, playIceMeltSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { setOptimisticStage } from 'src/client/snow/snowModel'
@@ -76,6 +77,7 @@ import {
 	abortMonumentCinematic,
 	startMonumentCinematic,
 } from 'src/client/monumentCinematic'
+import { MONUMENT_MATTE_PBR } from 'src/client/monumentMaterial'
 import { isTorchLit } from 'src/client/torchEquip'
 import { beginVolcanoThaw, setVolcanoLavaVisible } from 'src/client/volcanoCrown'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
@@ -181,8 +183,8 @@ const ICE_RESEND_MS = 3000
 export const MONUMENT_RISE_S = 10
 /** Pause once stationary before the sky beam drops (s). */
 export const MONUMENT_SETTLE_S = 0.6
-/** Hover bob amplitude (m) and period (s). Was 0.6 m / 12 s. */
-export const HOVER_BOB_M = 2.5
+/** Hover bob amplitude (m) and period (s): barely noticeable. Was 2.5 m (before that 0.6 m / 12 s). */
+export const HOVER_BOB_M = 0.3
 export const HOVER_BOB_PERIOD_S = 10
 /** Hover spin (degrees per second). Was 3. */
 export const HOVER_SPIN_DEG_S = 5
@@ -195,6 +197,12 @@ export const HOVER_EASE_IN_S = 4
 
 // MARK: Tuning - melt sound
 /** Looping icemelt.mp3 (same clip as a frozen player's thaw) while any chunk melts. */
+/**
+ * beam.wav one-shot (non-positional, camera-parented) for the igniting
+ * player only, the moment the volcano beam starts drawing out of the
+ * bottom tip. Plays whether or not the cinematic was skipped.
+ */
+export const BEAM_SFX_VOLUME = 0.8
 const ICE_MELT_SFX_SRC = 'assets/sounds/icemelt.mp3'
 const ICE_MELT_SFX_VOLUME = 0.3
 /** Volume of the one-shot icemelt hit others hear per melted chunk (was 0.8). */
@@ -283,6 +291,8 @@ type Slot = {
 	iced: boolean,
 	/** True while the local ignite cinematic runs for this slot (stretched beam phases). */
 	cine: boolean,
+	/** Local ignite: play beam.wav when the volcano beam starts (once). */
+	beamSfx: boolean,
 	index   : number
 	/** Ice chunk entities by chunk index (null = melted / obelisk column). */
 	chunks  : Array<Entity | null>
@@ -499,6 +509,11 @@ function part(parent: Entity, src: string, pos: Vector3, scale: Vector3, flip: b
 		src,
 		visibleMeshesCollisionMask  : 0,
 		invisibleMeshesCollisionMask: 0,
+	})
+	// Matte deep black, no reflectivity: override every node's glb material
+	// (path '' = global modifier) so it matches the socket border exactly.
+	GltfNodeModifiers.create(e, {
+		modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...MONUMENT_MATTE_PBR } } } }],
 	})
 	return e
 }
@@ -967,6 +982,8 @@ function requestActivate(index: number): void {
 	console.log(`stationMarkers[${index}]: ignited, activate requested (seed=${currentSeed})`)
 	playIgnitionSfx(index)
 	finishActivate(index, true)
+	// This player ignited it: beam.wav when the volcano beam starts (even if the cinematic is skipped).
+	if (slots[index]) slots[index]!.beamSfx = true
 	room.send('stationActivate', { seed: currentSeed, index })
 	startIgniteCinematic(index)
 }
@@ -1051,6 +1068,7 @@ function buildForMap(map: TerrainMap | null): void {
 			index: i,
 			iced: stationHasIce(map, i),
 			cine: false,
+			beamSfx: false,
 			chunks: new Array<Entity | null>(MONUMENT_ICE_SLOTS).fill(null),
 			heat: new Array<number>(MONUMENT_ICE_SLOTS).fill(0),
 			iceMask: 0,
@@ -1400,6 +1418,16 @@ function animSystem(dt: number): void {
 			const y0 = frozenCentreY(slot)
 			const y1 = hoverCentreY(slot)
 			applyRig(slot, y0 + (y1 - y0) * e)
+			// Ignition cinematic only: the sky beam drops during the last
+			// CINE_SKY_DROP_S of the rise and lands in the top tip (at its
+			// hover position) exactly as the rise ends.
+			if (slot.cine) {
+				const dropT0 = MONUMENT_RISE_S - CINE_SKY_DROP_S
+				if (slot.phaseT >= dropT0) {
+					ensureBeams(slot, map)
+					revealBeam(slot.sky, (slot.phaseT - dropT0) / CINE_SKY_DROP_S, SKY_BEAM_SEGMENTS)
+				}
+			}
 			if (u >= 1) {
 				slot.hoverT = 0
 				setObeliskSolid(slot, true)
@@ -1417,12 +1445,18 @@ function animSystem(dt: number): void {
 		if (slot.phase === 'settle') {
 			if (slot.phaseT >= (slot.cine ? CINE_SETTLE_S : MONUMENT_SETTLE_S)) {
 				ensureBeams(slot, map)
-				setPhase(slot, 'skyBeam')
+				if (slot.cine) {
+					// Sky beam already landed during the rise: straight to the volcano beam.
+					revealBeam(slot.sky, 1, SKY_BEAM_SEGMENTS)
+					startVolcanoBeam(slot)
+				} else {
+					setPhase(slot, 'skyBeam')
+				}
 			}
 		} else if (slot.phase === 'skyBeam') {
 			const dropS = slot.cine ? CINE_SKY_DROP_S : SKY_BEAM_DROP_S
 			revealBeam(slot.sky, slot.phaseT / dropS, SKY_BEAM_SEGMENTS)
-			if (slot.phaseT >= dropS) setPhase(slot, 'volcanoBeam')
+			if (slot.phaseT >= dropS) startVolcanoBeam(slot)
 		} else if (slot.phase === 'volcanoBeam') {
 			const drawS = slot.cine ? CINE_VOLCANO_DRAW_S : VOLCANO_BEAM_DRAW_S
 			revealBeam(slot.volcano, slot.phaseT / drawS, BEAM_SEGMENTS)
@@ -1432,6 +1466,17 @@ function animSystem(dt: number): void {
 				console.log(`stationMarkers[${i}]: activation complete, beam redirected to volcano`)
 			}
 		}
+	}
+}
+
+
+// MARK: startVolcanoBeam
+/** Enter the volcano-beam phase; the igniting player hears beam.wav once. */
+function startVolcanoBeam(slot: Slot): void {
+	setPhase(slot, 'volcanoBeam')
+	if (slot.beamSfx) {
+		slot.beamSfx = false
+		playBeamSfx(BEAM_SFX_VOLUME)
 	}
 }
 

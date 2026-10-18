@@ -49,6 +49,7 @@ import {
 	TerrainMap,
 } from 'src/shared/terrain/terrainMap'
 
+import { MONUMENT_BLACK, MONUMENT_MATTE_PBR } from 'src/client/monumentMaterial'
 import { clearLadders, setupLadders } from 'src/client/terrain/ladders'
 import { thawWaveReachedRect } from 'src/client/worldThaw'
 
@@ -84,10 +85,9 @@ const COLOR_ROCK = Color4.create(0.2525, 0.3354, 0.6314, 1)
 /** Melt-blue ground the snow lies on, at every playable level. */
 const COLOR_GROUND = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
 
-/** Monument recess floor: darker than the cliff rock so the hole reads deep. */
-const COLOR_PIT = Color4.create(0.11, 0.13, 0.22, 1)
-/** Monument socket bottom: darker still, so the seat reads as a deep slot. */
-const COLOR_SOCKET = Color4.create(0.05, 0.06, 0.1, 1)
+/** Monument socket border + socket bottom: the obelisk's matte deep black. */
+const COLOR_PIT    = MONUMENT_BLACK
+const COLOR_SOCKET = MONUMENT_BLACK
 
 
 // MARK: State
@@ -272,10 +272,10 @@ function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number;
 
 	const socket  = MONUMENT_SOCKET_SIZE_M
 	const socketY = top - MONUMENT_SOCKET_DEPTH_M
-	// Dark perimeter band, flush with the ground.
-	spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)
-	// Plain socket: dark bottom, walls are the band's inner faces.
-	spawnSlab(x0, z0, socket, socket, SLAB_BASE_Y, socketY, COLOR_SOCKET)
+	// Black perimeter band, flush with the ground (matte, no reflectivity).
+	for (const e of spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)) paintMonumentMatte(e)
+	// Plain socket: black bottom, walls are the band's inner faces.
+	paintMonumentMatte(spawnSlab(x0, z0, socket, socket, SLAB_BASE_Y, socketY, COLOR_SOCKET))
 	// Invisible physics plug filling the socket to ground level, so a
 	// player can never drop into the empty 1.5 m socket and get stuck
 	// after the obelisk rises. Physics only (not pointer/camera).
@@ -304,13 +304,22 @@ function spawnFrame(
 	bottomY: number,
 	topY   : number,
 	color  : Color4,
-): void {
+): Entity[] {
 	const w = (outer - inner) / 2
-	if (w <= 0) return
-	spawnSlab(x0, z0 - inner / 2 - w / 2, outer, w, bottomY, topY, color)
-	spawnSlab(x0, z0 + inner / 2 + w / 2, outer, w, bottomY, topY, color)
-	spawnSlab(x0 - inner / 2 - w / 2, z0, w, inner, bottomY, topY, color)
-	spawnSlab(x0 + inner / 2 + w / 2, z0, w, inner, bottomY, topY, color)
+	if (w <= 0) return []
+	return [
+		spawnSlab(x0, z0 - inner / 2 - w / 2, outer, w, bottomY, topY, color),
+		spawnSlab(x0, z0 + inner / 2 + w / 2, outer, w, bottomY, topY, color),
+		spawnSlab(x0 - inner / 2 - w / 2, z0, w, inner, bottomY, topY, color),
+		spawnSlab(x0 + inner / 2 + w / 2, z0, w, inner, bottomY, topY, color),
+	]
+}
+
+
+// MARK: paintMonumentMatte
+/** Monument stone: matte deep black, no reflectivity (src/client/monumentMaterial.ts). */
+function paintMonumentMatte(e: Entity): void {
+	Material.setPbrMaterial(e, { ...MONUMENT_MATTE_PBR })
 }
 
 // MARK: ensureCapLodSystem

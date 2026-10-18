@@ -27,6 +27,7 @@ import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { getLivePhaseConfig } from 'src/client/phase'
+import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { syncTorchFlameNow } from 'src/client/torch'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
@@ -155,7 +156,8 @@ export function setupTorchInput(): void {
 				relightTorch()
 				syncTorchFlameNow()
 			}
-		} else if (isTorchLit()) {
+		} else if (isTorchLit() && !isSurvivalPausedByCinematic()) {
+			// Paused while the local ignition cinematic runs.
 			const remaining = consumeTorchFuel(dt * getLivePhaseConfig().torchDrainMul)
 			if (remaining <= 0) {
 				extinguishTorch()

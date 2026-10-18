@@ -44,6 +44,7 @@ import { DEV_DISABLE_FROST } from 'src/client/devFlags'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
 import { getLivePhaseConfig } from 'src/client/phase'
+import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { thawHeatAt } from 'src/client/worldThaw'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
@@ -273,6 +274,14 @@ export function initFrostAccumulation(): void {
 	sampleAccum = 0
 
 	engine.addSystem((dt: number) => {
+		// Watching the local ignition cinematic: frost, warmth reserve and
+		// day-idle drain all hold exactly (time is dropped, not banked), and
+		// the rising state clears so no tint / flash / freeze cue runs.
+		if (isSurvivalPausedByCinematic()) {
+			sampleAccum = 0
+			if (frostRising) setFrostRising(false)
+			return
+		}
 		sampleAccum += dt
 		if (sampleAccum < FROST_SAMPLE_INTERVAL_S) return
 		const step = sampleAccum

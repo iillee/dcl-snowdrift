@@ -7,16 +7,17 @@ Nothing here has been verified in a live preview yet; the check scripts, `npx ts
 ## Branches
 
 - **`main`** — `7cfaf4b` *Monuments: socketed obelisks with corner-ice melt test, hover bob/spin, fixed volcano beam, crystal hum + gaze sound, far-side near monument, snowfall column* (on top of `457befe`, which already made monuments give no heat / melt).
-- **`cinematic`** — branched from `7cfaf4b`: ignition cinematic + letterbox, 10 s rise, higher hover, seated pyramid flush with the ground, isometric overview camera. Not merged into `main`.
+- **`cinematic`** — branched from `7cfaf4b`: ignition cinematic + letterbox (`865763f`), then survival pause, 14.2 s retime, beam.wav, ±0.3 m bob, matte deep-black material, iso FOV 24° + desktop pan fix (follow-up commit). 10 s rise, higher hover, seated pyramid flush with the ground, isometric overview camera. Not merged into `main`.
 
 ## Monuments (`src/client/stationMarkers.ts`, `src/server/stations.ts`, `src/shared/monumentIce.ts`, `src/shared/terrain/terrainMap.ts`, `src/client/terrain/terrainRenderer.ts`)
 
 ### Look and socket
 
-- Each monument is a dark slate **obelisk**: square shaft `OB_SHAFT_M = 14` m, a `OB_TIP_M = 4` m pyramid on each end, width `MONUMENT_OBELISK_WIDTH_M = 3` m (low-poly GLBs from `scripts/make-obelisk-glb.js`: `assets/models/obelisk_shaft.glb`, `obelisk_pyramid.glb`).
+- Each monument is a matte deep-black **obelisk**: square shaft `OB_SHAFT_M = 14` m, a `OB_TIP_M = 4` m pyramid on each end, width `MONUMENT_OBELISK_WIDTH_M = 3` m (low-poly GLBs from `scripts/make-obelisk-glb.js`: `assets/models/obelisk_shaft.glb`, `obelisk_pyramid.glb`).
+- **Material (cinematic branch):** `src/client/monumentMaterial.ts` — `MONUMENT_BLACK` rgb(0.02, 0.02, 0.02), metallic 0, roughness 1, specular 0, black reflectivity (`MONUMENT_MATTE_PBR`). Applied to the obelisk glb parts with a global `GltfNodeModifiers` material override (`stationMarkers.ts` `part`) and to the socket border + socket bottom slabs (`terrainRenderer.ts` `paintMonumentMatte`). The glbs were regenerated to match (base 0.02, metallic 0, roughness 1, `KHR_materials_specular` factor 0). Beams keep their emissive material.
 - Seated in a square **socket** (`MONUMENT_SOCKET_SIZE_M` = width + 0.1 m, `MONUMENT_SOCKET_DEPTH_M = 1.5` m) in the centre of a `MONUMENT_PIT_SIZE_M = 6` m square. `MONUMENT_PIT_DEPTH_M = 0`: no recess and no steps, the ground around the socket is flat.
 - **Seated height (cinematic branch):** `FROZEN_SHAFT_ABOVE_GROUND_M = 0` — the base of the top pyramid is flush with the ground, so only the 4 m pyramid shows (tip 4 m up). The shaft runs down through the socket, hidden in the terrain. The rise starts from here.
-- **Black border:** a dark perimeter band around the socket drawn as full-height slabs, flush with the surrounding ground cap (no lip, no step) — `addMonumentPit` in `terrainRenderer.ts`.
+- **Black border:** a matte deep-black perimeter band (same material as the obelisk) around the socket drawn as full-height slabs, flush with the surrounding ground cap (no lip, no step) — `addMonumentPit` in `terrainRenderer.ts`.
 - **Invisible socket floor:** a physics-only box collider fills the socket to ground level, so nobody can drop into the empty socket after the obelisk rises.
 
 ### Ice test (one far monument only)
@@ -38,7 +39,7 @@ Nothing here has been verified in a live preview yet; the check scripts, `npx ts
 
 - **Rise:** `MONUMENT_RISE_S = 10` (was 6; every client), straight up, no rotation. `MONUMENT_SETTLE_S = 0.6` pause once stationary.
 - **Hover height** (`monumentHoverBottomY` in `terrainMap.ts`, shared with terrain gen): bottom tip = max(volcano aim Y + `MONUMENT_HOVER_ABOVE_TARGET_M = 35`, ground + `MONUMENT_HOVER_BOTTOM_H_M = 70`) + `beamLiftM`, capped so the top tip stays `HOVER_CEILING_MARGIN_M = 24` m under the scene height limit. (Was +20 / ground + 50.) The volcano beam always angles slightly down.
-- **Bob / spin:** `HOVER_BOB_M = 2.5` m over `HOVER_BOB_PERIOD_S = 10` s, spin `HOVER_SPIN_DEG_S = 5` °/s; both ease in from zero over `HOVER_EASE_IN_S = 4` s once fully risen.
+- **Bob / spin:** `HOVER_BOB_M = 0.3` m (barely noticeable; was 2.5) over `HOVER_BOB_PERIOD_S = 10` s, spin `HOVER_SPIN_DEG_S = 5` °/s; both ease in from zero over `HOVER_EASE_IN_S = 4` s once fully risen.
 - **Sky beam:** drops over `SKY_BEAM_DROP_S = 1.2` s from just under the ceiling (`SKY_BEAM_CEILING_MARGIN_M = 4`) into the **top tip**; it bobs with the obelisk.
 - **Volcano beam:** draws over `VOLCANO_BEAM_DRAW_S = 1.5` s from the **bottom tip** to the volcano. Its far end is **fixed in world space**: `aimVolcanoBeam` re-aims and re-stretches it from the live (bobbing) bottom tip every frame. When it lands, the active count goes to volcano smoke / the 3/3 thaw.
 - Late joiners / remote ignites snap to the hovering pose with both beams; only a fresh ignite plays the rise + `monument.mp3`.
@@ -47,6 +48,8 @@ Nothing here has been verified in a live preview yet; the check scripts, `npx ts
 
 - **Crystal hum:** `assets/sounds/crystal.mp3`, positional loop on every risen / hovering obelisk at `CRYSTAL_HUM_VOLUME = 0.7`, emitted from a fixed invisible point `CRYSTAL_HUM_HEIGHT_M = 2` m above the socket (audible from the ground), not from the obelisk.
 - **Gaze hum:** a soft 2D crystal loop while the camera looks at an activated obelisk at any distance: cone `GAZE_CONE_DEG = 12`, `GAZE_VOLUME = 0.25`, fades `GAZE_FADE_IN_S = 1.5` / `GAZE_FADE_OUT_S = 2`; obelisks closer than `GAZE_MIN_HORIZ_M = 8` m horizontally are skipped (the ground hum covers them).
+
+- **Beam whoosh (cinematic branch):** `assets/sounds/beam.wav`, camera-parented non-positional one-shot at `BEAM_SFX_VOLUME = 0.8` (`playBeamSfx` in `audio.ts`) for the igniting player only, the moment the volcano beam starts drawing (`startVolcanoBeam`). Still plays if the cinematic was skipped (it is tied to the local ignite, not the camera).
 
 ### Warmth
 
@@ -67,13 +70,23 @@ Nothing here has been verified in a live preview yet; the check scripts, `npx ts
 
 - **Trigger:** local only — `requestActivate` → `startIgniteCinematic` when *this* player ignites. Never from remote ignites, hydration or reloads, so it never replays.
 - One VirtualCamera interpolated between live key poses (smoothstep), aimed via `lookAtEntity`; keys read the live obelisk rig.
-- **Shots** (T after ignition, rise = 10 s):
-  - a) 0 – rise × `CINE_LOW_HOLD_FRAC = 0.3`: low close shot at the socket (`CINE_LOW_DIST_M = 7`, eye `CINE_LOW_EYE_M = 1.2`) looking up at the tip;
-  - b) – rise: pull back and up tracking the top tip (`CINE_MID_DIST_M = 28` or hover height × `CINE_MID_DIST_PER_H = 0.3`, whichever is larger; ends at `CINE_MID_HEIGHT_FRAC = 0.65` of the hover height);
-  - c) – rise + settle + sky drop: wide shot of the obelisk + sky beam (`CINE_WIDE_DIST_M = 58` or hover height × `CINE_WIDE_DIST_PER_H = 0.5`);
-  - d) – + volcano draw + `CINE_END_HOLD_S = 2`: behind the bottom tip (`CINE_BEAM_BACK_M = 14`, `CINE_BEAM_UP_M = 5`, `CINE_BEAM_SIDE_M = 5`), dolly `CINE_BEAM_DOLLY_M = 22` along the redirected beam, end framing the volcano;
-  - e) release: back to the player camera over `CINE_BLEND_OUT_S = 1.5` (blend-in `CINE_BLEND_IN_S = 0.8`).
-- While the cinematic runs, **this client only** stretches that monument's phases: settle `CINE_SETTLE_S = 1.6`, sky drop `CINE_SKY_DROP_S = 2.4`, volcano draw `CINE_VOLCANO_DRAW_S = 3.0`. The server and other players keep the normal timings. Total ≈ 10 + 1.6 + 2.4 + 3.0 + 2.0 = **19 s**, plus the 1.5 s blend-out.
+- **Timeline** (T after ignition; the rise stays `MONUMENT_RISE_S = 10` for everyone):
+
+  | T (s) | Shot / event |
+  |---|---|
+  | 0 | blend in from the player camera (`CINE_BLEND_IN_S = 0.6`) |
+  | 0 – 2.5 | a) low close shot at the socket (`CINE_LOW_DIST_M = 7`, eye `CINE_LOW_EYE_M = 1.2`) looking up at the tip (`CINE_LOW_HOLD_FRAC = 0.25` of the rise) |
+  | 2.5 – 6.5 | b) pull back and up tracking the top tip (`CINE_MID_END_FRAC = 0.65`; `CINE_MID_DIST_M = 28` or hover height × `CINE_MID_DIST_PER_H = 0.3`; height `CINE_MID_HEIGHT_FRAC = 0.65`) |
+  | 6.5 – 8.4 | c) move to the wide shot (`CINE_WIDE_DIST_M = 58` or hover height × `CINE_WIDE_DIST_PER_H = 0.5`), reached `CINE_WIDE_LEAD_S = 0.2` before the sky drop |
+  | 8.6 – 10.0 | sky beam drops (`CINE_SKY_DROP_S = 1.4`) during the end of the rise and lands in the top tip as the rise ends; wide keeps easing to 10.2 (`CINE_WIDE_LAND_S = 0.2`) |
+  | 10.0 – 10.6 | settle (`CINE_SETTLE_S = 0.6`) |
+  | 10.6 – 12.4 | volcano beam draws (`CINE_VOLCANO_DRAW_S = 1.8`) + `beam.wav`; camera in behind the bottom tip by 11.0 (`CINE_BEAM_CUT_S = 0.4`; `CINE_BEAM_BACK_M = 14`, `CINE_BEAM_UP_M = 5`, `CINE_BEAM_SIDE_M = 5`), then dolly `CINE_BEAM_DOLLY_M = 22` along the beam |
+  | 12.4 – 13.2 | hold on the volcano (`CINE_END_HOLD_S = 0.8`) |
+  | 13.2 – 14.2 | blend back to the player camera (`CINE_BLEND_OUT_S = 1.0`) |
+
+  **Total ≈ 14.2 s** (was ≈ 21 s).
+- The sky-beam overlap, settle and draw timings apply on **this client only** while `slot.cine` is set; the server and other players keep the normal sequence (settle 0.6, sky 1.2, volcano 1.5 s after the rise). Skipping mid-drop hands back to the normal sequence, which finishes the reveal.
+- **Survival pause:** while the cinematic (incl. blend-out) runs, the watching player's frost, warmth reserve, day-idle drain and torch fuel are held exactly (`isSurvivalPausedByCinematic`, read by `frost/accumulation.ts` and `torchInput.ts`; paused time is dropped, not banked). The frost-rising state is cleared, so no tint / flash / freeze sound. Both are client-owned, so no server message and nobody else is affected. Ends on finish, skip, abort (reset / layout rebuild) or a wall-clock cap `CINE_SURVIVAL_PAUSE_MAX_S = 30`, which also force-ends the cinematic.
 - Camera safety: `CINE_GROUND_CLEAR_M = 2` above terrain, `CINE_BOUNDS_MARGIN_M = 2` inside the scene, `CINE_CEILING_MARGIN_M = 3` under the height limit.
 - **Letterbox:** two full-width black bars, `CINE_BAR_FRAC = 0.12` of screen height each, slide in / out over `CINE_BAR_SLIDE_S = 0.6`.
 - **HUD hide:** `hideDuringCinematic` wraps the gameplay HUD layers (overview pan controls, action bar, frost bar, hotbar + bridge, relight / feed / chop / campfire-or-monument prompts, help panel) and sets `display: 'none'` while active, without unmounting. Splashes / death screens stay above.
@@ -83,11 +96,11 @@ Nothing here has been verified in a live preview yet; the check scripts, `npx ts
 ## Isometric overview camera (cinematic branch: `src/client/topDownCamera.ts`)
 
 - The HUD camera button / **1** key now enters an angled isometric view instead of the straight-down overview. Public API unchanged.
-- Pose: pitch `ISO_PITCH_DEG = 35.26` down, yaw `ISO_YAW_DEG = 45` (camera south-west of the focus looking north-east), `VirtualCamera.fov = ISO_FOV_DEG = 30` (SDK default 60). No orthographic camera in DCL, so it is approximated by a distant camera with a narrow FOV.
-- Zoom keeps the old altitude scale (12 – 75, step 6, default 30 desktop / 20 mobile); distance = scale × `ISO_DIST_PER_SCALE` (tan 30° / tan 15° ≈ 2.15) → ~26 / 43 / 65 / 162 m.
+- Pose: pitch `ISO_PITCH_DEG = 35.26` down, yaw `ISO_YAW_DEG = 45` (camera south-west of the focus looking north-east), `VirtualCamera.fov = ISO_FOV_DEG = 24` (was 30; SDK default 60). No orthographic camera in DCL, so it is approximated by a distant camera with a narrow FOV.
+- Zoom keeps the old altitude scale (12 – 75, step 6, default 30 desktop / 20 mobile); distance = scale × `ISO_DIST_PER_SCALE` (tan 30° / tan 12° ≈ 2.72, same framing size as before) → 32.6 / 54.3 / 81.5 / 203.7 m at zoom 12 / 20 / 30 / 75 (height above focus 18.8 / 31.4 / 47.0 / 117.6 m). On mobile the camera passes the ~100 m fog band from zoom 42 up.
 - Focus = player (follow) or the pan target; focus height follows the terrain under it.
 - Safety: camera stays `ISO_BOUNDS_INSET_M = 2` inside the scene (pulls in toward the focus near the south / west edges), `ISO_GROUND_CLEAR_M = 3` above terrain below it, `ISO_CEILING_MARGIN_M = 3` under the limit; distance smoothed (`ISO_DIST_RATE = 6`).
-- Pan in the rotated frame: screen-up = camera forward on the ground (NE), screen-right = SE. Drag is grab-and-pull (vertical drags ÷ sin(pitch) for foreshortening); the mobile d-pad's legacy axes are converted inside `beginPan`; movement keys recenter. Off-screen avatar hint re-derived for the tilted view.
+- Pan in the rotated frame: screen-up = camera forward on the ground (NE), screen-right = SE. Desktop drag is grab-and-pull, the ground moves with the cursor (the pointer delta's y grows downward, so the vertical term uses +dy; fixed an inverted vertical pan; vertical drags ÷ sin(pitch) for foreshortening); the mobile d-pad's legacy axes are converted inside `beginPan`; movement keys recenter. Off-screen avatar hint re-derived for the tilted view.
 - Transition speed `TRANSITION_SPEED = 260` m/s (was 200).
 
 ## Other changes in `7cfaf4b`

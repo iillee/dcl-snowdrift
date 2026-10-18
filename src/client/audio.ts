@@ -35,6 +35,7 @@ const SUNRISE_SRC = 'assets/sounds/sunrise.wav'
 const PICKUP_SRC  = 'assets/sounds/pop.mp3'
 const DROP_SRC    = 'assets/sounds/droplogs.mp3'
 const MONUMENT_SRC = 'assets/sounds/monument.mp3'
+const BEAM_SRC     = 'assets/sounds/beam.wav'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -53,6 +54,7 @@ let dropSfxEnt: Entity = 0 as Entity
 let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
 let monumentSfxEnt: Entity = 0 as Entity
+let beamSfxEnt:     Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
 let healSfxEnt:  Entity = 0 as Entity
@@ -152,6 +154,7 @@ export function initAudio(): void {
 	claimSfxEnt   = makeCameraSfx(CLAIM_SRC, 0.25)
 	surgeSfxEnt   = makeCameraSfx(SURGE_SRC, 0.7)
 	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
+	beamSfxEnt     = makeCameraSfx(BEAM_SRC, 0.8)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
 	frostSfxEnt   = makeCameraSfx(FROST_SRC, FROST_SFX_VOLUME)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
@@ -415,6 +418,17 @@ export function playTorchSfxLocal(): void {
  */
 export function playSurgeSfxLocal(): void {
 	playOneShot(surgeSfxEnt, SURGE_SRC, 0.7)
+}
+
+
+// MARK: playBeamSfx
+/**
+ * Volcano-beam whoosh (beam.wav) for the player who ignited a monument:
+ * camera-parented, non-positional one-shot so it is clearly audible
+ * however far the camera is from the obelisk.
+ */
+export function playBeamSfx(volume: number): void {
+	playOneShot(beamSfxEnt, BEAM_SRC, volume)
 }
 
 

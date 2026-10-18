@@ -54,9 +54,10 @@ export const ISO_YAW_DEG   = 45
  * Vertical field of view (deg) passed to VirtualCamera.fov (SDK default 60).
  * Narrower = flatter / more axonometric but the camera must sit further away
  * (distance ∝ 1 / tan(fov/2)), which hits scene bounds, the ceiling and the
- * mobile fog band sooner. 30 is the compromise; 20 is flatter but ~1.6x the throw.
+ * mobile fog band sooner. 24 (was 30) is slightly tighter; distance is
+ * rescaled via ISO_DIST_PER_SCALE so the framing size stays the same.
  */
-export const ISO_FOV_DEG   = 30
+export const ISO_FOV_DEG   = 24
 
 // Zoom level ("view scale"): the old overhead altitude, kept as the zoom unit
 // so the zoom buttons + pan speeds keep their tuning. A view scale of A frames
@@ -72,7 +73,7 @@ const CAM_ALTITUDE_STEP            = 6
 /** Reference FOV the zoom scale was tuned against (old overhead camera, deg). */
 const REF_FOV_DEG = 60
 const DEG = Math.PI / 180
-/** Camera distance (m) per unit of view scale: tan(ref/2) / tan(fov/2). FOV 30 → ≈ 2.15. */
+/** Camera distance (m) per unit of view scale: tan(ref/2) / tan(fov/2). FOV 24 → ≈ 2.72 (FOV 30 was ≈ 2.15). */
 export const ISO_DIST_PER_SCALE = Math.tan(REF_FOV_DEG * DEG / 2) / Math.tan(ISO_FOV_DEG * DEG / 2)
 
 /** Camera stays this far inside the scene edges (m). */
@@ -353,6 +354,9 @@ export function recenter(): void {
  * (Google Maps). Mapped through the rotated screen frame:
  *   drag up    → focus moves along -FWD (world slides up the screen)
  *   drag right → focus moves along -RIGHT
+ * The pointer delta's y grows toward the BOTTOM of the screen, so the
+ * vertical term uses +dy (the old -dy panned inverted in playtest).
+ * Desktop only: the mobile d-pad goes through beginPan, untouched.
  */
 export function applyPanDelta(dxPx: number, dyPx: number): void {
 	if (!active) return
@@ -366,9 +370,9 @@ export function applyPanDelta(dxPx: number, dyPx: number): void {
 
 	mode = Mode.FREE
 
-	// screenDelta origin is bottom-left, positive y = cursor moved up.
+	// Pointer delta: positive y = cursor moved DOWN the screen (see header).
 	const mPerPx = DRAG_M_PER_PX_BASE * (currentAltitude / 30)
-	const up     = -dyPx * mPerPx / SIN_P
+	const up     = dyPx * mPerPx / SIN_P
 	const right  = -dxPx * mPerPx
 	targetPos.x += FWD.x * up + RIGHT.x * right
 	targetPos.z += FWD.z * up + RIGHT.z * right

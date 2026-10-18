@@ -5,7 +5,9 @@
 //   assets/models/obelisk_shaft.glb   - unit cube centred on the origin
 //     (-0.5..0.5 on every axis).
 // Both are flat-shaded (one normal per face, unshared vertices) and share
-// the same dark slate PBR material so the parts read as one stone. Scale
+// the same matte deep-black PBR material so the parts read as one stone
+// (metallic 0, roughness 1, KHR_materials_specular factor 0; the scene
+// also overrides it in code, see src/client/monumentMaterial.ts). Scale
 // them in-scene (Transform.scale) to get the real dimensions, which keeps
 // every size tunable from stationMarkers.ts without regenerating.
 //
@@ -15,10 +17,10 @@
 const fs   = require('fs')
 const path = require('path')
 
-// Dark slate, linear (glTF baseColorFactor is linear).
-const SLATE    = [0.030, 0.034, 0.045, 1]
-const METALLIC = 0.2
-const ROUGH    = 0.6
+// Deep black, no reflectivity (glTF baseColorFactor is linear).
+const SLATE    = [0.02, 0.02, 0.02, 1]
+const METALLIC = 0
+const ROUGH    = 1
 
 const OUT_DIR = path.join(__dirname, '..', 'assets', 'models')
 
@@ -64,9 +66,11 @@ function writeGlb(file, mesh, name) {
 		scenes: [{ nodes: [0] }],
 		nodes: [{ mesh: 0, name }],
 		meshes: [{ name, primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2, material: 0, mode: 4 }] }],
+		extensionsUsed: ['KHR_materials_specular'],
 		materials: [{
-			name: 'ObeliskSlate',
+			name: 'ObeliskBlack',
 			pbrMetallicRoughness: { baseColorFactor: SLATE, metallicFactor: METALLIC, roughnessFactor: ROUGH },
+			extensions: { KHR_materials_specular: { specularFactor: 0, specularColorFactor: [0, 0, 0] } },
 		}],
 		buffers: [{ byteLength: bin.length }],
 		bufferViews: [

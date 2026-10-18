@@ -10,19 +10,32 @@
  * settle / sky-beam / volcano-beam phases to CINE_* while a cinematic runs
  * for that slot; client-only, the server and other players are untouched).
  *
- * Shots (T = seconds after ignition, rise = MONUMENT_RISE_S):
- *   a) 0 .. rise*CINE_LOW_HOLD_FRAC  low close shot at the socket looking up
- *   b) .. rise                    pull back + up, tracking the top tip
- *   c) .. rise+settle+skyDrop     wide: obelisk + sky beam into the top tip
- *   d) .. +volcanoDraw+hold       behind the bottom tip, dolly along the
- *                                 redirected beam, end framing the volcano
- *   e) release                    MainCamera back to the player camera
- *                                 (CINE_BLEND_OUT_S), letterbox slides out
+ * Shots (T = seconds after ignition, rise = MONUMENT_RISE_S = 10). The sky
+ * beam drops during the last CINE_SKY_DROP_S of the rise (cinematic only)
+ * and lands in the top tip exactly as the rise ends; the volcano beam
+ * starts CINE_SETTLE_S later:
+ *   a) 0 .. rise*CINE_LOW_HOLD_FRAC   low close shot at the socket looking up
+ *   b) .. rise*CINE_MID_END_FRAC      pull back + up, tracking the top tip
+ *   c) .. rise (+CINE_WIDE_LAND_S)    wide, reached CINE_WIDE_LEAD_S before
+ *                                     the sky drop starts; beam lands at rise
+ *   d) +CINE_BEAM_CUT_S .. +draw+hold behind the bottom tip, dolly along the
+ *                                     redirected beam, end framing the volcano
+ *   e) release                        MainCamera back to the player camera
+ *                                     (CINE_BLEND_OUT_S), letterbox slides out
+ * Default timeline: drop 8.6-10.0, volcano draw 10.6-12.4, release 13.2,
+ * player camera back at 14.2 s.
  *
  * Input: InputModifier disableAll while running (only if no other system
  * already owns one). Skip: E / click / Space after CINE_SKIP_GRACE_S, or
  * the SKIP label in the letterbox (mobile). Never replays: it is only
  * started from the local ignite request, never from hydration.
+ *
+ * Survival pause: while it runs (incl. the blend-out) the watching player's
+ * frost / warmth and torch fuel are held (isSurvivalPausedByCinematic,
+ * read by frost/accumulation.ts and torchInput.ts). Both are client-owned,
+ * so nothing goes to the server and nobody else is affected. Hard cap:
+ * CINE_SURVIVAL_PAUSE_MAX_S wall-clock, after which the pause lifts and
+ * the cinematic is force-ended, so it can never stay stuck.
  */
 
 import {
@@ -44,16 +57,29 @@ import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 // MARK: Tuning
 /** Shot a: low close hold at the socket, as a fraction of the rise time. */
-export const CINE_LOW_HOLD_FRAC    = 0.3
-/** Stretched stationMarkers phases while the cinematic runs (s). */
-export const CINE_SETTLE_S         = 1.6
-export const CINE_SKY_DROP_S       = 2.4
-export const CINE_VOLCANO_DRAW_S   = 3.0
-/** Hold on the volcano after the beam has drawn (s). */
-export const CINE_END_HOLD_S       = 2.0
-/** Blend from the player camera into shot a, and back out at the end (s). */
-export const CINE_BLEND_IN_S       = 0.8
-export const CINE_BLEND_OUT_S      = 1.5
+export const CINE_LOW_HOLD_FRAC    = 0.25
+/** Shot b (pull back) ends at this fraction of the rise; the wide shot follows. */
+export const CINE_MID_END_FRAC     = 0.65
+/** The wide shot is reached this long before the sky drop starts (s). */
+export const CINE_WIDE_LEAD_S      = 0.2
+/** Wide shot keeps easing this long past the sky-beam landing (s). */
+export const CINE_WIDE_LAND_S      = 0.2
+/** Cut-in to the beam shot completes this long after the volcano draw starts (s). */
+export const CINE_BEAM_CUT_S       = 0.4
+/**
+ * stationMarkers phases while the cinematic runs (s; normal: settle 0.6,
+ * sky 1.2, volcano 1.5). In the cinematic the sky drop overlaps the end of
+ * the rise (lands as it ends); settle is then the pause before the volcano
+ * beam. Was 1.6 / 2.4 / 3.0 (not overlapped).
+ */
+export const CINE_SETTLE_S         = 0.6
+export const CINE_SKY_DROP_S       = 1.4
+export const CINE_VOLCANO_DRAW_S   = 1.8
+/** Hold on the volcano after the beam has drawn (s). Was 2.0. */
+export const CINE_END_HOLD_S       = 0.8
+/** Blend from the player camera into shot a, and back out at the end (s). Were 0.8 / 1.5. */
+export const CINE_BLEND_IN_S       = 0.6
+export const CINE_BLEND_OUT_S      = 1.0
 /** Letterbox bar height (fraction of screen height, each bar) and slide time (s). */
 export const CINE_BAR_FRAC         = 0.12
 export const CINE_BAR_SLIDE_S      = 0.6
@@ -82,6 +108,11 @@ export const CINE_BEAM_DOLLY_M     = 22
 export const CINE_GROUND_CLEAR_M   = 2
 export const CINE_BOUNDS_MARGIN_M  = 2
 export const CINE_CEILING_MARGIN_M = 3
+/**
+ * Safety cap (s, wall clock) on the survival pause and the cinematic
+ * itself. The normal sequence is ~14 s incl. the blend-out.
+ */
+export const CINE_SURVIVAL_PAUSE_MAX_S = 30
 
 
 // MARK: Types
@@ -120,6 +151,8 @@ let endT      = 0
 let target    : CineTarget | null = null
 let ownsInput = false
 let installed = false
+/** Date.now() at start; drives the CINE_SURVIVAL_PAUSE_MAX_S cap. */
+let startedMs = 0
 
 
 // MARK: Public
@@ -131,6 +164,18 @@ export function isMonumentCinematicActive(): boolean {
 /** Letterbox bar height as a fraction of the screen (0 when hidden). */
 export function getCinematicBarFrac(): number {
 	return CINE_BAR_FRAC * smooth(barK)
+}
+
+// MARK: isSurvivalPausedByCinematic
+/**
+ * True while the local player's frost, warmth reserve and torch fuel
+ * should hold still: the cinematic (or its blend-out) is running and it
+ * started less than CINE_SURVIVAL_PAUSE_MAX_S ago. Ends on finish, skip,
+ * abort (cycle reset / layout rebuild) or the timeout.
+ */
+export function isSurvivalPausedByCinematic(): boolean {
+	if (!active) return false
+	return Date.now() - startedMs < CINE_SURVIVAL_PAUSE_MAX_S * 1000
 }
 
 /** True while the SKIP label should show. */
@@ -158,6 +203,7 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 	active    = true
 	releasing = false
 	t         = 0
+	startedMs = Date.now()
 	buildKeys(tgt)
 
 	lookEnt = engine.addEntity()
@@ -274,22 +320,27 @@ function buildKeys(tgt: CineTarget): void {
 	const midD   = Math.max(CINE_MID_DIST_M, hAbove * CINE_MID_DIST_PER_H)
 	const wideD  = Math.max(CINE_WIDE_DIST_M, hAbove * CINE_WIDE_DIST_PER_H)
 	const lowHold = rise * CINE_LOW_HOLD_FRAC
-	const tSky   = rise + CINE_SETTLE_S
-	const tBeam  = tSky + CINE_SKY_DROP_S
-	const tDrawn = tBeam + CINE_VOLCANO_DRAW_S
+	const tMid   = rise * CINE_MID_END_FRAC
+	const tDrop  = Math.max(tMid + 0.5, rise - CINE_SKY_DROP_S) // sky drop starts (lands at rise)
+	const tWide  = Math.max(tMid + 0.5, tDrop - CINE_WIDE_LEAD_S)
+	const tLand  = rise + CINE_WIDE_LAND_S
+	const tBeam  = rise + CINE_SETTLE_S                         // volcano draw starts
+	const tCut   = Math.max(tLand + 0.6, tBeam + CINE_BEAM_CUT_S)
+	const tDrawn = Math.max(tCut + 0.4, tBeam + CINE_VOLCANO_DRAW_S)
 	endT = tDrawn + CINE_END_HOLD_S
 
 	keys = [
 		// a) low, close, looking up at the tip as it breaks the ground.
 		{ t: 0,                pos: () => orbit(CINE_LOW_DIST_M, g + CINE_LOW_EYE_M, 0),        look: top },
 		{ t: lowHold,          pos: () => orbit(CINE_LOW_DIST_M + 1, g + CINE_LOW_EYE_M, 0.25), look: top },
-		// b) pull back and up, tracking it to the hover height.
-		{ t: rise,             pos: () => orbit(midD, g + hAbove * CINE_MID_HEIGHT_FRAC, 0.5), look: centre },
-		// c) wide: the obelisk with the sky beam coming down into its top tip.
-		{ t: tSky,             pos: () => orbit(wideD, hov - 4, 0.6),                look: () => Vector3.add(top(), Vector3.create(0, 8, 0)) },
-		{ t: tBeam - 0.3,      pos: () => orbit(wideD + 4, hov - 2, 0.7),            look: () => Vector3.add(top(), Vector3.create(0, 2, 0)) },
+		// b) pull back and up, tracking it toward the hover height.
+		{ t: tMid,             pos: () => orbit(midD, g + hAbove * CINE_MID_HEIGHT_FRAC, 0.5), look: centre },
+		// c) wide while it finishes rising: the sky beam drops and lands in
+		//    the top tip as the rise ends.
+		{ t: tWide,            pos: () => orbit(wideD, hov - 4, 0.6),                look: () => Vector3.add(top(), Vector3.create(0, 8, 0)) },
+		{ t: tLand,            pos: () => orbit(wideD + 4, hov - 2, 0.7),            look: () => Vector3.add(top(), Vector3.create(0, 2, 0)) },
 		// d) behind the bottom tip, then dolly along the redirected beam.
-		{ t: tBeam + 0.6,      pos: () => beamPos(0),                                            look: () => Vector3.add(bottom(), Vector3.scale(bd, 12)) },
+		{ t: tCut,             pos: () => beamPos(0),                                            look: () => Vector3.add(bottom(), Vector3.scale(bd, 12)) },
 		{ t: tDrawn,           pos: () => beamPos(CINE_BEAM_DOLLY_M),                            look: () => tgt.aim },
 		{ t: endT,             pos: () => beamPos(CINE_BEAM_DOLLY_M + 4),                        look: () => tgt.aim },
 	]
@@ -356,6 +407,13 @@ function cineSystem(dt: number): void {
 	const wantBars = active && !releasing
 	barK = Math.max(0, Math.min(1, barK + (wantBars ? dt : -dt) / CINE_BAR_SLIDE_S))
 	if (!active) return
+
+	// Safety net: never let the cinematic (and the survival pause) outlive the cap.
+	if (Date.now() - startedMs >= CINE_SURVIVAL_PAUSE_MAX_S * 1000) {
+		console.log('monumentCinematic: cineSystem: timeout after ' + CINE_SURVIVAL_PAUSE_MAX_S + ' s, forcing end')
+		finish(true)
+		return
+	}
 
 	if (releasing) {
 		releaseT += dt
