@@ -419,6 +419,23 @@ export const Messages = {
 	// (volcano thaw stage +1). Same DEBUG_THAW_BUTTON gate.
 	debugVolcanoStage: Schemas.Map({ seed: Schemas.Int }),
 
+	// Server -> Client: fire-network link (src/server/fireNetwork.ts). Ids:
+	// 0 = hearth, i + 1 = hidden fire i. Clients route the same path from
+	// the positions. state 1 = linked (ageMs since formed), 0 = breaking
+	// (ageMs since broke; deadA / deadB = which end went out).
+	fireLinkState: Schemas.Map({
+		a    : Schemas.Int,
+		b    : Schemas.Int,
+		ax   : Schemas.Number,
+		az   : Schemas.Number,
+		bx   : Schemas.Number,
+		bz   : Schemas.Number,
+		state: Schemas.Int,
+		ageMs: Schemas.Int,
+		deadA: Schemas.Int,
+		deadB: Schemas.Int,
+	}),
+
 	stationActivate: Schemas.Map({
 		seed : Schemas.Int,
 		index: Schemas.Int,
@@ -434,6 +451,8 @@ export const Messages = {
 		active: Schemas.Int,
 		/** 1 = just ignited (play ignition SFX), 0 = hydration / echo / reset. */
 		fresh : Schemas.Int,
+		/** userId of the igniter on a fresh activation, '' otherwise. */
+		by    : Schemas.String,
 	}),
 
 	// Client -> Server: the sender's lit torch melted one ice chunk of a

@@ -24,6 +24,8 @@ import { formatPhaseCountdown } from 'src/shared/phase'
 import { playUiClick } from 'src/client/audio'
 import { getDayNumber, getPhaseName, getPhaseRemainingSec, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
+import { getLitMonumentCount, getMonumentTotal } from 'src/client/stationMarkers'
+import { getLinkedFireCount } from 'src/client/fireNetworkGlow'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
@@ -62,6 +64,8 @@ const PANEL_H =
 	PANEL_BORDER * 2 +
 	DAY_LINE_H + LINE_GAP +
 	PHASE_LINE_H + LINE_GAP * 2 +
+	TAG_LINE_H + LINE_GAP +
+	TAG_LINE_H + LINE_GAP +
 	TAG_LINE_H
 
 
@@ -110,6 +114,7 @@ class HelpPanelLayer extends Layer {
 					justifyContent: 'flex-start',
 				}}
 				uiBackground = {{ color: colors.statsBg }}
+				onMouseDown  = {() => { cancelHelpAutoClose() }}
 			>
 				<Label
 					value     = {isPhaseHydrated()
@@ -145,6 +150,22 @@ class HelpPanelLayer extends Layer {
 					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: TAG_LINE_H, margin: { bottom: LINE_GAP } }}
+				/>
+				<Label
+					value    = {`${getLitMonumentCount()}/${getMonumentTotal()} monuments activated`}
+					fontSize = {TAG_FONT}
+					color    = {GOLD}
+					font     = "sans-serif"
+					textAlign= "middle-center"
+					uiTransform = {{ width: '100%', height: TAG_LINE_H, margin: { bottom: LINE_GAP } }}
+				/>
+				<Label
+					value    = {`${getLinkedFireCount()} fire${getLinkedFireCount() === 1 ? '' : 's'} linked`}
+					fontSize = {TAG_FONT}
+					color    = {Color4.create(1, 0.62, 0.22, 1)}
+					font     = "sans-serif"
+					textAlign= "middle-center"
 					uiTransform = {{ width: '100%', height: TAG_LINE_H }}
 				/>
 			</UiEntity>
@@ -165,7 +186,29 @@ export function isHelpPanelVisible(): boolean {
 // MARK: toggleHelpPanel
 /** Flip visibility of the help panel (bound to the HelpButton). */
 export function toggleHelpPanel(): void {
+	cancelHelpAutoClose()
 	helpPanelLayer.toggle()
+}
+
+
+// MARK: autoOpenHelpPanel
+let autoCloseAtMs = 0
+let autoCloseInstalled = false
+/** Any interaction (click on the panel, help button / key) keeps it open. */
+function cancelHelpAutoClose(): void { autoCloseAtMs = 0 }
+/** Open the panel and close it after `seconds` unless the player interacts. */
+export function autoOpenHelpPanel(seconds: number): void {
+	if (!autoCloseInstalled) {
+		autoCloseInstalled = true
+		engine.addSystem(() => {
+			if (autoCloseAtMs === 0 || Date.now() < autoCloseAtMs) return
+			autoCloseAtMs = 0
+			if (isHelpPanelVisible()) helpPanelLayer.hide()
+		})
+	}
+	if (isHelpPanelVisible()) return // player already has it open: leave it alone
+	helpPanelLayer.show()
+	autoCloseAtMs = Date.now() + seconds * 1000
 }
 
 

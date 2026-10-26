@@ -43,6 +43,8 @@ import { fadeOutFrostSfx, playHealChunkSfx, playFrostChunkSfx } from 'src/client
 import { DEV_DISABLE_FROST } from 'src/client/devFlags'
 import { getMainFireFuel, getMainFireMeltRadiusSq } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/client/hiddenCampfire'
+import { isOnHeatPath } from 'src/client/fireNetworkGlow'
+import { NETWORK_PATH_WARM_FUEL } from 'src/shared/fireNetwork'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { thawHeatAt } from 'src/client/worldThaw'
@@ -366,6 +368,11 @@ export function initFrostAccumulation(): void {
 				warmthPerSec = pit
 				warmthFuel   = hp.fuel
 			}
+		}
+		// Fire-network heat path: the weakest campfire (Ember) while you stand on a glowing path cell.
+		if (warmthPerSec <= 0 && isOnHeatPath(x, z)) {
+			warmthPerSec = hearthWarmthPerSec(NETWORK_PATH_WARM_FUEL)
+			warmthFuel   = NETWORK_PATH_WARM_FUEL
 		}
 		if (warmthPerSec > 0) {
 			// Every tier nets its warmth against the cold. Ember (the

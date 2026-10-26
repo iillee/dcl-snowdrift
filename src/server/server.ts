@@ -65,6 +65,7 @@ import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
 import { setupWorldFlameServer } from 'src/server/worldFlame'
+import { sendFireNetworkStateTo, setupFireNetworkServer } from 'src/server/fireNetwork'
 
 const HEARTBEAT_INTERVAL_S     = 5
 const PAINT_SUMMARY_INTERVAL_S = 5
@@ -133,6 +134,7 @@ export async function setupServer(): Promise<void> {
 	setupEmberFailServer()
 	setupFrostLifeServer()
 	setupWorldFlameServer()
+	setupFireNetworkServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the
@@ -263,6 +265,7 @@ export async function setupServer(): Promise<void> {
 		// local fallback seed (never equal to the server's fresh seed), so
 		// stationState was dropped and late joiners saw unlit monuments.
 		sendStationStateTo(from)
+		sendFireNetworkStateTo(from)
 		// Hydrate held-torch lit states for everyone already in the room so
 		// the joiner sees flames instead of dark sticks until each remote
 		// player's next lit-state change.

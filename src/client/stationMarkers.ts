@@ -84,6 +84,10 @@ import { DEBUG_VOLCANO_STAGE_OVERRIDE } from 'src/client/devFlags'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
+import { announceCinematic, announceWithoutCinematic, igniterName } from 'src/client/monumentAnnounce'
+import { isFrostDying } from 'src/client/frost/death'
+import { isEmberFailing } from 'src/client/emberFail'
+import { isWorldCovered } from 'src/client/ui/layers/layer.loadingSplash'
 import { TERRAIN_CELL_M, sceneHeightLimitM } from 'src/shared/settings'
 import { SNOW_CELL_M, SNOW_STAGE_HEIGHT_M, STAGE_PRISTINE, worldToCellKey } from 'src/shared/snowGrid'
 import {
@@ -1045,7 +1049,15 @@ function requestActivate(index: number): void {
 	// This player ignited it: beam.wav when the volcano beam starts (even if the cinematic is skipped).
 	if (slots[index]) slots[index]!.beamSfx = true
 	room.send('stationActivate', { seed: currentSeed, index })
-	startIgniteCinematic(index)
+	if (startIgniteCinematic(index)) announceCinematic(igniterName(''))
+	else announceWithoutCinematic()
+}
+
+
+// MARK: canWatchCinematic
+/** Remote viewers skip the cinematic while frozen/dying, covered (loading / rebuild) or in ember-fail. */
+function canWatchCinematic(): boolean {
+	return !isWorldCovered() && !isEmberFailing() && !isFrostDying() && !isItemInputBlocked()
 }
 
 
@@ -1056,12 +1068,12 @@ function requestActivate(index: number): void {
  * joiners and reloads never replay it. Stretches this slot's settle /
  * sky-beam / volcano-beam phases (client-side only) until it ends.
  */
-function startIgniteCinematic(index: number): void {
+function startIgniteCinematic(index: number): boolean {
 	const slot = slots[index]
-	if (!slot || slot.phase !== 'rising') return
+	if (!slot || slot.phase !== 'rising') return false
 	const map = activeTerrain()
 	const aim = slot.aim ?? (map ? volcanoBeamTarget(map) : null)
-	if (!aim) return
+	if (!aim) return false
 	slot.cine = true
 	startMonumentCinematic({
 		x           : slot.x,
@@ -1077,6 +1089,22 @@ function startIgniteCinematic(index: number): void {
 		},
 		onEnd       : () => { slot.cine = false },
 	})
+	return true
+}
+
+
+// MARK: getLitMonumentCount
+/** Monuments lit this cycle (server stationState + local optimistic). */
+export function getLitMonumentCount(): number {
+	let n = 0
+	for (let i = 0; i < STATION_COUNT_MAX; i++) if (isStationLit(i)) n++
+	return n
+}
+
+/** Monuments in this layout (3 normally). */
+export function getMonumentTotal(): number {
+	const map = activeTerrain()
+	return map ? Math.min(map.stations.length, STATION_COUNT_MAX) : STATION_COUNT_MAX
 }
 
 
@@ -1591,7 +1619,7 @@ export function setupStationMarkers(): void {
 		playRemoteMeltCue(slot, before)
 	})
 
-	room.onMessage('stationState', ({ seed, index, active, fresh }) => {
+	room.onMessage('stationState', ({ seed, index, active, fresh, by }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(
 				`stationMarkers: ignore stationState seed=${seed} (have ${currentSeed})`,
@@ -1608,6 +1636,12 @@ export function setupStationMarkers(): void {
 		const animate = fresh === 1 && !!slot && !slot.active
 		if (fresh === 1 && !wasActive) playIgnitionSfx(index)
 		finishActivate(index, animate)
+		// Remote ignite: everyone in the scene watches (skippable per player).
+		// Hydration (fresh=0) never plays, so mid-cinematic joiners don't get it.
+		if (animate) {
+			if (canWatchCinematic() && startIgniteCinematic(index)) announceCinematic(igniterName(by ?? ''))
+			else announceWithoutCinematic()
+		}
 	})
 
 	onCycleSeedChange(({ newSeed }) => { resetForSeed(newSeed) })

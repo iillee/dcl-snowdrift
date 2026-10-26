@@ -45,6 +45,8 @@ type CellState = { stage: 0 | 1 | 2; changedAtMs: number }
 
 const cells          = new Map<number, CellState>()
 const protectedCells = new Set<number>()
+/** Fire-network path cells (src/server/fireNetwork.ts). Separate from fire rings so releasing one never frees the other. */
+const pathProtected  = new Set<number>()
 /** Cells under a campfire that has melted at least once this cycle. */
 const scarredCells   = new Set<number>()
 
@@ -258,7 +260,7 @@ export function tickRegrowth(
 			cells.delete(key)
 			continue
 		}
-		if (protectedCells.has(key)) {
+		if (protectedCells.has(key) || pathProtected.has(key)) {
 			state.changedAtMs = serverClockMs
 			continue
 		}
@@ -285,6 +287,19 @@ export function tickRegrowth(
 		state.stage = nextStage as 1 | 2
 		writeStage(key, state.stage)
 	}
+}
+
+
+// MARK: meltPathCell / releasePathCell
+/** Fire network: melt + hold one cell clear while its link stands. */
+export function meltPathCell(key: number): void {
+	if (!isCellKeyValid(key)) return
+	pathProtected.add(key)
+	applyMelt(key, 0)
+}
+/** Fire network: stop holding a cell; it keeps its stage and regrows with weather. */
+export function releasePathCell(key: number): void {
+	pathProtected.delete(key)
 }
 
 
@@ -439,6 +454,7 @@ export function clearAllSnow(): void {
 	const cleared = cells.size
 	cells.clear()
 	protectedCells.clear()
+	pathProtected.clear()
 	scarredCells.clear()
 	zeroAllSnowTiles()
 	noteComponentChange(cleared)

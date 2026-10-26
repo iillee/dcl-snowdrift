@@ -165,6 +165,21 @@ let endT      = 0
 let target    : CineTarget | null = null
 let ownsInput = false
 let installed = false
+/** MainCamera.virtualCameraEntity before the cinematic took it (undefined = normal camera). */
+let prevCam: Entity | undefined = undefined
+let prevCamSaved = false
+
+/** Hand MainCamera back to the camera that was active before the cinematic. */
+function restorePrevCam(): void {
+	const mc = MainCamera.getMutableOrNull(engine.CameraEntity)
+	if (mc) {
+		const back = prevCam !== undefined && VirtualCamera.has(prevCam) ? prevCam : undefined
+		// Only restore if the cinematic still owns the camera.
+		if (mc.virtualCameraEntity === undefined || mc.virtualCameraEntity === cam) mc.virtualCameraEntity = back
+	}
+	prevCam = undefined
+	prevCamSaved = false
+}
 /** Date.now() at start; drives the CINE_SURVIVAL_PAUSE_MAX_S cap. */
 let startedMs = 0
 /** Baked crane path (terrain-safe world positions) and its end time (s). */
@@ -214,7 +229,13 @@ export function skipMonumentCinematic(): void {
 /** Hard stop (layout rebuild / cycle reset): no blend. */
 export function abortMonumentCinematic(): void {
 	if (!active && !cam) return
-	finish(true)
+	finish(true, true)
+}
+
+let closeListener: ((aborted: boolean) => void) | null = null
+/** Called once each time a running cinematic closes (finish, skip blend-out end, timeout, abort). */
+export function setCinematicCloseListener(fn: (aborted: boolean) => void): void {
+	closeListener = fn
 }
 
 /** Start the sequence for a monument the local player just ignited. */
@@ -238,6 +259,13 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 		lookAtEntity     : lookEnt,
 		defaultTransition: { transitionMode: VirtualCamera.Transition.Time(CINE_BLEND_IN_S) },
 	})
+	// Remember the camera the player was on (e.g. the overview VirtualCamera)
+	// so release/finish hand it back instead of dropping to third person.
+	// Keep the first saved one if a second ignite replaces a running cinematic.
+	if (!prevCamSaved) {
+		prevCam = MainCamera.getOrNull(engine.CameraEntity)?.virtualCameraEntity as Entity | undefined
+		prevCamSaved = true
+	}
 	MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cam })
 
 	ownsInput = !InputModifier.has(engine.PlayerEntity)
@@ -446,8 +474,7 @@ function release(): void {
 	if (cam && VirtualCamera.has(cam)) {
 		VirtualCamera.getMutable(cam).defaultTransition = { transitionMode: VirtualCamera.Transition.Time(CINE_BLEND_OUT_S) }
 	}
-	const mc = MainCamera.getMutableOrNull(engine.CameraEntity)
-	if (mc) mc.virtualCameraEntity = undefined
+	restorePrevCam()
 	if (ownsInput && InputModifier.has(engine.PlayerEntity)) InputModifier.deleteFrom(engine.PlayerEntity)
 	ownsInput = false
 	const tg = target
@@ -456,11 +483,11 @@ function release(): void {
 	console.log('monumentCinematic: release')
 }
 
-function finish(hard: boolean): void {
+function finish(hard: boolean, aborted = false): void {
+	const wasActive = active
 	if (!releasing && active) release()
 	if (hard) {
-		const mc = MainCamera.getMutableOrNull(engine.CameraEntity)
-		if (mc) mc.virtualCameraEntity = undefined
+		if (prevCamSaved) restorePrevCam()
 		barK = 0
 	}
 	if (cam) engine.removeEntity(cam)
@@ -469,6 +496,7 @@ function finish(hard: boolean): void {
 	lookEnt = null
 	active = false
 	releasing = false
+	if (wasActive && closeListener) closeListener(aborted)
 }
 
 function cineSystem(dt: number): void {

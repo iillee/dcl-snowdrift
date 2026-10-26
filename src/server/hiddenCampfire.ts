@@ -51,6 +51,8 @@ import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside, seedFireDimple } from 'src/server/snowState'
+import { isFireLinked } from 'src/server/fireNetworkLinks'
+import { NETWORK_BURN_MUL } from 'src/shared/fireNetwork'
 
 
 // MARK: Melt-growth tuning
@@ -223,6 +225,18 @@ function snuffFire(index: number): void {
 }
 
 
+// MARK: getHiddenFireNodes
+/** Placed hidden fires with position + lit flag (fire network). */
+export function getHiddenFireNodes(): { index: number; x: number; z: number; lit: boolean }[] {
+	const out: { index: number; x: number; z: number; lit: boolean }[] = []
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (worldX[i] === 0 && worldZ[i] === 0) continue
+		out.push({ index: i, x: worldX[i], z: worldZ[i], lit: lit[i] && fuel[i] > 0 })
+	}
+	return out
+}
+
+
 // MARK: isAnyHiddenFireLit
 /** True if at least one hidden bonfire still has fuel. */
 export function isAnyHiddenFireLit(): boolean {
@@ -335,7 +349,8 @@ export function setupHiddenCampfireServer(): void {
 			secondsSinceIgnite[i] += dt
 			const prev             = fuel[i]
 			const prevTier         = hearthTierFromFuel(prev)
-			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - drainRate * dt)
+			const netMul           = NETWORK_BURN_MUL !== 1 && isFireLinked(i + 1) ? NETWORK_BURN_MUL : 1
+			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - drainRate * netMul * dt)
 
 			// Downward tier crossing on decay -> shrink the ring so it
 			// visibly retracts in step with fuel loss.

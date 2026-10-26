@@ -92,12 +92,13 @@ function thawPayload(): {
 }
 
 
-function broadcastOne(index: number, fresh = false): void {
+function broadcastOne(index: number, fresh = false, by = ''): void {
 	room.send('stationState', {
 		seed  : currentSeed,
 		index,
 		active: active[index] ? 1 : 0,
 		fresh : fresh ? 1 : 0,
+		by    : fresh ? by : '',
 	})
 }
 
@@ -210,7 +211,7 @@ export function sendStationStateTo(userId: string): void {
 	for (let i = 0; i < STATION_COUNT; i++) {
 		room.send(
 			'stationState',
-			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0 },
+			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0, by: '' },
 			{ to: [userId] },
 		)
 		broadcastIce(i, userId)
@@ -291,7 +292,7 @@ export function setupStationsServer(): void {
 			`[Server] stations[${index}]: activated by ${from} ` +
 			`(seed=${currentSeed}, active=${getActiveStationCount()}/${STATION_COUNT})`,
 		)
-		broadcastOne(index, true)
+		broadcastOne(index, true, context?.from ?? '')
 		advanceThawStage(`station ${index} by ${from}`)
 	})
 

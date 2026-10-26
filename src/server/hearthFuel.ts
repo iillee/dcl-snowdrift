@@ -20,6 +20,8 @@
  */
 
 import { engine } from '@dcl/sdk/ecs'
+import { isFireLinked } from 'src/server/fireNetworkLinks'
+import { NETWORK_BURN_MUL, NETWORK_HEARTH_ID } from 'src/shared/fireNetwork'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
@@ -295,7 +297,8 @@ export function setupHearthFuelServer(): void {
 		const drainRate = hearthDecayRate(players) * getPhaseDrainMul()
 		const prev      = mainFuel
 		const prevTier  = hearthTierFromFuel(prev)
-		mainFuel        = Math.max(FUEL_MAIN_FLOOR, mainFuel - drainRate * dt)
+		const netMul    = NETWORK_BURN_MUL !== 1 && isFireLinked(NETWORK_HEARTH_ID) ? NETWORK_BURN_MUL : 1
+		mainFuel        = Math.max(FUEL_MAIN_FLOOR, mainFuel - drainRate * netMul * dt)
 		// Any tier crossing (up on defensive-only-during-decay, down when
 		// fuel actually decays across a threshold) resyncs the ring so it
 		// grows / shrinks in lock-step with the fuel model.

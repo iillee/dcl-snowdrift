@@ -47,6 +47,7 @@ import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
 import { setupDaySplash } from 'src/client/daySplash'
+import { setupFireNetworkGlow } from 'src/client/fireNetworkGlow'
 import { setupEmberFailClient } from 'src/client/emberFail'
 import { setupPhaseClient } from 'src/client/phase'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
@@ -169,6 +170,7 @@ export async function setupClient(): Promise<void> {
 	setupVolcanoCrown()
 	// Ignition station stumps (sockets from the terrain generator).
 	setupStationMarkers()
+	setupFireNetworkGlow()
 	setupWorldThaw()
 	setupSummitMapTable()
 	setupPerimeterWall()
