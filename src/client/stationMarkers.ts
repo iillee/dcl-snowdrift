@@ -77,9 +77,10 @@ import {
 	abortMonumentCinematic,
 	startMonumentCinematic,
 } from 'src/client/monumentCinematic'
-import { MONUMENT_MATTE_PBR } from 'src/client/monumentMaterial'
+import { GEM_ALPHA_REST, GEM_ENABLED, MONUMENT_GEM_FADE_S, MONUMENT_MATTE_PBR, gemDipAt, monumentGemPbr } from 'src/client/monumentMaterial'
 import { isTorchLit } from 'src/client/torchEquip'
-import { beginVolcanoThaw, setVolcanoLavaVisible } from 'src/client/volcanoCrown'
+import { setVolcanoLavaStage } from 'src/client/volcanoCrown'
+import { DEBUG_VOLCANO_STAGE_OVERRIDE } from 'src/client/devFlags'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
@@ -202,7 +203,9 @@ export const HOVER_EASE_IN_S = 4
  * player only, the moment the volcano beam starts drawing out of the
  * bottom tip. Plays whether or not the cinematic was skipped.
  */
-export const BEAM_SFX_VOLUME = 0.8
+export const BEAM_SFX_VOLUME = 0.45
+/** beam.wav fades in from silence over this long (s), so the attack is not piercing. */
+export const BEAM_SFX_FADE_IN_S = 0.8
 const ICE_MELT_SFX_SRC = 'assets/sounds/icemelt.mp3'
 const ICE_MELT_SFX_VOLUME = 0.3
 /** Volume of the one-shot icemelt hit others hear per melted chunk (was 0.8). */
@@ -324,6 +327,12 @@ type Slot = {
 	volcano : Beam | null
 	/** Looping crystal.mp3 emitter on the ground at the socket; null while frozen. */
 	hum     : Entity | null
+	/** Gem blend 0 (matte black) .. 1 (glowing gem); starts when the sky beam lands. */
+	gemK    : number
+	/** True once the gem fade has started. */
+	gemOn   : boolean
+	/** Last opacity written to the gem (resting / dipping). */
+	gemAlpha: number
 }
 
 type IceDrop = {
@@ -368,8 +377,6 @@ let gazeVol = 0
 let gazeVolWritten = 0
 /** Last snow-offset signature pushed to the snow renderer. */
 let pitFillSig = ''
-/** True once this client has fired the 3/3 thaw for the current cycle. */
-let volcanoThawed = false
 
 
 // MARK: isStationLit
@@ -408,24 +415,14 @@ function landedCount(): number {
 
 // MARK: syncVolcanoFromStations
 /**
- * Push landed count into smoke + lava.
- *   0-2: smoke ramps; lava hidden (snowy crater).
- *   3: fire thaw once - reveal lava.
+ * Push the landed count (volcano stage 0..3) into smoke + lava, which
+ * blend to the stage look (src/shared/volcanoStages.ts). The thaw radius
+ * / heat is server-driven (worldThaw.ts) and starts when the beam lands.
  */
 function syncVolcanoFromStations(): void {
-	const n = landedCount()
+	const n = DEBUG_VOLCANO_STAGE_OVERRIDE >= 0 ? DEBUG_VOLCANO_STAGE_OVERRIDE : landedCount()
 	setVolcanoSmokeBoost(n)
-	if (n >= 3) {
-		if (!volcanoThawed) {
-			volcanoThawed = true
-			beginVolcanoThaw()
-		} else {
-			setVolcanoLavaVisible(true)
-		}
-	} else {
-		volcanoThawed = false
-		setVolcanoLavaVisible(false)
-	}
+	setVolcanoLavaStage(n)
 }
 
 
@@ -493,6 +490,68 @@ function paintGlow(e: Entity, col: Color4, emissive: Color3, intensity: number):
 			: MaterialTransparencyMode.MTM_OPAQUE,
 		castShadows      : false,
 	})
+}
+
+
+// MARK: Gem
+/** GltfNodeModifiers writes per second while a gem fade runs. */
+const GEM_WRITE_HZ = 15
+let gemWriteClock = 0
+
+/** Push the slot's gem blend + opacity into every obelisk part (global node modifier). */
+function applyGem(slot: Slot): void {
+	const pbr = monumentGemPbr(slot.index, slot.gemK, slot.gemAlpha)
+	for (const e of slot.parts) {
+		GltfNodeModifiers.createOrReplace(e, {
+			modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...pbr } } } }],
+		})
+	}
+}
+
+/** Sky beam landed in the top tip: begin matte -> gem (idempotent). */
+function startGem(slot: Slot): void {
+	if (!GEM_ENABLED) return
+	if (slot.gemOn) return
+	slot.gemOn = true
+	slot.gemK  = 0
+}
+
+/** Already-lit monument (late join / hydration): straight to the gem. */
+function snapGem(slot: Slot): void {
+	if (!GEM_ENABLED) return
+	slot.gemOn = true
+	slot.gemK  = 1
+	applyGem(slot)
+}
+
+/**
+ * Advance gem fade-ins and the periodic opacity dips. Material writes are
+ * throttled to GEM_WRITE_HZ and only happen while a fade-in or dip runs;
+ * each ends with one exact write at rest.
+ */
+function gemSystem(dt: number): void {
+	if (!GEM_ENABLED) return
+	gemWriteClock += dt
+	const write = gemWriteClock >= 1 / GEM_WRITE_HZ
+	if (write) gemWriteClock = 0
+	const nowS = Date.now() / 1000
+	for (const slot of slots) {
+		if (!slot || !slot.gemOn) continue
+		if (slot.gemK < 1) {
+			slot.gemK = Math.min(1, slot.gemK + dt / MONUMENT_GEM_FADE_S)
+			slot.gemAlpha = GEM_ALPHA_REST
+			if (write || slot.gemK >= 1) applyGem(slot)
+			continue
+		}
+		const dip = gemDipAt(currentSeed, slot.index, nowS)
+		if (dip.dipping) {
+			slot.gemAlpha = dip.alpha
+			if (write) applyGem(slot)
+		} else if (slot.gemAlpha !== GEM_ALPHA_REST) {
+			slot.gemAlpha = GEM_ALPHA_REST
+			applyGem(slot)
+		}
+	}
 }
 
 
@@ -928,6 +987,7 @@ function snapDone(slot: Slot): void {
 	ensureBeams(slot, activeTerrain())
 	revealBeam(slot.sky, 1, SKY_BEAM_SEGMENTS)
 	revealBeam(slot.volcano, 1, BEAM_SEGMENTS)
+	snapGem(slot)
 }
 
 /** Begin the rise animation (fresh activation). */
@@ -1076,6 +1136,9 @@ function buildForMap(map: TerrainMap | null): void {
 			sentAt: new Array<number>(MONUMENT_ICE_SLOTS).fill(0),
 			rig,
 			parts: [],
+			gemK: 0,
+			gemOn: false,
+			gemAlpha: GEM_ALPHA_REST,
 			beamRoot,
 			solid: false,
 			groundY,
@@ -1431,6 +1494,8 @@ function animSystem(dt: number): void {
 			if (u >= 1) {
 				slot.hoverT = 0
 				setObeliskSolid(slot, true)
+				// Cinematic: the sky beam has just landed in the top tip.
+				if (slot.cine) startGem(slot)
 				setPhase(slot, 'settle')
 			}
 			continue
@@ -1473,10 +1538,12 @@ function animSystem(dt: number): void {
 // MARK: startVolcanoBeam
 /** Enter the volcano-beam phase; the igniting player hears beam.wav once. */
 function startVolcanoBeam(slot: Slot): void {
+	// Sky beam has landed in the top tip (non-cinematic path; idempotent).
+	startGem(slot)
 	setPhase(slot, 'volcanoBeam')
 	if (slot.beamSfx) {
 		slot.beamSfx = false
-		playBeamSfx(BEAM_SFX_VOLUME)
+		playBeamSfx(BEAM_SFX_VOLUME, BEAM_SFX_FADE_IN_S)
 	}
 }
 
@@ -1486,7 +1553,6 @@ function resetForSeed(seed: number): void {
 	if (cycleSeedsEqual(seed, currentSeed) && currentSeed !== 0) return
 	console.log(`stationMarkers: cycle roll ${currentSeed} -> ${seed}, clearing activations`)
 	currentSeed = seed
-	volcanoThawed = false
 	for (let i = 0; i < STATION_COUNT_MAX; i++) { pendingActive[i] = false; pendingIce[i] = 0 }
 	// Markers rebuild via activeTerrain watcher when layout changes
 	// (clearAll also removes the ground crystal hum emitters).
@@ -1510,6 +1576,7 @@ export function setupStationMarkers(): void {
 	engine.addSystem(meltSystem)
 	engine.addSystem(iceDropSystem)
 	engine.addSystem(animSystem)
+	engine.addSystem(gemSystem)
 	engine.addSystem(syncSnowOffsets)
 	engine.addSystem(gazeSystem)
 

@@ -10,9 +10,10 @@
  * client immediately learns every existing player's current torch
  * state instead of waiting for the next change event.
  *
- * No validation, no persistence — this is a pure cosmetic channel.
- * The frost / campfire mechanics are all still driven by the local
- * torch state on each client's own machine.
+ * No validation, no persistence. The frost / campfire mechanics are
+ * driven by the local torch state on each client's own machine; the
+ * cached lit flag also feeds the world-end check (worldFlame.ts:
+ * "no lit campfire and no lit torch"), same client trust as frost.
  */
 
 import { room } from 'src/shared/messages'
@@ -31,6 +32,13 @@ interface TorchCache {
 // userId (lowercased) -> last known torch. Lowercased so the joiner
 // hydration path is address-case insensitive.
 const torchByUser = new Map<string, TorchCache>()
+
+
+// MARK: isUserTorchLit
+/** Last reported lit state of this wallet's torch (false if never reported). */
+export function isUserTorchLit(userId: string): boolean {
+	return torchByUser.get(userId.toLowerCase())?.lit === 1
+}
 
 
 // MARK: sendTorchStatesTo

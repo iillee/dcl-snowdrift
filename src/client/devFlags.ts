@@ -50,3 +50,11 @@ export const DEV_KEEP_TORCH_LIT = false
  * The server handler is gated on this same flag. SET false BEFORE DEPLOY.
  */
 export const DEBUG_THAW_BUTTON = false
+
+/**
+ * Local preview of the volcano lava + smoke stage (0..3); -1 = off (use
+ * landed monuments). Visual only: thaw radius / heat stay server-driven.
+ * For server-side staging use DEBUG_THAW_BUTTON ('+1' lights the next
+ * monument). Keep -1 in commits.
+ */
+export const DEBUG_VOLCANO_STAGE_OVERRIDE: number = -1

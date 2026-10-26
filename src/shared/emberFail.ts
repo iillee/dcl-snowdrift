@@ -7,8 +7,9 @@
  * so the new dawn is not waiting on the cards. Clients hold the last
  * card until that load finishes, then fade the world in.
  *
- * A fire burning out no longer starts this. The dev snuff still does,
- * until extinction moves to the last player freezing.
+ * Started when all flame is out (no lit campfire, no lit torch, no
+ * volcano lava) for a short grace (src/server/worldFlame.ts), or by the
+ * dev snuff.
  */
 
 

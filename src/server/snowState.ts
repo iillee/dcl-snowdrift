@@ -38,8 +38,7 @@ import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
 import { volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 
 import { noteComponentChange } from 'src/server/serverStats'
-import { fillAllSnowTilesMelted, isThawTileMelted, publishSnowCoverage, thawMeltedTileCount, writeSnowByte, zeroAllSnowTiles } from 'src/server/snowSync'
-import { thawWaveCentre } from 'src/shared/terrain/thawWave'
+import { queueThawTiles, isThawTileMelted, publishSnowCoverage, thawMeltedTileCount, writeSnowByte, zeroAllSnowTiles } from 'src/server/snowSync'
 
 // changedAtMs = server clock at the last stage transition (or melt refresh).
 type CellState = { stage: 0 | 1 | 2; changedAtMs: number }
@@ -409,25 +408,27 @@ export function releaseMonumentPitSquare(cx: number, cz: number, sizeM: number):
 	return released
 }
 
-// MARK: meltAllSnow
+// MARK: meltThawZone
 
 /**
- * World thaw: paint every snow cell melted via the existing PaintTile
- * stack, and treat the playfield as fully melted until clearAllSnow
- * (cycle roll). Prefer this over clearAllSnow � that helper restores
- * pristine snow for a cycle wipe.
+ * Staged volcano thaw: hold every snow tile within `toTiles` of the
+ * crater tile `centre` melted, painted as the wave radius
+ * `radiusTilesAt(Date.now())` reaches it (snowSync.stepThawFill, spread
+ * over ticks). Held tiles never regrow or take snowfall until
+ * clearAllSnow (cycle roll). Outside the radius snow, regrowth and
+ * accumulation carry on as normal. Prefer this over clearAllSnow, which
+ * restores pristine snow for a cycle wipe.
  */
-export function meltAllSnow(): void {
-	// Only the thaw zone (volcano campfire radius, thawWave.ts) melts.
-	// Fill is queued nearest-first from the volcano and spread over ticks
-	// in snowSync (one-tick fill of every tile froze the game). Outside
-	// the radius snow, regrowth and accumulation carry on as normal.
-	const centre = thawWaveCentre(activeTerrain())
-	const tiles = fillAllSnowTilesMelted(centre)
+export function meltThawZone(
+	centre       : { tx: number; tz: number },
+	toTiles      : number,
+	radiusTilesAt: (nowMs: number) => number,
+): void {
+	const tiles = queueThawTiles(centre, toTiles, radiusTilesAt)
 	coverageDirty = true
 	console.log(
-		`[Server] snowState: meltAllSnow (thaw zone) tiles=${tiles} ` +
-		`radius=${centre.radiusM.toFixed(0)}m from tile (${centre.tx},${centre.tz})`,
+		`[Server] snowState: meltThawZone queued=${tiles} ` +
+		`radius=${toTiles.toFixed(1)} tiles from tile (${centre.tx},${centre.tz})`,
 	)
 }
 

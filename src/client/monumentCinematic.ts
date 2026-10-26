@@ -14,10 +14,14 @@
  * beam drops during the last CINE_SKY_DROP_S of the rise (cinematic only)
  * and lands in the top tip exactly as the rise ends; the volcano beam
  * starts CINE_SETTLE_S later:
- *   a) 0 .. rise*CINE_LOW_HOLD_FRAC   low close shot at the socket looking up
- *   b) .. rise*CINE_MID_END_FRAC      pull back + up, tracking the top tip
- *   c) .. rise (+CINE_WIDE_LAND_S)    wide, reached CINE_WIDE_LEAD_S before
- *                                     the sky drop starts; beam lands at rise
+ *   a-c) 0 .. rise+CINE_WIDE_LAND_S   one continuous crane: starts low and
+ *                                     close at the socket looking up, rises
+ *                                     while pulling back, ends on the wide
+ *                                     shot as the sky beam lands at rise.
+ *                                     Single cubic Bezier (distance, height,
+ *                                     bearing; each monotone) eased by one
+ *                                     smootherstep, baked once into a
+ *                                     terrain-safe table (no per-frame clamp)
  *   d) +CINE_BEAM_CUT_S .. +draw+hold behind the bottom tip, dolly along the
  *                                     redirected beam, end framing the volcano
  *   e) release                        MainCamera back to the player camera
@@ -56,10 +60,20 @@ import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 
 // MARK: Tuning
-/** Shot a: low close hold at the socket, as a fraction of the rise time. */
-export const CINE_LOW_HOLD_FRAC    = 0.25
-/** Shot b (pull back) ends at this fraction of the rise; the wide shot follows. */
+/** Look target starts lifting above the tip (toward the incoming sky beam) at this fraction of the rise. */
 export const CINE_MID_END_FRAC     = 0.65
+/** Look target lift above the tip while the sky beam drops / once it has landed (m). */
+export const CINE_LOOK_SKY_LIFT_M  = 8
+export const CINE_LOOK_LAND_LIFT_M = 2
+/**
+ * Critically damped look-target smoothing (rad/s). Higher = tighter on the
+ * tip; 5 gives a slight lag (~0.4 s) and no overshoot.
+ */
+export const CINE_LOOK_OMEGA       = 5
+/** Crane path table resolution (samples over the crane, baked once). */
+export const CINE_CRANE_SAMPLES    = 160
+/** Terrain-lift smoothing half-window along the crane (samples). */
+export const CINE_CRANE_LIFT_WIN   = 10
 /** The wide shot is reached this long before the sky drop starts (s). */
 export const CINE_WIDE_LEAD_S      = 0.2
 /** Wide shot keeps easing this long past the sky-beam landing (s). */
@@ -153,6 +167,14 @@ let ownsInput = false
 let installed = false
 /** Date.now() at start; drives the CINE_SURVIVAL_PAUSE_MAX_S cap. */
 let startedMs = 0
+/** Baked crane path (terrain-safe world positions) and its end time (s). */
+let crane: Vector3[] = []
+let craneEndT = 0
+/** Raw (unsmoothed) look target for the crane part, bob-free. */
+let craneLook: (time: number) => Vector3 = () => Vector3.Zero()
+/** Critically damped look-target state. */
+let lookP = Vector3.Zero()
+let lookV = Vector3.Zero()
 
 
 // MARK: Public
@@ -206,10 +228,12 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 	startedMs = Date.now()
 	buildKeys(tgt)
 
+	lookP = craneLook(0)
+	lookV = Vector3.Zero()
 	lookEnt = engine.addEntity()
-	Transform.create(lookEnt, { position: keys[0].look() })
+	Transform.create(lookEnt, { position: lookP })
 	cam = engine.addEntity()
-	Transform.create(cam, { position: safe(keys[0].pos()) })
+	Transform.create(cam, { position: crane[0] })
 	VirtualCamera.create(cam, {
 		lookAtEntity     : lookEnt,
 		defaultTransition: { transitionMode: VirtualCamera.Transition.Time(CINE_BLEND_IN_S) },
@@ -230,6 +254,16 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 function smooth(u: number): number {
 	const c = Math.max(0, Math.min(1, u))
 	return c * c * (3 - 2 * c)
+}
+
+function smoother(u: number): number {
+	const c = Math.max(0, Math.min(1, u))
+	return c * c * c * (c * (c * 6 - 15) + 10)
+}
+
+function bez(a: number, b: number, c: number, d: number, u: number): number {
+	const v = 1 - u
+	return v * v * v * a + 3 * v * v * u * b + 3 * v * u * u * c + u * u * u * d
 }
 
 function lerpV(a: Vector3, b: Vector3, u: number): Vector3 {
@@ -279,17 +313,9 @@ function buildKeys(tgt: CineTarget): void {
 	const { sx, sz } = pickSide(tgt)
 	const g   = tgt.groundY
 	const hov = tgt.hoverCentreY
-	const top = (): Vector3 => {
-		const p = tgt.rigPos()
-		return Vector3.create(p.x, Math.max(g + 1.5, p.y + tgt.halfLen), p.z)
-	}
 	const bottom = (): Vector3 => {
 		const p = tgt.rigPos()
 		return Vector3.create(p.x, p.y - tgt.halfLen, p.z)
-	}
-	const centre = (): Vector3 => {
-		const p = tgt.rigPos()
-		return Vector3.create(p.x, Math.max(g + 1.5, p.y), p.z)
 	}
 	// Beam direction (horizontal + full) from the mean bottom tip to the aim.
 	const b0  = Vector3.create(tgt.x, hov - tgt.halfLen, tgt.z)
@@ -319,7 +345,6 @@ function buildKeys(tgt: CineTarget): void {
 	const hAbove = Math.max(0, hov - g)
 	const midD   = Math.max(CINE_MID_DIST_M, hAbove * CINE_MID_DIST_PER_H)
 	const wideD  = Math.max(CINE_WIDE_DIST_M, hAbove * CINE_WIDE_DIST_PER_H)
-	const lowHold = rise * CINE_LOW_HOLD_FRAC
 	const tMid   = rise * CINE_MID_END_FRAC
 	const tDrop  = Math.max(tMid + 0.5, rise - CINE_SKY_DROP_S) // sky drop starts (lands at rise)
 	const tWide  = Math.max(tMid + 0.5, tDrop - CINE_WIDE_LEAD_S)
@@ -329,16 +354,60 @@ function buildKeys(tgt: CineTarget): void {
 	const tDrawn = Math.max(tCut + 0.4, tBeam + CINE_VOLCANO_DRAW_S)
 	endT = tDrawn + CINE_END_HOLD_S
 
+	// a-c) Rise crane: one cubic Bezier in (distance, height, bearing) from
+	// the low close shot to the wide pose, each component monotone (no
+	// direction reversals), eased by a single smootherstep over 0..tLand.
+	// Baked once with a smoothed terrain lift + bounds / ceiling clamp, so
+	// nothing is clamped (or pops) per frame.
+	craneEndT = tLand
+	const cD = [CINE_LOW_DIST_M, CINE_LOW_DIST_M + 2, midD, wideD + 4]
+	const cH = [g + CINE_LOW_EYE_M, g + CINE_LOW_EYE_M + 1, g + hAbove * CINE_MID_HEIGHT_FRAC, hov - 2]
+	const cR = [0, 0.15, 0.5, 0.7]
+	const n = CINE_CRANE_SAMPLES
+	const raw: Vector3[] = []
+	const need: number[] = []
+	for (let i = 0; i <= n; i++) {
+		const u = smoother(i / n)
+		const p = orbit(bez(cD[0], cD[1], cD[2], cD[3], u), bez(cH[0], cH[1], cH[2], cH[3], u), bez(cR[0], cR[1], cR[2], cR[3], u))
+		const x = Math.max(CINE_BOUNDS_MARGIN_M, Math.min(SCENE_WORLD_SIZE_X_METERS - CINE_BOUNDS_MARGIN_M, p.x))
+		const z = Math.max(CINE_BOUNDS_MARGIN_M, Math.min(SCENE_WORLD_SIZE_Z_METERS - CINE_BOUNDS_MARGIN_M, p.z))
+		raw.push(Vector3.create(x, p.y, z))
+		need.push(Math.max(0, activeGroundYAt(x, z) + CINE_GROUND_CLEAR_M - p.y))
+	}
+	// Lift: dilate by 2W then box-average by W, so it is smooth and still
+	// >= the raw requirement at every sample.
+	const W = CINE_CRANE_LIFT_WIN
+	const dil = need.map((_, i) => {
+		let m = 0
+		for (let j = Math.max(0, i - 2 * W); j <= Math.min(n, i + 2 * W); j++) m = Math.max(m, need[j])
+		return m
+	})
+	const yMax = sceneHeightLimitM() - CINE_CEILING_MARGIN_M
+	crane = raw.map((p, i) => {
+		let sum = 0
+		let cnt = 0
+		for (let j = Math.max(0, i - W); j <= Math.min(n, i + W); j++) { sum += dil[j]; cnt++ }
+		return Vector3.create(p.x, Math.min(yMax, p.y + sum / cnt), p.z)
+	})
+
+	// Look target for the crane, bob-free: the top tip on the deterministic
+	// rise curve (stationMarkers: smoothstep over riseS from the seated
+	// centre), lifted toward the incoming sky beam, then settling just above
+	// the tip as it lands. Fed through a critically damped spring in cineSystem.
+	const y0 = tgt.rigPos().y
+	craneLook = (time: number): Vector3 => {
+		const cy  = time < rise ? y0 + (hov - y0) * smooth(time / rise) : hov
+		const tip = Math.max(g + 1.5, cy + tgt.halfLen)
+		const up  = time < tWide
+			? CINE_LOOK_SKY_LIFT_M * smoother((time - tMid) / Math.max(0.1, tWide - tMid))
+			: CINE_LOOK_SKY_LIFT_M + (CINE_LOOK_LAND_LIFT_M - CINE_LOOK_SKY_LIFT_M) * smoother((time - tWide) / Math.max(0.1, tLand - tWide))
+		return Vector3.create(tgt.x, tip + up, tgt.z)
+	}
+	const craneEnd = crane[n]
+
 	keys = [
-		// a) low, close, looking up at the tip as it breaks the ground.
-		{ t: 0,                pos: () => orbit(CINE_LOW_DIST_M, g + CINE_LOW_EYE_M, 0),        look: top },
-		{ t: lowHold,          pos: () => orbit(CINE_LOW_DIST_M + 1, g + CINE_LOW_EYE_M, 0.25), look: top },
-		// b) pull back and up, tracking it toward the hover height.
-		{ t: tMid,             pos: () => orbit(midD, g + hAbove * CINE_MID_HEIGHT_FRAC, 0.5), look: centre },
-		// c) wide while it finishes rising: the sky beam drops and lands in
-		//    the top tip as the rise ends.
-		{ t: tWide,            pos: () => orbit(wideD, hov - 4, 0.6),                look: () => Vector3.add(top(), Vector3.create(0, 8, 0)) },
-		{ t: tLand,            pos: () => orbit(wideD + 4, hov - 2, 0.7),            look: () => Vector3.add(top(), Vector3.create(0, 2, 0)) },
+		// End of the crane = start of the beam move.
+		{ t: tLand,            pos: () => craneEnd,                                              look: () => craneLook(tLand) },
 		// d) behind the bottom tip, then dolly along the redirected beam.
 		{ t: tCut,             pos: () => beamPos(0),                                            look: () => Vector3.add(bottom(), Vector3.scale(bd, 12)) },
 		{ t: tDrawn,           pos: () => beamPos(CINE_BEAM_DOLLY_M),                            look: () => tgt.aim },
@@ -431,9 +500,44 @@ function cineSystem(dt: number): void {
 	}
 	if (t >= endT) { release(); return }
 
-	const s = sample(t)
-	if (cam) Transform.getMutable(cam).position = safe(s.pos)
-	if (lookEnt) Transform.getMutable(lookEnt).position = s.look
+	let pos: Vector3
+	let want: Vector3
+	if (t <= craneEndT) {
+		pos  = cranePos(t)
+		want = craneLook(t)
+	} else {
+		const s = sample(t)
+		pos  = safe(s.pos)
+		want = s.look
+	}
+	springLook(want, dt)
+	if (cam) Transform.getMutable(cam).position = pos
+	if (lookEnt) Transform.getMutable(lookEnt).position = lookP
+}
+
+/** Position on the baked crane table at time `time` (linear between dense samples). */
+function cranePos(time: number): Vector3 {
+	const n = crane.length - 1
+	if (n <= 0) return crane[0] ?? Vector3.Zero()
+	const f = Math.max(0, Math.min(1, time / Math.max(1e-3, craneEndT))) * n
+	const i = Math.min(n - 1, Math.floor(f))
+	return lerpV(crane[i], crane[i + 1], f - i)
+}
+
+/** Critically damped spring of lookP toward `want` (CINE_LOOK_OMEGA). */
+function springLook(want: Vector3, dt: number): void {
+	const w   = CINE_LOOK_OMEGA
+	const e   = Math.exp(-w * dt)
+	const ax = (k: 'x' | 'y' | 'z'): [number, number] => {
+		const x   = lookP[k] - want[k]
+		const tmp = (lookV[k] + w * x) * dt
+		return [want[k] + (x + tmp) * e, (lookV[k] - w * tmp) * e]
+	}
+	const [px, vx] = ax('x')
+	const [py, vy] = ax('y')
+	const [pz, vz] = ax('z')
+	lookP = Vector3.create(px, py, pz)
+	lookV = Vector3.create(vx, vy, vz)
 }
 
 function install(): void {

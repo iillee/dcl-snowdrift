@@ -64,6 +64,7 @@ import {
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
 import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
+import { setupWorldFlameServer } from 'src/server/worldFlame'
 
 const HEARTBEAT_INTERVAL_S     = 5
 const PAINT_SUMMARY_INTERVAL_S = 5
@@ -131,6 +132,7 @@ export async function setupServer(): Promise<void> {
 	setupHearthFuelServer()
 	setupEmberFailServer()
 	setupFrostLifeServer()
+	setupWorldFlameServer()
 
 	// World-scale reset on cycle roll: clear the entire paint canvas
 	// (virgin snow), then re-seed the central campfire's melt ring so the

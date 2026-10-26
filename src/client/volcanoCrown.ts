@@ -3,11 +3,15 @@
  *
  * The crown itself is terrain (extruded crown levels). This module adds:
  *   - Inner lining: thin dark basalt on lava-facing crown faces (always).
- *   - Lava lids: spawned ONLY after the 3/3 ignition thaw. Until then
- *     no orange entities exist — scale-hiding leaked through snow.
+ *   - Lava lids: one box per lava cell, staged by landed monuments
+ *     (setVolcanoLavaStage 0..3). Stage 0 = no lava entities at all
+ *     (scale-hiding leaked through snow). Stage 1 a small dim pool at
+ *     the lake centre, stage 2 wider and brighter, stage 3 the full
+ *     glowing lake (the eruption look). The pool spreads outward from
+ *     the centre and height / glow / colour blend over
+ *     LAVA_STAGE_BLEND_S. Tunables: src/shared/volcanoStages.ts.
  *
- * Rebuilds lining on terrain change; thaw / setVolcanoLavaVisible
- * spawns or destroys lava lids.
+ * Rebuilds lining + lava cells on terrain change.
  */
 
 import {
@@ -34,9 +38,21 @@ import {
 import {
 	volcanoCrownCells,
 	volcanoLavaCells,
-	volcanoLavaTopY,
+	volcanoLavaCentroid,
 	volcanoRimY,
 } from 'src/shared/terrain/volcanoCrown'
+import {
+	LAVA_COVER_BY_STAGE,
+	LAVA_EDGE_SOFT,
+	LAVA_EMISSIVE_BY_STAGE,
+	LAVA_HEAT_BY_STAGE,
+	LAVA_LIT_MIN_PRESENCE,
+	LAVA_RELIGHT_ABOVE_M,
+	LAVA_RELIGHT_REACH_M,
+	LAVA_STAGE_BLEND_S,
+	LAVA_TOP_BY_STAGE,
+	volcanoStageIndex,
+} from 'src/shared/volcanoStages'
 
 
 // MARK: Tuning
@@ -49,22 +65,44 @@ const LINING_TOP_GAP_M    = 0.03
 const COLOR_BASALT  = Color4.create(0.16, 0.12, 0.11, 1)
 const COLOR_LAVA    = Color4.create(1.0, 0.42, 0.04, 1)
 const LAVA_EMISSIVE = Color3.create(1.0, 0.38, 0.03)
-const LAVA_EMISSIVE_INTENSITY = 3
+/** Cooler crust colours for the low stages (blended by LAVA_HEAT_BY_STAGE). */
+const COLOR_CRUST    = Color4.create(0.30, 0.08, 0.03, 1)
+const CRUST_EMISSIVE = Color3.create(0.70, 0.16, 0.02)
+/** Lowest lid height while a cell is still spreading in (m above the rim). */
+const LAVA_MIN_TOP_M = -0.03
 
 
 // MARK: State
 const liningEntities: Entity[] = []
-const lavaEntities  : Entity[] = []
 let lastMap: TerrainMap | null = null
 let installed = false
-/** True after 3/3 thaw has revealed lava. */
-let lavaVisible = false
+
+/** One lava cell: world centre, normalised distance from the lake centre (0 = centre cell). */
+type LavaCell = { x: number; z: number; d: number; e: Entity | null; a: number }
+const lavaCells: LavaCell[] = []
+/** Live lava look (blended toward the stage target). */
+type LavaParams = { cover: number; top: number; emis: number; heat: number }
+function lavaStageParams(st: number): LavaParams {
+	return {
+		cover: LAVA_COVER_BY_STAGE[st],
+		top  : LAVA_TOP_BY_STAGE[st],
+		emis : LAVA_EMISSIVE_BY_STAGE[st],
+		heat : LAVA_HEAT_BY_STAGE[st],
+	}
+}
+let lavaStage = 0
+let lavaCur : LavaParams = lavaStageParams(0)
+let lavaFrom: LavaParams = lavaStageParams(0)
+let lavaBlendT = LAVA_STAGE_BLEND_S
 
 
 // MARK: clearLava
 function clearLava(): void {
-	for (const e of lavaEntities) engine.removeEntity(e)
-	lavaEntities.length = 0
+	for (const c of lavaCells) {
+		if (c.e !== null) engine.removeEntity(c.e)
+		c.e = null
+		c.a = 0
+	}
 }
 
 
@@ -100,42 +138,107 @@ function spawnBox(
 }
 
 
-// MARK: spawnLavaLids
-/** Row-merged glowing lava boxes. Call only when thawed. */
-function spawnLavaLids(map: TerrainMap): number {
+// MARK: buildLavaCells
+/** Collect lava cells with their normalised distance from the lake centre. */
+function buildLavaCells(map: TerrainMap): void {
 	clearLava()
-	const rimY    = volcanoRimY()
-	const lavaTop = volcanoLavaTopY()
-	const lava    = new Set(volcanoLavaCells(map))
-	const mobile  = isMobile()
-	let runs = 0
-	for (let cz = 0; cz < map.h; cz++) {
-		let cx = 0
-		while (cx < map.w) {
-			if (!lava.has(cz * map.w + cx)) { cx++; continue }
-			const start = cx
-			while (cx < map.w && lava.has(cz * map.w + cx)) cx++
-			const len  = cx - start
-			const a    = cellCenterWorld(start, cz)
-			const midX = a.x + ((len - 1) * TERRAIN_CELL_M) / 2
-			const e = spawnBox(midX, a.z, len * TERRAIN_CELL_M, TERRAIN_CELL_M,
-				rimY - LAVA_SINK_M, lavaTop, true, lavaEntities)
-			if (mobile) {
-				Material.setBasicMaterial(e, { diffuseColor: COLOR_LAVA, castShadows: false })
-			} else {
-				Material.setPbrMaterial(e, {
-					albedoColor      : COLOR_LAVA,
-					emissiveColor    : LAVA_EMISSIVE,
-					emissiveIntensity: LAVA_EMISSIVE_INTENSITY,
-					roughness        : 0.6,
-					metallic         : 0.0,
-					castShadows      : false,
-				})
-			}
-			runs++
+	lavaCells.length = 0
+	const cells = volcanoLavaCells(map)
+	const c = volcanoLavaCentroid(map)
+	if (cells.length === 0 || !c) return
+	const raw: Array<{ x: number; z: number; r: number }> = []
+	for (const i of cells) {
+		const cx = i % map.w
+		const cz = (i - cx) / map.w
+		const w  = cellCenterWorld(cx, cz)
+		raw.push({ x: w.x, z: w.z, r: Math.hypot(cx + 0.5 - c.fx, cz + 0.5 - c.fz) })
+	}
+	let rMin = Infinity
+	let rMax = 0
+	for (const p of raw) { rMin = Math.min(rMin, p.r); rMax = Math.max(rMax, p.r) }
+	const span = Math.max(1e-3, rMax - rMin)
+	for (const p of raw) lavaCells.push({ x: p.x, z: p.z, d: (p.r - rMin) / span, e: null, a: 0 })
+}
+
+
+// MARK: applyLava
+/**
+ * Spawn / reshape / recolour lava cells for the live params. A cell's
+ * presence `a` (0..1) ramps across LAVA_EDGE_SOFT behind the spreading
+ * front; the centre cell is present whenever there is any lava.
+ */
+function applyLava(): void {
+	const p      = lavaCur
+	const rimY   = volcanoRimY()
+	const bottom = rimY - LAVA_SINK_M
+	const mobile = isMobile()
+	for (const c of lavaCells) {
+		// Centre cell (d = 0) is first in and present whenever cover > 0.
+		const a = p.cover <= 0 ? 0 : Math.max(0, Math.min(1, (p.cover - c.d) / LAVA_EDGE_SOFT))
+		if (a <= 0) {
+			if (c.e !== null) { engine.removeEntity(c.e); c.e = null }
+			c.a = 0
+			continue
+		}
+		const top = rimY + LAVA_MIN_TOP_M + (p.top - LAVA_MIN_TOP_M) * a
+		const h   = Math.max(0.01, top - bottom)
+		if (c.e === null) {
+			const e = engine.addEntity()
+			Transform.create(e, {
+				position: Vector3.create(c.x, bottom + h / 2, c.z),
+				scale   : Vector3.create(TERRAIN_CELL_M, h, TERRAIN_CELL_M),
+			})
+			MeshRenderer.setBox(e)
+			MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS | ColliderLayer.CL_POINTER)
+			c.e = e
+		} else {
+			const tr = Transform.getMutable(c.e)
+			tr.position = Vector3.create(c.x, bottom + h / 2, c.z)
+			tr.scale    = Vector3.create(TERRAIN_CELL_M, h, TERRAIN_CELL_M)
+		}
+		c.a = a
+		const k = Math.max(0, Math.min(1, p.heat))
+		const col = Color4.create(
+			COLOR_CRUST.r + (COLOR_LAVA.r - COLOR_CRUST.r) * k,
+			COLOR_CRUST.g + (COLOR_LAVA.g - COLOR_CRUST.g) * k,
+			COLOR_CRUST.b + (COLOR_LAVA.b - COLOR_CRUST.b) * k,
+			1,
+		)
+		if (mobile) {
+			Material.setBasicMaterial(c.e, { diffuseColor: col, castShadows: false })
+		} else {
+			Material.setPbrMaterial(c.e, {
+				albedoColor      : col,
+				emissiveColor    : Color3.create(
+					CRUST_EMISSIVE.r + (LAVA_EMISSIVE.r - CRUST_EMISSIVE.r) * k,
+					CRUST_EMISSIVE.g + (LAVA_EMISSIVE.g - CRUST_EMISSIVE.g) * k,
+					CRUST_EMISSIVE.b + (LAVA_EMISSIVE.b - CRUST_EMISSIVE.b) * k,
+				),
+				emissiveIntensity: p.emis * a,
+				roughness        : 0.6,
+				metallic         : 0.0,
+				castShadows      : false,
+			})
 		}
 	}
-	return runs
+}
+
+
+// MARK: lavaBlendSystem
+/** Ease the lava look toward the stage target (only while blending). */
+function lavaBlendSystem(dt: number): void {
+	if (lavaBlendT >= LAVA_STAGE_BLEND_S) return
+	lavaBlendT = Math.min(LAVA_STAGE_BLEND_S, lavaBlendT + dt)
+	const u = lavaBlendT / LAVA_STAGE_BLEND_S
+	const k = u * u * (3 - 2 * u)
+	const to = lavaStageParams(lavaStage)
+	lavaCur = {
+		cover: lavaFrom.cover + (to.cover - lavaFrom.cover) * k,
+		top  : lavaFrom.top   + (to.top   - lavaFrom.top)   * k,
+		emis : lavaFrom.emis  + (to.emis  - lavaFrom.emis)  * k,
+		heat : lavaFrom.heat  + (to.heat  - lavaFrom.heat)  * k,
+	}
+	applyLava()
 }
 
 
@@ -174,45 +277,81 @@ function buildForMap(map: TerrainMap | null): void {
 		}
 	}
 
-	const lavaRuns = lavaVisible ? spawnLavaLids(map) : 0
+	buildLavaCells(map)
+	applyLava()
 	console.log(
 		`volcanoCrown: seed ${map.usedSeed}: lining=${plates} ` +
-		`lavaRuns=${lavaRuns} thawed=${lavaVisible}`,
+		`lavaCells=${lavaCells.length} stage=${lavaStage}`,
 	)
 }
 
 
-// MARK: setVolcanoLavaVisible
+// MARK: nearestLitLava
 /**
- * Reveal or bury lava lids by spawn/destroy — no orange mesh exists
- * while dormant. Idempotent; re-syncs entities if terrain rebuilt.
+ * Nearest point on a lit lava cell (presence >= LAVA_LIT_MIN_PRESENCE)
+ * to world (x, z), with its horizontal distance; null when no lava.
  */
+export function nearestLitLava(x: number, z: number): { x: number; z: number; d: number } | null {
+	const half = TERRAIN_CELL_M / 2
+	let best: { x: number; z: number; d: number } | null = null
+	for (const c of lavaCells) {
+		if (c.e === null || c.a < LAVA_LIT_MIN_PRESENCE) continue
+		const nx = Math.max(c.x - half, Math.min(c.x + half, x))
+		const nz = Math.max(c.z - half, Math.min(c.z + half, z))
+		const d  = Math.hypot(x - nx, z - nz)
+		if (best === null || d < best.d) best = { x: c.x, z: c.z, d }
+	}
+	return best
+}
+
+
+// MARK: isInLavaRelightRange
+/**
+ * True when the local player can light their torch from the lava: within
+ * LAVA_RELIGHT_REACH_M of a lit lava cell's edge and no more than
+ * LAVA_RELIGHT_ABOVE_M above the lava (standing in the crater or on the
+ * crown lip looking in). Same prompt / E press as a campfire.
+ */
+export function isInLavaRelightRange(): boolean {
+	if (lavaStage <= 0) return false
+	const t = Transform.getOrNull(engine.PlayerEntity)
+	if (t === null) return false
+	const { x, y, z } = t.position
+	const dy = y - volcanoRimY()
+	if (dy < -2 || dy > LAVA_RELIGHT_ABOVE_M) return false
+	const n = nearestLitLava(x, z)
+	return n !== null && n.d <= LAVA_RELIGHT_REACH_M
+}
+
+
+// MARK: setVolcanoLavaStage
+/**
+ * Lava stage from landed monuments (0..3). 0 = no lava entities; 1..3
+ * spread / rise / brighten per src/shared/volcanoStages.ts, blended over
+ * LAVA_STAGE_BLEND_S. Idempotent; safe before terrain exists.
+ */
+export function setVolcanoLavaStage(n: number): void {
+	const next = volcanoStageIndex(n)
+	if (next === lavaStage) return
+	console.log(`volcanoCrown: lava stage ${lavaStage} -> ${next}`)
+	lavaStage  = next
+	lavaFrom   = { ...lavaCur }
+	lavaBlendT = 0
+}
+
+
+// MARK: setVolcanoLavaVisible
+/** Legacy toggle: full lake (stage 3) or none. */
 export function setVolcanoLavaVisible(visible: boolean): void {
-	if (lavaVisible === visible) {
-		if (visible && lavaEntities.length === 0 && lastMap) spawnLavaLids(lastMap)
-		if (!visible && lavaEntities.length > 0) clearLava()
-		return
-	}
-	lavaVisible = visible
-	if (visible) {
-		const n = lastMap ? spawnLavaLids(lastMap) : 0
-		console.log(`volcanoCrown: setVolcanoLavaVisible: true (${n} runs)`)
-	} else {
-		clearLava()
-		console.log('volcanoCrown: setVolcanoLavaVisible: false (cleared)')
-	}
+	setVolcanoLavaStage(visible ? 3 : 0)
 }
 
 
 // MARK: beginVolcanoThaw
-/**
- * 3/3 station thaw: spawn lava. Full snow retract across the crater
- * needs server meltDisc / paintTick — left for a later pass. Smoke is
- * driven by setVolcanoSmokeBoost(3) from the station sync.
- */
+/** 3/3 station thaw: full lava lake (smoke via setVolcanoSmokeBoost(3)). */
 export function beginVolcanoThaw(): void {
 	console.log('volcanoCrown: beginVolcanoThaw')
-	setVolcanoLavaVisible(true)
+	setVolcanoLavaStage(3)
 }
 
 
@@ -221,6 +360,7 @@ export function beginVolcanoThaw(): void {
 export function setupVolcanoCrown(): void {
 	if (installed) return
 	installed = true
+	engine.addSystem(lavaBlendSystem)
 	engine.addSystem(() => {
 		const map = activeTerrain()
 		if (map === lastMap) return

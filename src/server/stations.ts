@@ -2,9 +2,11 @@
  * stations.ts — authoritative ignition-station activation + world thaw.
  *
  * Three sockets per cycle. First valid activate wins per index.
- * When all three are active, fire one world thaw for the cycle:
- * melt all snow, force CLEAR weather, broadcast worldThawState.
- * Reset on cycle roll. Late joiners hydrate stations + thaw flag.
+ * Each activation raises the volcano thaw stage (= active count, 0..3):
+ * a melt wave grows the warm, snow-free zone around the crater to
+ * THAW_STAGE_RADIUS_M[stage] (src/shared/terrain/thawWave.ts). Stage 3
+ * is the world thaw (victory card, post-win days, new winter).
+ * Reset on cycle roll. Late joiners hydrate stations + thaw stage/wave.
  */
 
 import { DEBUG_THAW_BUTTON } from 'src/client/devFlags'
@@ -12,7 +14,7 @@ import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
-import { meltAllSnow, meltMonumentIceSquare, publishCoverageIfDirty, releaseMonumentPitSquare } from 'src/server/snowState'
+import { meltMonumentIceSquare, meltThawZone, publishCoverageIfDirty, releaseMonumentPitSquare } from 'src/server/snowState'
 import { clearWeatherThawLock } from 'src/server/weather'
 import {
 	MONUMENT_ICE_CHUNK_M,
@@ -24,7 +26,14 @@ import {
 } from 'src/shared/monumentIce'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { MONUMENT_PIT_SIZE_M, MONUMENT_SOCKET_SIZE_M, cellCenterWorld } from 'src/shared/terrain/terrainMap'
-import { POST_THAW_DAYS } from 'src/shared/terrain/thawWave'
+import { SNOW_TILE_M } from 'src/shared/snowGrid'
+import {
+	POST_THAW_DAYS,
+	ThawSegment,
+	planThawSegment,
+	thawSegmentRadiusM,
+	thawWaveCentre,
+} from 'src/shared/terrain/thawWave'
 
 const STATION_COUNT = 3
 
@@ -39,10 +48,47 @@ let worldThawed = false
  * of thawDay + POST_THAW_DAYS + 1 the world rolls to a new winter.
  */
 let thawDay = 0
-/** Date.now() when the thaw fired (melt-wave origin time). */
-let thawStartMs = 0
-function thawWaveAgeMs(): number {
-	return worldThawed ? Math.max(0, Math.min(2147483647, Date.now() - thawStartMs)) : 0
+/** Volcano thaw stage reached this cycle (0..3, = active count when accepted). */
+let thawStage = 0
+/** Current melt-wave step (null at stage 0). */
+let thawSeg: ThawSegment | null = null
+/** Date.now() when the first lava appears (stage 1 wave start = beam landing); 0 = none. */
+let lavaLitAtMs = 0
+
+
+// MARK: isVolcanoLavaLit
+/**
+ * True once stage 1+ lava exists in the crater (from the stage 1 beam
+ * landing). Lava never goes out this cycle: it is a torch relight
+ * source and counts as living flame for the world end.
+ */
+export function isVolcanoLavaLit(): boolean {
+	return thawStage >= 1 && lavaLitAtMs > 0 && Date.now() >= lavaLitAtMs
+}
+
+
+function clampInt32(v: number): number {
+	return Math.max(-2147483647, Math.min(2147483647, Math.round(v)))
+}
+
+
+/** worldThawState payload (broadcast + late-join hydrate). */
+function thawPayload(): {
+	seed: number; thawed: number; thawDay: number; stage: number
+	fromM: number; toM: number; waveAgeMs: number; waveDurMs: number
+} {
+	const seg = thawSeg
+	return {
+		seed     : currentSeed,
+		thawed   : worldThawed ? 1 : 0,
+		thawDay  : worldThawed ? thawDay : 0,
+		stage    : thawStage,
+		fromM    : seg ? seg.fromM : 0,
+		toM      : seg ? seg.toM : 0,
+		// Signed: negative while the step waits for the beam to land.
+		waveAgeMs: seg ? clampInt32(Date.now() - seg.startMs) : 0,
+		waveDurMs: seg ? clampInt32(seg.durMs) : 0,
+	}
 }
 
 
@@ -98,30 +144,38 @@ function releasePitSnow(index: number): void {
 
 
 function broadcastThaw(): void {
-	room.send('worldThawState', {
-		seed  : currentSeed,
-		thawed: worldThawed ? 1 : 0,
-		thawDay: worldThawed ? thawDay : 0, waveAgeMs: thawWaveAgeMs(),
-	})
+	room.send('worldThawState', thawPayload())
 }
 
 
-function triggerWorldThaw(reason: string): void {
-	if (worldThawed) return
-	worldThawed = true
-	thawDay = getDayNumber()
-	thawStartMs = Date.now()
-	console.log(`[Server] stations: WORLD THAW (${reason}) seed=${currentSeed}`)
-	meltAllSnow()
+/**
+ * Raise the thaw stage to the active count: plan the next melt-wave step
+ * (starts when the volcano beam lands), queue its tiles, and at stage 3
+ * fire the world thaw (victory day bookkeeping). Never lowers the stage.
+ */
+function advanceThawStage(reason: string): void {
+	const n = Math.min(STATION_COUNT, getActiveStationCount())
+	if (n <= thawStage) return
+	thawStage = n
+	const centre = thawWaveCentre(activeTerrain())
+	const seg = planThawSegment(centre, thawSeg, n, Date.now())
+	thawSeg = seg
+	if (lavaLitAtMs === 0) lavaLitAtMs = seg.startMs
+	meltThawZone(centre, seg.toM / SNOW_TILE_M, (nowMs) => thawSegmentRadiusM(seg, nowMs) / SNOW_TILE_M)
+	console.log(
+		`[Server] stations: thaw stage ${n} (${reason}) seed=${currentSeed} ` +
+		`wave ${seg.fromM.toFixed(0)} -> ${seg.toM.toFixed(0)} m over ${(seg.durMs / 1000).toFixed(1)} s ` +
+		`starting in ${((seg.startMs - Date.now()) / 1000).toFixed(1)} s`,
+	)
+	if (n >= STATION_COUNT && !worldThawed) {
+		worldThawed = true
+		thawDay = getDayNumber()
+		console.log(`[Server] stations: WORLD THAW (${reason}) seed=${currentSeed}`)
+	}
 	publishCoverageIfDirty()
-	// No global CLEAR lock any more: only the thaw zone is warm, and
-	// snowfall / regrowth must keep running outside it.
+	// No global CLEAR lock: only the thaw zone is warm, and snowfall /
+	// regrowth keep running outside it.
 	broadcastThaw()
-}
-
-
-function maybeThaw(reason: string): void {
-	if (getActiveStationCount() >= STATION_COUNT) triggerWorldThaw(reason)
 }
 
 
@@ -130,6 +184,9 @@ function resetForCycle(seed: number): void {
 	for (let i = 0; i < STATION_COUNT; i++) { active[i] = false; iceMask[i] = 0 }
 	worldThawed = false
 	thawDay = 0
+	thawStage = 0
+	thawSeg = null
+	lavaLitAtMs = 0
 	clearWeatherThawLock()
 	console.log(`[Server] stations: reset for cycle seed=${currentSeed}`)
 	for (let i = 0; i < STATION_COUNT; i++) { broadcastOne(i); broadcastIce(i) }
@@ -158,11 +215,7 @@ export function sendStationStateTo(userId: string): void {
 		)
 		broadcastIce(i, userId)
 	}
-	room.send(
-		'worldThawState',
-		{ seed: currentSeed, thawed: worldThawed ? 1 : 0, thawDay: worldThawed ? thawDay : 0, waveAgeMs: thawWaveAgeMs() },
-		{ to: [userId] },
-	)
+	room.send('worldThawState', thawPayload(), { to: [userId] })
 }
 
 
@@ -170,6 +223,9 @@ export function setupStationsServer(): void {
 	currentSeed = getCurrentCycleSeed()
 	for (let i = 0; i < STATION_COUNT; i++) { active[i] = false; iceMask[i] = 0 }
 	worldThawed = false
+	thawStage = 0
+	thawSeg = null
+	lavaLitAtMs = 0
 	console.log(`[Server] stations: setup seed=${currentSeed}`)
 
 	room.onMessage('monumentIceMelt', ({ seed, index, chunk }, context) => {
@@ -216,7 +272,7 @@ export function setupStationsServer(): void {
 		if (active[index]) {
 			console.log(`[Server] stations[${index}]: activate from ${from} ignored — already active`)
 			broadcastOne(index)
-			if (worldThawed) broadcastThaw()
+			if (thawStage > 0) broadcastThaw()
 			return
 		}
 		// Only the iced monument needs its ice melted; the others ignite at once.
@@ -236,11 +292,11 @@ export function setupStationsServer(): void {
 			`(seed=${currentSeed}, active=${getActiveStationCount()}/${STATION_COUNT})`,
 		)
 		broadcastOne(index, true)
-		maybeThaw(`station ${index} by ${from}`)
+		advanceThawStage(`station ${index} by ${from}`)
 	})
 
 	// TEMPORARY debug thaw: same path as the 3rd monument (fresh station
-	// broadcasts -> grow/spin/beam/SFX on clients, then triggerWorldThaw).
+	// broadcasts -> grow/spin/beam/SFX on clients, then advanceThawStage -> stage 3).
 	room.onMessage('debugThaw', ({ seed }, context) => {
 		const from = context?.from ?? 'unknown'
 		if (!DEBUG_THAW_BUTTON) {
@@ -260,8 +316,29 @@ export function setupStationsServer(): void {
 			}
 			broadcastOne(i, true)
 		}
-		maybeThaw(`debug button by ${from}`)
-		if (!worldThawed) triggerWorldThaw(`debug button by ${from}`)
+		advanceThawStage(`debug button by ${from}`)
+	})
+
+	// TEMPORARY debug: light the next unlit monument through the same path
+	// (fresh broadcast -> rise/beam on clients, thaw stage +1). Same flag.
+	room.onMessage('debugVolcanoStage', ({ seed }, context) => {
+		const from = context?.from ?? 'unknown'
+		if (!DEBUG_THAW_BUTTON) {
+			console.log(`[Server] stations: debugVolcanoStage from ${from} ignored (flag off)`)
+			return
+		}
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		const i = active.indexOf(false)
+		if (i < 0) return
+		console.log(`[Server] stations: DEBUG stage +1 (station ${i}) requested by ${from}`)
+		active[i] = true
+		releasePitSnow(i)
+		if (!iceFullyMelted(iceMask[i])) {
+			iceMask[i] = MONUMENT_ICE_FULL_MASK
+			broadcastIce(i)
+		}
+		broadcastOne(i, true)
+		advanceThawStage(`debug +1 by ${from}`)
 	})
 
 	onCycleRoll(({ newSeed }) => { resetForCycle(newSeed) })

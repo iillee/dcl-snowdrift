@@ -41,6 +41,7 @@ import { isEmberFailing } from 'src/client/emberFail'
 import { getFrostLocal, resetFrostLocal, seedRescueWarmth, seedWakeWarmth } from 'src/client/frost/accumulation'
 import { getMainFireFuel } from 'src/client/hearthFuel'
 import { getHiddenCampfireWarmthPositions } from 'src/client/hiddenCampfire'
+import { nearestLitLava } from 'src/client/volcanoCrown'
 import { dropLogAtPlayer } from 'src/client/logsInput'
 import { clearCarriedWood } from 'src/client/logsInventory'
 import { teleportHome, teleportNear } from 'src/client/player'
@@ -289,6 +290,10 @@ function nearestLitFire(): { x: number, z: number } | null {
 		if (hp.fuel <= 0) continue
 		consider(hp.x, hp.z)
 	}
+	// Stage 1+ volcano lava never goes out: wake beside the nearest lit
+	// lava cell (warm crater) when it is the closest flame.
+	const lava = nearestLitLava(px, pz)
+	if (lava) consider(lava.x, lava.z)
 	if (!found) return null
 	return { x: bestX, z: bestZ }
 }

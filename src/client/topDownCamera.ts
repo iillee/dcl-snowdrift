@@ -18,7 +18,16 @@
  *   screen-right on the ground = R = ( cos ψ, -sin ψ)
  *   With ψ = 45°: screen-up = north-east, screen-right = south-east.
  *   All pan input (drag + d-pad) is mapped through F / R, so panning always
- *   follows the rotated view.
+ *   follows the rotated view (F / R track the live, possibly blending, yaw).
+ *
+ * Auto-rotation (occlusion): every ISO_OCCLUDE_SAMPLE_S the ray from the
+ * camera to the player's chest is sampled against the 16 m terrain cell
+ * heights. Blocked for ISO_OCCLUDE_BLOCKED_S → test the other three yaws
+ * (45 + 90k°, nearest first) and blend to the first clear one over
+ * ISO_YAW_BLEND_S. ISO_YAW_MIN_HOLD_S between turns stops flip-flopping;
+ * if no yaw is clear the current one stays. Desktop key 4 (IA_ACTION_6)
+ * turns the view 90° by hand. Hiding foreground cliffs instead is not
+ * practical: terrain is merged slab meshes, not per-cliff entities.
  *
  * Public API:
  *   setupTopDownCamera()   — create entities + register systems (call once).
@@ -48,7 +57,7 @@ const CENTER_Z = SCENE_WORLD_SIZE_Z_METERS / 2
 // --- Isometric pose ---------------------------------------------------------
 /** Downward pitch (deg). True isometric = atan(1/√2) ≈ 35.26°. 35–45 reads well. */
 export const ISO_PITCH_DEG = 35.26
-/** Yaw (deg, clockwise from north/+Z). 45 = classic diagonal; camera sits SW looking NE. */
+/** Default yaw (deg, clockwise from north/+Z). 45 = classic diagonal; camera sits SW looking NE. Auto-rotation steps by 90. */
 export const ISO_YAW_DEG   = 45
 /**
  * Vertical field of view (deg) passed to VirtualCamera.fov (SDK default 60).
@@ -63,12 +72,20 @@ export const ISO_FOV_DEG   = 24
 // so the zoom buttons + pan speeds keep their tuning. A view scale of A frames
 // the same on-screen height as the old 60°-FOV camera at A metres altitude;
 // the actual camera distance is A * ISO_DIST_PER_SCALE.
-const CAM_ALTITUDE_DESKTOP_DEFAULT = 30
-const CAM_ALTITUDE_MOBILE_DEFAULT  = 20
-const CAM_ALTITUDE_DEFAULT         = isMobile() ? CAM_ALTITUDE_MOBILE_DEFAULT : CAM_ALTITUDE_DESKTOP_DEFAULT
-const CAM_ALTITUDE_MIN             = 12
-const CAM_ALTITUDE_MAX             = 75
-const CAM_ALTITUDE_STEP            = 6
+//
+// Zoom steps copied from pixelwars overviewCamera.ts (2026-10-26): three
+// fixed steps per platform instead of the old 12..75 / step-6 ladder.
+// Mobile opens at its closest step every time; desktop opens at
+// DESKTOP_ZOOM_DEFAULT the first time and then keeps its step. The table is
+// latched on open because isMobile() resolves async.
+export const MOBILE_ZOOM_SCALES   = [5, 15, 25]
+export const DESKTOP_ZOOM_SCALES  = [7, 29, 60]
+export const DESKTOP_ZOOM_DEFAULT = 29
+/** Past the bounds/ceiling clamp, widen the lens up to this to keep the framing (pixelwars). */
+const ISO_FOV_MAX_DEG = 80
+/** Cliff auto-rotate. Pixelwars drops it (flat tiles); Cryocene keeps it for its 16 m terrain cliffs. */
+export const ISO_AUTO_ROTATE_ENABLED = true
+const CAM_ALTITUDE_DEFAULT = DESKTOP_ZOOM_DEFAULT
 
 /** Reference FOV the zoom scale was tuned against (old overhead camera, deg). */
 const REF_FOV_DEG = 60
@@ -86,6 +103,24 @@ const ISO_CEILING_MARGIN_M   = 3
 const ISO_DIST_RATE          = 6
 /** Smoothing rate for the focus point's height (follows terrain under it, 1/s). */
 const ISO_FOCUS_Y_RATE       = 4
+
+// --- Auto-rotation when terrain hides the player ---------------------------
+/** Occlusion ray test cadence (s). */
+const ISO_OCCLUDE_SAMPLE_S   = 0.25
+/** The player must be hidden this long before the view turns (s). */
+const ISO_OCCLUDE_BLOCKED_S  = 0.4
+/** Yaw blend time for an auto or manual turn (s). */
+const ISO_YAW_BLEND_S        = 0.8
+/** Minimum time between turns (hysteresis, s). */
+const ISO_YAW_MIN_HOLD_S     = 2
+/** Ray target height above the player's feet (chest, m). */
+const ISO_OCCLUDE_CHEST_M    = 1.2
+/** Ray sample spacing along the ray (m); cells are 16 m. */
+const ISO_OCCLUDE_STEP_M     = 2
+/** Ignore samples this close (horizontally) to the player (own cell edge / ledge, m). */
+const ISO_OCCLUDE_NEAR_M     = 1.5
+/** Terrain must rise this far above the ray to count as blocking (m). */
+const ISO_OCCLUDE_MARGIN_M   = 0.3
 
 // VirtualCamera transition speed (m/s) when entering / exiting. Raised from
 // 200 with the longer throw so the glide takes about as long as before.
@@ -116,10 +151,24 @@ const DRAG_M_PER_PX_BASE = 0.05
 // MARK: Derived pose
 const SIN_P = Math.sin(ISO_PITCH_DEG * DEG)
 const COS_P = Math.cos(ISO_PITCH_DEG * DEG)
-/** Ground-plane screen-up (camera forward, flattened). */
+/** Ground-plane screen-up (camera forward, flattened). Tracks the live yaw. */
 const FWD   = { x: Math.sin(ISO_YAW_DEG * DEG), z: Math.cos(ISO_YAW_DEG * DEG) }
-/** Ground-plane screen-right. */
+/** Ground-plane screen-right. Tracks the live yaw. */
 const RIGHT = { x: Math.cos(ISO_YAW_DEG * DEG), z: -Math.sin(ISO_YAW_DEG * DEG) }
+
+/** Yaw slot k → 45 + 90k degrees. */
+function yawOfSlot(k: number): number {
+	return ISO_YAW_DEG + 90 * (((k % 4) + 4) % 4)
+}
+
+/** Point FWD / RIGHT at `yawDeg`. */
+function setYawFrame(yawDeg: number): void {
+	const r = yawDeg * DEG
+	FWD.x   = Math.sin(r)
+	FWD.z   = Math.cos(r)
+	RIGHT.x = Math.cos(r)
+	RIGHT.z = -Math.sin(r)
+}
 
 
 // MARK: Module state
@@ -127,6 +176,10 @@ let camEntity:      Entity | null = null
 let lookTargetEnt:  Entity | null = null
 let active                        = false
 let currentAltitude               = CAM_ALTITUDE_DEFAULT
+let zoomIndex                     = DESKTOP_ZOOM_SCALES.indexOf(DESKTOP_ZOOM_DEFAULT)
+let zoomMobile                    = false
+let zoomInit                      = false
+let fovApplied                    = -1
 
 const enum Mode { FOLLOW, FREE }
 let mode: Mode = Mode.FOLLOW
@@ -144,6 +197,20 @@ const panVel = { x: 0, z: 0 }
 let dragActive         = false
 let dragPanning        = false
 let dragAccumPx        = 0
+
+// Yaw / auto-rotation state.
+/** Target yaw slot (0..3 → 45 + 90k°). */
+let yawSlot         = 0
+/** Live yaw (deg) and the blend it is on. */
+let yawDeg          = ISO_YAW_DEG
+let yawFromDeg      = ISO_YAW_DEG
+let yawToDeg        = ISO_YAW_DEG
+let yawBlendT       = ISO_YAW_BLEND_S
+/** Seconds since the last turn (hold / hysteresis). */
+let sinceTurnS      = ISO_YAW_MIN_HOLD_S
+let occludeClock    = 0
+/** Continuous time the player has been hidden at the current yaw (s). */
+let blockedS        = 0
 
 
 // MARK: setupTopDownCamera
@@ -178,6 +245,11 @@ export function setupTopDownCamera(): void {
 			playUiClick()
 			toggleTopDownCamera()
 		}
+		// 4 (IA_ACTION_6): turn the overview 90° clockwise by hand.
+		if (active && inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
+			playUiClick()
+			rotateView(1)
+		}
 
 		if (inputSystem.isTriggered(InputAction.IA_POINTER, PointerEventType.PET_UP)) {
 			dragActive  = false
@@ -197,6 +269,7 @@ export function setupTopDownCamera(): void {
  * inside the scene, above terrain and under the ceiling.
  */
 function updateCamera(dt: number): void {
+	updateYaw(dt)
 	if (mode === Mode.FOLLOW) {
 		const p = Transform.getOrNull(engine.PlayerEntity)?.position
 		if (p) {
@@ -231,18 +304,14 @@ function updateCamera(dt: number): void {
 	const gy = groundAt(targetPos.x, targetPos.z)
 	focusY += (gy - focusY) * (1 - Math.exp(-ISO_FOCUS_Y_RATE * dt))
 
-	const want = Math.min(currentAltitude * ISO_DIST_PER_SCALE, maxDistance())
+	const wantFull = currentAltitude * ISO_DIST_PER_SCALE
+	const want = Math.min(wantFull, maxDistance())
 	camDist += (want - camDist) * (1 - Math.exp(-ISO_DIST_RATE * dt))
 	// Never lag outside a hard limit while smoothing.
 	if (camDist > want) camDist = Math.min(camDist, maxDistance())
+	writeFov(targetFov(wantFull, camDist))
 
-	const cx = targetPos.x - FWD.x * camDist * COS_P
-	const cz = targetPos.z - FWD.z * camDist * COS_P
-	let   cy = focusY + camDist * SIN_P
-	const yMin = groundAt(cx, cz) + ISO_GROUND_CLEAR_M
-	const yMax = sceneHeightLimitM() - ISO_CEILING_MARGIN_M
-	if (cy < yMin) cy = yMin
-	if (cy > yMax) cy = yMax
+	const { cx, cy, cz } = camPoseFor(FWD.x, FWD.z)
 
 	if (lookTargetEnt !== null) {
 		const t = Transform.getMutable(lookTargetEnt)
@@ -255,6 +324,118 @@ function updateCamera(dt: number): void {
 		t.position.x = cx
 		t.position.y = cy
 		t.position.z = cz
+	}
+}
+
+
+// MARK: camPoseFor
+/** Camera position for the current focus / distance along ground-forward (fx, fz), clamped. */
+function camPoseFor(fx: number, fz: number): { cx: number; cy: number; cz: number } {
+	const cx = targetPos.x - fx * camDist * COS_P
+	const cz = targetPos.z - fz * camDist * COS_P
+	let   cy = focusY + camDist * SIN_P
+	const yMin = groundAt(cx, cz) + ISO_GROUND_CLEAR_M
+	const yMax = sceneHeightLimitM() - ISO_CEILING_MARGIN_M
+	if (cy < yMin) cy = yMin
+	if (cy > yMax) cy = yMax
+	return { cx, cy, cz }
+}
+
+
+// MARK: updateYaw
+/**
+ * Advance the yaw blend (shortest way, smoothstep) and, every
+ * ISO_OCCLUDE_SAMPLE_S, run the occlusion test that may start a turn.
+ */
+function updateYaw(dt: number): void {
+	sinceTurnS += dt
+	if (yawBlendT < ISO_YAW_BLEND_S) {
+		yawBlendT = Math.min(ISO_YAW_BLEND_S, yawBlendT + dt)
+		const u = yawBlendT / ISO_YAW_BLEND_S
+		yawDeg  = yawFromDeg + (yawToDeg - yawFromDeg) * (u * u * (3 - 2 * u))
+		setYawFrame(yawDeg)
+		if (yawBlendT >= ISO_YAW_BLEND_S) {
+			yawDeg = yawOfSlot(yawSlot)
+			setYawFrame(yawDeg)
+		}
+		return
+	}
+	if (!ISO_AUTO_ROTATE_ENABLED) return
+	occludeClock += dt
+	if (occludeClock < ISO_OCCLUDE_SAMPLE_S) return
+	const step = occludeClock
+	occludeClock = 0
+	const p = Transform.getOrNull(engine.PlayerEntity)?.position
+	if (!p) return
+	if (!isPlayerHiddenAt(yawOfSlot(yawSlot), p.x, p.y, p.z)) {
+		blockedS = 0
+		return
+	}
+	blockedS += step
+	if (blockedS < ISO_OCCLUDE_BLOCKED_S || sinceTurnS < ISO_YAW_MIN_HOLD_S) return
+	// Nearest turns first (±90°), then the opposite side.
+	for (const k of [1, -1, 2]) {
+		if (isPlayerHiddenAt(yawOfSlot(yawSlot + k), p.x, p.y, p.z)) continue
+		console.log(`topDownCamera: player hidden ${blockedS.toFixed(2)}s, turning to ${yawOfSlot(yawSlot + k)}°`)
+		rotateView(k)
+		return
+	}
+	// Nothing clear: keep the yaw; retry after another hold.
+	sinceTurnS = 0
+}
+
+
+// MARK: isPlayerHiddenAt
+/**
+ * True when terrain (16 m cell tops) rises above the ray from the camera
+ * at `yawD` to the player's chest. Samples every ISO_OCCLUDE_STEP_M,
+ * skipping the player's immediate surroundings.
+ */
+function isPlayerHiddenAt(yawD: number, px: number, py: number, pz: number): boolean {
+	const r  = yawD * DEG
+	const { cx, cy, cz } = camPoseFor(Math.sin(r), Math.cos(r))
+	const tx = px
+	const ty = py + ISO_OCCLUDE_CHEST_M
+	const tz = pz
+	const dx = cx - tx
+	const dy = cy - ty
+	const dz = cz - tz
+	const flat = Math.hypot(dx, dz)
+	const len  = Math.hypot(flat, dy)
+	if (flat < 1e-3) return false
+	const n = Math.max(2, Math.ceil(len / ISO_OCCLUDE_STEP_M))
+	for (let i = 1; i < n; i++) {
+		const u = i / n
+		if (u * flat < ISO_OCCLUDE_NEAR_M) continue
+		const x = tx + dx * u
+		const y = ty + dy * u
+		const z = tz + dz * u
+		if (groundAt(x, z) > y + ISO_OCCLUDE_MARGIN_M) return true
+	}
+	return false
+}
+
+
+// MARK: rotateView
+/** Turn the overview by `steps` × 90° (blended). Resets the hold. */
+export function rotateView(steps: number): void {
+	if (steps === 0) return
+	yawSlot    = (((yawSlot + steps) % 4) + 4) % 4
+	yawFromDeg = yawDeg
+	let to     = yawOfSlot(yawSlot)
+	// Shortest way round from the live yaw.
+	while (to - yawFromDeg > 180) to -= 360
+	while (to - yawFromDeg < -180) to += 360
+	yawToDeg   = to
+	yawBlendT  = 0
+	sinceTurnS = 0
+	blockedS   = 0
+	// Re-aim an active d-pad pan at the new frame as it turns.
+	if (panVel.x !== 0 || panVel.z !== 0) {
+		const sp = Math.hypot(panVel.x, panVel.z)
+		const ang = Math.atan2(panVel.x, panVel.z) + (yawToDeg - yawFromDeg) * DEG
+		panVel.x = Math.sin(ang) * sp
+		panVel.z = Math.cos(ang) * sp
 	}
 }
 
@@ -320,6 +501,10 @@ export function toggleTopDownCamera(): void {
 		mode = Mode.FOLLOW
 		panVel.x = 0
 		panVel.z = 0
+		// Pixelwars zoom: latch the platform table; mobile snaps to closest each open.
+		const mobile = isMobile()
+		useZoomTable(mobile, !zoomInit || mobile)
+		zoomInit = true
 		// Seed the pose so the transition glides straight to the final framing.
 		focusY  = groundAt(targetPos.x, targetPos.z)
 		camDist = Math.min(currentAltitude * ISO_DIST_PER_SCALE, maxDistance())
@@ -437,34 +622,59 @@ export function getDpadSpeed(): number {
 }
 
 
-// MARK: zoomIn
-/** Move the camera closer by one step. Clamped at min. */
-export function zoomIn(): void {
-	if (!active) return
-	const next = currentAltitude - CAM_ALTITUDE_STEP
-	currentAltitude = next < CAM_ALTITUDE_MIN ? CAM_ALTITUDE_MIN : next
+// MARK: zoom tables (pixelwars)
+function zoomTable(): readonly number[] {
+	return zoomMobile ? MOBILE_ZOOM_SCALES : DESKTOP_ZOOM_SCALES
 }
 
+/** Latch the platform table. `snapDefault`: mobile ? closest, desktop ? DESKTOP_ZOOM_DEFAULT. */
+function useZoomTable(mobile: boolean, snapDefault: boolean): void {
+	zoomMobile = mobile
+	const table = zoomTable()
+	if (snapDefault) {
+		const i = mobile ? 0 : table.indexOf(DESKTOP_ZOOM_DEFAULT)
+		zoomIndex = i >= 0 ? i : 0
+	} else if (zoomIndex < 0 || zoomIndex >= table.length) {
+		zoomIndex = 0
+	}
+	currentAltitude = table[zoomIndex]
+}
+
+function stepZoom(dir: 1 | -1): void {
+	const table = zoomTable()
+	const next = zoomIndex + dir
+	if (next < 0 || next >= table.length) return
+	zoomIndex = next
+	currentAltitude = table[zoomIndex]
+}
+
+/** Same framed width as an ISO_FOV_DEG camera at `wantDist` when clamped to `distCap`. */
+function targetFov(wantDist: number, distCap: number): number {
+	if (wantDist <= distCap) return ISO_FOV_DEG
+	const tanHalf = Math.tan(ISO_FOV_DEG * DEG / 2) * (wantDist / distCap)
+	return Math.min(ISO_FOV_MAX_DEG, 2 * Math.atan(tanHalf) / DEG)
+}
+
+function writeFov(next: number): void {
+	if (camEntity === null || Math.abs(next - fovApplied) < 0.05) return
+	fovApplied = next
+	VirtualCamera.getMutable(camEntity).fov = next
+}
+
+
+// MARK: zoomIn
+/** Next closer step of the platform table. */
+export function zoomIn(): void { if (active) stepZoom(-1) }
 
 // MARK: zoomOut
-/** Move the camera further away by one step. Clamped at max. */
-export function zoomOut(): void {
-	if (!active) return
-	const next = currentAltitude + CAM_ALTITUDE_STEP
-	currentAltitude = next > CAM_ALTITUDE_MAX ? CAM_ALTITUDE_MAX : next
-}
-
+/** Next farther step of the platform table. */
+export function zoomOut(): void { if (active) stepZoom(1) }
 
 // MARK: canZoomIn
-export function canZoomIn(): boolean {
-	return active && currentAltitude > CAM_ALTITUDE_MIN
-}
-
+export function canZoomIn(): boolean { return active && zoomIndex > 0 }
 
 // MARK: canZoomOut
-export function canZoomOut(): boolean {
-	return active && currentAltitude < CAM_ALTITUDE_MAX
-}
+export function canZoomOut(): boolean { return active && zoomIndex < zoomTable().length - 1 }
 
 
 // MARK: AvatarOffscreenHint

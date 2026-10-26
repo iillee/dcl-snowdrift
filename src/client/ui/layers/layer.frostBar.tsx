@@ -23,7 +23,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
 import { getCurrentCycleSeed } from 'src/client/cycle'
-import { isWorldThawed } from 'src/client/worldThaw'
+import { getThawStage, isWorldThawed } from 'src/client/worldThaw'
 import { room } from 'src/shared/messages'
 import { getFrostLocal, getWarmthLocal } from 'src/client/frost/accumulation'
 import { isGiveUpVisible, isItemInputBlocked, requestGiveUp } from 'src/client/frost/frozenState'
@@ -186,6 +186,34 @@ const RADIUS_INNER_MB = 14
 const RADIUS_SEG_DT   = 10
 const RADIUS_SEG_MB   = 10
 
+
+// MARK: DebugStageButton
+/** TEMPORARY: lights the next monument (volcano stage +1). Gated by DEBUG_THAW_BUTTON. */
+function DebugStageButton() {
+	const stage = getThawStage()
+	const done  = stage >= 3
+	return (
+		<UiEntity
+			key          = "ui_FrostBar_debugStage"
+			uiTransform  = {{
+				width: 72, height: 44, flexShrink: 0,
+				margin: { left: 8 },
+				justifyContent: 'center', alignItems: 'center',
+				borderRadius: 12, borderWidth: 3,
+				borderColor: Color4.create(1, 1, 1, 0.75),
+				pointerFilter: 'block',
+			}}
+			uiBackground = {{ color: done ? Color4.create(0.2, 0.2, 0.2, 0.6) : Color4.create(0.9, 0.45, 0.05, 0.9) }}
+			onMouseDown  = {() => {
+				if (getThawStage() >= 3) return
+				console.log('frostBar: DEBUG volcano stage +1 pressed')
+				room.send('debugVolcanoStage', { seed: getCurrentCycleSeed() })
+			}}
+		>
+			<Label value={`S${stage} +1`} fontSize={14} color={Color4.White()} textAlign="middle-center" />
+		</UiEntity>
+	)
+}
 
 // MARK: DebugThawButton
 /** TEMPORARY: forces the 3/3 world thaw. Gated by DEBUG_THAW_BUTTON. */
@@ -469,6 +497,7 @@ class FrostBarLayer extends Layer {
 						{segments}
 					</UiEntity>
 				</UiEntity>
+				{DEBUG_THAW_BUTTON && <DebugStageButton />}
 				{DEBUG_THAW_BUTTON && <DebugThawButton />}
 				{/* Torch + Logs slots live in layer.inventoryHotbar
 				   (bottom-center); this layer owns the heat bar. */}

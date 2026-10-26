@@ -17,6 +17,7 @@ import { PaintCoverage, PaintTile } from 'src/shared/components'
 import { COVERAGE_NETWORK_ID, tileNetworkId } from 'src/shared/networkIds'
 import {
 	SNOW_TILE_CELL_COUNT,
+	SNOW_TILE_M,
 	SNOW_TILES_X,
 	SNOW_TILES_Z,
 	STAGE_MELTED,
@@ -38,19 +39,18 @@ const dirtyTiles   = new Set<number>()
  */
 const FLUSH_BUDGET_PER_TICK = 32
 /**
- * World-thaw melt wave: seconds for the expanding melt radius to travel
- * from the volcano to the farthest tile on the map. Tune here.
+ * Staged thaw melt wave (src/shared/terrain/thawWave.ts owns radii and
+ * timing). stations.ts plans each step; this module paints the tiles the
+ * wave edge has reached, nearest-first, under a per-tick cap.
  */
-import { THAW_WAVE_DURATION_S } from 'src/shared/terrain/thawWave'
-export { THAW_WAVE_DURATION_S }
 /** Hard cap on tiles painted per tick, in case of a long server hitch. */
 const THAW_FILL_MAX_PER_TICK = 32
-/** Pending world-thaw tile keys, nearest-first, with distance in tiles. */
+/** Pending thaw tile keys, nearest-first, with distance in tiles. */
 let thawQueue: number[] = []
 let thawDist: number[] = []
 let thawQueueHead = 0
-let thawStartMs = 0
-let thawMaxDist = 1
+/** Current wave radius in tiles at server Date.now() (set per stage). */
+let thawRadiusTilesAt: (nowMs: number) => number = () => 0
 /** Tiles the thaw wave has painted melted; held melted until reset. */
 const thawMeltedTiles = new Set<number>()
 
@@ -159,7 +159,8 @@ export function flushDirtySnowTiles(): number {
 function stepThawFill(): void {
 	if (thawQueueHead >= thawQueue.length) return
 	const meltedByte = snowByteFromStage(STAGE_MELTED)
-	const radius = thawWaveRadiusTiles()
+	const radius = thawRadiusTilesAt(Date.now())
+	if (radius <= 0) return
 	let painted = 0
 	for (; thawQueueHead < thawQueue.length; thawQueueHead++) {
 		if (thawDist[thawQueueHead] > radius) break
@@ -184,14 +185,6 @@ function stepThawFill(): void {
 }
 
 
-// MARK: thawWaveRadiusTiles
-/** Current melt-wave radius in tiles (grows linearly over THAW_WAVE_DURATION_S). */
-function thawWaveRadiusTiles(): number {
-	const t = (Date.now() - thawStartMs) / (THAW_WAVE_DURATION_S * 1000)
-	return Math.max(0, Math.min(1, t)) * thawMaxDist
-}
-
-
 /** True while a world-thaw fill or a tile backlog is still publishing. */
 export function snowPublishBacklog(): number {
 	return dirtyTiles.size + (thawQueue.length - thawQueueHead)
@@ -199,35 +192,42 @@ export function snowPublishBacklog(): number {
 
 
 
-// MARK: fillAllSnowTilesMelted
+// MARK: queueThawTiles
 /**
- * World thaw: queue every snow tile to be painted melted (stage 0),
- * nearest-first from `centre` (tile coords, e.g. the volcano). The fill
- * and publish follow an expanding radius over THAW_WAVE_DURATION_S
- * (stepThawFill), so the thaw is a visible wave, never one CRDT burst. Returns tile count.
+ * Staged thaw: queue every not-yet-melted snow tile within `toTiles` of
+ * `centre` (tile coords, the crater), nearest-first. stepThawFill paints
+ * each as `radiusTilesAt(Date.now())` reaches it, so every stage is a
+ * visible outward wave, never one CRDT burst. Replaces any queue still
+ * draining from the previous stage (its unpainted tiles are re-queued).
+ * Returns the queued tile count.
  */
-export function fillAllSnowTilesMelted(centre: { tx: number; tz: number; radius: number }): number {
+export function queueThawTiles(
+	centre       : { tx: number; tz: number },
+	toTiles      : number,
+	radiusTilesAt: (nowMs: number) => number,
+): number {
 	const tileCount = SNOW_TILES_X * SNOW_TILES_Z
 	const cx = centre.tx
 	const cz = centre.tz
+	const r2 = toTiles * toTiles
 	const keys: Array<{ k: number; d: number }> = []
 	for (let tileKey = 0; tileKey < tileCount; tileKey++) {
+		if (thawMeltedTiles.has(tileKey)) continue
 		const tx = tileKey % SNOW_TILES_X
 		const tz = (tileKey - tx) / SNOW_TILES_X
 		const d = (tx - cx) * (tx - cx) + (tz - cz) * (tz - cz)
 		// Only the thaw zone melts; outside the radius stays wintry.
-		if (d > centre.radius * centre.radius) continue
+		if (d > r2) continue
 		keys.push({ k: tileKey, d })
 	}
 	keys.sort((a, b) => a.d - b.d)
 	thawQueue = keys.map((e) => e.k)
 	thawDist  = keys.map((e) => Math.sqrt(e.d))
-	thawMaxDist = Math.max(1, centre.radius)
-	thawStartMs = Date.now()
 	thawQueueHead = 0
+	thawRadiusTilesAt = radiusTilesAt
 	console.log(
-		`snowSync: fillAllSnowTilesMelted: wave ${keys.length}/${tileCount} tiles from ` +
-		`(${cx},${cz}) over ${THAW_WAVE_DURATION_S}s (max ${thawMaxDist.toFixed(1)} tiles)`,
+		`snowSync: queueThawTiles: ${keys.length} new tiles (${thawMeltedTiles.size} already thawed) ` +
+		`from (${cx},${cz}) out to ${toTiles.toFixed(1)} tiles (${(toTiles * SNOW_TILE_M).toFixed(0)} m)`,
 	)
 	return keys.length
 }
@@ -240,6 +240,7 @@ export function zeroAllSnowTiles(): void {
 	thawQueue = []
 	thawDist = []
 	thawQueueHead = 0
+	thawRadiusTilesAt = () => 0
 	for (const [tileKey, buf] of tileBuffers) {
 		let changed = false
 		for (let i = 0; i < buf.length; i++) {

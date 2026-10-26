@@ -56,6 +56,10 @@ let splashShownRun   = -1
 let coverWaitLogAtMs = 0
 /** Throttle "waiting for DAWN" logs. */
 let dawnWaitLogAtMs  = 0
+/** Wait this long after the cover lifts before the day card, so it is not lost in the fade. */
+const SPLASH_AFTER_COVER_MS = 600
+/** Wall time the world was first seen uncovered (null while covered). */
+let uncoveredAtMs: number | null = null
 
 
 // MARK: isPhaseHydrated
@@ -328,6 +332,9 @@ function maybeAnnounceDawn(prevName: string): void {
  */
 function tryDawnSplash(): void {
 	if (!dawnSplashArmed || !dawnSplashLive) return
+	if (isWorldCovered()) uncoveredAtMs = null
+	else if (uncoveredAtMs === null) uncoveredAtMs = Date.now()
+	if (uncoveredAtMs !== null && Date.now() - uncoveredAtMs < SPLASH_AFTER_COVER_MS) return
 	if (isWorldCovered()) {
 		const now = Date.now()
 		if (now - coverWaitLogAtMs > 2000) {

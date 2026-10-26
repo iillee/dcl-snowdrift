@@ -9,6 +9,7 @@
  *      cinematic.
  */
 
+import { engine, Transform } from '@dcl/sdk/ecs'
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 
@@ -32,12 +33,22 @@ import { UI_THEME } from 'src/client/ui/theme/settings'
 const COLD_OPEN_MIN_HOLD_MS = 3000
 /** Fade-out once the player is down and the world is ready to see. */
 const COLD_OPEN_FADE_MS = 400
+/**
+ * Extra hold once every readiness gate is true. The scene script (and the
+ * old module-load clock) runs while the explorer's own loading screen is
+ * still up, so on most first loads the 3 s floor and the gates passed
+ * unseen and the cover + Day 1 card played behind the loading screen.
+ */
+const COLD_OPEN_READY_HOLD_MS = 1500
 const { fontSizes } = UI_THEME
 
 // Once the first winter has been shown, the cold-open cover must
 // never return. Mid-game perimeter teardown used to look like a
 // cold-open (cliffs go to zero for a frame).
-const coldOpenStartedAt = Date.now()
+/** Set on the first UI render (renderer is up), not at module load. */
+let   coldOpenStartedAt: number | null = null
+/** First time every readiness gate passed together (avatar present, laid down, snow, terrain). */
+let   coldOpenReadyAt: number | null = null
 let   coldOpenReleased  = false
 let   fadeStartedAt: number | null = null
 
@@ -60,10 +71,17 @@ export function isColdOpenReleased(): boolean {
 function isColdOpenHolding(): boolean {
 	if (coldOpenReleased) return false
 	if (isEmberFailing()) return false
-	if (Date.now() - coldOpenStartedAt < COLD_OPEN_MIN_HOLD_MS) return true
-	if (!isPlayerLaidDownAtHome()) return true
-	if (!isSnowSettled()) return true
-	if (!hasTerrainSpawned() || !isTerrainReady()) return true
+	const now = Date.now()
+	if (coldOpenStartedAt === null) coldOpenStartedAt = now
+	const ready =
+		Transform.getOrNull(engine.PlayerEntity) !== null &&
+		isPlayerLaidDownAtHome() &&
+		isSnowSettled() &&
+		hasTerrainSpawned() && isTerrainReady()
+	if (!ready) { coldOpenReadyAt = null; return true }
+	if (coldOpenReadyAt === null) coldOpenReadyAt = now
+	if (now - coldOpenStartedAt < COLD_OPEN_MIN_HOLD_MS) return true
+	if (now - coldOpenReadyAt < COLD_OPEN_READY_HOLD_MS) return true
 	return false
 }
 

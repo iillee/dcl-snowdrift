@@ -4,7 +4,11 @@
  *
  * Native SDK ParticleSystem (same pattern as campfireSmoke.ts): one
  * upward Cone emitter, buoyant rise, puffs grow and fade into the sky.
- * Visual only — no eruption / activation / thaw logic.
+ * Visual only. Three stages by landed monuments (0 dormant / no plume,
+ * 1 small low thin, 2 medium, 3 the full eruption plume): rate, puff
+ * size, launch speed, buoyancy and opacity all come from the stage
+ * tables in src/shared/volcanoStages.ts and blend over
+ * SMOKE_STAGE_BLEND_S.
  *
  * Placement follows the active terrain: a system watches activeTerrain()
  * and re-seats (or stops) the emitter whenever the layout changes, so a
@@ -31,6 +35,15 @@ import {
 	sceneHeightLimitM,
 } from 'src/shared/settings'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
+import {
+	SMOKE_ALPHA_BY_STAGE,
+	SMOKE_LIFT_BY_STAGE,
+	SMOKE_RATE_BY_STAGE,
+	SMOKE_SIZE_BY_STAGE,
+	SMOKE_SPEED_BY_STAGE,
+	SMOKE_STAGE_BLEND_S,
+	volcanoStageIndex,
+} from 'src/shared/volcanoStages'
 import { volcanoCrownTopY, volcanoLavaCentroid } from 'src/shared/terrain/volcanoCrown'
 import {
 	DIR_DX,
@@ -49,14 +62,6 @@ const ORIGIN_ABOVE_RIM_M = 2
 const CONE_ANGLE_DEG = 10
 const CONE_RADIUS_M  = 4
 /** Sparse but long-lived: few big puffs read at distance cheaply. */
-/**
- * Smoke rate by activated station count. 0 = silent volcano (no plume).
- * 1/2/3 escalate: small → medium → strong. No base rate when dormant.
- */
-// 1/3 and 2/3 are a faint wisp; 3/3 is the eruption plume.
-const RATE_BY_STATIONS = [0, 0.4, 0.8, 14] as const
-/** Puff size multiplier by station count (wisps small, eruption big). */
-const SIZE_BY_STATIONS = [0, 0.35, 0.5, 1.3] as const
 const LIFETIME_MAX_S = 12
 const MAX_PARTICLES  = 140
 /**
@@ -97,6 +102,13 @@ const LIFETIME_S = Math.min(
 const PLUME_TOP_Y = PLUME_ORIGIN_Y + SPEED_MAX * LIFETIME_S + 0.5 * PLUME_ACCEL * LIFETIME_S * LIFETIME_S + SIZE_OVER_END / 2
 /** Search radius (cells) around map.volcano for caldera cells. */
 const CALDERA_SEARCH_R = 12
+/** Particle component writes per second while a stage blend runs. */
+const SMOKE_BLEND_WRITE_HZ = 5
+/** Base puff colours (alpha scaled per stage). */
+const COLOR_INIT_START = Color4.create(0.32, 0.30, 0.29, 0.80)
+const COLOR_INIT_END   = Color4.create(0.42, 0.40, 0.38, 0.70)
+const COLOR_OVER_START = Color4.create(0.55, 0.54, 0.53, 0.60)
+const COLOR_OVER_END   = Color4.create(0.80, 0.80, 0.82, 0.0)
 
 
 // MARK: State
@@ -104,6 +116,21 @@ let emitter: ReturnType<typeof engine.addEntity> | null = null
 let lastMap: TerrainMap | null = null
 let installed = false
 let stationBoost = 0
+/** Live plume parameters (blended toward the stage targets). */
+type SmokeParams = { rate: number; size: number; speed: number; lift: number; alpha: number }
+function stageParams(st: number): SmokeParams {
+	return {
+		rate : SMOKE_RATE_BY_STAGE[st],
+		size : SMOKE_SIZE_BY_STAGE[st],
+		speed: SMOKE_SPEED_BY_STAGE[st],
+		lift : SMOKE_LIFT_BY_STAGE[st],
+		alpha: SMOKE_ALPHA_BY_STAGE[st],
+	}
+}
+let cur : SmokeParams = stageParams(0)
+let from: SmokeParams = stageParams(0)
+let blendT = SMOKE_STAGE_BLEND_S
+let writeClock = 0
 
 
 // MARK: findCalderaCell
@@ -210,55 +237,95 @@ function placeForMap(map: TerrainMap | null): void {
 	// Above the crown so puffs clear the crater lip.
 	const y = PLUME_ORIGIN_Y
 	Transform.getMutable(emitter).position = Vector3.create(x, y, z)
-	ps.rate = RATE_BY_STATIONS[stationBoost]
-	applyStageSize(ps)
-	if (stationBoost <= 0) {
-		ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
+	writeParams()
+	if (stationBoost <= 0 && cur.rate <= 0.01) {
+		ParticleSystem.getMutable(emitter).playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
 		console.log(
 			`volcanoSmoke: seated at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) ` +
 			`but dormant (0 stations) seed ${map.seed}`,
 		)
 		return
 	}
-	ps.playbackState = PBParticleSystem_PlaybackState.PS_PLAYING
+	ParticleSystem.getMutable(emitter).playbackState = PBParticleSystem_PlaybackState.PS_PLAYING
 	console.log(
 		`volcanoSmoke: plume at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) ` +
 		`cell (${cell.fx.toFixed(1)}, ${cell.fz.toFixed(1)}) stations=${stationBoost} ` +
-		`rate=${ps.rate}/s seed ${map.seed}`,
+		`rate=${cur.rate.toFixed(1)}/s seed ${map.seed}`,
 	)
 }
 
 
-// MARK: applyStageSize
-function applyStageSize(ps: { sizeOverTime?: { start: number; end: number } }): void {
-	const s = SIZE_BY_STATIONS[stationBoost]
-	ps.sizeOverTime = { start: SIZE_OVER_START * s, end: SIZE_OVER_END * s }
+// MARK: writeParams
+/** Push the live blended parameters into the particle component. */
+function writeParams(): void {
+	if (emitter === null) return
+	const ps = ParticleSystem.getMutable(emitter)
+	const c  = cur
+	const a  = (col: Color4): Color4 => Color4.create(col.r, col.g, col.b, col.a * c.alpha)
+	ps.rate                 = c.rate
+	ps.sizeOverTime         = { start: SIZE_OVER_START * c.size, end: SIZE_OVER_END * c.size }
+	ps.initialVelocitySpeed = { start: SPEED_MIN * c.speed, end: SPEED_MAX * c.speed }
+	ps.gravity              = GRAVITY_MULT * c.lift
+	ps.initialColor         = { start: a(COLOR_INIT_START), end: a(COLOR_INIT_END) }
+	ps.colorOverTime        = { start: a(COLOR_OVER_START), end: a(COLOR_OVER_END) }
+}
+
+
+// MARK: smokeBlendSystem
+/** Ease the plume toward the stage target; stop the emitter once fully dormant. */
+function smokeBlendSystem(dt: number): void {
+	if (blendT >= SMOKE_STAGE_BLEND_S || emitter === null) return
+	blendT = Math.min(SMOKE_STAGE_BLEND_S, blendT + dt)
+	writeClock += dt
+	const done = blendT >= SMOKE_STAGE_BLEND_S
+	if (!done && writeClock < 1 / SMOKE_BLEND_WRITE_HZ) return
+	writeClock = 0
+	const u = blendT / SMOKE_STAGE_BLEND_S
+	const k = u * u * (3 - 2 * u)
+	const to = stageParams(stationBoost)
+	cur = {
+		rate : from.rate  + (to.rate  - from.rate)  * k,
+		size : from.size  + (to.size  - from.size)  * k,
+		speed: from.speed + (to.speed - from.speed) * k,
+		lift : from.lift  + (to.lift  - from.lift)  * k,
+		alpha: from.alpha + (to.alpha - from.alpha) * k,
+	}
+	// Shrinking toward dormant keeps the old shape while the rate fades.
+	if (stationBoost <= 0) cur = { ...from, rate: cur.rate, alpha: from.alpha }
+	writeParams()
+	if (done && stationBoost <= 0 && lastMap !== null) {
+		ParticleSystem.getMutable(emitter).playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
+	}
 }
 
 
 // MARK: setVolcanoSmokeBoost
 /**
- * Plume from activated ignition stations (0–3).
- *   0 → stopped (dormant volcano)
- *   1 → small, 2 → medium, 3 → strong
- * Safe before the emitter exists; applied again when placeForMap seats it.
+ * Plume stage from landed monuments (0–3).
+ *   0 → stopped (dormant volcano), 1 → small, 2 → medium, 3 → eruption.
+ * Blends over SMOKE_STAGE_BLEND_S. Safe before the emitter exists;
+ * placeForMap seats it with the live parameters.
  */
 export function setVolcanoSmokeBoost(activeCount: number): void {
-	stationBoost = Math.max(0, Math.min(3, Math.floor(activeCount)))
-	if (emitter === null) return
-	const ps = ParticleSystem.getMutable(emitter)
-	const rate = RATE_BY_STATIONS[stationBoost]
-	ps.rate = rate
-	applyStageSize(ps)
-	if (stationBoost <= 0) {
-		ps.playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
-	} else if (lastMap !== null) {
+	const next = volcanoStageIndex(activeCount)
+	if (next === stationBoost) return
+	stationBoost = next
+	from   = { ...cur }
+	blendT = 0
+	writeClock = 1
+	// Before seating (or after a reroll) nothing to blend from visually.
+	if (emitter === null) {
+		cur = stageParams(next)
+		blendT = SMOKE_STAGE_BLEND_S
+		return
+	}
+	if (next > 0 && lastMap !== null) {
 		// Only play once a caldera seat exists (placeForMap may still be pending).
-		ps.playbackState = PBParticleSystem_PlaybackState.PS_PLAYING
+		ParticleSystem.getMutable(emitter).playbackState = PBParticleSystem_PlaybackState.PS_PLAYING
 	}
 	console.log(
-		`volcanoSmoke: setVolcanoSmokeBoost: stations=${stationBoost} rate=${rate}/s ` +
-		`playback=${stationBoost <= 0 ? 'STOPPED' : 'PLAYING'}`,
+		`volcanoSmoke: setVolcanoSmokeBoost: stage=${stationBoost} -> rate ${SMOKE_RATE_BY_STAGE[next]}/s ` +
+		`over ${SMOKE_STAGE_BLEND_S}s`,
 	)
 }
 
@@ -294,21 +361,17 @@ export function setupVolcanoSmoke(): void {
 		additionalForce     : WIND_FORCE,
 		initialSize         : { start: SIZE_INIT_MIN, end: SIZE_INIT_MAX },
 		sizeOverTime        : { start: SIZE_OVER_START, end: SIZE_OVER_END },
-		initialColor        : {
-			// Darker volcanic grey near the vent so it stands out from snow.
-			start: Color4.create(0.32, 0.30, 0.29, 0.80),
-			end  : Color4.create(0.42, 0.40, 0.38, 0.70),
-		},
-		colorOverTime       : {
-			start: Color4.create(0.55, 0.54, 0.53, 0.60),
-			end  : Color4.create(0.80, 0.80, 0.82, 0.0),
-		},
+		// Darker volcanic grey near the vent so it stands out from snow.
+		initialColor        : { start: COLOR_INIT_START, end: COLOR_INIT_END },
+		colorOverTime       : { start: COLOR_OVER_START, end: COLOR_OVER_END },
 		blendMode           : PBParticleSystem_BlendMode.PSB_ALPHA,
 		billboard           : true,
 		loop                : true,
 		prewarm             : true,
 		playbackState       : PBParticleSystem_PlaybackState.PS_STOPPED,
 	})
+
+	engine.addSystem(smokeBlendSystem)
 
 	// Re-seat whenever the active layout changes (reroll / new cycle).
 	engine.addSystem(() => {

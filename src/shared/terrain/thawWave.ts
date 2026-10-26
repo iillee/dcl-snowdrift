@@ -1,26 +1,45 @@
 /**
- * thawWave.ts - shared geometry + timing for the world-thaw zone.
+ * thawWave.ts - shared geometry + timing for the staged volcano thaw zone.
  *
- * At the 3rd monument the volcano becomes a giant eternal campfire. A
- * melt wave grows from the crater tile out to the thaw radius over
- * THAW_WAVE_DURATION_S and stops there. Inside the radius snow, cliff
- * ice caps and scatter wood are gone and there is no ambient / night
- * cold; outside it the world stays wintry.
+ * Each activated monument (stage 1..3 = active count) grows the volcano's
+ * eternal-campfire zone: a melt wave runs from the current radius out to
+ * THAW_STAGE_RADIUS_M[stage] and stops there. Inside the radius snow,
+ * cliff ice caps and scatter wood are gone, snowfall cannot refill, and
+ * there is no ambient / night cold (Warm campfire heat). Outside it the
+ * world stays wintry. Stage 3 is the victory thaw (splash, post-win days).
  *
- * The radius is sized per map so the zone covers at least
- * THAW_AREA_FRACTION of the playfield's snow tiles (counting the parts
- * of the disc that fall off the map edge as lost), so it holds for any
- * world profile and any volcano position.
+ * Stage 3 is never smaller than the per-map area radius (the old victory
+ * zone: THAW_AREA_FRACTION of the tiles x THAW_RADIUS_SCALE), so large
+ * world profiles still get most of the map.
  *
- * Distances are in snow tiles (16 m), measured from the crater tile.
+ * Each stage's wave starts THAW_STAGE_START_DELAY_S after the server
+ * accepts the activation, which is when the volcano beam lands on the
+ * igniting player's screen (rise + settle + beam draw), so snow does not
+ * melt before the volcano visibly reacts.
+ *
+ * The server owns the wave as a ThawSegment (from/to radius, start, length)
+ * and broadcasts it in worldThawState; late joiners place it by age.
+ *
+ * Distances: segment radii in metres; tile tests in snow tiles (16 m),
+ * measured from the crater tile.
  */
 
 import { SNOW_ORIGIN_M, SNOW_TILE_M, SNOW_TILES_X, SNOW_TILES_Z } from 'src/shared/snowGrid'
 import { TerrainMap } from 'src/shared/terrain/terrainMap'
 import { volcanoCraterHeatCenter } from 'src/shared/terrain/volcanoCraterHeat'
+import {
+	THAW_EDGE_BAND_FRAC,
+	THAW_EDGE_BAND_M,
+	THAW_STAGE_RADIUS_M,
+	THAW_STAGE_START_DELAY_S,
+	THAW_STAGE_WAVE_S,
+} from 'src/shared/volcanoStages'
 
-/** Seconds for the melt wave to reach the thaw radius edge. Tune here. */
-export const THAW_WAVE_DURATION_S = 45
+// Stage radii / timing live in src/shared/volcanoStages.ts (one place).
+export { THAW_STAGE_RADIUS_M, THAW_STAGE_WAVE_S, THAW_STAGE_START_DELAY_S }
+
+/** Legacy name: the stage 3 (victory) wave length. */
+export const THAW_WAVE_DURATION_S = THAW_STAGE_WAVE_S[3]
 
 /**
  * Full in-game days of warmth after the thaw day. The rest of the thaw
@@ -46,8 +65,7 @@ export const THAW_RADIUS_SCALE = 0.5
 /** Wave progress (0..1) at which the "World Thawed" card shows. */
 export const THAW_SPLASH_AT_PROGRESS = 0.5
 
-/** Soft heat edge: warmth / cold-block fade over this many metres inside the radius. */
-export const THAW_EDGE_BAND_M = 48
+export { THAW_EDGE_BAND_M, THAW_EDGE_BAND_FRAC }
 
 export type ThawWaveCentre = {
 	tx     : number
@@ -55,10 +73,23 @@ export type ThawWaveCentre = {
 	/** World position of the crater tile centre. */
 	x      : number
 	z      : number
-	/** Thaw radius in tiles (tile-centre distance; tiles <= this melt). */
+	/** Stage 3 (victory) thaw radius in tiles (tile-centre distance; tiles <= this melt). */
 	radius : number
 	/** Same radius in metres. */
 	radiusM: number
+}
+
+
+/**
+ * One outward melt-wave step. Radius goes fromM -> toM linearly over
+ * durMs starting at startMs (server Date.now() on the server, local
+ * Date.now() equivalent on clients). Before startMs it reads fromM.
+ */
+export type ThawSegment = {
+	fromM  : number
+	toM    : number
+	startMs: number
+	durMs  : number
 }
 
 /** Crater tile the zone grows from (map centre if no volcano) and its radius. */
@@ -76,7 +107,8 @@ export function thawWaveCentre(map: TerrainMap | null): ThawWaveCentre {
 	}
 	d.sort((a, b) => a - b)
 	const need   = Math.min(d.length - 1, Math.ceil(THAW_AREA_FRACTION * d.length) - 1)
-	const radius = Math.max(1, d[Math.max(0, need)] * THAW_RADIUS_SCALE)
+	const areaR  = Math.max(1, d[Math.max(0, need)] * THAW_RADIUS_SCALE)
+	const radius = Math.max(areaR, THAW_STAGE_RADIUS_M[3] / SNOW_TILE_M)
 	return {
 		tx, tz,
 		x: SNOW_ORIGIN_M + (tx + 0.5) * SNOW_TILE_M,
@@ -86,10 +118,42 @@ export function thawWaveCentre(map: TerrainMap | null): ThawWaveCentre {
 	}
 }
 
-/** Wave radius in tiles after `ageMs`; stops at the thaw radius. */
-export function thawWaveRadiusTiles(ageMs: number, radius: number): number {
-	const t = ageMs / (THAW_WAVE_DURATION_S * 1000)
-	return Math.max(0, Math.min(1, t)) * radius
+/** Target thaw radius (m) for `stage` (0..3) on this map's centre. */
+export function thawStageRadiusM(centre: ThawWaveCentre, stage: number): number {
+	const s = Math.max(0, Math.min(3, Math.floor(stage)))
+	if (s >= 3) return centre.radiusM
+	return Math.min(centre.radiusM, THAW_STAGE_RADIUS_M[s])
+}
+
+
+/** Radius (m) of a segment at `nowMs`. */
+export function thawSegmentRadiusM(seg: ThawSegment, nowMs: number): number {
+	if (nowMs <= seg.startMs || seg.durMs <= 0) return nowMs <= seg.startMs ? seg.fromM : seg.toM
+	const u = Math.min(1, (nowMs - seg.startMs) / seg.durMs)
+	return seg.fromM + (seg.toM - seg.fromM) * u
+}
+
+
+/**
+ * Plan the wave for reaching `stage` when the server accepted it at
+ * `acceptedMs`. Starts THAW_STAGE_START_DELAY_S later from wherever the
+ * previous wave will be then, so steps chain without jumps even when
+ * monuments are lit in quick succession. Never shrinks.
+ */
+export function planThawSegment(
+	centre    : ThawWaveCentre,
+	prev      : ThawSegment | null,
+	stage     : number,
+	acceptedMs: number,
+): ThawSegment {
+	const startMs = acceptedMs + THAW_STAGE_START_DELAY_S * 1000
+	const fromM   = prev ? thawSegmentRadiusM(prev, startMs) : 0
+	const toM     = Math.max(fromM, thawStageRadiusM(centre, stage))
+	const s       = Math.max(1, Math.min(3, Math.floor(stage)))
+	const span    = Math.max(1, thawStageRadiusM(centre, s) - thawStageRadiusM(centre, s - 1))
+	const frac    = Math.min(1.5, (toM - fromM) / span)
+	const durMs   = toM > fromM ? Math.max(1000, THAW_STAGE_WAVE_S[s] * 1000 * frac) : 0
+	return { fromM, toM, startMs, durMs }
 }
 
 /** Distance in tiles from the zone centre to the tile holding world (x, z). */
@@ -109,7 +173,7 @@ export function thawHeatFactor(centre: ThawWaveCentre, waveTiles: number, x: num
 	const edgeM = (waveTiles + 0.5) * SNOW_TILE_M
 	const d = Math.hypot(x - centre.x, z - centre.z)
 	if (d >= edgeM) return 0
-	const band = Math.min(THAW_EDGE_BAND_M, edgeM)
+	const band = Math.max(1, Math.min(THAW_EDGE_BAND_M, edgeM * THAW_EDGE_BAND_FRAC))
 	return Math.min(1, (edgeM - d) / band)
 }
 

@@ -1,15 +1,16 @@
 /**
- * frostLife.ts — who is frozen, and when that ends the run.
+ * frostLife.ts — who is frozen, and who is still in the scene.
  *
  * A freeze is client-authoritative (same trust as feed and spark).
  * Presence is a heartbeat, not the team roster: the roster never
- * forgets a leaver, and a disconnected player must not block extinction.
+ * forgets a leaver, and a disconnected player's torch must not keep
+ * the world alive (worldFlame.ts reads livingPlayerIds()).
  *
- * The last people still in the scene, all frozen, end the run only
- * when every fire is dark. A lit fire — main hearth or hidden pit —
- * lets them wake beside it on their own client. That check is not
- * only at the moment of the freeze: while anyone is still in a cube,
- * a fire going dark is enough to end the run.
+ * Freezing no longer ends the run: the world ends when all flame is out
+ * (worldFlame.ts). A frozen player wakes at a lit fire (main hearth,
+ * hidden pit, or stage 1+ volcano lava) after the ice timeout or a give
+ * up, a lit torch can thaw them, and with no flame at all the world end
+ * takes everyone to the new winter.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -18,9 +19,10 @@ import { ICE_REGROW_S, ICE_THAW_S } from 'src/shared/frost/tuning'
 import { room } from 'src/shared/messages'
 
 import { onCycleRoll } from 'src/server/cycle'
-import { beginExtinction, isEmberFailing } from 'src/server/emberFail'
-import { getMainFireFuel, onMainFireRelit } from 'src/server/hearthFuel'
-import { isAnyHiddenFireLit, onHiddenFireRelit } from 'src/server/hiddenCampfire'
+import { isEmberFailing } from 'src/server/emberFail'
+import { getMainFireFuel } from 'src/server/hearthFuel'
+import { isAnyHiddenFireLit } from 'src/server/hiddenCampfire'
+import { isVolcanoLavaLit } from 'src/server/stations'
 
 
 /** Drop a player who has not checked in for this long. */
@@ -32,12 +34,6 @@ const STALE_MS = 20000
  * than STALE_MS; dropping them mid-load lets extinction fire under them.
  */
 const JOIN_GRACE_MS = 60000
-
-/**
- * After every living player is frozen with no fire, wait this long
- * before ending the run. A torch spark in that window can still save it.
- */
-const EXTINCT_DELAY_MS = 2500
 
 /** Drop a melt hold whose torch stopped checking in. */
 const MELT_HOLD_STALE_MS = 1000
@@ -64,9 +60,6 @@ const meltHold = new Map<string, MeltHold>()
 
 let installed            = false
 let sweepAccum           = 0
-let loggedFireSaves      = false
-let extinctPendingAtMs   = 0
-let extinctPendingReason = ''
 
 
 // MARK: isPlayerFrozen
@@ -103,17 +96,6 @@ export function notePlayerPresent(userId: string): void {
 	lastSeen.set(id, Date.now())
 	heartbeated.add(id)
 	joinGraceUntil.delete(id)
-}
-
-
-// MARK: noteFireRelit
-/**
- * A dead fire just came back (main spark or hidden ignite). Cancel any
- * pending extinction so the spark wins the race against a freeze packet.
- */
-export function noteFireRelit(): void {
-	cancelPendingExtinct('a fire relit')
-	loggedFireSaves = false
 }
 
 
@@ -243,8 +225,23 @@ function clearFrozen(id: string): void {
 
 
 // MARK: anyLivingFire
+/** A fire a frozen player can wake at: lit hearth, lit hidden pit, or stage 1+ lava. */
 function anyLivingFire(): boolean {
-	return getMainFireFuel() > 0 || isAnyHiddenFireLit()
+	return getMainFireFuel() > 0 || isAnyHiddenFireLit() || isVolcanoLavaLit()
+}
+
+
+// MARK: livingPlayerIds
+/** Wallets still in the scene (heartbeat or join grace). Sweeps stale ones. */
+export function livingPlayerIds(): string[] {
+	return livingIds()
+}
+
+
+// MARK: presentPlayerIds
+/** Living wallets that have sent at least one heartbeat (fully loaded). */
+export function presentPlayerIds(): string[] {
+	return livingIds().filter((id) => heartbeated.has(id))
 }
 
 
@@ -270,27 +267,6 @@ function livingIds(): string[] {
 }
 
 
-// MARK: cancelPendingExtinct
-function cancelPendingExtinct(reason: string): void {
-	if (extinctPendingAtMs === 0) return
-	extinctPendingAtMs   = 0
-	extinctPendingReason = ''
-	console.log(`[Server] frostLife: pending extinction cancelled — ${reason}`)
-}
-
-
-// MARK: flushPendingExtinct
-function flushPendingExtinct(): void {
-	if (extinctPendingAtMs === 0) return
-	if (Date.now() < extinctPendingAtMs) return
-	const reason = extinctPendingReason || 'pending extinction'
-	extinctPendingAtMs   = 0
-	extinctPendingReason = ''
-	// Re-check — a spark or thaw may have landed in the delay window.
-	maybeExtinctNow(reason)
-}
-
-
 // MARK: senderId
 /**
  * Authenticated sender when the transport provides one. The preview
@@ -313,81 +289,6 @@ function senderId(
 }
 
 
-// MARK: maybeExtinctNow
-/**
- * End the run immediately when every living player is frozen and
- * every fire is dark. Prefer maybeExtinct so a spark can still win.
- */
-function maybeExtinctNow(trigger: string): void {
-	if (isEmberFailing()) return
-	const living = livingIds()
-	if (living.length === 0) {
-		loggedFireSaves = false
-		cancelPendingExtinct('nobody left in the scene')
-		return
-	}
-	for (const id of living) {
-		if (!frozen.has(id)) {
-			loggedFireSaves = false
-			cancelPendingExtinct('a living player is not frozen')
-			return
-		}
-	}
-	if (anyLivingFire()) {
-		cancelPendingExtinct('a fire still burns')
-		if (!loggedFireSaves) {
-			loggedFireSaves = true
-			console.log(
-				`[Server] frostLife: ${trigger} — every player is frozen and a fire still burns, they wake at the fire`,
-			)
-		}
-		return
-	}
-	loggedFireSaves = false
-	beginExtinction(`${trigger}: every connected player is frozen and every fire is dark`)
-}
-
-
-// MARK: maybeExtinct
-/**
- * Schedule extinction after a short delay so a torch spark that races
- * the freeze packet can still relight the world.
- */
-function maybeExtinct(trigger: string): void {
-	if (isEmberFailing()) return
-	const living = livingIds()
-	if (living.length === 0) {
-		loggedFireSaves = false
-		cancelPendingExtinct('nobody left in the scene')
-		return
-	}
-	for (const id of living) {
-		if (!frozen.has(id)) {
-			loggedFireSaves = false
-			cancelPendingExtinct('a living player is not frozen')
-			return
-		}
-	}
-	if (anyLivingFire()) {
-		cancelPendingExtinct('a fire still burns')
-		if (!loggedFireSaves) {
-			loggedFireSaves = true
-			console.log(
-				`[Server] frostLife: ${trigger} — every player is frozen and a fire still burns, they wake at the fire`,
-			)
-		}
-		return
-	}
-	if (extinctPendingAtMs === 0) {
-		extinctPendingAtMs   = Date.now() + EXTINCT_DELAY_MS
-		extinctPendingReason = trigger
-		console.log(
-			`[Server] frostLife: extinction pending in ${EXTINCT_DELAY_MS}ms (${trigger})`,
-		)
-	}
-}
-
-
 // MARK: setupFrostLifeServer
 /**
  * Track freezes, thaws, and torch rescues. Idempotent. Call once from
@@ -400,31 +301,19 @@ export function setupFrostLifeServer(): void {
 	}
 	installed = true
 
-	onMainFireRelit(noteFireRelit)
-	onHiddenFireRelit(noteFireRelit)
-
 	onCycleRoll(() => {
 		const ids = Array.from(frozen)
 		for (const id of ids) clearFrozen(id)
-		cancelPendingExtinct('cycle roll')
-		loggedFireSaves = false
 		console.log('[Server] frostLife: cycle roll cleared the frozen set')
 	})
 
 	engine.addSystem((dt: number) => {
 		tickMelt(dt)
 		sweepAccum += dt
-		flushPendingExtinct()
 		if (sweepAccum < 1) return
 		sweepAccum = 0
-		const before = lastSeen.size
+		// Drop players who went quiet (and their ice cubes).
 		livingIds()
-		const someoneLeft = lastSeen.size !== before
-		// A fire can die after the freeze. Recheck while anyone is still
-		// in a cube so that death ends the run instead of leaving them locked.
-		if (someoneLeft || frozen.size > 0) {
-			maybeExtinct(someoneLeft ? 'a player went quiet' : 'a fire went dark')
-		}
 	})
 
 	room.onMessage('frostPresence', ({ userId, mobile }, context) => {
@@ -443,7 +332,6 @@ export function setupFrostLifeServer(): void {
 		frozen.add(from)
 		tellFrozen(from, x, z, true, undefined, true)
 		console.log(`[Server] frostLife: ${from} froze at ${x.toFixed(1)}, ${z.toFixed(1)} (${frozen.size} frozen)`)
-		maybeExtinct(`${from} froze`)
 	})
 
 	room.onMessage('frostThaw', ({ userId }, context) => {
@@ -453,7 +341,6 @@ export function setupFrostLifeServer(): void {
 		if (!frozen.has(from)) return
 		console.log(`[Server] frostLife: ${from} is up`)
 		clearFrozen(from)
-		cancelPendingExtinct(`${from} thawed`)
 	})
 
 	room.onMessage('frostMeltRequest', ({ userId, step, live }, context) => {
@@ -517,7 +404,6 @@ export function setupFrostLifeServer(): void {
 			return
 		}
 		clearFrozen(target)
-		cancelPendingExtinct(`${target} rescued`)
 		room.send('frostRescued', { userId: target })
 		console.log(`[Server] frostLife: ${from} thawed ${target}`)
 	})

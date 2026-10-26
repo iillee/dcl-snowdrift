@@ -415,6 +415,9 @@ export const Messages = {
 	// Client -> Server: TEMPORARY debug - light all stations + thaw.
 	// Ignored unless DEBUG_THAW_BUTTON (src/client/devFlags.ts) is true.
 	debugThaw: Schemas.Map({ seed: Schemas.Int }),
+	// Client -> Server: TEMPORARY debug - light the next unlit monument
+	// (volcano thaw stage +1). Same DEBUG_THAW_BUTTON gate.
+	debugVolcanoStage: Schemas.Map({ seed: Schemas.Int }),
 
 	stationActivate: Schemas.Map({
 		seed : Schemas.Int,
@@ -461,9 +464,17 @@ export const Messages = {
 		// Day number (cycleId+1) the thaw happened on; 0 when not thawed.
 		// Winter returns at the sunrise of day thawDay + POST_THAW_DAYS + 1.
 		thawDay: Schemas.Int,
-		// ms since the thaw started (server clock) at send time, so
-		// clients and late joiners place the melt wave correctly.
+		// Volcano thaw stage 0..3 (= active monuments when accepted).
+		stage    : Schemas.Int,
+		// Current melt-wave step (thawWave.ts ThawSegment): radius goes
+		// fromM -> toM metres over waveDurMs. waveAgeMs = ms since the
+		// step started (server clock) at send time; negative while it
+		// waits for the volcano beam to land. Clients and late joiners
+		// place the wave by age.
+		fromM    : Schemas.Float,
+		toM      : Schemas.Float,
 		waveAgeMs: Schemas.Int,
+		waveDurMs: Schemas.Int,
 	}),
 }
 

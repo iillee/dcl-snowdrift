@@ -427,8 +427,32 @@ export function playSurgeSfxLocal(): void {
  * camera-parented, non-positional one-shot so it is clearly audible
  * however far the camera is from the obelisk.
  */
-export function playBeamSfx(volume: number): void {
-	playOneShot(beamSfxEnt, BEAM_SRC, volume)
+export function playBeamSfx(volume: number, fadeInS: number): void {
+	beamFadeTarget = volume
+	beamFadeS      = Math.max(0.01, fadeInS)
+	beamFadeT      = 0
+	playOneShot(beamSfxEnt, BEAM_SRC, 0)
+	if (!beamFadeInstalled) {
+		beamFadeInstalled = true
+		engine.addSystem(beamFadeSystem)
+	}
+}
+
+let beamFadeTarget    = 0
+let beamFadeS         = 0.8
+let beamFadeT         = -1
+let beamFadeInstalled = false
+
+
+// MARK: beamFadeSystem
+/** Ramp the beam whoosh volume 0 -> target over its fade-in (linear in amplitude, eased). */
+function beamFadeSystem(dt: number): void {
+	if (beamFadeT < 0 || !beamSfxEnt) return
+	beamFadeT += dt
+	const u = Math.min(1, beamFadeT / beamFadeS)
+	const src = AudioSource.getMutableOrNull(beamSfxEnt)
+	if (src) src.volume = beamFadeTarget * u * u * (3 - 2 * u)
+	if (u >= 1) beamFadeT = -1
 }
 
 

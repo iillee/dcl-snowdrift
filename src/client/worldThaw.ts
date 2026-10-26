@@ -1,52 +1,66 @@
 /**
- * worldThaw.ts — client reaction to the server 3/3 station thaw.
+ * worldThaw.ts — client mirror of the server's staged volcano thaw.
  *
- * Server clears snow + forces CLEAR weather and broadcasts
- * worldThawState. This module reveals lava, shows the victory card,
- * and arms local snowfall stop (weatherState also arrives).
+ * The server owns the thaw stage (0..3 = activated monuments) and the
+ * current melt-wave step (src/shared/terrain/thawWave.ts ThawSegment) and
+ * broadcasts both in worldThawState; late joiners place the wave by age.
+ * Snow itself arrives through the PaintTile CRDT. This module answers
+ * "has the wave reached here?" (ice caps, scatter wood) and "how warm is
+ * it here?" (frost model), and shows the victory card at stage 3.
+ *
+ * Lava and smoke are NOT driven from here: stationMarkers pushes the
+ * landed monument count into volcanoCrown / volcanoSmoke so the volcano
+ * reacts when the beam lands on screen.
  */
 
-import { beginVolcanoThaw } from 'src/client/volcanoCrown'
 import { beginThawSplash, setupThawSplash } from 'src/client/thawSplash'
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
+import { SNOW_TILE_M } from 'src/shared/snowGrid'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import {
+	ThawSegment,
 	ThawWaveCentre,
 	thawHeatFactor,
+	thawSegmentRadiusM,
 	thawTileDistAt,
 	thawWaveCentre,
-	thawWaveRadiusTiles,
 	POST_THAW_DAYS,
 	THAW_SPLASH_AT_PROGRESS,
-	THAW_WAVE_DURATION_S,
 } from 'src/shared/terrain/thawWave'
 import { engine } from '@dcl/sdk/ecs'
 
 
+/** Stage 3 reached (victory thaw) this cycle. */
 let thawed = false
-/** Card waits for the wave to reach THAW_SPLASH_AT_PROGRESS. */
+/** Volcano thaw stage 0..3 from the server. */
+let stage = 0
+/** Card waits for the stage 3 wave to reach THAW_SPLASH_AT_PROGRESS. */
 let splashPending = false
 /** Server day number of the thaw (0 = unknown / not thawed). */
 let thawDay = 0
 let currentSeed = 0
-/** Local Date.now() equivalent of the server's thaw start. */
-let waveStartLocalMs = 0
+/** Current wave step in local Date.now() time, and the one before it. */
+let seg    : ThawSegment | null = null
+let prevSeg: ThawSegment | null = null
 let waveCentre: ThawWaveCentre | null = null
 let waveCentreMap: unknown = null
 let installed = false
 
 
+/** True once stage 3 (all monuments, world thaw) is reached. */
 export function isWorldThawed(): boolean {
 	return thawed
 }
 
 
-/**
- * Days of warmth left on the given day (POST_THAW_DAYS..1), or 0 outside the post-win
- * countdown (not thawed, or still on the thaw day itself).
- */
+/** Volcano thaw stage 0..3 as the server last reported it. */
+export function getThawStage(): number {
+	return stage
+}
+
+
 function centre(): ThawWaveCentre {
 	const map = activeTerrain()
 	if (waveCentre === null || waveCentreMap !== map) {
@@ -57,10 +71,20 @@ function centre(): ThawWaveCentre {
 }
 
 
-/** Current melt-wave radius in tiles, or -1 when not thawed. */
+/** Current thaw radius in metres (0 before the first wave starts). */
+export function thawRadiusM(): number {
+	if (seg === null) return 0
+	const now = Date.now()
+	// Waiting for the beam to land: the previous step keeps running.
+	if (now < seg.startMs && prevSeg !== null) return Math.min(seg.fromM, thawSegmentRadiusM(prevSeg, now))
+	return thawSegmentRadiusM(seg, now)
+}
+
+
+/** Current melt-wave radius in tiles, or -1 when nothing has thawed yet. */
 function waveRadius(): number {
-	if (!thawed) return -1
-	return thawWaveRadiusTiles(Date.now() - waveStartLocalMs, centre().radius)
+	const r = thawRadiusM()
+	return r > 0 ? r / SNOW_TILE_M : -1
 }
 
 
@@ -91,8 +115,8 @@ export function thawWaveReachedRect(
 
 
 /**
- * Volcano-campfire heat 0..1 at world (x, z): 1 inside the thaw zone,
- * fading to 0 over THAW_EDGE_BAND_M at the (growing) wave edge.
+ * Volcano-campfire heat 0..1 at world (x, z): 1 inside the current thaw
+ * zone (any stage), fading to 0 across the soft band at the wave edge.
  */
 export function thawHeatAt(x: number, z: number): number {
 	const r = waveRadius()
@@ -101,6 +125,10 @@ export function thawHeatAt(x: number, z: number): number {
 }
 
 
+/**
+ * Days of warmth left on the given day (POST_THAW_DAYS..1), or 0 outside the post-win
+ * countdown (not thawed, or still on the thaw day itself).
+ */
 export function winterDaysLeft(day: number): number {
 	if (!thawed || thawDay <= 0) return 0
 	const left = thawDay + POST_THAW_DAYS + 1 - day
@@ -108,30 +136,15 @@ export function winterDaysLeft(day: number): number {
 }
 
 
-function applyThaw(fromHydrate: boolean): void {
-	if (thawed) {
-		// Late join / duplicate: still ensure lava is up.
-		beginVolcanoThaw()
-		return
-	}
-	thawed = true
-	console.log(
-		`worldThaw: applyThaw seed=${currentSeed}` +
-		`${fromHydrate ? ' (hydrate)' : ''}`,
-	)
-	beginVolcanoThaw()
-	// Card at half-wave. Late joiners past that point see it at once
-	// (the poll below fires next frame); earlier joiners wait like everyone.
-	splashPending = true
-}
-
-
 function resetForSeed(seed: number): void {
 	if (cycleSeedsEqual(seed, currentSeed) && currentSeed !== 0) return
 	currentSeed = seed
 	thawed = false
+	stage = 0
 	thawDay = 0
 	splashPending = false
+	seg = null
+	prevSeg = null
 }
 
 
@@ -141,10 +154,11 @@ export function setupWorldThaw(): void {
 	currentSeed = getCurrentCycleSeed()
 	setupThawSplash()
 
-	room.onMessage('worldThawState', ({ seed, thawed: flag, thawDay: day, waveAgeMs }) => {
+	room.onMessage('worldThawState', (msg) => {
+		const { seed, thawed: flag, thawDay: day } = msg
 		if (!cycleSeedsEqual(seed, currentSeed) && currentSeed !== 0) {
 			// Adopt seed if we somehow missed the cycle packet.
-			if (flag === 1) currentSeed = seed
+			if (msg.stage > 0) currentSeed = seed
 			else {
 				console.log(
 					`worldThaw: ignore worldThawState seed=${seed} (have ${currentSeed})`,
@@ -152,21 +166,49 @@ export function setupWorldThaw(): void {
 				return
 			}
 		}
-		thawDay = flag === 1 ? day : 0
-		if (flag === 1) waveStartLocalMs = Date.now() - Math.max(0, waveAgeMs)
-		if (flag === 1) {
+		try {
+			const nextStage = Math.max(0, Math.min(3, msg.stage | 0))
+			if (nextStage <= 0) {
+				stage = 0
+				seg = null
+				prevSeg = null
+			} else {
+				const startMs = Date.now() - msg.waveAgeMs
+				const next: ThawSegment = { fromM: msg.fromM, toM: msg.toM, startMs, durMs: Math.max(0, msg.waveDurMs) }
+				// New step: keep the running one until the new one starts.
+				// Duplicate / echo of the same stage: just re-sync timing.
+				if (nextStage > stage && seg !== null) prevSeg = seg
+				else if (nextStage > stage) prevSeg = null
+				seg = next
+				if (nextStage !== stage) {
+					console.log(
+						`worldThaw: stage ${stage} -> ${nextStage} wave ${next.fromM.toFixed(0)} -> ` +
+						`${next.toM.toFixed(0)} m over ${(next.durMs / 1000).toFixed(1)} s ` +
+						`(age ${(msg.waveAgeMs / 1000).toFixed(1)} s)`,
+					)
+				}
+				stage = nextStage
+			}
+			thawDay = flag === 1 ? day : 0
+			if (flag === 1 && !thawed) {
+				thawed = true
+				// Card at half of the stage 3 wave. Late joiners past that
+				// point see it at once (the poll below fires next frame).
+				splashPending = true
+				console.log(`worldThaw: world thaw seed=${currentSeed}`)
+			} else if (flag !== 1) {
+				thawed = false
+				splashPending = false
+			}
+		} catch (err) {
 			// Never let a thaw-side error escape into the message pump.
-			try { applyThaw(false) } catch (err) { console.error('worldThaw: applyThaw failed:', err) }
-		}
-		else {
-			thawed = false
-			splashPending = false
+			console.error('worldThaw: worldThawState failed:', err)
 		}
 	})
 
 	engine.addSystem(() => {
-		if (!splashPending || !thawed) return
-		const progress = (Date.now() - waveStartLocalMs) / (THAW_WAVE_DURATION_S * 1000)
+		if (!splashPending || !thawed || seg === null) return
+		const progress = seg.durMs > 0 ? (Date.now() - seg.startMs) / seg.durMs : 1
 		if (progress < THAW_SPLASH_AT_PROGRESS) return
 		splashPending = false
 		beginThawSplash()

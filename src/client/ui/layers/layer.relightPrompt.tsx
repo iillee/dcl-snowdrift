@@ -24,6 +24,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { getMainFireFuel }                                                 from 'src/client/hearthFuel'
 import { isInHiddenRelightRange }                                          from 'src/client/hiddenCampfire'
+import { isInLavaRelightRange }                                            from 'src/client/volcanoCrown'
 import { isHiddenCampfirePromptVisible }                                   from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit }               from 'src/client/torchEquip'
 import { isTorchRelightOnCooldown, tryRelightAtFire }                      from 'src/client/torchInput'
@@ -123,7 +124,9 @@ function shouldShowPrompt(): boolean {
 
 	// Second valid source once the hidden campfire has been ignited —
 	// same prompt, same affordance, just a different fire.
-	return isInHiddenRelightRange()
+	if (isInHiddenRelightRange()) return true
+	// Volcano lava (stage 1+): the crater floor or crown lip near lava.
+	return isInLavaRelightRange()
 }
 
 

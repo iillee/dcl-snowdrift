@@ -26,6 +26,7 @@ import { DEV_KEEP_TORCH_LIT } from 'src/client/devFlags'
 import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
+import { isInLavaRelightRange } from 'src/client/volcanoCrown'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { syncTorchFlameNow } from 'src/client/torch'
@@ -69,7 +70,8 @@ export function isTorchRelightOnCooldown(): boolean {
  * mobile TorchButton tap. Runs the full gate stack:
  *   - torch must be equipped
  *   - hidden-campfire ignition takes priority if the player is on the pit
- *   - otherwise the player must be inside the central OR hidden fire radius
+ *   - otherwise the player must be inside the central OR hidden fire radius,
+ *     or at the volcano lava (stage 1+, volcanoCrown.isInLavaRelightRange)
  *
  * Silently no-ops when any gate fails, so callers can wire it directly
  * to an onMouseDown without worrying about accidental relights from
@@ -119,8 +121,10 @@ export function tryRelightAtFire(): void {
 	}
 
 	const nearHidden = isInHiddenRelightRange()
+	// Stage 1+ lava never goes out: a relight source like a living fire.
+	const nearLava   = !nearCentral && !nearHidden && isInLavaRelightRange()
 
-	if (!nearCentral && !nearHidden) {
+	if (!nearCentral && !nearHidden && !nearLava) {
 		console.log(`torchInput: tryRelightAtFire: outside fire radius (fuel=${getTorchFuelSeconds().toFixed(1)}s)`)
 		return
 	}

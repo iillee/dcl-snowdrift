@@ -1,9 +1,9 @@
 /**
  * emberFail.ts — world-end cards and reseed.
  *
- * No longer started when the last fire goes out. The dev snuff still
- * broadcasts emberFail. So does every player frozen while every fire
- * is dark. A lit fire lets those players wake beside it instead.
+ * Started by worldFlame.ts when all flame is out (no lit campfire, no
+ * lit torch, no volcano lava) for its grace period, or at once by the
+ * dev snuff. Freezing no longer ends the run.
  */
 
 import { engine } from '@dcl/sdk/ecs'
@@ -53,10 +53,7 @@ export function checkEmberFail(): void {
 
 
 // MARK: beginExtinction
-/**
- * End the run because every player still in the scene is frozen and
- * no fire is left to wake them.
- */
+/** End the run: the world's flame is out (worldFlame.ts). */
 export function beginExtinction(reason: string): void {
 	if (failing) return
 	beginFail(reason)
