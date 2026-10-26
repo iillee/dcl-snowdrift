@@ -8,8 +8,8 @@
  * (frost accumulation).
  *
  * Design (see PLAN.md v2.14 / this session's design chat):
- *   - 1 log         = LOG_FUEL_SECONDS (+90 s; was 60, +50% 2026-10-16)
- *   - 1 branch      = BRANCH_FUEL_SECONDS (+45 s; was 30)
+ *   - 1 log         = LOG_FUEL_SECONDS (+120 s; was 90, 2026-10-26)
+ *   - 1 branch      = BRANCH_FUEL_SECONDS (+60 s; was 45)
  *   - Hard cap      = FUEL_MAX (600 s -> ~6.7 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
  *                     and can burn to 0. A lit torch sparks it back
@@ -38,11 +38,15 @@ import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 
 // MARK: Tuning constants
 /** Total seconds one log adds to a fire's fuel tank. */
-export const LOG_FUEL_SECONDS    = 90
+export const LOG_FUEL_SECONDS    = 120
 /** Kindling. Half a log so a near-ring trip still matters. */
-export const BRANCH_FUEL_SECONDS = 45
+export const BRANCH_FUEL_SECONDS = 60
 
-/** Hard ceiling. ~6.7 logs (90 s each) = one full tank. Prevents infinite hoarding
+/** Global multiplier on wood fed into any fire (hearth + hidden fires, sticks + logs).
+ *  Applied in fuelSecondsForKind, so feeds, the cap check and shared-fuel splits all use it. */
+export const FUEL_TIME_MUL       = 1.0
+
+/** Hard ceiling. 5 logs (120 s each) = one full tank. Prevents infinite hoarding
  *  from making the UI unreadable and gives Roaring a defined peak. */
 export const FUEL_MAX          = 600
 
@@ -56,7 +60,7 @@ export const FUEL_MAIN_INITIAL = 150
 export const FUEL_HIDDEN_FLOOR = 0
 
 /** Fuel a hidden fire starts at when first ignited. Ember (tier 1),
- *  just into the lowest bar — a spark, not a camp. Solo drain is
+ *  just into the lowest bar â€” a spark, not a camp. Solo drain is
  *  ~1 s/s, so this is a short window to feed it or it dies. */
 export const FUEL_HIDDEN_INITIAL = 30
 
@@ -152,7 +156,7 @@ export const EMBER_MIN_NET_WARMTH_FRAC = 0.125
 // MARK: fuelSecondsForKind
 /** Seconds a carried piece adds when fed to a fire. */
 export function fuelSecondsForKind(kind: number): number {
-	return kind === WOOD_KIND_BRANCH ? BRANCH_FUEL_SECONDS : LOG_FUEL_SECONDS
+	return (kind === WOOD_KIND_BRANCH ? BRANCH_FUEL_SECONDS : LOG_FUEL_SECONDS) * FUEL_TIME_MUL
 }
 
 
@@ -282,7 +286,7 @@ export function hearthFlameScaleFromFuel(fuel: number): number {
  * over the whole 0..FUEL_MAX tank (no Roaring plateau), so every feed
  * grows the flame and decay visibly shrinks it. min + (max-min)*t^exp:
  * ~0.35 just lit, ~1.05 at 150 s (opening Warm), ~1.6 at 300, 2.2 full.
- * One 90 s log is >= ~0.2 scale at any level. Gameplay (warmth, melt
+ * One 120 s log is >= ~0.2 scale at any level. Gameplay (warmth, melt
  * ring) stays on the stepped tiers.
  */
 export const FLAME_SCALE_MIN = 0.35

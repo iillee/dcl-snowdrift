@@ -35,12 +35,23 @@ export const NETWORK_LINK_RANGE_M      = 140
 export const NETWORK_DETOUR_MAX        = 1.6
 /** Hard cap on route length (m). */
 export const NETWORK_MAX_ROUTE_M       = 260
+/** Organic routes: smooth corners + gentle seeded meander (shared, so server melt == client glow). false = straight string-pulled routes. */
+export const NETWORK_ORGANIC_ENABLED     = true
+/** Chaikin corner-cut passes (more = wider, rounder turns). */
+export const NETWORK_SMOOTH_ITERS        = 4
+/** Meander: max sideways offset (m), base wavelength (m, +/-20% per link), fade-in distance from each run end (fire / ladder) (m), resample step (m). */
+export const NETWORK_MEANDER_AMP_M       = 1.5
+export const NETWORK_MEANDER_WAVELENGTH_M = 55
+export const NETWORK_MEANDER_FADE_M      = 10
+export const NETWORK_ORGANIC_STEP_M      = 2
 /** Cleared path width (m). */
 export const NETWORK_PATH_WIDTH_M      = 4
 /** Seconds for the melt to run from both fires to the middle. */
 export const NETWORK_MELT_S            = 6
 /** Seconds for protection to retreat along a broken link (from the dead end). Snow then regrows at the normal weather rate. */
 export const NETWORK_REFREEZE_S        = 20
+/** false (default): a broken link drops its hold at once; cells refill with normal snowfall like any cleared snow, and glow + warmth go instantly. true = old timed retreat over NETWORK_REFREEZE_S. */
+export const NETWORK_PATH_REFREEZE_ENABLED = false
 /** Extra A* cost (in 16 m cell steps) for using a ladder. */
 export const NETWORK_LADDER_COST       = 3
 /** Hidden-fire / hearth burn multiplier while a fire is linked. 1 = off. */
@@ -53,7 +64,25 @@ export const NETWORK_GLOW_LIFT_M       = 0.04
 export const NETWORK_GLOW_FADE_S       = 3
 export const NETWORK_GLOW_DRAW_DIST_M  = 260
 /** Glow look: 'tiles' = raised glowing snow-grid squares on the path centreline; 'line' = old thin strip. */
-export const NETWORK_GLOW_STYLE: 'tiles' | 'line' = 'tiles'
+export const NETWORK_GLOW_STYLE: 'cubes' | 'tiles' | 'line' = 'cubes'
+/** Cubes style mesh: 'sphere' (default) or 'box' (tilted diamond cubes). */
+export const NETWORK_CUBE_SHAPE: 'sphere' | 'box' = 'sphere'
+/** Cubes: scale pulse amplitude (fraction, 0.1 = +/-10%) and period (s); phase runs along the trail. 0 amp = off. Only near the player (NETWORK_CUBE_BOB_DIST_M). */
+export const NETWORK_CUBE_PULSE_AMP    = 0.1
+export const NETWORK_CUBE_PULSE_PERIOD_S = 1.6
+/** Cubes: edge length (m), spacing along the route (m), float height above the ground (m). */
+export const NETWORK_CUBE_SIZE_M       = 0.25
+export const NETWORK_CUBE_SPACING_M    = 1.5
+export const NETWORK_CUBE_FLOAT_M      = 0.6
+/** Cubes: gentle bob amplitude (m) and period (s); a wave travels along the trail. 0 amp = static. */
+export const NETWORK_CUBE_BOB_M        = 0.1
+export const NETWORK_CUBE_BOB_PERIOD_S = 4.5
+/** Cubes: bob wavelength along the trail (m): a long swell travelling fire to fire. */
+export const NETWORK_CUBE_BOB_WAVELENGTH_M = 20
+/** Cubes: only bob cubes within this distance (m) of the player (cheap). */
+export const NETWORK_CUBE_BOB_DIST_M   = 40
+/** Cubes (box shape only): each cube is turned 45 deg about the route so it reads as a diamond. */
+export const NETWORK_CUBE_TILT_DEG     = 45
 /** Tiles: band half-width (m) around the centreline (0.75 = 1-2 cells wide). */
 export const NETWORK_TILE_BAND_M       = 0.75
 /** Tiles: gap (m) left between neighbouring squares so the grid reads. */
@@ -67,12 +96,12 @@ export const NETWORK_TILE_MERGE_MAX    = 1
 export const NETWORK_TILE_FIRE_CLEAR_M = 1.35 // Fireplace_base.glb: �0.79 � �0.86 m (0.01 node scale) ? 0.86 m half-extent + 0.5 m tile half
 /** Tiles: per-tile scale-in / scale-out time (s), ease-out, from the tile centre. */
 export const NETWORK_TILE_SCALE_S      = 0.35
-/** Heat path: standing on a shown path tile warms like the weakest (Ember) campfire. */
+/** Heat path: standing on a shown path cell warms like a small (Low tier) campfire. */
 export const NETWORK_PATH_WARM_ENABLED = true
 /** Heat path: counts as "on the path" within this distance (m) of a shown path cell. */
 export const NETWORK_PATH_WARM_RADIUS_M = 1
-/** Heat path: fuel value whose tier sets the warmth (60 = top of Ember, tier 1). Ember never loses to the cold, so frost recovers slowly day and night. */
-export const NETWORK_PATH_WARM_FUEL    = 30
+/** Heat path: fuel value whose tier sets the warmth. 100 = Low (tier 2, fuel 60-150): 6 frost/s, same as a small campfire (no Ember floor). */
+export const NETWORK_PATH_WARM_FUEL    = 100
 /** Debug: log graph + candidate links on the server and client. */
 export const FIRE_NETWORK_DEBUG        = false
 /** Node id of the hearth. Hidden fire i is i + 1. */
@@ -226,9 +255,17 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	runs.push({ level: runLevel, pts: run })
 	for (const r of runs) r.pts = stringPull(map, r.level, r.pts)
 
-	let lengthM = 0
-	for (const r of runs) for (let k = 1; k < r.pts.length; k++) lengthM += Math.hypot(r.pts[k].x - r.pts[k - 1].x, r.pts[k].z - r.pts[k - 1].z)
-	if (lengthM > budget) return null
+	const runsLen = (rs: LinkRun[]) => { let L = 0; for (const r of rs) for (let k = 1; k < r.pts.length; k++) L += Math.hypot(r.pts[k].x - r.pts[k - 1].x, r.pts[k].z - r.pts[k - 1].z); return L }
+	if (runsLen(runs) > budget) return null
+	// Organic shape: smoothed + meandering centreline, per run, with a
+	// per-run fallback to the straight route if it leaves walkable cells;
+	// whole-route fallback if the curves push it past the budget.
+	if (NETWORK_ORGANIC_ENABLED) {
+		const lo = Math.min(a.id, b.id), hi = Math.max(a.id, b.id)
+		const curved = runs.map((r, i) => ({ level: r.level, pts: organicRun(map, r, lo * 7919 + hi * 104729 + i * 31) }))
+		if (runsLen(curved) <= budget) for (let i = 0; i < runs.length; i++) runs[i].pts = curved[i].pts
+	}
+	const lengthM = runsLen(runs)
 
 	return { runs, lengthM, cells: rasterizeRuns(map, runs, NETWORK_PATH_WIDTH_M / 2) }
 }
@@ -264,6 +301,71 @@ export function rasterizeRuns(map: TerrainMap, runs: LinkRun[], radiusM: number)
 	return cells
 }
 
+// MARK: organicRun
+/** Deterministic 0..1 from an int seed. */
+function hash01(n: number): number {
+	let x = (n | 0) ^ 0x9e3779b9
+	x = Math.imul(x ^ (x >>> 16), 0x85ebca6b); x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35); x ^= x >>> 16
+	return (x >>> 0) / 4294967296
+}
+
+/** Chaikin corner-cutting, endpoints kept. */
+function chaikin(pts: { x: number; z: number }[], iters: number): { x: number; z: number }[] {
+	let p = pts
+	for (let it = 0; it < iters && p.length > 2; it++) {
+		const out = [p[0]]
+		for (let k = 0; k < p.length - 1; k++) {
+			const a = p[k], b = p[k + 1]
+			if (k > 0) out.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25 })
+			if (k < p.length - 2) out.push({ x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75 })
+		}
+		out.push(p[p.length - 1])
+		p = out
+	}
+	return p
+}
+
+/** Resample to ~stepM, then push sideways by a low-frequency sine that fades to 0 at both run ends. */
+function meander(pts: { x: number; z: number }[], seed: number, amp: number): { x: number; z: number }[] {
+	let total = 0
+	for (let k = 1; k < pts.length; k++) total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z)
+	if (total < 2 * NETWORK_MEANDER_FADE_M || amp <= 0) return pts
+	const step = NETWORK_ORGANIC_STEP_M
+	const n = Math.max(2, Math.ceil(total / step))
+	const lambda = NETWORK_MEANDER_WAVELENGTH_M * (0.8 + 0.4 * hash01(seed + 1))
+	const phase = hash01(seed + 2) * Math.PI * 2
+	const out: { x: number; z: number }[] = []
+	let k = 1, acc = 0
+	for (let i = 0; i <= n; i++) {
+		const s = (i / n) * total
+		while (k < pts.length - 1 && acc + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z) < s) { acc += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z); k++ }
+		const p = pts[k - 1], q = pts[k]
+		const L = Math.hypot(q.x - p.x, q.z - p.z) || 1
+		const u = Math.min(1, Math.max(0, (s - acc) / L))
+		const x = p.x + (q.x - p.x) * u, z = p.z + (q.z - p.z) * u
+		const e = Math.min(s, total - s) / NETWORK_MEANDER_FADE_M
+		const fade = e >= 1 ? 1 : e * e * (3 - 2 * e)
+		const off = amp * fade * Math.sin((2 * Math.PI * s) / lambda + phase)
+		out.push({ x: x - ((q.z - p.z) / L) * off, z: z + ((q.x - p.x) / L) * off })
+	}
+	return out
+}
+
+function runIsClear(map: TerrainMap, level: number, pts: { x: number; z: number }[]): boolean {
+	for (let k = 1; k < pts.length; k++) if (!clearLine(map, level, pts[k - 1], pts[k])) return false
+	return true
+}
+
+/** Curvier run: smooth + meander; falls back to smooth-only, then to the straight run, if it leaves walkable cells. */
+function organicRun(map: TerrainMap, r: LinkRun, seed: number): { x: number; z: number }[] {
+	const smooth = chaikin(r.pts, NETWORK_SMOOTH_ITERS)
+	for (const amp of [NETWORK_MEANDER_AMP_M, NETWORK_MEANDER_AMP_M / 2, 0]) {
+		const pts = amp > 0 ? meander(smooth, seed, amp) : smooth
+		if (runIsClear(map, r.level, pts)) return pts
+	}
+	return r.pts
+}
+
 /** Keep only points needed so each straight hop stays on `level` walkable cells. */
 function stringPull(map: TerrainMap, level: number, pts: { x: number; z: number }[]): { x: number; z: number }[] {
 	if (pts.length <= 2) return pts
@@ -294,4 +396,62 @@ function clearLine(map: TerrainMap, level: number, p: { x: number; z: number }, 
 		}
 	}
 	return true
+}
+
+
+// MARK: shared fuel
+/** Shared fuel: wood fed to a linked fire is split across every lit fire in its network. */
+export const NETWORK_SHARED_FUEL_ENABLED = true
+/** Shared fuel: fraction of the piece the fed fire keeps. */
+export const NETWORK_SHARE_KEEP          = 0.5
+/** Shared fuel: the rest goes to lit fires within this many link hops (not the whole network). */
+export const NETWORK_SHARE_HOPS          = 2
+/** Share wave (client): a swell that runs through the existing trail spheres from the fed fire to each receiver. */
+/** Travel time per link hop (s). */
+export const NETWORK_SHARE_WAVE_TRAVEL_S = 1.6
+/** Peak scale multiplier at the wave front (overlapping waves take the max). */
+export const NETWORK_SHARE_WAVE_SCALE    = 1.8
+/** Half-width (m) of the smooth swell around the front (~2 spheres either side at 1.5 m spacing). */
+export const NETWORK_SHARE_WAVE_WIDTH_M  = 3
+/** Pulses per share, and the gap (s) between them. */
+export const NETWORK_SHARE_WAVE_COUNT    = 2
+export const NETWORK_SHARE_WAVE_GAP_S    = 0.35
+
+/**
+ * Water-fill split: add `total` across fires so the lowest rise first
+ * toward a common level, each capped at `cap`. Returns per-fire deltas
+ * (sum = total), or null when the fires together cannot take `total`
+ * (caller refuses the feed, same as the normal cap rule).
+ */
+export function splitFuelWaterFill(fuels: number[], cap: number, total: number): number[] | null {
+	const head = fuels.reduce((s, f) => s + Math.max(0, cap - f), 0)
+	if (total <= 0) return fuels.map(() => 0)
+	if (head + 1e-6 < total) return null
+	const fill = (lv: number) => fuels.reduce((s, f) => s + Math.max(0, Math.min(cap, lv) - f), 0)
+	let lo = Math.min(...fuels), hi = cap
+	for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (fill(mid) < total) lo = mid; else hi = mid }
+	const out = fuels.map((f) => Math.max(0, Math.min(cap, hi) - f))
+	// Fix float drift so the sum is exact (put it on the biggest share).
+	const sum = out.reduce((s, d) => s + d, 0)
+	let big = 0; for (let i = 1; i < out.length; i++) if (out[i] > out[big]) big = i
+	out[big] = Math.max(0, out[big] + (total - sum))
+	return out
+}
+
+/**
+ * Keep-and-share split. Fed fire keeps `keep` of `total`; the rest is
+ * water-filled into `others` (lowest first, capped). Whatever others
+ * can't take goes back to the fed fire, and fed-fire overflow goes to
+ * the others. Returns { fed, others[] } deltas, or null if fed + others
+ * together can't take the whole piece.
+ */
+export function splitFuelKeepShare(fedFuel: number, others: number[], cap: number, total: number, keep: number): { fed: number; others: number[] } | null {
+	const fedHead = Math.max(0, cap - fedFuel)
+	const othHead = others.reduce((s, f) => s + Math.max(0, cap - f), 0)
+	if (fedHead + othHead + 1e-6 < total) return null
+	let toOthers = Math.min(othHead, total * (1 - Math.max(0, Math.min(1, keep))))
+	let fed = total - toOthers
+	if (fed > fedHead) { toOthers += fed - fedHead; fed = fedHead }
+	const o = others.length ? splitFuelWaterFill(others, cap, Math.min(othHead, toOthers)) : []
+	return { fed, others: o ?? others.map(() => 0) }
 }

@@ -69,10 +69,14 @@ const CAP_M = 0.15
 /**
  * Spawn / keep melt-blue caps within this distance of the player
  * (AABB edge, not centre). Farther caps are culled; mountain never
- * gets one.
+ * gets one. 200 m (was 100): ~61 caps on average, ~103 worst case
+ * (was ~24 / ~54), one thin box each. Caps are removed only past
+ * CAP_KEEP_M + CAP_HYSTERESIS_M so walking along the edge never flickers.
  */
-const CAP_KEEP_M  = 100
+const CAP_KEEP_M  = 200
 const CAP_KEEP_M2 = CAP_KEEP_M * CAP_KEEP_M
+const CAP_HYSTERESIS_M = 15
+const CAP_DROP_M2 = (CAP_KEEP_M + CAP_HYSTERESIS_M) ** 2
 
 /**
  * Exposed rock. Matches the baseColorFactor on the authored
@@ -345,7 +349,8 @@ function capLodSystem(): void {
 		// After the world thaw the ice cap melts off as the wave reaches
 		// the rect: drop it and run the rock to the full walkable height
 		// (same as a distance-culled cap). Reset brings caps back.
-		const near = distSqToRect(focus.x, focus.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) < CAP_KEEP_M2
+		const d2 = distSqToRect(focus.x, focus.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ)
+		const near = d2 < (g.cap === null ? CAP_KEEP_M2 : CAP_DROP_M2)
 			&& !thawWaveReachedRect(g.centerX, g.centerZ, g.sizeX, g.sizeZ)
 		if (near && g.cap === null) {
 			setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top - CAP_M)

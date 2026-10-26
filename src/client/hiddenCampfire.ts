@@ -331,7 +331,7 @@ function applyLitVisuals(index: number): void {
 	// plays. Safe here because the pit entity is spawned without an
 	// AudioSource component and applyLitVisuals is idempotent-guarded
 	// above (litLocal early-out).
-	AudioSource.create(pit, {
+	AudioSource.createOrReplace(pit, {
 		audioClipUrl: CAMPFIRE_SFX,
 		loop        : true,
 		playing     : true,
@@ -739,8 +739,14 @@ export function setupHiddenCampfire(): void {
 			// lit=0 = snuff (fuel exhausted). Tear down flame + smoke +
 			// audio + billboard, then respawn the pit entity so a future
 			// re-ignition this cycle starts from a clean audio-less state.
+			// Keep the SAME pit entity (no remove + re-add): recreating it in
+			// the frame the network also frees its trail entities could leave
+			// the GLB missing on the client. Just drop the crackle audio.
 			applyUnlitVisuals(index)
-			relocatePit(index)
+			const pit = firePitEntity[index]
+			if (pit === null) spawnUnlitPit(index)
+			else if (AudioSource.has(pit)) AudioSource.deleteFrom(pit)
+			console.log(`hiddenCampfire[${index}]: snuffed, pit kept (entity ${firePitEntity[index]})`)
 		}
 	})
 

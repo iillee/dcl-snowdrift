@@ -214,6 +214,13 @@ export const NEAR_STATION_AWAY_RELAX_DEG = 110
 /** Score weights: facing away from the volcano vs closeness to the target distance. */
 const NEAR_W_AWAY = 2
 const NEAR_W_DIST = 1.5
+/**
+ * Pull the near monument toward spawn AFTER the far two are placed:
+ * the preferred band (target / min / max) is scaled by this and the best
+ * valid socket that keeps spacing + angle to the (unchanged) far two is
+ * used; else the original spot stays. 1 = old placement. 0.75 = ~25% closer.
+ */
+export const NEAR_STATION_PULL: number = 0.75
 /** Ranked near sockets tried in turn when one blocks the far picks. */
 const NEAR_STATION_TRIES = 8
 /** Hearth line of sight: eye height above the hearth ground (m). */
@@ -397,6 +404,9 @@ function buildOnce(
 	if (stations.length < STATION_COUNT) {
 		console.log('terrainGen: near monument blocked the far picks - falling back to far-only stations')
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [])
+	}
+	if (NEAR_STATION_PULL !== 1 && stations.length >= STATION_COUNT && stations[0].near) {
+		stations = pullNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, stations)
 	}
 
 	return {
@@ -2149,8 +2159,10 @@ function pickNearStation(
 	volcano     : TerrainVolcano | null,
 	ladders     : TerrainLadder[],
 	hearthRegion: number,
+	distScale   : number = 1,
 ): Array<{ station: TerrainStation; log: string }> {
 	if (!volcano) return []
+	const targetM = NEAR_STATION_TARGET_M * distScale
 	const rimPts  = volcanoRimPoints(work, volcano)
 	const centre  = stationLosTarget(work.landforms, volcano)
 	const volcAng = Math.atan2(centre.fz - HEARTH_FZ, centre.fx - HEARTH_FX)
@@ -2185,7 +2197,7 @@ function pickNearStation(
 			const enclose = stationEnclosure(work.levels, cx, cz, lv) / 24
 			const lower = lv < hearthLv ? 1 : 0
 			const score = away * NEAR_W_AWAY
-				- Math.abs(distM - NEAR_STATION_TARGET_M) / NEAR_STATION_TARGET_M * NEAR_W_DIST
+				- Math.abs(distM - targetM) / targetM * NEAR_W_DIST
 				+ (sameTerrace ? 0.2 : 0) + enclose * 0.3 + lower * 0.15
 			cands.push({ cx, cz, i, distM, offDeg: off * 180 / Math.PI, sameTerrace, score })
 		}
@@ -2209,7 +2221,7 @@ function pickNearStation(
 	// the rim), so no pass requires a clear beam; the beam lift is still
 	// computed for the hover height.
 	const passes: Pass[] = [
-		{ name: 'band+away+los',        minM: NEAR_STATION_MIN_M,       maxM: NEAR_STATION_MAX_M,       maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
+		{ name: 'band+away+los',        minM: Math.max(NEAR_STATION_RELAX_MIN_M, NEAR_STATION_MIN_M * distScale), maxM: NEAR_STATION_MAX_M * distScale,       maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
 		{ name: 'relaxed+away+los',     minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
 		{ name: 'relaxed+wideAway+los', minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_RELAX_DEG, clear: false, los: true  },
 		{ name: 'relaxed+anySide+los',  minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: 180,                          clear: false, los: true  },
@@ -2247,6 +2259,49 @@ function pickNearStation(
 		console.log('terrainGen: near monument: no cell within ' + NEAR_STATION_RELAX_MAX_M + 'm - far-only stations')
 	}
 	return out
+}
+
+
+// MARK: pullNearStation
+/**
+ * Move ONLY the near monument closer to spawn (NEAR_STATION_PULL). The
+ * far stations are kept exactly; a candidate must be strictly closer
+ * than today's and keep STATION_MIN_SEP_CELLS / STATION_MIN_ANGLE_RAD to
+ * them (same rules pickStations applied with the near pick as preset).
+ * Same near-pick rules otherwise (hearth LOS passes first, walkable,
+ * reachable, off ladders / volcano). No valid closer one: unchanged.
+ */
+function pullNearStation(
+	work        : Work,
+	regions     : Int16Array,
+	routeDist   : Int32Array,
+	volcano     : TerrainVolcano | null,
+	ladders     : TerrainLadder[],
+	hearthRegion: number,
+	stations    : TerrainStation[],
+): TerrainStation[] {
+	const cur  = stations[0]
+	const far  = stations.slice(1)
+	const dOf  = (st: TerrainStation) => Math.hypot(st.cx + 0.5 - HEARTH_FX, st.cz + 0.5 - HEARTH_FZ)
+	const aOf  = (st: TerrainStation) => Math.atan2(st.cz + 0.5 - HEARTH_FZ, st.cx + 0.5 - HEARTH_FX)
+	const curD = dOf(cur)
+	const picks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, NEAR_STATION_PULL)
+	for (const p of picks) {
+		const c = p.station
+		if (dOf(c) >= curD) continue
+		let ok = true
+		for (const o of far) {
+			if (Math.max(Math.abs(c.cx - o.cx), Math.abs(c.cz - o.cz)) < STATION_MIN_SEP_CELLS) { ok = false; break }
+			let diff = Math.abs(aOf(c) - aOf(o)) % (Math.PI * 2)
+			if (diff > Math.PI) diff = Math.PI * 2 - diff
+			if (diff < STATION_MIN_ANGLE_RAD) { ok = false; break }
+		}
+		if (!ok) continue
+		console.log('terrainGen: near monument pulled x' + NEAR_STATION_PULL + ': ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm -> ' + p.log)
+		return [c, ...far]
+	}
+	console.log('terrainGen: near monument pull: no valid closer socket, kept at ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm')
+	return stations
 }
 
 

@@ -116,7 +116,7 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		meltBrushCap: null, torchFlameMul: 1.0,
 	},
 	{
-		name: 'DUSK', durationSec: 15, drainMul: 2.0,
+		name: 'DUSK', durationSec: 15, drainMul: 1.5,
 		skyFrom: SKY_17, skyTo: SKY_19,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
 		snowFrostMul: 1.6, torchDrainMul: 1.0,
@@ -125,7 +125,7 @@ export const DAILY_PHASES: readonly PhaseConfig[] = [
 		meltBrushCap: 1, torchFlameMul: 0.65,
 	},
 	{
-		name: 'NIGHT', durationSec: 60, drainMul: 2.0,
+		name: 'NIGHT', durationSec: 60, drainMul: 1.5,
 		skyFrom: SKY_19, skyTo: SKY_0620,
 		ambientFreezePhases: 0.35, torchLeakPhases: 0.85,
 		snowFrostMul: 1.6, torchDrainMul: 1.0,

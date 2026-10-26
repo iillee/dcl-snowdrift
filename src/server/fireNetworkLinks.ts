@@ -6,6 +6,10 @@
  * fireNetwork.ts (which imports them) — no server import cycle.
  */
 
+import { NETWORK_SHARED_FUEL_ENABLED, NETWORK_SHARE_HOPS, NETWORK_SHARE_KEEP, splitFuelKeepShare } from 'src/shared/fireNetwork'
+import { FUEL_MAX } from 'src/shared/hearthFuel'
+import { room } from 'src/shared/messages'
+
 const linked = new Set<number>()
 
 /** Replace the set of fire ids (0 = hearth, i + 1 = hidden i) in held links. */
@@ -16,4 +20,58 @@ export function setLinkedFireIds(ids: Iterable<number>): void {
 
 export function isFireLinked(id: number): boolean {
 	return linked.has(id)
+}
+
+
+// MARK: shared fuel
+
+const edges: [number, number][] = []
+/** Per-fire fuel accessors, registered by hearthFuel.ts (id 0) and hiddenCampfire.ts (i + 1). */
+const fuelOf = new Map<number, { get: () => number; add: (n: number) => void }>()
+
+export function setLinkedEdges(pairs: [number, number][]): void {
+	edges.length = 0
+	for (const p of pairs) edges.push(p)
+}
+
+export function registerFireFuel(id: number, get: () => number, add: (n: number) => void): void {
+	fuelOf.set(id, { get, add })
+}
+
+/** Lit fires within `hops` held-link hops of `id` (excludes id). */
+function nearby(id: number, hops: number): number[] {
+	const seen = new Set<number>([id])
+	const depth = new Map<number, number>([[id, 0]])
+	const q = [id]
+	while (q.length) {
+		const c = q.shift()!
+		if (depth.get(c)! >= hops) continue
+		for (const [a, b] of edges) {
+			const o = a === c ? b : b === c ? a : -1
+			if (o >= 0 && !seen.has(o) && (fuelOf.get(o)?.get() ?? 0) > 0) { seen.add(o); depth.set(o, depth.get(c)! + 1); q.push(o) }
+		}
+	}
+	seen.delete(id)
+	return [...seen]
+}
+
+/**
+ * Shared feed. 'none' = not in a network (caller does the normal feed);
+ * 'shared' = split applied + burst broadcast; 'full' = the network can't
+ * take the whole piece (caller refuses, like the normal cap).
+ */
+export function tryShareFeed(id: number, add: number, from: string): 'none' | 'shared' | 'full' {
+	if (!NETWORK_SHARED_FUEL_ENABLED || !linked.has(id)) return 'none'
+	const fed = fuelOf.get(id)
+	if (!fed) return 'none'
+	const ids = nearby(id, NETWORK_SHARE_HOPS).filter((i) => fuelOf.has(i))
+	if (ids.length < 1) return 'none'
+	const r = splitFuelKeepShare(fed.get(), ids.map((i) => fuelOf.get(i)!.get()), FUEL_MAX, add, NETWORK_SHARE_KEEP)
+	if (!r) return 'full'
+	if (r.fed > 0) fed.add(r.fed)
+	const got: number[] = []
+	ids.forEach((i, k) => { if (r.others[k] > 0.01) { fuelOf.get(i)!.add(r.others[k]); got.push(i) } })
+	console.log(`[Server] fireNetwork: shared feed by ${from} at ${id}: +${add}s -> kept ${r.fed.toFixed(1)}, ${ids.map((i, k) => `${i}:+${r.others[k].toFixed(1)}`).join(' ')}`)
+	if (got.length) room.send('fireNetworkShare', { from: id, ids: got })
+	return 'shared'
 }

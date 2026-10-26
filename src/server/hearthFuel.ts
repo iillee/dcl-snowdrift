@@ -20,7 +20,7 @@
  */
 
 import { engine } from '@dcl/sdk/ecs'
-import { isFireLinked } from 'src/server/fireNetworkLinks'
+import { isFireLinked, registerFireFuel, tryShareFeed } from 'src/server/fireNetworkLinks'
 import { NETWORK_BURN_MUL, NETWORK_HEARTH_ID } from 'src/shared/fireNetwork'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -31,6 +31,7 @@ import {
 	FUEL_MAX,
 	FUEL_MAX_BURST_RADIUS_M,
 	LOG_FUEL_SECONDS,
+	FUEL_TIME_MUL,
 	TIER_FUEL,
 	feedFitsFire,
 	fuelSecondsForKind,
@@ -229,6 +230,14 @@ export function setupHearthFuelServer(): void {
 	}
 	installed = true
 
+	registerFireFuel(NETWORK_HEARTH_ID, () => mainFuel, (n) => {
+		const prevTier = hearthTierFromFuel(mainFuel)
+		mainFuel = Math.min(FUEL_MAX, mainFuel + n)
+		if (hearthTierFromFuel(mainFuel) !== prevTier) syncMeltRingToCurrentFuel()
+		maybeFireMaxBurst()
+		broadcastFuel()
+	})
+
 	// Feed handler. A piece that would pass the cap is refused and the
 	// wood stays in the sender's hands. Immediate broadcast so a feed
 	// that lands shows up without waiting for the next threshold.
@@ -250,7 +259,12 @@ export function setupHearthFuelServer(): void {
 			}
 			return
 		}
-		if (!feedFitsFire(prev, kind)) {
+		const share = tryShareFeed(NETWORK_HEARTH_ID, add, from)
+		if (share === 'shared') {
+			if (context?.from) room.send('feedFireFx', { userId: context.from, target: -1, kind: clampWoodKind(kind) })
+			return
+		}
+		if (share === 'full' || !feedFitsFire(prev, kind)) {
 			console.log(
 				`[Server] hearthFuel: feed refused from ${from} kind=${clampWoodKind(kind)} ` +
 				`${prev.toFixed(1)}s + ${add}s would pass the cap`
@@ -337,5 +351,5 @@ export function setupHearthFuelServer(): void {
 		resetMainFireFuel()
 	})
 
-	console.log(`[Server] hearthFuel: installed. floor=${FUEL_MAIN_FLOOR}s initial=${FUEL_MAIN_INITIAL}s max=${FUEL_MAX}s log=+${LOG_FUEL_SECONDS}s`)
+	console.log(`[Server] hearthFuel: installed. floor=${FUEL_MAIN_FLOOR}s initial=${FUEL_MAIN_INITIAL}s max=${FUEL_MAX}s log=+${LOG_FUEL_SECONDS * FUEL_TIME_MUL}s`)
 }

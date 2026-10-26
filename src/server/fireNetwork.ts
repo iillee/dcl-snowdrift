@@ -22,6 +22,7 @@ import {
 	NETWORK_HEARTH_ID,
 	NETWORK_MELT_S,
 	NETWORK_REFREEZE_S,
+	NETWORK_PATH_REFREEZE_ENABLED,
 	NETWORK_TICK_S,
 	linkKey,
 	pickLinkPairs,
@@ -35,7 +36,7 @@ import { onCycleRoll } from 'src/server/cycle'
 import { getMainFireFuel } from 'src/server/hearthFuel'
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
 import { meltPathCell, releasePathCell } from 'src/server/snowState'
-import { setLinkedFireIds } from 'src/server/fireNetworkLinks'
+import { setLinkedEdges, setLinkedFireIds } from 'src/server/fireNetworkLinks'
 
 
 interface Link {
@@ -71,6 +72,9 @@ function publishLinkedIds(): void {
 	const ids: number[] = []
 	for (const l of links.values()) if (l.brokeMs === 0) ids.push(l.a.id, l.b.id)
 	setLinkedFireIds(ids)
+	const pairs: [number, number][] = []
+	for (const l of links.values()) if (l.brokeMs === 0) pairs.push([l.a.id, l.b.id])
+	setLinkedEdges(pairs)
 }
 
 
@@ -159,7 +163,7 @@ function step(): void {
 			continue
 		}
 		// Retreat from the dead end(s).
-		const u = Math.min(1, (now - l.brokeMs) / (NETWORK_REFREEZE_S * 1000))
+		const u = NETWORK_PATH_REFREEZE_ENABLED ? Math.min(1, (now - l.brokeMs) / (NETWORK_REFREEZE_S * 1000)) : 1
 		for (let i = 0; i < cells.length; i++) {
 			if (l.released.has(i)) continue
 			const c = cells[i]

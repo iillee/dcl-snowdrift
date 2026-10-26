@@ -19,6 +19,15 @@ import { getIgnitionCaption } from 'src/client/monumentAnnounce'
 /** Caption font and the min bottom strip (px) kept while it lingers after the bars leave. */
 const CAPTION_FONT    = 26
 const CAPTION_STRIP_H = 72
+/** Igniter name colour: the UI's warm gold (GOLD in layer.brushSize / COL_WARM in layer.frostBar, rgb 1.00 0.80 0.30). */
+const CAPTION_NAME_HEX = 'FFCC4D'
+
+/** Name in gold via a rich-text colour tag; alpha baked into the tag so the fade covers both parts. */
+function captionRich(name: string, rest: string, alpha: number): string {
+	if (!name) return rest
+	const aa = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0').toUpperCase()
+	return `<color=#${CAPTION_NAME_HEX}${aa}>${name}</color>${rest}`
+}
 
 
 // MARK: CinematicLayer
@@ -68,7 +77,7 @@ class CinematicLayer extends Layer {
 				>
 					<Label
 						key         = "ui_Cinematic_caption"
-						value       = {cap.text}
+						value       = {captionRich(cap.name, cap.rest, cap.alpha)}
 						fontSize    = {CAPTION_FONT}
 						color       = {Color4.create(1, 1, 1, cap.alpha)}
 						textAlign   = "middle-center"

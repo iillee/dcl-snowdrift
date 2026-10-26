@@ -51,7 +51,7 @@ import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside, seedFireDimple } from 'src/server/snowState'
-import { isFireLinked } from 'src/server/fireNetworkLinks'
+import { isFireLinked, registerFireFuel, tryShareFeed } from 'src/server/fireNetworkLinks'
 import { NETWORK_BURN_MUL } from 'src/shared/fireNetwork'
 
 
@@ -390,6 +390,15 @@ export function setupHiddenCampfireServer(): void {
 	// Feed handler - filter by target index. -1 means main hearth
 	// (handled by src/server/hearthFuel.ts); anything in [0, N) is a
 	// hidden fire slot. Ignites nothing - fire must already be lit.
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		registerFireFuel(i + 1, () => (lit[i] ? fuel[i] : 0), (n) => {
+			if (!lit[i]) return
+			const prevTier = hearthTierFromFuel(fuel[i])
+			fuel[i] = Math.min(FUEL_MAX, fuel[i] + n)
+			if (hearthTierFromFuel(fuel[i]) > prevTier) seedHiddenMeltRing(i)
+			broadcastFuel(i)
+		})
+	}
 	room.onMessage('feedFireRequest', ({ target, kind }, context) => {
 		if (target < 0 || target >= HIDDEN_CAMPFIRE_COUNT) return
 		if (isEmberFailing()) {
@@ -406,7 +415,12 @@ export function setupHiddenCampfireServer(): void {
 		}
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = fuel[target]
-		if (!feedFitsFire(prev, kind)) {
+		const share = tryShareFeed(target + 1, add, from)
+		if (share === 'shared') {
+			if (context?.from) room.send('feedFireFx', { userId: context.from, target, kind: clampWoodKind(kind) })
+			return
+		}
+		if (share === 'full' || !feedFitsFire(prev, kind)) {
 			console.log(
 				`[Server] hiddenCampfire[${target}]: feed refused from ${from} kind=${clampWoodKind(kind)} ` +
 				`${prev.toFixed(1)}s + ${add}s would pass the cap`

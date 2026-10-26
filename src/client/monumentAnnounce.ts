@@ -31,6 +31,7 @@ const FALLBACK_NAME = 'A survivor'
 
 // MARK: State
 let caption        = ''
+let captionName    = ''
 let inCine         = false
 let lingerUntilMs  = 0
 let helpPending    = false
@@ -53,7 +54,8 @@ export function igniterName(userId: string): string {
 /** Call when the cinematic starts for this viewer. */
 export function announceCinematic(name: string): void {
 	install()
-	caption = `${name} ignites an ancient monument`
+	captionName = name.replace(/[<>]/g, '') // no stray rich-text tags from names
+	caption = `${captionName} ignites an ancient monument`
 	inCine  = true
 	lingerUntilMs = 0
 	helpPending = false
@@ -68,12 +70,13 @@ export function announceWithoutCinematic(): void {
 
 // MARK: getCaption
 /** Caption text + alpha (0 = hidden). */
-export function getIgnitionCaption(): { text: string; alpha: number } {
-	if (!caption) return { text: '', alpha: 0 }
-	if (inCine) return { text: caption, alpha: 1 }
+export function getIgnitionCaption(): { text: string; name: string; rest: string; alpha: number } {
+	const rest = ' ignites an ancient monument'
+	if (!caption) return { text: '', name: '', rest: '', alpha: 0 }
+	if (inCine) return { text: caption, name: captionName, rest, alpha: 1 }
 	const left = (lingerUntilMs - Date.now()) / 1000
-	if (left <= 0) return { text: '', alpha: 0 }
-	return { text: caption, alpha: Math.min(1, left / CAPTION_FADE_S) }
+	if (left <= 0) return { text: '', name: '', rest: '', alpha: 0 }
+	return { text: caption, name: captionName, rest, alpha: Math.min(1, left / CAPTION_FADE_S) }
 }
 
 

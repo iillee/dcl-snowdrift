@@ -369,7 +369,7 @@ export function initFrostAccumulation(): void {
 				warmthFuel   = hp.fuel
 			}
 		}
-		// Fire-network heat path: the weakest campfire (Ember) while you stand on a glowing path cell.
+		// Fire-network heat path: a small (Low tier) campfire while you stand on a glowing path cell.
 		if (warmthPerSec <= 0 && isOnHeatPath(x, z)) {
 			warmthPerSec = hearthWarmthPerSec(NETWORK_PATH_WARM_FUEL)
 			warmthFuel   = NETWORK_PATH_WARM_FUEL

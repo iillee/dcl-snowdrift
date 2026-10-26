@@ -423,6 +423,12 @@ export const Messages = {
 	// 0 = hearth, i + 1 = hidden fire i. Clients route the same path from
 	// the positions. state 1 = linked (ageMs since formed), 0 = breaking
 	// (ageMs since broke; deadA / deadB = which end went out).
+	// Shared feed burst: fire `from` was fed, `ids` got a share (incl. from if it did).
+	fireNetworkShare: Schemas.Map({
+		from: Schemas.Int,
+		ids : Schemas.Array(Schemas.Int),
+	}),
+
 	fireLinkState: Schemas.Map({
 		a    : Schemas.Int,
 		b    : Schemas.Int,

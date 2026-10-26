@@ -18,6 +18,22 @@ import {
 	NETWORK_GLOW_FADE_S,
 	NETWORK_GLOW_LIFT_M,
 	NETWORK_GLOW_STYLE,
+	NETWORK_CUBE_BOB_DIST_M,
+	NETWORK_CUBE_BOB_M,
+	NETWORK_CUBE_BOB_PERIOD_S,
+	NETWORK_CUBE_BOB_WAVELENGTH_M,
+	NETWORK_CUBE_FLOAT_M,
+	NETWORK_CUBE_SIZE_M,
+	NETWORK_CUBE_SPACING_M,
+	NETWORK_CUBE_TILT_DEG,
+	NETWORK_CUBE_SHAPE,
+	NETWORK_SHARE_WAVE_COUNT,
+	NETWORK_SHARE_WAVE_GAP_S,
+	NETWORK_SHARE_WAVE_SCALE,
+	NETWORK_SHARE_WAVE_TRAVEL_S,
+	NETWORK_SHARE_WAVE_WIDTH_M,
+	NETWORK_CUBE_PULSE_AMP,
+	NETWORK_CUBE_PULSE_PERIOD_S,
 	NETWORK_TILE_BAND_M,
 	NETWORK_PATH_WARM_ENABLED,
 	NETWORK_PATH_WARM_RADIUS_M,
@@ -31,12 +47,13 @@ import {
 	NETWORK_GLOW_WIDTH_M,
 	NETWORK_MELT_S,
 	NETWORK_REFREEZE_S,
+	NETWORK_PATH_REFREEZE_ENABLED,
 	linkKey,
 	routeFireLink,
 } from 'src/shared/fireNetwork'
 import { room } from 'src/shared/messages'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
-import { TerrainMap, groundYAtWorld } from 'src/shared/terrain/terrainMap'
+import { TerrainMap, groundYAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
 import { SNOW_CELL_M, cellCenterWorld as snowCellCenter, cellCoordsFromKey, cellKey, forEachCellInDisc } from 'src/shared/snowGrid'
 import { onCycleSeedChange } from 'src/client/cycle'
 
@@ -53,7 +70,7 @@ const GLOW_EMISSIVE_I  = 1.6
 const GLOW_LOD_S       = 0.5
 
 
-interface Piece { e: Entity; t: number; sx: number; sy: number; sz: number; pos: Vector3; shown: number; visible: boolean }
+interface Piece { e: Entity; t: number; sx: number; sy: number; sz: number; pos: Vector3; shown: number; visible: boolean; bob: boolean; pulsed: boolean; wave: number; waveApplied: number }
 interface GlowLink { a: number; b: number; state: number; t0Ms: number; deadA: boolean; deadB: boolean; L: number; pieces: Piece[]; warm: Map<number, number> }
 
 const glow = new Map<string, GlowLink>()
@@ -68,6 +85,7 @@ const warmIndex = new Map<number, Set<GlowLink>>()
 function shownAt(l: GlowLink, t: number, now: number): boolean {
 	const age = (now - l.t0Ms) / 1000
 	if (l.state === 1) return Math.min(t, l.L - t) <= (l.L / 2) * Math.min(1, age / NETWORK_MELT_S)
+	if (!NETWORK_PATH_REFREEZE_ENABLED) return false
 	const u = Math.min(1, age / NETWORK_REFREEZE_S)
 	const fromDead = l.deadA && l.deadB ? Math.min(t, l.L - t) / (l.L / 2) : l.deadA ? t / l.L : (l.L - t) / l.L
 	return fromDead > u
@@ -94,15 +112,52 @@ export function getGlowEntityCount(): number {
 	return n
 }
 
-function addBox(pos: Vector3, yaw: number, sx: number, sy: number, sz: number, t: number, out: Piece[]): void {
+function addBox(pos: Vector3, yaw: number, sx: number, sy: number, sz: number, t: number, out: Piece[], roll = 0, sphere = false): void {
 	const e = engine.addEntity()
-	Transform.create(e, { position: pos, rotation: Quaternion.fromEulerDegrees(0, yaw, 0), scale: Vector3.create(0, sy, 0) })
-	MeshRenderer.setBox(e)
+	Transform.create(e, { position: pos, rotation: Quaternion.fromEulerDegrees(roll, yaw, roll), scale: Vector3.create(0, roll || sphere ? 0 : sy, 0) })
+	if (sphere) MeshRenderer.setSphere(e)
+	else MeshRenderer.setBox(e)
 	Material.setPbrMaterial(e, {
 		albedoColor: GLOW_COLOR, emissiveColor: GLOW_EMISSIVE, emissiveIntensity: GLOW_EMISSIVE_I,
 		roughness: 1, metallic: 0, castShadows: false,
 	})
-	out.push({ e, t, sx, sy, sz, pos, shown: 0, visible: true })
+	out.push({ e, t, sx, sy, sz, pos, shown: 0, visible: true, bob: false, pulsed: false, wave: 1, waveApplied: 1 })
+}
+
+/**
+ * Cube style: one floating diamond cube every NETWORK_CUBE_SPACING_M along
+ * the route centreline, NETWORK_CUBE_FLOAT_M above the ground. Runs are
+ * already split at ladders, and cubes whose spot is off the run's level
+ * (cliff face / lip) are skipped, so nothing sits on the climb.
+ */
+function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], ends: { x: number; z: number }[]): Piece[] {
+	const out: Piece[] = []
+	const clear2 = NETWORK_TILE_FIRE_CLEAR_M * NETWORK_TILE_FIRE_CLEAR_M
+	const step = Math.max(0.25, NETWORK_CUBE_SPACING_M)
+	const s = NETWORK_CUBE_SIZE_M
+	let t0 = 0
+	for (const r of runs) {
+		let next = step / 2 // first cube half a step into each run
+		let runT = 0
+		for (let k = 1; k < r.pts.length; k++) {
+			const p = r.pts[k - 1], q = r.pts[k]
+			const L = Math.hypot(q.x - p.x, q.z - p.z)
+			const yaw = Math.atan2(q.x - p.x, q.z - p.z) * 180 / Math.PI
+			while (next <= runT + L) {
+				const u = L > 0 ? (next - runT) / L : 0
+				const x = p.x + (q.x - p.x) * u, z = p.z + (q.z - p.z) * u
+				next += step
+				if (ends.some((e) => (x - e.x) ** 2 + (z - e.z) ** 2 < clear2)) continue
+				if (levelAtWorld(map, x, z) !== r.level) continue
+				const y = groundYAtWorld(map, x, z) + NETWORK_CUBE_FLOAT_M
+				const sph = NETWORK_CUBE_SHAPE === 'sphere'
+				addBox(Vector3.create(x, y, z), yaw, s, s, s, t0 + runT + L * u, out, sph ? 0 : NETWORK_CUBE_TILT_DEG, sph)
+			}
+			runT += L
+		}
+		t0 += runT
+	}
+	return out
 }
 
 /**
@@ -166,6 +221,11 @@ function buildPieces(ax: number, az: number, bx: number, bz: number, a: number, 
 	if (!map) return null
 	const r = routeFireLink(map, { id: a, x: ax, z: az }, { id: b, x: bx, z: bz })
 	if (!r) return null
+	if (NETWORK_GLOW_STYLE === 'cubes') {
+		const pieces = buildCubes(map, r.runs, [{ x: ax, z: az }, { x: bx, z: bz }])
+		if (FIRE_NETWORK_DEBUG) console.log(`fireNetworkGlow: ${linkKey(a, b)} ${pieces.length} cubes`)
+		return { L: Math.max(1, r.lengthM), pieces, warm: bandCells(map, r.runs) }
+	}
 	if (NETWORK_GLOW_STYLE === 'tiles') {
 		const pieces = buildTiles(map, r.runs, [{ x: ax, z: az }, { x: bx, z: bz }])
 		if (FIRE_NETWORK_DEBUG) console.log(`fireNetworkGlow: ${linkKey(a, b)} ${pieces.length} tile boxes`)
@@ -222,8 +282,13 @@ function tick(dt: number): void {
 	if (lod) lodClock = 0
 	const me = Transform.getOrNull(engine.PlayerEntity)?.position
 	const now = Date.now()
+	const bobOn = NETWORK_GLOW_STYLE === 'cubes' && NETWORK_CUBE_BOB_M > 0
+	const pulseOn = NETWORK_GLOW_STYLE === 'cubes' && NETWORK_CUBE_PULSE_AMP > 0
+	const pulseW = (2 * Math.PI) / Math.max(0.2, NETWORK_CUBE_PULSE_PERIOD_S)
+	const bobK = (2 * Math.PI) / Math.max(1, NETWORK_CUBE_BOB_WAVELENGTH_M)
+	const bobW = (2 * Math.PI) / Math.max(0.2, NETWORK_CUBE_BOB_PERIOD_S)
 	// Each tile eases 0 <-> 1 over NETWORK_TILE_SCALE_S, scaled from its centre.
-	const stepK = dt / Math.max(0.05, NETWORK_GLOW_STYLE === 'tiles' ? NETWORK_TILE_SCALE_S : NETWORK_GLOW_FADE_S / 3)
+	const stepK = dt / Math.max(0.05, NETWORK_GLOW_STYLE !== 'line' ? NETWORK_TILE_SCALE_S : NETWORK_GLOW_FADE_S / 3)
 	for (const [k, l] of glow) {
 		const age = (now - l.t0Ms) / 1000
 		let allGone = l.state === 0
@@ -233,19 +298,32 @@ function tick(dt: number): void {
 				const reach = (l.L / 2) * Math.min(1, age / NETWORK_MELT_S)
 				want = Math.min(p.t, l.L - p.t) <= reach ? 1 : 0
 			} else {
-				const u = Math.min(1, age / NETWORK_REFREEZE_S)
+				const u = NETWORK_PATH_REFREEZE_ENABLED ? Math.min(1, age / NETWORK_REFREEZE_S) : 1
 				const fromDead = l.deadA && l.deadB ? Math.min(p.t, l.L - p.t) / (l.L / 2) : l.deadA ? p.t / l.L : (l.L - p.t) / l.L
 				want = fromDead <= u ? 0 : 1
 			}
-			if (lod && me) p.visible = Math.hypot(p.pos.x - me.x, p.pos.z - me.z) <= NETWORK_GLOW_DRAW_DIST_M
+			if (lod && me) {
+				const d = Math.hypot(p.pos.x - me.x, p.pos.z - me.z)
+				p.visible = d <= NETWORK_GLOW_DRAW_DIST_M
+				p.bob = (bobOn || pulseOn) && d <= NETWORK_CUBE_BOB_DIST_M
+			}
 			const target = p.visible ? want : 0
 			const prev = p.shown
 			p.shown = target > p.shown ? Math.min(target, p.shown + stepK) : Math.max(target, p.shown - stepK)
 			if (p.shown > 0 || want > 0) allGone = false
-			if (p.shown !== prev) {
+			const pulsing = pulseOn && p.bob && p.shown > 0
+			if (p.shown !== prev || pulsing || p.pulsed || p.wave !== p.waveApplied) {
 				const t = Transform.getMutable(p.e)
-				const k = 1 - (1 - p.shown) * (1 - p.shown) // ease-out
+				let k = 1 - (1 - p.shown) * (1 - p.shown) // ease-out grow/shrink
+				if (pulsing) k *= 1 + NETWORK_CUBE_PULSE_AMP * Math.sin(pulseW * now / 1000 - p.t * 0.6)
+				k *= p.wave // share wave swell (any distance)
+				p.waveApplied = p.wave
+				p.pulsed = pulsing
 				t.scale = Vector3.create(p.sx * k, p.sy * k, p.sz * k)
+			}
+			if (bobOn && p.bob && p.shown > 0) {
+				const y = p.pos.y + NETWORK_CUBE_BOB_M * Math.sin(bobW * now / 1000 - p.t * bobK)
+				Transform.getMutable(p.e).position = Vector3.create(p.pos.x, y, p.pos.z)
 			}
 		}
 		if (allGone) removeLink(k)
@@ -253,15 +331,101 @@ function tick(dt: number): void {
 }
 
 
+// MARK: share wave
+/**
+ * Fuel-share feedback: a swell that runs through the EXISTING trail
+ * spheres from the fed fire to each receiver (via the middle fire for 2
+ * hops). Each wave only sets Piece.wave (a scale multiplier) on spheres
+ * under its front; tick() multiplies it into the grow / pulse scale.
+ * Overlapping waves take the max. No entities are spawned.
+ */
+interface WaveHit { p: Piece; s: number }
+interface Wave { hits: WaveHit[]; len: number; t0: number; dur: number }
+const WAVE_MAX = 32
+const waves: Wave[] = []
+const waveTouched = new Set<Piece>()
+
+/** Held-link path (list of links + direction) from fire `from` to `to`, BFS. */
+function linkPath(from: number, to: number): { l: GlowLink; fwd: boolean }[] | null {
+	const prev = new Map<number, { id: number; l: GlowLink }>()
+	const q = [from]
+	const seen = new Set([from])
+	while (q.length) {
+		const c = q.shift()!
+		if (c === to) break
+		for (const l of glow.values()) {
+			if (l.state !== 1) continue
+			const o = l.a === c ? l.b : l.b === c ? l.a : -1
+			if (o < 0 || seen.has(o)) continue
+			seen.add(o); prev.set(o, { id: c, l }); q.push(o)
+		}
+	}
+	if (!seen.has(to)) return null
+	const out: { l: GlowLink; fwd: boolean }[] = []
+	for (let c = to; c !== from; ) { const p = prev.get(c)!; out.unshift({ l: p.l, fwd: p.l.a === p.id }); c = p.id }
+	return out
+}
+
+function onShare(m: { from: number; ids: number[] }): void {
+	const now = Date.now() / 1000
+	for (const to of m.ids) {
+		if (to === m.from) continue
+		const path = linkPath(m.from, to)
+		if (!path) continue
+		const hits: WaveHit[] = []
+		let off = 0
+		for (const h of path) {
+			for (const p of h.l.pieces) hits.push({ p, s: off + (h.fwd ? p.t : h.l.L - p.t) })
+			off += h.l.L
+		}
+		if (hits.length === 0) continue
+		const dur = NETWORK_SHARE_WAVE_TRAVEL_S * path.length
+		for (let i = 0; i < Math.max(1, NETWORK_SHARE_WAVE_COUNT) && waves.length < WAVE_MAX; i++) {
+			waves.push({ hits, len: off, t0: now + i * NETWORK_SHARE_WAVE_GAP_S, dur })
+		}
+	}
+}
+
+function tickWaves(): void {
+	if (waves.length === 0 && waveTouched.size === 0) return
+	for (const p of waveTouched) p.wave = 1
+	waveTouched.clear()
+	const now = Date.now() / 1000
+	const W = Math.max(0.1, NETWORK_SHARE_WAVE_WIDTH_M)
+	const peak = NETWORK_SHARE_WAVE_SCALE - 1
+	for (let i = waves.length - 1; i >= 0; i--) {
+		const w = waves[i]
+		const u = (now - w.t0) / w.dur
+		if (u < 0) continue
+		// Front runs from -W to len + W so the swell enters and leaves fully.
+		const front = -W + u * (w.len + 2 * W)
+		if (front > w.len + W) { waves.splice(i, 1); continue }
+		for (const h of w.hits) {
+			const d = Math.abs(h.s - front)
+			if (d >= W) continue
+			const m = 1 + peak * 0.5 * (1 + Math.cos(Math.PI * d / W))
+			if (m > h.p.wave) h.p.wave = m
+			waveTouched.add(h.p)
+		}
+	}
+}
+
+function clearWaves(): void {
+	waves.length = 0
+	for (const p of waveTouched) p.wave = 1
+	waveTouched.clear()
+}
+
 export function setupFireNetworkGlow(): void {
 	if (installed) return
 	installed = true
 	room.onMessage('fireLinkState', (m) => onLinkState(m))
+	room.onMessage('fireNetworkShare', (m) => { try { onShare(m) } catch (err) { console.error('fireNetworkGlow: share burst error', err) } })
 	let failed = false
 	engine.addSystem((dt: number) => {
 		if (failed) return
-		try { tick(dt) } catch (err) { failed = true; console.error('fireNetworkGlow: DISABLED after error', err) }
+		try { tickWaves(); tick(dt) } catch (err) { failed = true; console.error('fireNetworkGlow: DISABLED after error', err) }
 	})
-	onCycleSeedChange(() => { for (const k of [...glow.keys()]) removeLink(k) })
+	onCycleSeedChange(() => { clearWaves(); for (const k of [...glow.keys()]) removeLink(k) })
 	console.log('fireNetworkGlow: installed')
 }
