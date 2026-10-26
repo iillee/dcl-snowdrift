@@ -94,6 +94,7 @@ import {
 	MONUMENT_ICE_CHUNK_M,
 	MONUMENT_ICE_CHUNK_MELT_S,
 	MONUMENT_ICE_CHUNK_REFREEZE_S,
+	MONUMENT_ICE_REFREEZE_ENABLED,
 	MONUMENT_ICE_FULL_MASK,
 	MONUMENT_ICE_MELT_RADIUS_M,
 	MONUMENT_ICE_SLOTS,
@@ -1263,7 +1264,7 @@ function meltSystem(dt: number): void {
 			if (inReach) {
 				s.heat[c] = Math.min(1, s.heat[c] + dt / MONUMENT_ICE_CHUNK_MELT_S)
 				anyHeating = true
-			} else if (s.heat[c] > 0) {
+			} else if (MONUMENT_ICE_REFREEZE_ENABLED && s.heat[c] > 0) {
 				s.heat[c] = Math.max(0, s.heat[c] - dt / MONUMENT_ICE_CHUNK_REFREEZE_S)
 			}
 			if (s.heat[c] >= 1) {

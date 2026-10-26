@@ -8,7 +8,7 @@
  * immediately BELOW the HUD button row (BAR_TOP + BTN_SIZE + gap)
  * instead of overlapping the buttons themselves.
  *
- * Copy is the day, the time of day and its countdown on one line,
+ * Copy is the day number, then the tagline and monument progress,
  * and one line: don't let the fire die.
  */
 
@@ -19,13 +19,11 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { formatPhaseCountdown } from 'src/shared/phase'
 
 import { playUiClick } from 'src/client/audio'
-import { getDayNumber, getPhaseName, getPhaseRemainingSec, isPhaseHydrated } from 'src/client/phase'
+import { getDayNumber, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { getLitMonumentCount, getMonumentTotal } from 'src/client/stationMarkers'
-import { getLinkedFireCount } from 'src/client/fireNetworkGlow'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
@@ -48,10 +46,8 @@ const BTN_SIZE         = 72
 const GAP_BELOW_BAR_PX = 16
 
 const DAY_FONT     = fontSizes.subhead
-const PHASE_FONT   = 24
 const TAG_FONT     = 20
 const DAY_LINE_H   = DAY_FONT + 4
-const PHASE_LINE_H = PHASE_FONT + 2
 const TAG_LINE_H   = TAG_FONT + 4
 const LINE_GAP     = 2
 const PANEL_PAD    = spacing.md
@@ -62,20 +58,9 @@ const PANEL_W = 280
 const PANEL_H =
 	PANEL_PAD * 2 +
 	PANEL_BORDER * 2 +
-	DAY_LINE_H + LINE_GAP +
-	PHASE_LINE_H + LINE_GAP * 2 +
-	TAG_LINE_H + LINE_GAP +
+	DAY_LINE_H + LINE_GAP * 2 +
 	TAG_LINE_H + LINE_GAP +
 	TAG_LINE_H
-
-
-// MARK: phaseTitle
-/** Dawn, Day, Dusk, Night. The clock stores those names in capitals. */
-function phaseTitle(name: string): string {
-	const word = name.toLowerCase().replace(/_/g, ' ')
-	if (!word) return '—'
-	return word.charAt(0).toUpperCase() + word.slice(1)
-}
 
 
 // MARK: HelpPanelLayer
@@ -127,20 +112,6 @@ class HelpPanelLayer extends Layer {
 					uiTransform = {{
 						width : '100%',
 						height: DAY_LINE_H,
-						margin: { bottom: LINE_GAP },
-					}}
-				/>
-				<Label
-					value     = {isPhaseHydrated()
-						? `${phaseTitle(getPhaseName())}: ${formatPhaseCountdown(getPhaseRemainingSec())}`
-						: '—'}
-					fontSize  = {PHASE_FONT}
-					color     = {WHITE}
-					font      = "sans-serif"
-					textAlign = "middle-center"
-					uiTransform = {{
-						width : '100%',
-						height: PHASE_LINE_H,
 						margin: { bottom: LINE_GAP * 2 },
 					}}
 				/>
@@ -156,14 +127,6 @@ class HelpPanelLayer extends Layer {
 					value    = {`${getLitMonumentCount()}/${getMonumentTotal()} monuments activated`}
 					fontSize = {TAG_FONT}
 					color    = {GOLD}
-					font     = "sans-serif"
-					textAlign= "middle-center"
-					uiTransform = {{ width: '100%', height: TAG_LINE_H, margin: { bottom: LINE_GAP } }}
-				/>
-				<Label
-					value    = {`${getLinkedFireCount()} fire${getLinkedFireCount() === 1 ? '' : 's'} linked`}
-					fontSize = {TAG_FONT}
-					color    = {Color4.create(1, 0.62, 0.22, 1)}
 					font     = "sans-serif"
 					textAlign= "middle-center"
 					uiTransform = {{ width: '100%', height: TAG_LINE_H }}

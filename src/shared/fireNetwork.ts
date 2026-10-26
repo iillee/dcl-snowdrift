@@ -74,6 +74,14 @@ export const NETWORK_CUBE_PULSE_PERIOD_S = 1.6
 export const NETWORK_CUBE_SIZE_M       = 0.25
 export const NETWORK_CUBE_SPACING_M    = 1.5
 export const NETWORK_CUBE_FLOAT_M      = 0.6
+/** Fire strength: orbs near a weak fire shrink toward this scale (1 = off). */
+export const NETWORK_ORB_WEAK_MIN_SCALE  = 0.3
+/** Fire strength: fuel (s) at or above which a fire counts as full strength (150 = Warm tier). */
+export const NETWORK_ORB_FULL_FUEL_S     = 150
+/** Fire strength: influence reaches this far along the trail from each fire (m), capped at 40% of the link. */
+export const NETWORK_ORB_WEAK_INFLUENCE_M = 30
+/** Fire strength: seconds for an orb to ease to a new strength (no popping). */
+export const NETWORK_ORB_WEAK_EASE_S     = 1.5
 /** Cubes: gentle bob amplitude (m) and period (s); a wave travels along the trail. 0 amp = static. */
 export const NETWORK_CUBE_BOB_M        = 0.1
 export const NETWORK_CUBE_BOB_PERIOD_S = 4.5

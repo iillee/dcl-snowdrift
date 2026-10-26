@@ -27,6 +27,10 @@ import {
 	NETWORK_CUBE_SPACING_M,
 	NETWORK_CUBE_TILT_DEG,
 	NETWORK_CUBE_SHAPE,
+	NETWORK_ORB_FULL_FUEL_S,
+	NETWORK_ORB_WEAK_EASE_S,
+	NETWORK_ORB_WEAK_INFLUENCE_M,
+	NETWORK_ORB_WEAK_MIN_SCALE,
 	NETWORK_SHARE_WAVE_COUNT,
 	NETWORK_SHARE_WAVE_GAP_S,
 	NETWORK_SHARE_WAVE_SCALE,
@@ -56,6 +60,7 @@ import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { TerrainMap, groundYAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
 import { SNOW_CELL_M, cellCenterWorld as snowCellCenter, cellCoordsFromKey, cellKey, forEachCellInDisc } from 'src/shared/snowGrid'
 import { onCycleSeedChange } from 'src/client/cycle'
+import { getHiddenFireFuel, getMainFireFuel } from 'src/client/hearthFuel'
 
 
 // MARK: Tuning
@@ -70,7 +75,7 @@ const GLOW_EMISSIVE_I  = 1.6
 const GLOW_LOD_S       = 0.5
 
 
-interface Piece { e: Entity; t: number; sx: number; sy: number; sz: number; pos: Vector3; shown: number; visible: boolean; bob: boolean; pulsed: boolean; wave: number; waveApplied: number }
+interface Piece { e: Entity; t: number; sx: number; sy: number; sz: number; pos: Vector3; shown: number; visible: boolean; bob: boolean; pulsed: boolean; wave: number; waveApplied: number; str: number; strTarget: number; strApplied: number }
 interface GlowLink { a: number; b: number; state: number; t0Ms: number; deadA: boolean; deadB: boolean; L: number; pieces: Piece[]; warm: Map<number, number> }
 
 const glow = new Map<string, GlowLink>()
@@ -121,7 +126,7 @@ function addBox(pos: Vector3, yaw: number, sx: number, sy: number, sz: number, t
 		albedoColor: GLOW_COLOR, emissiveColor: GLOW_EMISSIVE, emissiveIntensity: GLOW_EMISSIVE_I,
 		roughness: 1, metallic: 0, castShadows: false,
 	})
-	out.push({ e, t, sx, sy, sz, pos, shown: 0, visible: true, bob: false, pulsed: false, wave: 1, waveApplied: 1 })
+	out.push({ e, t, sx, sy, sz, pos, shown: 0, visible: true, bob: false, pulsed: false, wave: 1, waveApplied: 1, str: 1, strTarget: 1, strApplied: 1 })
 }
 
 /**
@@ -276,6 +281,27 @@ function onLinkState(m: { a: number; b: number; ax: number; az: number; bx: numb
 }
 
 
+// MARK: fire strength
+/** 0..1 strength of fire id (0 = hearth, i + 1 = hidden i) from its synced fuel. */
+function fireStrength(id: number): number {
+	const fuel = id === 0 ? getMainFireFuel() : getHiddenFireFuel(id - 1)
+	return Math.max(0, Math.min(1, fuel / Math.max(1, NETWORK_ORB_FULL_FUEL_S)))
+}
+
+/** Low-rate (LOD tick): per-orb target scale from both end fires' strength, fading with trail distance. */
+function updateStrengthTargets(l: GlowLink): void {
+	const minS = NETWORK_ORB_WEAK_MIN_SCALE
+	if (minS >= 1) return
+	const sA = minS + (1 - minS) * fireStrength(l.a)
+	const sB = minS + (1 - minS) * fireStrength(l.b)
+	const D = Math.max(1, Math.min(NETWORK_ORB_WEAK_INFLUENCE_M, l.L * 0.4))
+	for (const p of l.pieces) {
+		const ua = Math.max(0, 1 - p.t / D), ub = Math.max(0, 1 - (l.L - p.t) / D)
+		const wa = ua * ua * (3 - 2 * ua), wb = ub * ub * (3 - 2 * ub)
+		p.strTarget = (1 + (sA - 1) * wa) * (1 + (sB - 1) * wb)
+	}
+}
+
 function tick(dt: number): void {
 	lodClock += dt
 	const lod = lodClock >= GLOW_LOD_S
@@ -289,9 +315,11 @@ function tick(dt: number): void {
 	const bobW = (2 * Math.PI) / Math.max(0.2, NETWORK_CUBE_BOB_PERIOD_S)
 	// Each tile eases 0 <-> 1 over NETWORK_TILE_SCALE_S, scaled from its centre.
 	const stepK = dt / Math.max(0.05, NETWORK_GLOW_STYLE !== 'line' ? NETWORK_TILE_SCALE_S : NETWORK_GLOW_FADE_S / 3)
+	const strStep = dt / Math.max(0.05, NETWORK_ORB_WEAK_EASE_S)
 	for (const [k, l] of glow) {
 		const age = (now - l.t0Ms) / 1000
 		let allGone = l.state === 0
+		if (lod && l.state === 1) updateStrengthTargets(l)
 		for (const p of l.pieces) {
 			let want: number
 			if (l.state === 1) {
@@ -311,12 +339,15 @@ function tick(dt: number): void {
 			const prev = p.shown
 			p.shown = target > p.shown ? Math.min(target, p.shown + stepK) : Math.max(target, p.shown - stepK)
 			if (p.shown > 0 || want > 0) allGone = false
+			if (p.str !== p.strTarget) p.str = p.strTarget > p.str ? Math.min(p.strTarget, p.str + strStep) : Math.max(p.strTarget, p.str - strStep)
 			const pulsing = pulseOn && p.bob && p.shown > 0
-			if (p.shown !== prev || pulsing || p.pulsed || p.wave !== p.waveApplied) {
+			if (p.shown !== prev || pulsing || p.pulsed || p.wave !== p.waveApplied || p.str !== p.strApplied) {
 				const t = Transform.getMutable(p.e)
 				let k = 1 - (1 - p.shown) * (1 - p.shown) // ease-out grow/shrink
 				if (pulsing) k *= 1 + NETWORK_CUBE_PULSE_AMP * Math.sin(pulseW * now / 1000 - p.t * 0.6)
 				k *= p.wave // share wave swell (any distance)
+				k *= p.str  // weak-fire shrink near that fire
+				p.strApplied = p.str
 				p.waveApplied = p.wave
 				p.pulsed = pulsing
 				t.scale = Vector3.create(p.sx * k, p.sy * k, p.sz * k)

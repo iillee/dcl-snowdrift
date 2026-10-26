@@ -59,6 +59,8 @@ export const MONUMENT_MOUND_TOP_M = MONUMENT_ICE_TOP_M + MONUMENT_ICE_SNOW_CAP_M
 export const MONUMENT_ICE_CHUNK_MELT_S = 6
 /** Seconds for a partly melted chunk to fully refreeze when the torch leaves. */
 export const MONUMENT_ICE_CHUNK_REFREEZE_S = 12
+/** false (default): partly melted chunks keep their melt progress (ice never grows back this cycle). true = old refreeze over MONUMENT_ICE_CHUNK_REFREEZE_S. */
+export const MONUMENT_ICE_REFREEZE_ENABLED: boolean = false
 /**
  * XZ radius (m) around the torch-holding player whose chunk centres melt.
  * Block centres sit 1.5 m in from each pit edge: pressed against the

@@ -18,6 +18,7 @@
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { icedStationIndex } from 'src/shared/monumentIce'
 import { trunkDiscs } from 'src/shared/props/scatter'
 import {
 	MAJOR_GROVE_COUNT,
@@ -113,6 +114,18 @@ export const HIDDEN_WORLD_MIN_SEP_M = 80
 
 /** Keep world-scatter pits off the home melt pad. */
 const HIDDEN_HEARTH_KEEP_M = 40
+
+/**
+ * Frozen (iced) monument: guarantee one hidden pit on the monument's own
+ * level within this band (m, from the monument cell centre). If none is
+ * placed there naturally, the world-scatter pit nearest the monument is
+ * moved into the band (or a spare slot is used); spacing to other pits is
+ * HIDDEN_ICED_FIRE_SEP_M (the home/grove link minimum). false = off.
+ */
+export const HIDDEN_ICED_FIRE_ENABLED = true
+export const HIDDEN_ICED_FIRE_MIN_M   = 25
+export const HIDDEN_ICED_FIRE_MAX_M   = 60
+const HIDDEN_ICED_FIRE_SEP_M          = HIDDEN_LINK_MIN_M
 
 /**
  * Soft cap per walkable elevation for the world-scatter pass only.
@@ -226,7 +239,9 @@ export function pickHiddenCampfires(
 	const volcN = placeVolcanoTerrace(seed, map, nodes, blocked, trees, picks)
 	const homeN = placeHomeNetwork(rand, map, nodes, blocked, trees, picks, hearth, TRIES)
 	const groveN = placeGroveClusters(rand, map, nodes, blocked, trees, picks, TRIES)
+	const worldStart = picks.length
 	const worldN = placeWorldScatter(rand, map, nodes, blocked, trees, picks)
+	if (HIDDEN_ICED_FIRE_ENABLED) ensureIcedMonumentFire(map, nodes, blocked, trees, picks, worldStart)
 
 	console.log(
 		`hiddenCampfire: pickHiddenCampfires: placed ${picks.length}/` +
@@ -523,6 +538,77 @@ function placeWorldScatter(
 		}
 	}
 	return placedN
+}
+
+
+// MARK: ensureIcedMonumentFire
+/**
+ * One pit near the frozen monument (see HIDDEN_ICED_FIRE_*). Deterministic:
+ * no PRNG, fixed ring scan (radius outward, then angle). Never touches
+ * volcano / home / grove pits; replaces a world-scatter pit in its slot
+ * (or appends while under HIDDEN_CAMPFIRE_COUNT). Same spotClear rules.
+ */
+function ensureIcedMonumentFire(
+	map       : TerrainMap,
+	nodes     : { x: number; z: number }[],
+	blocked   : ReadonlySet<string>,
+	trees     : ReadonlyArray<{ x: number; z: number; radius: number }>,
+	picks     : HiddenCampfireSpot[],
+	worldStart: number,
+): void {
+	const k = icedStationIndex(map)
+	if (k < 0) return
+	const st = map.stations[k]
+	const m  = tileToWorld(st.cx, st.cz)
+	const lv = map.levels[cellIndex(st.cx, st.cz)]
+	const dist = (p: { x: number; z: number }) => Math.hypot(p.x - m.x, p.z - m.z)
+	const inBand = (p: HiddenCampfireSpot) => {
+		const d = dist(p)
+		return d >= HIDDEN_ICED_FIRE_MIN_M && d <= HIDDEN_ICED_FIRE_MAX_M && map.levels[cellIndex(p.tx, p.tz)] === lv
+	}
+	if (picks.some(inBand)) return
+	// Slot to use: spare slot if any, else the world pit nearest the monument.
+	let slot = picks.length < HIDDEN_CAMPFIRE_COUNT ? -1 : -2
+	if (slot === -2) {
+		let best = Infinity
+		for (let i = worldStart; i < picks.length; i++) { const d = dist(picks[i]); if (d < best) { best = d; slot = i } }
+		if (slot < 0) { console.log('hiddenCampfire: iced monument: no world pit to move'); return }
+	}
+	// nodes = hearth + every pick in order; drop the slot being replaced.
+	const others = slot >= 0 ? nodes.filter((n) => !(n.x === picks[slot].x && n.z === picks[slot].z)) : nodes
+	// Radii from the middle of the band outward (semi-close, not hugging the mound).
+	const mid = (HIDDEN_ICED_FIRE_MIN_M + HIDDEN_ICED_FIRE_MAX_M) / 2
+	const radii: number[] = []
+	for (let d = 0; mid - d >= HIDDEN_ICED_FIRE_MIN_M || mid + d <= HIDDEN_ICED_FIRE_MAX_M; d += 4) {
+		if (mid - d >= HIDDEN_ICED_FIRE_MIN_M) radii.push(mid - d)
+		if (d > 0 && mid + d <= HIDDEN_ICED_FIRE_MAX_M) radii.push(mid + d)
+	}
+	for (const rad of radii) {
+		const steps = Math.max(12, Math.round((2 * Math.PI * rad) / 6))
+		for (let a = 0; a < steps; a++) {
+			const ang = (a / steps) * Math.PI * 2
+			const cell = cellAt(m.x + Math.sin(ang) * rad, m.z + Math.cos(ang) * rad)
+			if (cell === null) continue
+			if (map.levels[cellIndex(cell.tx, cell.tz)] !== lv) continue
+			// Exact ring point (like home / grove pits); ground Y from the map.
+			const x = m.x + Math.sin(ang) * rad, z = m.z + Math.cos(ang) * rad
+			if (!spotClear(x, z, others, blocked, trees, map, lv, HIDDEN_ICED_FIRE_SEP_M)) continue
+			const spot = { x, y: groundYAtWorld(map, x, z), z, tx: cell.tx, tz: cell.tz }
+			if (slot >= 0) {
+				const old = picks[slot]
+				const ni = nodes.findIndex((n) => n.x === old.x && n.z === old.z)
+				if (ni >= 0) nodes[ni] = { x, z }
+				picks[slot] = spot
+				console.log('hiddenCampfire: iced monument ' + k + ': moved world pit ' + slot + ' to ' + rad + 'm')
+			} else {
+				nodes.push({ x, z })
+				picks.push(spot)
+				console.log('hiddenCampfire: iced monument ' + k + ': added pit at ' + rad + 'm')
+			}
+			return
+		}
+	}
+	console.log('hiddenCampfire: iced monument ' + k + ': no valid spot within ' + HIDDEN_ICED_FIRE_MAX_M + 'm (kept layout)')
 }
 
 

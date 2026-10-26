@@ -122,6 +122,16 @@ const COL_COLD_DEEP  = COL_COLD // no deep-blue shift while frozen
 const COL_COLD_HOVER = Color4.create(0.50, 0.67, 1.00, 1.00) // subtle lighten of normal blue
 const FROZEN_TAU_S   = 0.35
 const COL_RESPAWN_TEXT = Color4.create(1, 1, 1, 1)
+/** Respawn text pulse while frozen: font grows up to (1 + AMP) on a smooth sine. 0 = off. */
+const RESPAWN_PULSE_AMP      = 0.08
+const RESPAWN_PULSE_PERIOD_S = 1.2
+
+/** Respawn font size this frame (label box stays 100% x 100%, so no layout jitter). */
+function respawnFontSize(base: number): number {
+	if (RESPAWN_PULSE_AMP <= 0) return base
+	const w = (2 * Math.PI * Date.now()) / (RESPAWN_PULSE_PERIOD_S * 1000)
+	return Math.round(base * (1 + RESPAWN_PULSE_AMP * 0.5 * (1 - Math.cos(w))) * 10) / 10
+}
 let dispDeep   = 0
 let dispHover  = 0
 let deepLastMs = 0
@@ -411,7 +421,7 @@ class FrostBarLayer extends Layer {
 						key         = "ui_FrostBar_respawn"
 						value       = {respawnLabel}
 						color       = {COL_RESPAWN_TEXT}
-						fontSize    = {mobile ? 28 : 26}
+						fontSize    = {respawnFontSize(mobile ? 28 : 26)}
 						textAlign   = "middle-center"
 						uiTransform = {{ width: '100%', height: '100%' }}
 					/>
