@@ -54,6 +54,7 @@ import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
 import { volcanoLavaCells } from 'src/shared/terrain/volcanoCrown'
 
 import { getMainFireFuel } from 'src/client/hearthFuel'
+import { isStaleSession, onServerSessionChange } from 'src/client/serverSession'
 
 const OPTIMISTIC_TIMEOUT_MS = 3000
 const CELL_COUNT            = SNOW_TILES_X * SNOW_TILES_Z * SNOW_TILE_CELL_COUNT
@@ -69,6 +70,20 @@ const tileKeyByEnt = new Map<Entity, number>()
 const pending      = new Map<number, number>()
 const dirtyRoots   = new Set<number>()
 const urgentRoots  = new Set<number>()
+
+/**
+ * Predicted heat-front melt (crystal release burst). Cell key -> model-clock expiry (ms).
+ * Those cells are shown melted locally ahead of the server's PaintTile stream; until the
+ * expiry a server tile that still says "snow" (it lags the sphere edge and arrives in
+ * bursts) never re-adds it. At expiry any cell the server still disagrees on snaps to the
+ * server's value, so the server stays authoritative.
+ */
+const predictedUntil = new Map<number, number>()
+const frontRoots     = new Set<number>()
+const PREDICT_HOLD_MS  = 8000
+const PREDICT_CHECK_MS = 500
+let frontActiveUntilMs = 0
+let nextPredictCheckMs = 0
 
 let initialized = false
 let hydrated    = false
@@ -86,6 +101,13 @@ export function initSnowModel(): void {
 	if (initialized) return
 	initialized = true
 	engine.addSystem(snowModelSystem)
+	// A new server run (or the first session id arriving after tiles from
+	// an older run were already applied): drop every melt we hold and
+	// rebuild from only the tiles the live session wrote.
+	onServerSessionChange(({ restarted }) => {
+		console.log(`snowModel: server session ${restarted ? 'restarted' : 'known'} - rebuilding snow from live tiles`)
+		resetSnowToPristine()
+	})
 }
 
 
@@ -98,6 +120,7 @@ function snowModelSystem(dt: number): void {
 	let seen = 0
 	let empty = 0
 	let unresolved = 0
+	let staleTiles = 0
 	const live = new Set<Entity>()
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		seen++
@@ -105,6 +128,11 @@ function snowModelSystem(dt: number): void {
 		const incoming = tile.cells
 		if (!incoming || incoming.length === 0) {
 			empty++
+			continue
+		}
+		// Tile left over from a previous server run: not this world's snow.
+		if (isStaleSession(tile.session)) {
+			staleTiles++
 			continue
 		}
 
@@ -140,11 +168,12 @@ function snowModelSystem(dt: number): void {
 		lastDiagMs = clockMs
 		console.log(
 			`snowModel: snowModelSystem: waiting ` +
-			`synced=${synced} paintTiles=${seen} empty=${empty} unresolved=${unresolved} applied=${tileShadow.size}`
+			`synced=${synced} paintTiles=${seen} empty=${empty} unresolved=${unresolved} stale=${staleTiles} applied=${tileShadow.size}`
 		)
 	}
 
 	if (pending.size > 0) expirePending()
+	if (predictedUntil.size > 0 && clockMs >= nextPredictCheckMs) expirePredicted(false)
 }
 
 
@@ -326,6 +355,8 @@ function applyTileBytes(
 		const key   = base + i
 		serverStages[key] = stage
 		pending.delete(key)
+		// Predicted heat-front melt: the server has not caught up yet; keep it melted.
+		if (stage > displayedStages[key] && predictedUntil.has(key)) continue
 		if (displayedStages[key] !== stage) {
 			// Stage drop = another player's torch / a fire ring. Mark
 			// urgent so the renderer does not park the rebuild behind
@@ -405,6 +436,73 @@ export function setOptimisticStage(
 }
 
 
+// MARK: predictHeatFrontMelt
+
+/**
+ * Client-side prediction for a crystal release melt front: melt (displayed only) every
+ * cell whose centre lies in the annulus fromR < d <= toR around (cx, cz), on any level
+ * (the server front also ignores levels). Call each few frames with the sphere edge's
+ * ground radius; touched roots are queued with front priority (see drainFrontRoots).
+ * Cells are held melted against stale server tiles for PREDICT_HOLD_MS, then reconciled.
+ * Returns cells newly melted.
+ */
+export function predictHeatFrontMelt(cx: number, cz: number, fromR: number, toR: number): number {
+	if (!(toR > fromR)) return 0
+	const exp  = clockMs + PREDICT_HOLD_MS
+	const from2 = fromR > 0 ? fromR * fromR : -1
+	let n = 0
+	forEachCellInDisc(cx, cz, toR, (key, d2) => {
+		if (d2 <= from2) return
+		predictedUntil.set(key, exp)
+		if (displayedStages[key] === STAGE_MELTED) return
+		pending.delete(key)
+		displayedStages[key] = STAGE_MELTED
+		const tileKey = tileKeyOfCell(key)
+		dirtyRoots.add(tileKey)
+		frontRoots.add(tileKey)
+		n++
+	})
+	frontActiveUntilMs = clockMs + 600
+	return n
+}
+
+
+// MARK: releaseHeatFrontPrediction
+
+/** Drop every prediction now (burst cancelled / cycle reset): cells fall back to the server's stages. */
+export function releaseHeatFrontPrediction(): void {
+	expirePredicted(true)
+}
+
+
+// MARK: expirePredicted
+
+function expirePredicted(all: boolean): void {
+	nextPredictCheckMs = clockMs + PREDICT_CHECK_MS
+	for (const [key, expiresAt] of predictedUntil) {
+		if (!all && clockMs < expiresAt) continue
+		predictedUntil.delete(key)
+		if (displayedStages[key] === serverStages[key]) continue
+		displayedStages[key] = serverStages[key]
+		dirtyRoots.add(tileKeyOfCell(key))
+	}
+}
+
+
+// MARK: heat front priority (renderer)
+
+/** True while a predicted heat front is sweeping: the renderer raises its rebuild budget. */
+export function isHeatFrontActive(): boolean {
+	return clockMs < frontActiveUntilMs
+}
+
+/** Move roots the predicted front touched into the caller's set (they rebuild first). */
+export function drainFrontRoots(out: Set<number>): void {
+	for (const k of frontRoots) out.add(k)
+	frontRoots.clear()
+}
+
+
 // MARK: getDisplayedStage
 
 /** Stage shown for a cell (server + optimistic). */
@@ -458,11 +556,13 @@ export function resetSnowToPristine(): void {
 		dirtyRoots.add(tileKeyOfCell(i))
 	}
 	pending.clear()
+	predictedUntil.clear()
 	tileShadow.clear()
 	let reapplied = 0
 	for (const [entity, tile] of engine.getEntitiesWith(PaintTile)) {
 		const incoming = tile.cells
 		if (!incoming || incoming.length === 0) continue
+		if (isStaleSession(tile.session)) continue
 		let tileKey = tileKeyByEnt.get(entity)
 		if (tileKey === undefined) {
 			const resolved = resolveTileKey(entity, tile.tileKey)

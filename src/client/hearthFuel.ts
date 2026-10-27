@@ -125,7 +125,7 @@ export function setupHearthFuelClient(): void {
 /**
  * Ask the server to add fuel for a carried piece. `target` is -1 for
  * the main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1 for a hidden fire slot.
- * `kind` selects branch vs log burn time. The local carry-slot
+ * `kind` is always a log (the only wood). The local carry-slot
  * clearing + SFX is still handled by the caller (logsInventory.feedFire);
  * this only owns the network round-trip.
  */

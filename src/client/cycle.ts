@@ -36,6 +36,7 @@ import { room } from 'src/shared/messages'
 import { resetFrostLocal } from 'src/client/frost/accumulation'
 import { resetPhaseToDawn } from 'src/client/phase'
 import { flushSkybox } from 'src/client/skybox'
+import { noteServerSession } from 'src/client/serverSession'
 import { resetSnowToPristine } from 'src/client/snow/snowModel'
 
 
@@ -92,9 +93,9 @@ export function onCycleSeedChange(handler: SeedChangeHandler): void {
  * without waiting for a server round-trip. The regular server
  * cycleState handler also calls this, so dev and prod share one path.
  */
-export function applyCycleSeedChange(newSeed: number): void {
+export function applyCycleSeedChange(newSeed: number, force = false): void {
 	const oldSeed = serverSeed
-	if (oldSeed !== null && cycleSeedsEqual(oldSeed, newSeed)) return
+	if (!force && oldSeed !== null && cycleSeedsEqual(oldSeed, newSeed)) return
 	const hadSeed = oldSeed !== null
 	serverSeed = newSeed
 	console.log(
@@ -170,7 +171,7 @@ export function forceLocalCycleRoll(): void {
  * produces the same value and CRDT converges without conflict.
  */
 export function setupCycleClient(): void {
-	room.onMessage('cycleState', ({ seed, nextRebuildEpochMs: nextMs }) => {
+	room.onMessage('cycleState', ({ seed, nextRebuildEpochMs: nextMs, session }) => {
 		// Absolute-time field always updates, even if seed is unchanged
 		// (e.g. a future mid-cycle nextRebuild adjustment).
 		serverNextRebuildEpochMs = nextMs
@@ -184,7 +185,12 @@ export function setupCycleClient(): void {
 		// applyCycleSeedChange is a no-op when the seed already matches
 		// (e.g. server confirming a dev-forced local roll), so this is
 		// safe on every cycleState arrival.
-		applyCycleSeedChange(seed)
+		// A different server session means a restarted server: its world
+		// is new even if the seed happened to repeat, so run the full
+		// reset path regardless. (Seeds are time-derived, so normally
+		// they differ anyway.)
+		const restarted = noteServerSession(session)
+		applyCycleSeedChange(seed, restarted)
 	})
 	// Sanity log: local baseline before the first server message lands.
 	// If this and the first cycleState disagree by more than a few

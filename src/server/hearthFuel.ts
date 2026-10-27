@@ -43,6 +43,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { onCycleRoll } from 'src/server/cycle'
+import { noteContributor } from 'src/server/leaderboard'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
@@ -261,6 +262,7 @@ export function setupHearthFuelServer(): void {
 		}
 		const share = tryShareFeed(NETWORK_HEARTH_ID, add, from)
 		if (share === 'shared') {
+			noteContributor(from, NETWORK_HEARTH_ID) // fed a fire (shared with the network)
 			if (context?.from) room.send('feedFireFx', { userId: context.from, target: -1, kind: clampWoodKind(kind) })
 			return
 		}
@@ -274,6 +276,7 @@ export function setupHearthFuelServer(): void {
 			}
 			return
 		}
+		noteContributor(from, NETWORK_HEARTH_ID) // fed the hearth
 		const prevTier = hearthTierFromFuel(prev)
 		mainFuel       = prev + add
 		const newTier  = hearthTierFromFuel(mainFuel)

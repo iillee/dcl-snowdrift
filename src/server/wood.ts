@@ -25,7 +25,6 @@
 import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED } from 'src/shared/snowGrid'
-import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 import {
 	computeWoodScatter,
 	WoodChunk,
@@ -53,6 +52,7 @@ import { releaseDimple, seedFireDimple } from 'src/server/snowState'
 
 import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
+import { noteContributor } from 'src/server/leaderboard'
 import { getStageAtWorld } from 'src/server/snowState'
 
 
@@ -129,8 +129,6 @@ function rebuildScatter(seed: number): void {
 		console.log(`[Server] wood: frontier pool route=${route.length} ring=${ring.length} dimpled=${frontierDimples.size}`)
 	}
 
-	let branches = 0
-	let logs     = 0
 	let nearN    = 0
 	let farN     = 0
 	let outerN   = 0
@@ -143,14 +141,12 @@ function rebuildScatter(seed: number): void {
 		else if (c.band === WOOD_BAND_OUTER) outerN++
 		else if (c.band === WOOD_BAND_DEST) destN++
 		else if (c.band === WOOD_BAND_TREE) treeN++
-		if (c.kind === WOOD_KIND_BRANCH) branches++
-		else logs++
 	}
 
 	console.log(
 		`[Server] wood: rebuilt scatter seed=${seed} pool=${scatter.length} ` +
 		`active=${active.size} (near=${nearN} far=${farN} outer=${outerN} ` +
-		`dest=${destN} tree=${treeN} branches=${branches} logs=${logs})`
+		`dest=${destN} tree=${treeN})`
 	)
 }
 
@@ -187,7 +183,7 @@ function broadcastActiveSet(userId?: string): void {
  */
 export function sendWoodStateTo(userId: string): void {
 	// Broadcast. Addressed hydration was not reaching the preview
-	// client, so no branch or log GLB was ever created.
+	// client, so no log GLB was ever created.
 	broadcastActiveSet()
 	console.log(`[Server] wood: hydrated ${active.size}/${scatter.length} chunk(s) for ${userId}`)
 }
@@ -225,12 +221,13 @@ export function setupWoodServer(): void {
 			return
 		}
 		// Tree chops are the trunk itself, not a mesh buried in the snow.
-		// Ground branches and logs still have to be melted clear.
+		// Ground logs still have to be melted clear.
 		if (chunk.band !== WOOD_BAND_TREE && getStageAtWorld(chunk.worldX, chunk.worldZ) !== STAGE_MELTED) {
 			console.log(`[Server] wood: pickup ${idx} from ${from} rejected - snow not melted`)
 			return
 		}
 		active.delete(idx)
+		noteContributor(from) // picked up wood
 		// The dimple only exists while the piece lies under it: release the
 		// scar so snow refills the spot normally (was never released, so the
 		// dip stayed for the rest of the cycle).

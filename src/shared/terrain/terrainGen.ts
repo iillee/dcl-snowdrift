@@ -27,6 +27,8 @@ import {
 	MONUMENT_COUNT,
 	MONUMENT_DISTANCE_BANDS,
 	MONUMENT_MIN_ANGLE_DEG,
+	MONUMENT_EDGE_PREF_M,
+	MONUMENT_EDGE_MIN_MUL,
 	MONUMENT_RELAX_SEP_FRAC,
 	isFloatingCrystals,
 	CRYSTAL_NEAR_MONUMENT_TARGET_M,
@@ -2335,6 +2337,61 @@ function pullNearStation(
  * are only used as a last resort. Prefers low ground, hollows and
  * canyons, one socket per elevation, fanned out around the hearth.
  */
+/**
+ * Metres from each cell centre to the outer wall: mountain cells
+ * connected to the grid border (or the border itself). Multi-source
+ * BFS on cell steps (8-neighbour, diagonal = sqrt 2), so approximate.
+ */
+export function outerWallDistanceM(levels: ArrayLike<number>): Float32Array {
+	const wall = new Uint8Array(N)
+	const q: number[] = []
+	for (let i = 0; i < N; i++) {
+		const cx = i % W, cz = (i - cx) / W
+		if ((cx === 0 || cz === 0 || cx === W - 1 || cz === H - 1) && levels[i] >= MOUNTAIN) { wall[i] = 1; q.push(i) }
+	}
+	for (let h = 0; h < q.length; h++) {
+		const i = q[h], cx = i % W, cz = (i - cx) / W
+		for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+			const nx = cx + dx, nz = cz + dz
+			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+			const j = nz * W + nx
+			if (wall[j] || levels[j] < MOUNTAIN) continue
+			wall[j] = 1; q.push(j)
+		}
+	}
+	const d = new Float32Array(N).fill(Infinity)
+	for (let i = 0; i < N; i++) {
+		const cx = i % W, cz = (i - cx) / W
+		// Border cells without a wall: the scene edge itself is the wall.
+		const edge = Math.min(cx + 0.5, cz + 0.5, W - cx - 0.5, H - cz - 0.5)
+		d[i] = wall[i] ? 0 : edge
+	}
+	// Dijkstra-lite relaxation passes (grid is small).
+	for (let pass = 0; pass < 2; pass++) {
+		for (let i = 0; i < N; i++) {
+			const cx = i % W, cz = (i - cx) / W
+			for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+				const nx = cx + dx, nz = cz + dz
+				if ((!dx && !dz) || nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				const v = d[nz * W + nx] + (dx && dz ? Math.SQRT2 : 1)
+				if (v < d[i]) d[i] = v
+			}
+		}
+		for (let i = N - 1; i >= 0; i--) {
+			const cx = i % W, cz = (i - cx) / W
+			for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+				const nx = cx + dx, nz = cz + dz
+				if ((!dx && !dz) || nx < 0 || nz < 0 || nx >= W || nz >= H) continue
+				const v = d[nz * W + nx] + (dx && dz ? Math.SQRT2 : 1)
+				if (v < d[i]) d[i] = v
+			}
+		}
+	}
+	// Wall cell = 0 at its centre; a neighbour centre sits ~half a cell from the wall face.
+	for (let i = 0; i < N; i++) d[i] = Math.max(0, d[i] - (wall[i] ? 0 : 0.5)) * TERRAIN_CELL_M
+	return d
+}
+
 function pickStations(
 	work        : Work,
 	regions     : Int16Array,
@@ -2354,6 +2411,9 @@ function pickStations(
 
 	type Cand = TerrainStation & { ang: number; score: number; i: number }
 	const cands: Cand[] = []
+	// Soft outer-wall bias (crystals): score x lerp(MONUMENT_EDGE_MIN_MUL..1)
+	// as the wall distance goes 0..MONUMENT_EDGE_PREF_M. Near-edge sockets stay legal.
+	const wallD = isFloatingCrystals() && MONUMENT_EDGE_PREF_M > 0 ? outerWallDistanceM(work.levels) : null
 	for (let i = 0; i < N; i++) {
 		const route = routeDist[i]
 		if (route < STATION_MIN_ROUTE) continue
@@ -2382,7 +2442,8 @@ function pickStations(
 		// money shot now that it no longer has to see the volcano.
 		const enclose = stationEnclosure(work.levels, cx, cz, lv) / 24
 		const levelBias = lv === LOW ? 1.3 : lv === MID ? 1.15 : 1
-		const score = route * (1 + enclose * 0.8) * levelBias
+		const edgeMul = wallD ? MONUMENT_EDGE_MIN_MUL + (1 - MONUMENT_EDGE_MIN_MUL) * Math.min(1, wallD[i] / MONUMENT_EDGE_PREF_M) : 1
+		const score = route * (1 + enclose * 0.8) * levelBias * edgeMul
 		cands.push({ cx, cz, i, level: lv, region: regions[i], route, ang, score })
 	}
 	cands.sort((a, b) => b.score - a.score || a.cx - b.cx || a.cz - b.cz)

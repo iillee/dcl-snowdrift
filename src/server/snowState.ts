@@ -28,6 +28,7 @@ import {
 	tileKeyOfCell,
 	worldToCellKey,
 } from 'src/shared/snowGrid'
+import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 import {
@@ -451,13 +452,17 @@ export function meltHeatZone(cx: number, cz: number, radiusM: number): number {
  * tick only touches cells the front newly reached. Server-authoritative;
  * clients and late joiners see it through the normal snow sync.
  */
-const HEAT_FRONT_BAND_M = 3
-interface HeatFront { cx: number; cz: number; R: number; startMs: number; durMs: number; doneR: number }
+interface HeatFront { cx: number; cz: number; R: number; startMs: number; durMs: number; doneR: number; h: number }
 const heatFronts: HeatFront[] = []
 
-export function startHeatZoneFront(cx: number, cz: number, radiusM: number, spreadS: number, delayS = 0): void {
+/**
+ * fromHeightM > 0: the front is the ground circle of a sphere centred
+ * fromHeightM above the centre whose radius grows linearly 0 -> hypot(R +
+ * band, h) (the crystal release burst), so the melt tracks the sphere.
+ */
+export function startHeatZoneFront(cx: number, cz: number, radiusM: number, spreadS: number, delayS = 0, fromHeightM = 0): void {
 	if (spreadS <= 0 && delayS <= 0) { meltHeatZone(cx, cz, radiusM); return }
-	heatFronts.push({ cx, cz, R: radiusM, startMs: Date.now() + Math.max(0, delayS) * 1000, durMs: Math.max(1, spreadS * 1000), doneR: 0 })
+	heatFronts.push({ cx, cz, R: radiusM, startMs: Date.now() + Math.max(0, delayS) * 1000, durMs: Math.max(1, spreadS * 1000), doneR: 0, h: Math.max(0, fromHeightM) })
 	console.log(`[Server] snowState: heat front r=${radiusM}m over ${spreadS}s at (${cx.toFixed(0)}, ${cz.toFixed(0)})`)
 }
 
@@ -479,7 +484,7 @@ export function tickHeatFronts(nowMs: number): boolean {
 		if (nowMs < f.startMs) continue // delayed start (crystal still rising)
 		const u = Math.min(1, (nowMs - f.startMs) / f.durMs)
 		// Front radius runs past R by the band so the edge cells reach 0.
-		const r = u * (f.R + HEAT_FRONT_BAND_M)
+		const r = heatFrontRadiusM(u, f.R, f.h) // shared with the client's predicted melt
 		const lo = Math.max(0, f.doneR - HEAT_FRONT_BAND_M)
 		const lo2 = lo * lo
 		forEachCellInDisc(f.cx, f.cz, Math.min(r, f.R), (key, distSq) => {

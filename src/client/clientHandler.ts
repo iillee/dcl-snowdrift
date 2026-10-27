@@ -11,6 +11,7 @@ import { isStateSyncronized } from '@dcl/sdk/network'
 import { room } from 'src/shared/messages'
 import { PAINT_TICK_HZ, PAINT_TICK_MAX_IDS } from 'src/shared/settings'
 
+import { onServerSessionChange, onServerSilence } from 'src/client/serverSession'
 import { drainSnowOutbox } from 'src/client/snow/snowBrush'
 import { PrecipitationLevel, setPrecipitation } from 'src/client/snowfall'
 
@@ -25,6 +26,8 @@ let rostered = false
  * without the player having to refresh.
  */
 let needsRejoin = false
+/** Set when the server session changed or went silent: ask for tiles again once synced. */
+let wantResync  = false
 
 /** How often to log while waiting for CRDT sync with the auth server. */
 const SYNC_LOG_INTERVAL_MS = 1000
@@ -87,6 +90,24 @@ function wireInbound(): void {
 		needsRejoin = true
 		rostered    = false
 	})
+
+	// Server restart (new session id) or silence. The platform stops the
+	// server after the last player leaves / on redeploy and cold-starts a
+	// fresh one with an empty roster. Do not wait for a paintTick to bounce
+	// as pleaseRejoin: rejoin now and re-request the snow tiles.
+	onServerSessionChange(({ restarted }) => {
+		if (!restarted) return
+		console.log('[Client] server restarted (new session) - re-issuing joinRoster + snowResync')
+		needsRejoin = true
+		rostered    = false
+		wantResync  = true
+	})
+	onServerSilence(() => {
+		console.log('[Client] server went silent - will rejoin when it answers')
+		needsRejoin = true
+		rostered    = false
+		wantResync  = true
+	})
 }
 
 
@@ -105,6 +126,10 @@ function wireOutbound(): void {
 
 	engine.addSystem((dt: number) => {
 		const synced = isStateSyncronized()
+		if (wantResync) {
+			wantResync = false
+			resyncSent = false
+		}
 		if (synced) {
 			hadSync    = true
 			syncWaitMs = 0

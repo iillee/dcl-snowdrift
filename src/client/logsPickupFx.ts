@@ -1,6 +1,6 @@
 /**
  * logsPickupFx.ts - cosmetic bounce over the head on wood pickup.
- * Pooled rigs (anchor -> shrinkParent -> mover -> log or branch GLB)
+ * Pooled rigs (anchor -> shrinkParent -> mover -> log GLB)
  * are pre-created once and re-anchored via AvatarAttach on demand, so we
  * never churn entities per pickup (avatar-attach + entity create/destroy
  * cycles are a known engine failure class - see flagtag's
@@ -12,8 +12,8 @@
  *     GltfContainer whose src matches other scene wood; we don't want
  *     early scanners to sweep our pool entities up by mistake).
  *   - Call spawnLogsBounce(playerId, kind) whenever any player - local
- *     or remote - picks up wood. kind selects logs_pickup.glb vs
- *     branch.glb. The F-slot icon (branch.png) is HUD-only.
+ *     or remote - picks up wood. kind is accepted for wire
+ *     compatibility; every piece is a log (logs_pickup.glb).
  */
 
 import {
@@ -23,7 +23,7 @@ import {
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
-import { clampWoodKind, WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
+import { WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 
 /** How many simultaneous head-bounce FX can play. A burst >POOL_SIZE
@@ -36,16 +36,11 @@ const POOL_SIZE = 6
  *  to grow the model back up before the rig is parked. */
 const BOUNCE_DURATION_S = 0.6
 
-const LOG_MODEL_SRC    = 'assets/models/logs_pickup.glb'
-const BRANCH_MODEL_SRC = 'assets/models/branch.glb'
+const LOG_MODEL_SRC = 'assets/models/logs_pickup.glb'
 
 /** Uniform scale of the bouncing log. Matches the world pile so the
  *  pop over the head reads as the same piece you just picked up. */
 const LOG_SCALE = 1
-/** Native branch is 4.19 m on Y. 0.32 → ~1.3 m over the head. */
-const BRANCH_SCALE = 0.32
-/** Keep the stick readable in the pop, not a vertical pole. */
-const BRANCH_PITCH_X_DEG = 90
 
 /** Local Y positions relative to the head anchor. HEAD anchor sits at
  *  the top of the avatar's head, so we launch just above and pop up
@@ -63,7 +58,6 @@ interface Rig {
 	shrinkParent: Entity
 	mover       : Entity
 	log         : Entity
-	branch      : Entity
 	timer       : number
 	busy        : boolean
 }
@@ -117,21 +111,7 @@ export function setupLogsPickupFx(): void {
 			invisibleMeshesCollisionMask : 0,
 		})
 
-		const branch = engine.addEntity()
-		Transform.create(branch, {
-			parent  : mover,
-			position: Vector3.Zero(),
-			scale   : Vector3.create(BRANCH_SCALE, BRANCH_SCALE, BRANCH_SCALE),
-			rotation: Quaternion.fromEulerDegrees(BRANCH_PITCH_X_DEG, 40, 0),
-		})
-		GltfContainer.create(branch, {
-			src                          : BRANCH_MODEL_SRC,
-			visibleMeshesCollisionMask   : 0,
-			invisibleMeshesCollisionMask : 0,
-		})
-		VisibilityComponent.create(branch, { visible: false })
-
-		pool.push({ anchor, shrinkParent, mover, log, branch, timer: 0, busy: false })
+		pool.push({ anchor, shrinkParent, mover, log, timer: 0, busy: false })
 	}
 
 	engine.addSystem(tickPool)
@@ -141,9 +121,8 @@ export function setupLogsPickupFx(): void {
 
 // MARK: spawnLogsBounce
 /**
- * Attach a bouncing pickup GLB to a player's head and play the
- * two-phase pop/fall+shrink animation. `kind` picks logs_pickup.glb
- * or branch.glb.
+ * Attach a bouncing log GLB to a player's head and play the
+ * two-phase pop/fall+shrink animation.
  *
  * IMPORTANT: for the LOCAL player, pass playerId=undefined (or omit).
  * AvatarAttach on the local avatar MUST omit avatarId - passing it
@@ -156,7 +135,7 @@ export function setupLogsPickupFx(): void {
  */
 export function spawnLogsBounce(
 	playerId?: string,
-	kind    : number = WOOD_KIND_LOG,
+	_kind   : number = WOOD_KIND_LOG,
 ): void {
 	if (!ready) {
 		console.log('logsPickupFx: spawnLogsBounce: pool not ready, skipping (call setupLogsPickupFx first)')
@@ -208,7 +187,6 @@ export function spawnLogsBounce(
 	// reused mid-animation from a previous burst).
 	Transform.getMutable(rig.shrinkParent).scale = Vector3.One()
 	Transform.getMutable(rig.mover).position     = Vector3.create(0, START_Y, 0)
-	applyPickupVisual(rig, kind)
 
 	// Phase 1: pop up fast.
 	Tween.createOrReplace(rig.mover, {
@@ -277,16 +255,4 @@ function releaseRig(rig: Rig): void {
 	if (TweenSequence.has(rig.shrinkParent)) TweenSequence.deleteFrom(rig.shrinkParent)
 	if (AvatarAttach.has(rig.anchor))        AvatarAttach.deleteFrom(rig.anchor)
 	Transform.getMutable(rig.shrinkParent).scale = Vector3.Zero()
-}
-
-
-// MARK: applyPickupVisual
-/** Show the log GLB or the branch GLB on this rig. */
-function applyPickupVisual(
-	rig : Rig,
-	kind: number,
-): void {
-	const isBranch = clampWoodKind(kind) === WOOD_KIND_BRANCH
-	VisibilityComponent.createOrReplace(rig.log,    { visible: !isBranch })
-	VisibilityComponent.createOrReplace(rig.branch, { visible:  isBranch })
 }

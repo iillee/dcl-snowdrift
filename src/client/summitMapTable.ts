@@ -26,6 +26,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { openSummitMap } from 'src/client/summitMap'
 import { isStationLit } from 'src/client/stationMarkers'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isBuildYourOwnFire } from 'src/shared/ruleset'
 import { MAZE_PLAYFIELD_METERS } from 'src/shared/settings'
 import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -297,7 +298,8 @@ function buildTable(map: TerrainMap): void {
 		spawnTriangleMark(root, x, z, 0.16)
 	}
 
-	spawnCircleMark(root, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, 0.11)
+	// Spawn circle: classic only (no spawn campfire in the newer rulesets).
+	if (!isBuildYourOwnFire()) spawnCircleMark(root, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, 0.11)
 
 	map.stations.forEach((st, i) => {
 		const { x, z } = cellCenterWorld(st.cx, st.cz)

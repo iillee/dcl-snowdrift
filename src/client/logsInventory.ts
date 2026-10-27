@@ -1,9 +1,8 @@
 /**
  * logsInventory.ts - client-local state for the F-slot wood carry.
  *
- * Single item: a branch (kindling, 60 s) or a log (120 s). Pickup,
- * drop, and feed all keep the kind so the matching GLB and fuel
- * amount round-trip through the server.
+ * Single item: a log (120 s). Pickup, drop, and feed round-trip the
+ * kind int through the server (always a log).
  */
 
 
@@ -41,7 +40,7 @@ export function hasLogs(): boolean {
 
 
 // MARK: getCarriedKind
-/** WOOD_KIND_BRANCH or WOOD_KIND_LOG for the current (or last) carry. */
+/** WOOD_KIND_LOG (the only kind) for the current (or last) carry. */
 export function getCarriedKind(): number {
 	return _kind
 }

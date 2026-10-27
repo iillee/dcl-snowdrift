@@ -43,7 +43,9 @@ import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
 import { meltPathCell, releasePathCell } from 'src/server/snowState'
 import { setLinkedEdges, setLinkedFireIds, setVisibleEdges } from 'src/server/fireNetworkLinks'
 import { getChargePairs, setMonumentLinks } from 'src/server/chargeLinks'
-import { isMonumentNodeId } from 'src/shared/ruleset'
+import { recordFireNetworks } from 'src/server/leaderboard'
+import { MONUMENT_NODE_ID_BASE, isMonumentNodeId } from 'src/shared/ruleset'
+import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
 
 
 interface Link {
@@ -78,6 +80,22 @@ function sameEnds(l: { a: FireNode; b: FireNode }, a: FireNode, b: FireNode): bo
 }
 let clock = 0
 
+/**
+ * Every built fire at a new spot adds routeCache / chargeEndCache keys
+ * (route cells are the heavy part). Cleared on cycle roll, but a long
+ * cycle with many rebuilt fires grows them without limit and the server
+ * isolate has a 256 MB ceiling. Evict oldest entries past the cap; a
+ * miss just re-routes. Live links hold their own route reference.
+ */
+const ROUTE_CACHE_MAX = 800
+function capCache<V>(m: Map<string, V>): void {
+	while (m.size > ROUTE_CACHE_MAX) {
+		const oldest = m.keys().next()
+		if (oldest.done) return
+		m.delete(oldest.value)
+	}
+}
+
 
 // MARK: litNodes
 function litNodes(): FireNode[] {
@@ -103,6 +121,7 @@ function publishLinkedIds(): void {
 	const vis: [number, number][] = []
 	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id) && shown(l)) vis.push([l.a.id, l.b.id])
 	setVisibleEdges(vis)
+	recordFireNetworks(litNodes().map((n) => n.id), vis) // leaderboard: biggest connected network
 	const mon = new Map<number, Set<number>>()
 	for (const l of links.values()) {
 		if (l.brokeMs !== 0 || !isMonumentNodeId(l.b.id) || !shown(l)) continue
@@ -137,8 +156,9 @@ function evaluate(): void {
 	if (!map) return
 	const nodes = litNodes()
 	// Floating crystals: each charging fire also links to its monument
-	// (end node on the pit edge facing that fire). Not part of the RNG
-	// graph, so fire-to-fire links are unchanged.
+	// (end node on the pit edge facing that fire). pruneNetwork keeps every
+	// routable one and builds a tree under it (direct fires link only the
+	// monument; relays link one parent), see pruneMonumentTrees.
 	const charge = getChargePairs()
 	const sig = nodes.map((n) => `${n.id}@${n.x.toFixed(1)},${n.z.toFixed(1)}`).join(',') + '|' + charge.map((p) => `${p.slot}>${p.mon}`).join(',')
 	const litIds = new Set(nodes.map((n) => n.id))
@@ -168,6 +188,8 @@ function evaluate(): void {
 			}
 			if (end) chargeNodes.push([fire, end])
 		}
+		capCache(routeCache)
+		capCache(chargeEndCache)
 		let pairs: [FireNode, FireNode][]
 		if (NETWORK_TOPOLOGY === 'legacy') {
 			// Old: RNG on fires + hysteresis + every charging fire -> monument.
@@ -194,7 +216,16 @@ function evaluate(): void {
 				if (r === undefined) { r = routeFireLink(map, c.a, c.b); routeCache.set(rk, r) }
 				return r
 			}
-			const kept = pruneNetwork(cands, routeOf)
+			// Monument trees: held links are preferred as a relay's parent, so lighting
+			// another fire never re-parents (and re-melts) a working chain.
+			const held = new Set<string>()
+			for (const [hk, hl] of links) if (hl.brokeMs === 0) held.add(hk)
+			const monuments: { id: number; x: number; z: number }[] = []
+			for (const id of new Set(chargeNodes.map((c) => c[1].id))) {
+				const st = map.stations[id - MONUMENT_NODE_ID_BASE]
+				if (st) { const mc = cellCenterWorld(st.cx, st.cz); monuments.push({ id, x: mc.x, z: mc.z }) }
+			}
+			const kept = pruneNetwork(cands, routeOf, { held, monuments: monuments.length ? monuments : undefined })
 			pairs = kept.map((k) => [k.cand.a, k.cand.b])
 			console.log(`[Server] fireNetwork: topology ${NETWORK_TOPOLOGY}: ${nodes.length} fires + ${new Set(chargeNodes.map((c) => c[1].id)).size} monuments, ${cands.length} candidates -> ${pairs.length} links`)
 		}		for (const [a, b] of pairs) {

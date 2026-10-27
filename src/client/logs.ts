@@ -32,6 +32,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { hasLogs, pickupLogs } from 'src/client/logsInventory'
+import { onServerSessionChange } from 'src/client/serverSession'
 import { attachWoodModel } from 'src/client/woodVisual'
 
 
@@ -66,7 +67,7 @@ function spawnPileEntity(
 		return
 	}
 	const entity = engine.addEntity()
-	attachWoodModel(entity, kind, x, z, (id * 37) % 360, activeGroundYAt(x, z))
+	attachWoodModel(entity, x, z, (id * 37) % 360, activeGroundYAt(x, z))
 	piles.set(id, { entity, x, z, kind, armed })
 	console.log(
 		`logs: spawnPileEntity: pile #${id} kind=${kind} spawned at ` +
@@ -110,6 +111,16 @@ export function setupLogsClient(): void {
 
 	room.onMessage('logPileRemoved', ({ id }) => {
 		despawnPileEntity(id)
+	})
+
+	// New server run: its pile ids restart at 1, so piles from the old one
+	// would collide with (and shadow) the new ones. Drop them; the server
+	// re-sends the live piles on joinRoster.
+	onServerSessionChange(({ restarted }) => {
+		if (!restarted) return
+		const n = piles.size
+		for (const id of [...piles.keys()]) despawnPileEntity(id)
+		console.log(`logs: server restarted - cleared ${n} stale pile(s)`)
 	})
 
 	engine.addSystem(proximityPollSystem)

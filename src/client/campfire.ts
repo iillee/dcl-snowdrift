@@ -24,6 +24,7 @@ import { Vector3 } from '@dcl/sdk/math'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 import { createFlameRig } from 'src/client/flameBillboards'
+import { flameLightSeed } from 'src/shared/flameVariant'
 import { hearthLightParams, nearestLitFireIndex, syncPointLight } from 'src/client/fireLight'
 import {
 	getMainFireFlameScale,
@@ -68,7 +69,7 @@ export function setupCampfire(): void {
 	Transform.create(base, { parent: root, position: Vector3.Zero() })
 	GltfContainer.create(base, { src: CAMPFIRE_BASE_MODEL })
 
-	const flame = createFlameRig(root)
+	const flame = createFlameRig(root, { seedPos: { x: CAMPFIRE_WORLD_X, z: CAMPFIRE_WORLD_Z } })
 	flame.setScale(getMainFireFlameScale())
 
 	// Spatial crackle: global=false makes the SDK attenuate by distance
@@ -87,7 +88,7 @@ export function setupCampfire(): void {
 		parent  : root,
 		position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
 	})
-	syncPointLight(light, hearthLightParams(getMainFireFuel()))
+	syncPointLight(light, hearthLightParams(getMainFireFuel()), flameLightSeed(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z))
 
 	// Relight is handled entirely by torchInput.ts: press E anywhere
 	// inside the campfire heat ring. Proximity-only — no pointer/aim
@@ -125,7 +126,7 @@ export function setupCampfire(): void {
 			const fuel    = getMainFireFuel()
 			const nearest = nearestLitFireIndex(collectLitCampfirePositions())
 			const radial  = fuel > 0 && nearest !== 0
-			syncPointLight(light, hearthLightParams(radial ? fuel : 0))
+			syncPointLight(light, hearthLightParams(radial ? fuel : 0), flameLightSeed(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z))
 
 			const ready = ensureBaseGlb(base, spawnedAtMs, nextRetryAtMs)
 			if (ready.respawnedAtMs !== null) spawnedAtMs = ready.respawnedAtMs

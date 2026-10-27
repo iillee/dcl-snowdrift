@@ -48,7 +48,6 @@ console.log(
 		trees: g.params.treeCount,
 		scale: g.params.radiusScale.toFixed(2),
 		wood: `${g.params.woodActive}/${g.params.woodPool}`,
-		logs: g.params.logChance.toFixed(2),
 		special: g.params.specialDiscovery,
 	})),
 )

@@ -92,8 +92,10 @@ export function nearestLitFireIndex(
 function fireFlicker(
 	entity: Entity,
 	nowSec: number,
+	seed? : number,
 ): { intensityMul: number, rangeMul: number } {
-	const id = entity as number
+	// seed (position hash, see flameVariant) replaces the entity id so the wobble is stable per fire.
+	const id = seed ?? (entity as number)
 	const a  = Math.sin(nowSec *  8.3 + id * 0.41)
 	const b  = Math.sin(nowSec * 14.1 + id * 1.17)
 	const c  = Math.sin(nowSec * 23.9 + id * 2.03)
@@ -153,16 +155,17 @@ export function hearthLightParams(fuel: number): FireLightParams {
  * Create or update a point LightSource on `entity`. Inactive lights
  * skip flicker and only write when active/range/intensity actually
  * change. Live lights rewrite intensity and range every frame so the
- * flame can flicker.
+ * flame can flicker. seed (optional) fixes this light's flicker phase per fire.
  */
 export function syncPointLight(
 	entity: Entity,
 	params: FireLightParams,
+	seed? : number,
 ): void {
 	let intensity = params.intensity
 	let range     = params.range
 	if (params.active) {
-		const flick = fireFlicker(entity, Date.now() * 0.001)
+		const flick = fireFlicker(entity, Date.now() * 0.001, seed)
 		intensity  *= flick.intensityMul
 		range      *= flick.rangeMul
 	}

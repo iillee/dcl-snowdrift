@@ -6,7 +6,7 @@
  */
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
-import { FireSlotTable } from 'src/shared/fireSlots'
+import { FireSlotTable, pickRecycleSlot } from 'src/shared/fireSlots'
 import { HIDDEN_CAMPFIRE_COUNT, pickHiddenCampfires } from 'src/shared/hiddenCampfire'
 import { BUILT_FIRE_MAX, BUILT_FIRE_MIN_SPACING_M, RULESET, validateBuiltFireSpot } from 'src/shared/ruleset'
 import { WORLD_PROFILE } from 'src/shared/settings'
@@ -50,4 +50,24 @@ say(`  deep snow verdict sample=${vDeep}`)
 slots.clear(0)
 const vFree = validateBuiltFireSpot(map, spots[BUILT_FIRE_MAX].x, spots[BUILT_FIRE_MAX].z, slots.positions(), () => 0, slots.count())
 expect(vFree === 'ok', `after reset of one slot verdict=${vFree} (want ok)`)
+// Recycling at the cap: oldest extinguished built fire, never a burning one.
+{
+	const n = 5
+	const built = [true, true, true, true, false]
+	expect(pickRecycleSlot(built, [true, true, true, true, false], [0, 0, 0, 0, 0]) === -1, 'all burning -> no recycle')
+	expect(pickRecycleSlot(built, [false, true, false, true, false], [300, 0, 200, 0, 0]) === 2, 'oldest dead (200) recycled')
+	expect(pickRecycleSlot(built, [true, true, false, true, false], [100, 0, 200, 0, 0]) === 2, 'relit fire (stale time) skipped')
+	expect(pickRecycleSlot(built, [true, true, true, true, false], [0, 0, 0, 0, 50]) === -1, 'non-built slot never recycled')
+	void n
+	// Full cap with spot 0 dead: building ON the recycled fire's spacing ring is allowed.
+	for (let i = 0; i < BUILT_FIRE_MAX; i++) slots.place(i, spots[i].x, spots[i].z)
+	const rec = { x: spots[0].x, z: spots[0].z }
+	const tx = spots[0].x, tz = spots[0].z // right on the dead fire
+	const others = slots.positions().filter((p) => p.x !== rec.x || p.z !== rec.z)
+	const vRec = validateBuiltFireSpot(map, tx, tz, others, () => 0, slots.count() - 1)
+	const vNoRec = validateBuiltFireSpot(map, tx, tz, slots.positions(), () => 0, slots.count())
+	say(`  recycle at cap: near recycled spot verdict=${vRec} (without recycle ${vNoRec})`)
+	expect(vNoRec !== 'ok', 'at cap without a dead fire -> refused')
+	expect(vRec === 'ok', `recycled fire must not block spacing (got ${vRec})`)
+}
 say(fail === 0 ? '  ALL PASS' : `  ${fail} FAILED`)

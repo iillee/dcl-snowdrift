@@ -18,6 +18,7 @@
  */
 
 import { engine, AvatarLocomotionSettings, InputModifier, Transform } from '@dcl/sdk/ecs'
+import { isMovementLocked } from 'src/client/movementLock'
 
 import {
 	MAZE_ORIGIN_OFFSET_METERS,
@@ -63,10 +64,10 @@ let installed        = false
  */
 function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
 	InputModifier.createOrReplace(engine.PlayerEntity, {
-		mode: InputModifier.Mode.Standard({
-			disableRun : false,
-			disableJump: stage >= 2,
-		}),
+		mode: InputModifier.Mode.Standard(isMovementLocked()
+			// Campfire emote: no walking / running / jumping until it completes (camera look still works).
+			? { disableWalk: true, disableJog: true, disableRun: true, disableJump: true, disableDoubleJump: true }
+			: { disableRun: false, disableJump: stage >= 2 }),
 	})
 	if (stage === 0) {
 		if (AvatarLocomotionSettings.has(engine.PlayerEntity)) {
@@ -80,6 +81,19 @@ function applyStageProfile(stage: 0 | 1 | 2 | 3): void {
 		jogSpeed : walk,
 		runSpeed : walk,
 	})
+}
+
+
+// MARK: reapplyLocomotionProfile
+/**
+ * Re-write the InputModifier for the current stage (after movementLock changes). Never touches a stricter modifier owned
+ * by something else (frost death, cinematic, ember fail all use disableAll).
+ */
+export function reapplyLocomotionProfile(): void {
+	if (!installed || isFrostDying()) return
+	const cur = InputModifier.getOrNull(engine.PlayerEntity)
+	if (cur && cur.mode?.$case === 'standard' && cur.mode.standard.disableAll) return
+	applyStageProfile(currentStage)
 }
 
 

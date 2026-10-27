@@ -45,6 +45,7 @@ import { playSurgeSfxAt } from 'src/client/audio'
 import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { createFlameRig, FlameRig } from 'src/client/flameBillboards'
+import { flameLightSeed } from 'src/shared/flameVariant'
 import {
 	hearthLightParams, LitFirePos, nearestLitFireIndex, syncPointLight,
 } from 'src/client/fireLight'
@@ -319,7 +320,7 @@ function applyLitVisuals(index: number): void {
 	// Same orange card rig as the main hearth. Parenting keeps it on
 	// the pit; dispose() tears cards + spots when the fire snuffs.
 	if (flameRig[index] === null) {
-		const flame = createFlameRig(pit)
+		const flame = createFlameRig(pit, { seedPos: { x: worldX[index], z: worldZ[index] } })
 		flameRig[index] = flame
 		flame.setScale(hearthFlameScaleFromFuel(fuel))
 	}
@@ -331,7 +332,7 @@ function applyLitVisuals(index: number): void {
 			position: Vector3.create(0, HEARTH_LIGHT_Y, 0),
 			parent  : pit,
 		})
-		syncPointLight(light, hearthLightParams(fuel))
+		syncPointLight(light, hearthLightParams(fuel), flameLightSeed(worldX[index], worldZ[index]))
 	}
 
 	// Match src/client/campfire.ts's proven `create` (not `createOrReplace`)
@@ -612,6 +613,34 @@ export function getPlacedFirePositions(): { x: number; z: number }[] {
 }
 
 
+// MARK: getRecycleNext
+/** Built slot the server would recycle at the cap (oldest unlit), or -1. */
+let recycleNext = -1
+export function getRecycleNextIndex(): number {
+	return recycleNext >= 0 && slots.isPlaced(recycleNext) && !litLocal[recycleNext] ? recycleNext : -1
+}
+/** Position of that slot (spacing exemption), or null. */
+export function getRecycleNextPos(): { x: number; z: number } | null {
+	const i = getRecycleNextIndex()
+	return i < 0 ? null : { x: slots.x[i], z: slots.z[i] }
+}
+
+/** Recycled pits sinking out at their old spot (cheap fade). */
+const sinking: { e: Entity; t: number; y0: number }[] = []
+const SINK_S = 1.2
+const SINK_M = 0.6
+function sinkSystem(dt: number): void {
+	for (let k = sinking.length - 1; k >= 0; k--) {
+		const s = sinking[k]
+		s.t += dt
+		const u = Math.min(1, s.t / SINK_S)
+		const tr = Transform.getMutableOrNull(s.e)
+		if (tr) tr.position = Vector3.create(tr.position.x, s.y0 - SINK_M * u * u, tr.position.z)
+		if (u >= 1) { engine.removeEntity(s.e); sinking.splice(k, 1) }
+	}
+}
+
+
 // MARK: getPlacedFireCount
 /** How many slots hold a pit this cycle (all built, in Build Your Own Fire). */
 export function getPlacedFireCount(): number {
@@ -651,6 +680,7 @@ function handleCycleSeedChange(newSeed: number): void {
 		return
 	}
 	currentSeed = newSeed
+	recycleNext = -1
 	const positions = getHiddenCampfireWorldPositionsForSeed(newSeed)
 	console.log(
 		`hiddenCampfire: cycle roll old=${oldSeed} → new=${newSeed} — ` +
@@ -816,6 +846,13 @@ export function setupHiddenCampfire(): void {
 		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
 		if (firePitEntity[index] !== null && worldX[index] === x && worldZ[index] === z) return
 		if (litLocal[index]) applyUnlitVisuals(index)
+		// Recycled (cap reached): the old dead pit sinks away at its old spot.
+		const oldPit = firePitEntity[index]
+		if (oldPit !== null && slots.isPlaced(index)) {
+			firePitEntity[index] = null
+			if (AudioSource.has(oldPit)) AudioSource.deleteFrom(oldPit)
+			sinking.push({ e: oldPit, t: 0, y0: Transform.getOrNull(oldPit)?.position.y ?? worldY[index] })
+		}
 		worldX[index] = x
 		worldY[index] = groundedPitY(x, z, activeGroundYAt(x, z))
 		worldZ[index] = z
@@ -831,6 +868,13 @@ export function setupHiddenCampfire(): void {
 	// pits that are still supposed to be lit in the new cycle (none,
 	// on a real roll).
 	onCycleSeedChange(({ newSeed }) => handleCycleSeedChange(newSeed))
+
+	// Build Your Own Fire: which dead built fire the next capped build recycles.
+	room.onMessage('builtFireRecycleNext', ({ seed, index }) => {
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		recycleNext = index
+	})
+	engine.addSystem(sinkSystem)
 
 	// Keep every pit on the terrain that is actually drawn (see
 	// reseatPitsOnTerrain).
@@ -869,7 +913,7 @@ export function setupHiddenCampfire(): void {
 				// Roster index 0 is the main hearth; hidden slot i is i+1.
 				// Closest fire: spots only. Other lit fires: one radial.
 				const radial = litLocal[i] && fuel > 0 && nearest !== i + 1
-				syncPointLight(light, hearthLightParams(radial ? fuel : 0))
+				syncPointLight(light, hearthLightParams(radial ? fuel : 0), flameLightSeed(worldX[i], worldZ[i]))
 			}
 			if (flame === null) {
 				if (lastFlameTier[i] !== -1) lastFlameTier[i] = -1

@@ -213,6 +213,17 @@ movePlayerTo({
 // Teleport to coordinates in Genesis City
 teleportTo({ worldCoordinates: { x: 50, y: 70 } });
 
+// Teleport into another realm / World. `realm` takes a World name
+// (`foo.dcl.eth`) or a realm URL; the client does a FULL RECONNECT to
+// that realm, then lands on the parcel. Requires @dcl/sdk 7.28.0+.
+// The player is asked to confirm first ("Are you sure you want to enter
+// this World?"); the switch only happens if they accept.
+teleportTo({ realm: "foo.dcl.eth", worldCoordinates: { x: 0, y: 0 } });
+
+// Omit worldCoordinates to land on that realm's default spawn.
+// This replaces changeRealm.
+teleportTo({ realm: "foo.dcl.eth" });
+
 // Play a built-in emote
 triggerEmote({ predefinedEmote: "wave" });
 
@@ -227,11 +238,27 @@ openNftDialog({
 // Copy text to clipboard
 copyToClipboard({ text: "Hello from Decentraland!" });
 
-// Change realm. `message` is OPTIONAL: omit it to switch with no prompt,
-// include it to show the player a confirmation dialog first.
-changeRealm({ realm: "https://peer.decentraland.org" }); // no prompt
-changeRealm({ realm: "other-realm.dcl.eth", message: "Join this realm?" });
+// [DEPRECATED] changeRealm — use teleportTo({ realm }) instead.
+// The player always gets a confirmation dialog. `message` is OPTIONAL:
+// omit it to show the default text, include it to show custom text.
+changeRealm({ realm: "https://peer.decentraland.org" }); // default prompt text
+changeRealm({ realm: "other-realm.dcl.eth", message: "Join this realm?" }); // custom prompt text
 ```
+
+#### `changeRealm` is `[DEPRECATED]` — prefer `teleportTo({ realm })`
+
+Protocol `e89d7fa`, SDK pin `6b7c3586`; the `realm` field is typed in `@dcl/js-runtime` **7.28.0**.
+
+- `TeleportToRequest` is now `{ worldCoordinates?: Vector2, realm?: string }` — **both optional**.
+- `realm` accepts a World name (`foo.dcl.eth`) or a realm URL. When set, the client first shows the player a confirmation prompt with the default text ("Are you sure you want to enter this World?"). If the player accepts, the client performs a full reconnect to that realm (even if it is the realm the player is already in), then lands on the parcel.
+- Omit `worldCoordinates` with a `realm` set to land on that realm's default spawn — exactly what `changeRealm` did.
+- Omit `realm` to teleport within the player's current realm (the pre-existing behavior).
+
+**Why it replaces `changeRealm`:** `changeRealm` resolves when the request is *accepted*, not when the new realm is *live*. A `changeRealm(...)` followed by a `teleportTo(coords)` therefore lands on the parcel in the **old** realm. One `teleportTo({ realm, worldCoordinates })` call has no such race.
+
+`changeRealm` still works and is kept for existing scenes. Both `changeRealm` and `teleportTo({ realm })` ask the player to confirm before switching realm; `changeRealm` is the only one that lets the scene set custom prompt text through `message`.
+
+The Unity explorer honors the `realm` field.
 
 ### openExplorerUi -- Open Explorer Panels
 
@@ -243,6 +270,23 @@ import { ExplorerUi } from "@dcl/sdk/ecs";
 
 // Open the map panel
 openExplorerUi({ ui: ExplorerUi.EU_MAP });
+```
+
+The call resolves to `{ openResult }`, an `OpenExplorerUiResult` (also from `~system/RestrictedActions`): `OPENED`, `WAS_ALREADY_OPEN` (the slot that panel uses is already taken; panels sharing a slot exclude each other, so another panel or section may be the one showing), `REJECTED_NOT_CURRENT_SCENE` (the player is not in this scene), `REJECTED_FEATURE_DISABLED` (the client hides or does not support that panel), `REJECTED_NO_USER_GESTURE` (not called from a player interaction), plus the default `UNSPECIFIED`. Call it from an input callback: called at top level it always returns `REJECTED_NO_USER_GESTURE`. Treat only `OPENED` as success: on anything else, show the information another way or tell the player what to open.
+
+```typescript
+import { openExplorerUi, OpenExplorerUiResult } from "~system/RestrictedActions";
+import { ExplorerUi, InputAction, pointerEventsSystem } from "@dcl/sdk/ecs";
+
+pointerEventsSystem.onPointerDown(
+  { entity: placesSign, opts: { button: InputAction.IA_POINTER, hoverText: "Places" } },
+  async () => {
+    const { openResult } = await openExplorerUi({ ui: ExplorerUi.EU_PLACES });
+    if (openResult !== OpenExplorerUiResult.OPENED) {
+      showHint("Open Places from the menu to find more scenes"); // your own UI fallback
+    }
+  },
+);
 ```
 
 `ExplorerUi` enum values (imported from `@dcl/sdk/ecs`): `EU_SETTINGS` (0), `EU_MAP` (1), `EU_BACKPACK` (2), `EU_CAMERA_REEL` (3), `EU_COMMUNITIES` (4), `EU_PLACES` (5), `EU_EVENTS` (6). The enum is shared between `openExplorerUi` and `ExplorerUiEventsResult` -- no casts needed when comparing.
@@ -378,6 +422,7 @@ await exit({});
 
 - `spawn({ ens?, pid? })` → `SpawnResponse { pid, parentCid, name, ens? }`. Field is `ens`/`pid`, **not `urn`**.
 - `kill({ pid })` returns `{ status: boolean }`; `kill({ pid })` and `getPortableExperiencesLoaded({})` both key off `pid`, never `urn`.
+- To build a portable experience that runs while a wearable is equipped, see the **smart-wearables** skill.
 - The **host scene** must enable them in `scene.json`: `"featureToggles": { "portableExperiences": "enabled" }`. Values: `"enabled"` | `"disabled"` | `"hideUi"` (spawns PX but hides their UI). With `"disabled"`, `spawn()` is a no-op / rejected.
 
 ## Testing Framework

@@ -47,6 +47,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
+import { noteContributor } from 'src/server/leaderboard'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
@@ -54,17 +55,19 @@ import { meltDisc, releaseDiscOutside, seedFireDimple } from 'src/server/snowSta
 import { isFireLinked, registerFireFuel, tryShareFeed } from 'src/server/fireNetworkLinks'
 import { NETWORK_BURN_MUL } from 'src/shared/fireNetwork'
 import {
-	BUILT_FIRE_COST_KIND,
+	buildStartFuelFor,
 	BUILT_FIRE_MAX,
 	BUILT_FIRE_PERMANENT,
 	BUILT_FIRE_START_FUEL,
 	isBuildYourOwnFire,
+	builtFireFrontSpot,
 	validateBuiltFireSpot,
 } from 'src/shared/ruleset'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { activeTerrain, getTerrain } from 'src/shared/terrain/terrainCache'
 import { getStageAtWorld } from 'src/server/snowState'
 import { CHARGE_FIRE_DRAIN_MUL } from 'src/shared/ruleset'
+import { pickRecycleSlot } from 'src/shared/fireSlots'
 import { chargeTargetsOf, clearSlotTouches, isSlotCharging, noteSlotTouched } from 'src/server/chargeLinks'
 
 
@@ -91,6 +94,17 @@ const lastBroadcastTier : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
 const heartbeatClock    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 /** Build Your Own Fire: slot holds a player-built fire this cycle. */
 const built             : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+/** Built fires: Date.now() when it went out (0 = burning / never). */
+const extinguishedAt    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/** Last recycle candidate broadcast (-2 = never sent). */
+let lastRecycleSent = -2
+function recycleCandidate(): number { return pickRecycleSlot(built, lit, extinguishedAt) }
+function broadcastRecycle(userId?: string): void {
+	const index = recycleCandidate()
+	if (!userId && index === lastRecycleSent) return
+	if (!userId) lastRecycleSent = index
+	room.send('builtFireRecycleNext', { seed: currentSeed, index }, userId ? { to: [userId] } : undefined)
+}
 /** Server cap; never more than the slot arrays hold. */
 const BUILT_CAP = Math.min(BUILT_FIRE_MAX, HIDDEN_CAMPFIRE_COUNT)
 
@@ -177,7 +191,9 @@ function resetForCycle(newSeed: number): void {
 		lastBroadcastTier[i]  = -1
 		heartbeatClock[i]     = 0
 		built[i]              = false
+		extinguishedAt[i]     = 0
 	}
+	lastRecycleSent = -2
 	clearSlotTouches()
 	recomputePositions()
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
@@ -248,11 +264,13 @@ function snuffFire(index: number): void {
 	fuel[index]               = 0
 	secondsSinceIgnite[index] = 0
 	lit[index]                = false
+	if (built[index]) extinguishedAt[index] = Date.now()
 	broadcastFuel(index)
 	// previousRadiusM = max possible so any cell this fire ever
 	// painted is swept; cells owned by other fires are left alone.
 	releaseDiscOutside(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
+	broadcastRecycle()
 }
 
 
@@ -308,6 +326,7 @@ export function sendHiddenCampfireStateTo(userId: string): void {
 			{ to: [userId] },
 		)
 	}
+	broadcastRecycle(userId)
 }
 
 
@@ -353,6 +372,7 @@ export function setupHiddenCampfireServer(): void {
 			return
 		}
 		lit[index]                = true
+		extinguishedAt[index]     = 0
 		secondsSinceIgnite[index] = 0
 		fuel[index]               = FUEL_HIDDEN_INITIAL
 		console.log(
@@ -360,6 +380,7 @@ export function setupHiddenCampfireServer(): void {
 			`(seed=${currentSeed}, fuel=${FUEL_HIDDEN_INITIAL}s tier ${hearthTierFromFuel(FUEL_HIDDEN_INITIAL)})`
 		)
 		if (fireRelitHandler) fireRelitHandler()
+		broadcastRecycle()
 		// Fuel BEFORE lit-state so clients spawn flame cards at Ember
 		// scale instead of scale 0 (lit packet used to win the race and
 		// leave a blank pit for a beat). Melt ring still grows in on the
@@ -461,6 +482,7 @@ export function setupHiddenCampfireServer(): void {
 		if (mons.length) room.send('fireNetworkShare', { from: target + 1, ids: mons })
 		const share = tryShareFeed(target + 1, add, from)
 		if (share === 'shared') {
+			noteContributor(from, target + 1) // fed a fire (shared with the network)
 			if (context?.from) room.send('feedFireFx', { userId: context.from, target, kind: clampWoodKind(kind) })
 			return
 		}
@@ -475,6 +497,7 @@ export function setupHiddenCampfireServer(): void {
 			return
 		}
 		noteSlotTouched(target, from)
+		noteContributor(from, target + 1) // fed a fire
 		const prevTier = hearthTierFromFuel(prev)
 		fuel[target]   = prev + add
 		const newTier  = hearthTierFromFuel(fuel[target])
@@ -520,52 +543,66 @@ export function setupHiddenCampfireServer(): void {
 function setupBuiltFireHandler(): void {
 	// Shared tail: validate (x, z), take a slot, light it. Returns a
 	// verdict string ('ok' on success).
-	const tryBuildAt = (x: number, z: number, from: string): string => {
+	const tryBuildAt = (x: number, z: number, from: string, startFuel: number = BUILT_FIRE_START_FUEL): string => {
 		if (isEmberFailing()) return 'ember'
 		if (!Number.isFinite(x) || !Number.isFinite(z)) return 'bounds'
 		const count = builtFireCount()
-		if (count >= BUILT_CAP) return 'cap'
+		let free = -1
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (!built[i] && !lit[i] && worldX[i] === 0 && worldZ[i] === 0) { free = i; break }
+		}
+		// Full: recycle the built fire extinguished the longest (never a burning one).
+		const recycle = (count >= BUILT_CAP || free < 0) ? recycleCandidate() : -1
+		if ((count >= BUILT_CAP || free < 0) && recycle < 0) return 'cap'
 		const map = activeTerrain() ?? getTerrain(cycleMazeSeed(currentSeed))
 		const fires: { x: number; z: number }[] = []
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (i === recycle) continue // the recycled fire never blocks spacing
 			if (worldX[i] === 0 && worldZ[i] === 0) continue
 			fires.push({ x: worldX[i], z: worldZ[i] })
 		}
-		const verdict = validateBuiltFireSpot(map, x, z, fires, getStageAtWorld, count)
+		const verdict = validateBuiltFireSpot(map, x, z, fires, getStageAtWorld, recycle >= 0 ? count - 1 : count)
 		if (verdict !== 'ok') return verdict
-		let slot = -1
-		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-			if (!built[i] && !lit[i] && worldX[i] === 0 && worldZ[i] === 0) { slot = i; break }
+		const slot = recycle >= 0 ? recycle : free
+		if (recycle >= 0) {
+			console.log(`[Server] builtFire[${slot}]: recycled (out ${((Date.now() - extinguishedAt[slot]) / 1000).toFixed(0)}s) at (${worldX[slot].toFixed(1)}, ${worldZ[slot].toFixed(1)})`)
+			releaseDiscOutside(worldX[slot], worldZ[slot], 0, hearthRadiusFromFuel(FUEL_MAX))
+			lastBroadcastFuel[slot] = -999
+			lastBroadcastTier[slot] = -1
+			heartbeatClock[slot]    = 0
 		}
-		if (slot < 0) return 'cap'
+		extinguishedAt[slot]     = 0
 		built[slot]              = true
 		worldX[slot]             = x
 		worldZ[slot]             = z
 		lit[slot]                = true
 		secondsSinceIgnite[slot] = 0
-		fuel[slot]               = BUILT_FIRE_START_FUEL
+		fuel[slot]               = startFuel // wood type sets only the starting size
 		noteSlotTouched(slot, from)
+		noteContributor(from, slot + 1, true) // built a fire
 		console.log(
 			`[Server] builtFire[${slot}]: built by ${from} at (${x.toFixed(1)}, ${z.toFixed(1)}) ` +
-			`fuel=${BUILT_FIRE_START_FUEL}s (${count + 1}/${BUILT_CAP} built)`,
+			`fuel=${startFuel}s (${count + 1}/${BUILT_CAP} built)`,
 		)
 		if (fireRelitHandler) fireRelitHandler()
 		room.send('builtFirePlaced', { seed: currentSeed, index: slot, x, z })
 		broadcastFuel(slot)
 		broadcastOne(slot)
+		broadcastRecycle()
 		return 'ok'
 	}
 
-	// Light the carried log at the player's feet (torch tooltip).
-	room.onMessage('builtFireCarriedRequest', ({ seed, x, z, kind }, context) => {
+	// Light the carried log in front of the player (torch tooltip): spot = player feet + BUILT_FIRE_FRONT_M along their facing.
+	room.onMessage('builtFireCarriedRequest', ({ seed, x, z, yaw, kind }, context) => {
 		const from = context?.from ?? 'unknown'
 		const reject = (reason: string) => {
 			console.log(`[Server] builtFire: carried light from ${from} rejected: ${reason}`)
 			if (context?.from) room.send('builtFireRejected', { kind: clampWoodKind(kind), reason, carried: 1 }, { to: [context.from] })
 		}
 		if (!cycleSeedsEqual(seed, currentSeed)) { reject('stale'); return }
-		if (clampWoodKind(kind) !== BUILT_FIRE_COST_KIND) { reject('stick'); return }
-		const v = tryBuildAt(x, z, from)
+		if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(yaw)) { reject('bounds'); return }
+		const spot = builtFireFrontSpot(x, z, yaw)
+		const v = tryBuildAt(spot.x, spot.z, from, buildStartFuelFor(clampWoodKind(kind)))
 		if (v !== 'ok') reject(v)
 	})
 }

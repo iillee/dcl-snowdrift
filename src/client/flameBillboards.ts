@@ -26,6 +26,8 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
+import { FLAME_NEUTRAL, FlameVariant, flameVariantFor } from 'src/shared/flameVariant'
+
 
 /** Local Y of every planted card root, inside the log pile. */
 const BED_Y = 0.08
@@ -160,11 +162,19 @@ interface Rig {
 	core    : Entity
 	scale   : number
 	alive   : boolean
+	/** Per-fire variety (neutral when the rig has no seed position). */
+	variant : FlameVariant
 }
 
 export interface FlameRigOptions {
 	/** Hearth flicker spots. Off for tiny handheld flames. Default true. */
 	spots?: boolean
+	/**
+	 * World x/z of the fire. Seeds a stable per-fire variant (size, speed, start offset, card phases / periods / heights,
+	 * heat) so fires standing close together do not look like clones; same position = same look on every client and
+	 * after a rebuild. Omitted = identical neutral flame.
+	 */
+	seedPos?: { x: number; z: number }
 }
 
 export interface FlameRig {
@@ -279,6 +289,37 @@ function variantForCrossArm(
 }
 
 
+// MARK: varyTongue
+/**
+ * Bake a fire's variant into one tongue spec (card index 0..11, arm 0 then arm 90). Phase, period, height, lean yaw,
+ * x/z and heat all shift a little, so the same card of two fires never moves or looks alike. Pure; runs once at build.
+ */
+function varyTongue(spec: TongueSpec, index: number, v: FlameVariant): TongueSpec {
+	return {
+		...spec,
+		height: spec.height * v.tongueHeight[index],
+		period: spec.period * v.tonguePeriod[index],
+		phase : (spec.phase + v.tonguePhase[index]) % 1,
+		yaw   : spec.yaw + v.tongueYaw[index],
+		x     : spec.x + v.tongueDx[index],
+		z     : spec.z + v.tongueDz[index],
+		heat  : spec.heat + v.heatShift,
+	}
+}
+
+
+// MARK: varyEmber
+function varyEmber(spec: EmberSpec, index: number, v: FlameVariant): EmberSpec {
+	return {
+		...spec,
+		period: spec.period * v.emberPeriod[index],
+		phase : (spec.phase + v.emberPhase[index]) % 1,
+		riseY : spec.riseY * v.emberRise[index],
+		heat  : spec.heat + v.heatShift,
+	}
+}
+
+
 // MARK: wave
 /** 0..1 cosine. Slow at the peaks. */
 function wave(
@@ -358,13 +399,14 @@ function countLit(scale: number): number {
 function writeClusterScale(
 	facing: Entity,
 	scale : number,
+	size  : number,
 ): void {
 	if (scale <= 0.01) {
 		Transform.getMutable(facing).scale = Vector3.create(0.001, 0.001, 0.001)
 		return
 	}
-	const sy = scale
-	const sx = scale <= 1 ? scale : Math.pow(scale, 0.70)
+	const sy = scale * size
+	const sx = (scale <= 1 ? scale : Math.pow(scale, 0.70)) * size
 	Transform.getMutable(facing).scale = Vector3.create(sx, sy, sx)
 }
 
@@ -378,14 +420,16 @@ function writeCoreScale(
 	core : Entity,
 	scale: number,
 	time : number,
+	size : number,
+	phase: number,
 ): void {
 	const tr = Transform.getMutable(core)
 	if (scale <= 0.01) {
 		tr.scale = Vector3.create(0.001, 0.001, 0.001)
 		return
 	}
-	const mul   = scale <= 1 ? scale : Math.pow(scale, 0.70)
-	const pulse = 1 + CORE_PULSE_AMT * (wave(time, CORE_PULSE_PERIOD, 0) * 2 - 1)
+	const mul   = (scale <= 1 ? scale : Math.pow(scale, 0.70)) * size
+	const pulse = 1 + CORE_PULSE_AMT * (wave(time, CORE_PULSE_PERIOD, phase) * 2 - 1)
 	const s     = CORE_SIZE_AT_WARM * mul * pulse
 	tr.scale = Vector3.create(s, s, s)
 }
@@ -633,6 +677,13 @@ function tickSpot(
 }
 
 
+// MARK: rigTime
+/** This fire's own animation clock: scaled by its speed and shifted by its start offset. */
+function rigTime(rig: Rig): number {
+	return timeSec * rig.variant.speed + rig.variant.timeOffset
+}
+
+
 // MARK: ensureSystem
 
 function ensureSystem(): void {
@@ -643,12 +694,13 @@ function ensureSystem(): void {
 		for (let i = 0; i < rigs.length; i++) {
 			const rig = rigs[i]
 			if (!rig.alive) continue
-			writeCoreScale(rig.core, rig.scale, timeSec)
+			const rt = rigTime(rig)
+			writeCoreScale(rig.core, rig.scale, rt, rig.variant.size, rig.variant.corePhase)
 			for (let t = 0; t < rig.tongues.length; t++) {
-				placeTongue(rig.tongues[t], timeSec, rig.scale)
+				placeTongue(rig.tongues[t], rt, rig.scale)
 			}
 			for (let e = 0; e < rig.embers.length; e++) {
-				placeEmber(rig.embers[e], timeSec, rig.scale)
+				placeEmber(rig.embers[e], rt, rig.scale)
 			}
 			for (let s = 0; s < rig.spots.length; s++) {
 				tickSpot(rig.spots[s], dt)
@@ -675,6 +727,7 @@ export function createFlameRig(
 	options: FlameRigOptions = {},
 ): FlameRig {
 	const withSpots = options.spots !== false
+	const variant   = options.seedPos ? flameVariantFor(options.seedPos.x, options.seedPos.z) : FLAME_NEUTRAL
 
 	const visual = engine.addEntity()
 	Transform.create(visual, {
@@ -712,21 +765,21 @@ export function createFlameRig(
 	const arm90 = engine.addEntity()
 	Transform.create(arm90, {
 		parent  : facing,
-		rotation: Quaternion.fromEulerDegrees(0, 90, 0),
+		rotation: Quaternion.fromEulerDegrees(0, variant.armYawDeg, 0),
 	})
 	const arms = [arm0, arm90]
 
 	const tongues: Tongue[] = []
 	for (let i = 0; i < TONGUES.length; i++) {
-		tongues.push(spawnTongue(arm0, TONGUES[i]))
+		tongues.push(spawnTongue(arm0, varyTongue(TONGUES[i], i, variant)))
 	}
 	for (let i = 0; i < TONGUES.length; i++) {
-		tongues.push(spawnTongue(arm90, variantForCrossArm(TONGUES[i], i)))
+		tongues.push(spawnTongue(arm90, varyTongue(variantForCrossArm(TONGUES[i], i), TONGUES.length + i, variant)))
 	}
 
 	const embers: Ember[] = []
 	for (let i = 0; i < EMBERS.length; i++) {
-		embers.push(spawnEmber(facing, EMBERS[i]))
+		embers.push(spawnEmber(facing, varyEmber(EMBERS[i], i, variant)))
 	}
 
 	const spots: Spot[] = []
@@ -747,6 +800,7 @@ export function createFlameRig(
 		core,
 		scale: 0,
 		alive: true,
+		variant,
 	}
 	rigs.push(rig)
 	ensureSystem()
@@ -761,13 +815,14 @@ export function createFlameRig(
 			const next = scale > 0 ? scale : 0
 			if (next === rig.scale) return
 			rig.scale = next
-			writeClusterScale(rig.facing, next)
-			writeCoreScale(rig.core, next, timeSec)
+			const rt = rigTime(rig)
+			writeClusterScale(rig.facing, next, rig.variant.size)
+			writeCoreScale(rig.core, next, rt, rig.variant.size, rig.variant.corePhase)
 			for (let i = 0; i < rig.tongues.length; i++) {
-				placeTongue(rig.tongues[i], timeSec, next)
+				placeTongue(rig.tongues[i], rt, next)
 			}
 			for (let i = 0; i < rig.embers.length; i++) {
-				placeEmber(rig.embers[i], timeSec, next)
+				placeEmber(rig.embers[i], rt, next)
 			}
 			// Spot LightSource active/shadow is owned by applySpotBudget
 			// each frame so nearby fires share Explorer's light cap.

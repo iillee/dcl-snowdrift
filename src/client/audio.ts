@@ -36,6 +36,10 @@ const PICKUP_SRC  = 'assets/sounds/pop.mp3'
 const DROP_SRC    = 'assets/sounds/droplogs.mp3'
 const MONUMENT_SRC = 'assets/sounds/monument.mp3'
 const BEAM_SRC     = 'assets/sounds/beam.wav'
+// First 1.0 s of release.wav + 70 ms fade-out (scripts/trim-release-burst.js).
+const RELEASE_BURST_SRC = 'assets/sounds/release_burst.wav'
+// First 1.5 s of charge.wav + 70 ms fade-out (scripts/trim-release-burst.js charge.wav charge_start.wav 1.5).
+const CHARGE_START_SRC = 'assets/sounds/charge_start.wav'
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -54,6 +58,8 @@ let dropSfxEnt: Entity = 0 as Entity
 let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
 let monumentSfxEnt: Entity = 0 as Entity
+let releaseBurstSfxEnt: Entity = 0 as Entity
+let chargeStartSfxEnt: Entity = 0 as Entity
 let beamSfxEnt:     Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
@@ -155,6 +161,8 @@ export function initAudio(): void {
 	surgeSfxEnt   = makeCameraSfx(SURGE_SRC, 0.7)
 	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
 	beamSfxEnt     = makeCameraSfx(BEAM_SRC, 0.8)
+	releaseBurstSfxEnt = makeCameraSfx(RELEASE_BURST_SRC, 0.9)
+	chargeStartSfxEnt  = makeCameraSfx(CHARGE_START_SRC, 1.0)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
 	frostSfxEnt   = makeCameraSfx(FROST_SRC, FROST_SFX_VOLUME)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
@@ -208,13 +216,13 @@ export function initAudio(): void {
 
 	// Desktop hotkey: `2` (IA_ACTION_4) toggles mute/unmute so keyboard
 	// players get the same one-press affordance the mobile touch layout
-	// already gets via its ACTION_5 slot. Skip on mobile — the on-screen
+	// already gets via its ACTION_4 slot. Skip on mobile — the on-screen
 	// mute button in touchControls already dispatches toggleMusic() and
 	// the native gamepad triggers the same InputAction, which would
 	// cause a double-toggle here.
 	if (!isMobile()) {
 		engine.addSystem(() => {
-			if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+			if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) { // 2: mute
 				toggleMusic()
 			}
 		})
@@ -483,6 +491,27 @@ export function playMonumentSfxAt(position: Vector3): void {
 	engine.addSystem(cleanup)
 }
 
+
+// MARK: playChargeStartSfxAt
+/**
+ * Monument charge cue (first 1.5 s of charge.wav) when the sky beam lands in
+ * the crystal's top tip. GLOBAL (camera-attached, non-positional) on every client, so it stays loud from the cinematic's far
+ * virtual camera; the position arg is kept for call-site symmetry. charge_start.wav is normalised to -1 dBFS. Not silenced by the mute toggle (music only).
+ */
+export function playChargeStartSfxAt(_position: Vector3): void {
+	// Global (camera-attached, non-positional): audible at full level from the cinematic's far camera.
+	playOneShot(chargeStartSfxEnt, CHARGE_START_SRC, 1.0)
+}
+
+// MARK: playReleaseBurstSfxAt
+/**
+ * Charge-sphere burst cue (first second of release.wav) at the monument,
+ * GLOBAL (camera-attached, non-positional) on every client, so it is not attenuated by the far cinematic camera. Like the other
+ * SFX helpers it is not silenced by the mute toggle (mute only pauses the music loop).
+ */
+export function playReleaseBurstSfxAt(_position: Vector3): void {
+	playOneShot(releaseBurstSfxEnt, RELEASE_BURST_SRC, 1.0)
+}
 
 // MARK: playSurgeSfxAt
 /**

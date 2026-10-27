@@ -29,6 +29,10 @@ export const PaintTile = engine.defineComponent('paint::tile', {
 	// Bumped on a joiner resync. Same cell bytes would not republish,
 	// so a late client kept the empty snapshot and the hearth stayed buried.
 	stamp:   Schemas.Int,
+	// Server session id that wrote this tile. The room can keep tile
+	// entities from a previous server run; the client ignores any tile
+	// whose session differs from the live one so old melt never shows.
+	session: Schemas.Int,
 })
 
 // MARK: PaintCoverage

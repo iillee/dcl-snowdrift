@@ -17,14 +17,16 @@ Decentraland is a **continuous, shared 3D world**. Design around these constrain
 
 ## 2. Scene Limitation Formulas
 
-Most limits scale with parcel count `n` (triangles, entities, bodies linear; materials, textures, height logarithmic). Key rule of thumb: **10,000 triangles and 200 entities per parcel**.
+Most limits scale with parcel count `n` (triangles, entities, bodies linear; materials, textures logarithmic). Height is a flat 330 m for every scene; content above ~200 m may suffer multiplayer sync issues. Key rule of thumb: **10,000 triangles and 200 entities per parcel**.
 
 For the full limits table across all parcel counts, see the **optimize-scene** skill.
+
+**Mobile adds a second, flat budget that does not scale with parcels** — and two of its rows constrain *design*, not just optimization: **8 light sources** (2 shadow-casting) and **8 VFX emitters** per scene, soft. Worse, each mobile graphics profile only lights the **nearest** few sources — **zero on Very Low** — so a design whose readability depends on a specific lamp, spotlight or particle effect being visible fails on low-end phones. Budget lighting and VFX as *accents* over a baseline that reads with no dynamic lights at all. Full table and the runtime-clamp rules: **optimize-scene** → *Mobile Scene Limits*.
 
 ## 3. Texture Requirements
 
 - **Dimensions must be power-of-two**: 256, 512, 1024, 2048
-- **Recommended sizes**: 1024x1024 for scene objects, 512x512 for wearables
+- **Recommended sizes**: 1024x1024 for scene objects; wearables allow up to **1024x1024** (max 2 textures per wearable, square, 72 ppi; skins are the exception with 5 textures and 5k tris)
 - **Use texture atlases** to combine multiple small textures into one, reducing draw calls and material count
 - Prefer compressed formats (WebP) over raw PNG where possible
 - Share texture references across materials — do not duplicate texture files
@@ -177,10 +179,42 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 - Use primitive shapes (boxes, spheres) as placeholders — do not wait for final art
 - Get the core loop working before adding any secondary features
 
-### Test Early
-- Deploy to a test world and walk through it yourself
-- Invite 2-3 real players and watch them (do not explain the game — see if it is self-explanatory)
-- Measure: Do players understand what to do within 30 seconds?
+### Test Early — and match the playtest to the stage
+
+- Deploy to a **test World** (never your live LAND or main World) and walk through it yourself.
+- Invite 2-3 real players and watch them. **Do not explain the game** — if you have to explain something, that is the design feedback.
+- Measure: do players understand what to do within 30 seconds?
+
+**The question to ask depends on how finished the game is.** Asking "did you have fun?" about a vertical slice tells you nothing (there is not enough game yet for the answer to mean anything); asking "did you understand what to do?" about a V2 wastes a session on something you already know.
+
+| Stage | What to learn | Who to invite |
+| --- | --- | --- |
+| **V0** vertical slice | Is the core mechanic understandable and usable? Can players form a strategy around it? | A few players who already know Decentraland, so the client does not get in the way |
+| **V1** first full loop | Can players progress unaided? Where do they get stuck or lose interest? | A mix of Decentraland players and people new to your game |
+| **V2+** | How does the game make players *feel*? Do they come back? Would they recommend it? | New players, including people from outside Decentraland |
+
+### Iterate with RITE (test → fix → test)
+
+Rapid Iterative Testing and Evaluation: 3-5 players per round, fix the clearest problem between rounds, run the next round with new players. Beats one big playtest with a long issue list. DCL-specific habits:
+
+- **Fix between rounds, never during one.** Redeploying mid-session breaks players' games and destroys the attribution — you no longer know which build a comment refers to.
+- **Keep the same questions across rounds**, or the ratings are not comparable. Add questions; do not reword the ones you track.
+- **"Clear" means**: you saw it happen, you can say what the player expected instead, and you know what to change. One player, cause unknown → carry it to the next round.
+- **Log every round**: build, who played, what you saw, what you changed.
+- **Finding testers**: the `#playtesters` channel on the Decentraland Discord; an event on [Decentraland Events](https://decentraland.org/events/) for a live session; or people from outside Decentraland when the thing under test is the first-time experience. A small thank-you (a wearable or emote you own can be gifted in-client by right-clicking the player) raises turnout — say plainly that you want criticism, not praise.
+- **Close the loop**: post a "you said / we learned / we changed" update to the same thread. Testers who see their feedback land come back for the next round.
+
+### Collect feedback in-scene with the Scene Feedback module
+
+`sdk7-test-scenes/scenes/0,-1-scene-feedback` is a drop-in questionnaire module: labelled 1-5 ratings with an optional comment, or text-only answers, asked at moments you pick during gameplay; responses land as CSV in the scene's Storage, downloadable from Creator Hub (**Manage → World ⋮ → View Storage**). It ships a 20-question bank grouped by `coreMechanic` / `coreLoop` / `social` / `motivation` / `world` / `technical`, 14 rating scales, a 113-question bank for inspiration, and an agent installation prompt in its README.
+
+- It **requires an authoritative Multiplayer Server** (`@dcl/sdk@auth-server`, `"authoritativeMultiplayer": true`, `USE_FETCH` in `requiredPermissions`) — see [[authoritative-server]] for setup and for the CSV-in-Storage append pattern it uses.
+- Design rule: ask **one or two** questions tied to the playtest goal, at a natural pause (after a round, after a purchase) — not mid-action. Questions wait for a clear screen and are shown once per trigger per visit.
+- The API is a namespace (`import { feedback } from './scene-feedback'`): `feedback.intro()` for consent before the first `feedback.ask()`, `feedback.ask()` for game-triggered questions, and `feedback.leaveFeedback()` for a player-opened form behind a button, kiosk, or trigger area.
+- Repo: https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/0,-1-scene-feedback
+
+For feedback players can submit while you are away, offer **scene-feedback** after the
+first local tests. Add questions when the creator chooses to collect feedback.
 
 ### Iterate on Fun
 - Polish comes last. If the core loop is not fun with placeholder art, better art will not fix it
@@ -197,7 +231,14 @@ Ask: **What does the player DO?** The answer should be a single sentence:
 - [ ] **Multiplayer compatible**: Works correctly with 1 player and with 5+ simultaneous players.
 - [ ] **Within scene limits**: Triangle count, entity count, texture count, and file size all within budget for the target parcel count.
 - [ ] **Performance acceptable**: Maintains 30+ FPS during gameplay with target entity/triangle counts.
-- [ ] **Mobile compatible**: Core interactions work without a keyboard (pointer-only inputs). Use `TouchScreenControls` (see **advanced-input**) to customize on-screen buttons and `UiInputBinding` (see **build-ui**) for custom touch-action buttons. Detect platform with `isMobile()` from `@dcl/sdk/platform` to branch UI/controls. Note: `borderRadius` is unsupported on mobile UI; `LightSource` (dynamic lights) ships on mobile v1.13.0 (Sept 2026). Smart Items are not officially supported on mobile.
+- [ ] **Mobile compatible**: Core interactions work without a keyboard (pointer-only inputs). Use `TouchScreenControls` (see **advanced-input**) to customize on-screen buttons and `UiInputBinding` (see **build-ui**) for custom touch-action buttons. Detect platform with `isMobile()` from `@dcl/sdk/platform` to branch UI/controls. Now available: `LightSource`, `ParticleSystem`, avatar masks (v1.13.0); audio parity, `AudioEvent`, `AudioAnalysis`, pinch-to-zoom (v1.14.0); `stopEmote`, `Tween` `MoveRotateScale`, scene-relative positions for other players, a first movement-parity pass (v1.15.0). Full list: **advanced-input** → *Mobile considerations*.
+- [ ] **No mechanic depends on something mobile cannot do** (gaps as of Oct 2026 / mobile v1.15.0 — these constrain *design*, not just polish):
+  - **`TweenSequence` does not animate on mobile.** A moving platform, lift or patrolling obstacle built on one simply does not move — if it is the way across a gap, the scene is unfinishable on a phone. Drive multi-leg motion from a system instead (**animations-tweens**).
+  - **Colliders thinner than 1 cm only collide from above, and invisible blockers may not block at all.** Never fence a play area or a fall hazard with an invisible collider alone (**player-physics**).
+  - **Draco-compressed GLBs fail to load silently** unless the scene has optimized assets — and a mobile preview has none, so the model is invisible with no error (**add-3d-models**).
+  - **`AvatarNametag` is not implemented**, so a role/rank plate above a player carries no information on mobile. Never make it the only carrier.
+  - `UiBackground` nine-slice tiles instead of stretching; Smart Items are not officially supported.
+- [ ] **Within mobile scene limits**: ≤ 8 light sources (2 shadow-casting) and ≤ 8 VFX emitters, and the scene still reads on the Very Low graphics profile where no scene light is active. See **optimize-scene** → *Mobile Scene Limits*.
 
 > **Starting from scratch?** See the **create-scene** skill first to scaffold the project before designing the game.
 
@@ -314,6 +355,7 @@ Text budget as a checklist: intro panel ≤ 5 lines; sign ≤ 10 words; hint ≤
 | Follow/chase a moving target (entities tracking the player) | **animations-tweens** | `Tween.setMoveContinuous` for smooth following; do NOT re-create `setMove` tweens per-frame (causes jitter). See the [`79,-4-tween-following-cube`](https://github.com/decentraland/sdk7-test-scenes/tree/main/scenes/79,-4-tween-following-cube) test scene. |
 | Interactivity, input handling, raycasting | **add-interactivity** | Implementing click handlers, triggers, input |
 | Multiplayer sync, server communication | **multiplayer-sync** | Networked game state, real-time sync |
+| Collecting playtest feedback inside the scene | **authoritative-server** | The Scene Feedback module (`0,-1-scene-feedback`) needs the Multiplayer Server; its answers append to a rolling CSV in scene `Storage`. See that skill's *Append-only logs: rolling CSV parts in Storage* pattern for the rollover, escaping and data-loss rules before reusing the technique for your own event log. |
 | Server-authoritative games, leaderboards, anti-cheat | **authoritative-server** | Competitive scoring, persistent progress, admin-gated host controls. The Gem Rush reference scene (`92,-9`) is a complete competitive game architecture with server-side proximity anti-cheat and checkpoint-only storage. |
 | FPS-style / mouselook camera controls | **camera-control** | Mouselook pattern: `PrimaryPointerInfo.screenDelta` + VirtualCamera + PointerLock + InputModifier. Desktop only. |
 | Spectate / observer / director camera | **camera-control** | Spectate Mode pattern: free or player-following camera, WASD/E/F/1/2 controls, parcel-bounds clamping, player roster. Combine with an admin check (authoritative-server) to restrict who can enter spectate mode. |
@@ -322,10 +364,13 @@ Text budget as a checklist: intro panel ≤ 5 lines; sign ≤ 10 words; hint ≤
 | Mobile touch controls | **advanced-input** | `TouchScreenControls` component for hiding/showing on-screen buttons, setting main action, hiding joystick/crosshair. Platform detection via `getPlatform()` / `isMobile()` from `@dcl/sdk/platform`. |
 | Open Explorer UI panels from scenes | **scene-runtime** | `openExplorerUi()` restricted action to open map, backpack, settings, etc. from a user gesture. Useful for onboarding flows and UX shortcuts. |
 | Deployment timing & post-publish troubleshooting | **deploy-scene** | Asset bundle conversion takes ~15 min (plan 30-60 min). Publish 2+ hours before live events. `/detectabs` checks conversion status in-world. Conversion status URLs for monitoring. |
-| Local asset bundle preview | **optimize-scene** | "Optimize Assets" in Creator Hub or `--local-ab` CLI flag reproduces production asset bundle conversion locally. Catches texture/model issues before publishing. |
+| Local asset bundle preview | **optimize-scene** | "Compress Assets" (Creator Hub Play Options > Desktop Client) or the `--asset-bundles` CLI flag reproduces production asset bundle conversion locally. Catches texture/model issues before publishing. |
 | Pause gameplay when scene is hidden | **scene-runtime** | `EngineInfo.getOrNull(engine.RootEntity)?.sceneHidden` is `true` when a fullscreen Explorer UI (map, backpack, loading screen) covers the scene. Use to pause game loops, audio, and expensive systems so they don't run while the player can't see or interact with the scene. |
 | Entity removal returns boolean | **scene-runtime** | `engine.removeEntity(entity)` now returns `boolean` — `false` for renderer-reserved (avatar) entities, where components are left untouched. Check the return when despawning entities in game loops to avoid silently failing to remove an entity. |
 | World deployment, storage budget | **deploy-worlds** | World storage budget (100 MB per NAME, 100 MB per LAND, 100 MB per 2k MANA; ENS = 36 MB fixed). Plan scene file sizes accordingly. |
 | Performance optimization, entity/triangle budgets | **optimize-scene** | Detailed optimization techniques, local asset bundle preview, gltf reuse-vs-merge benchmark. |
+| Zone-driven gameplay (checkpoints, arenas, ambush rooms, safe zones) | **add-interactivity** | `TriggerArea` + `triggerAreaEventsSystem`. When the scene is open in the Creator Hub, the `utils` catalog has a single prompt-driven **"Trigger Area"** Smart Item — the designer places and resizes an invisible volume and describes the reaction to the AI assistant, so a zone mechanic can be prototyped without writing a detector. Script authors: use its `@event` enter/exit pattern rather than a second `triggerAreaEventsSystem` callback (**script-components**). |
+| Dropping in placeholder art, music or video during blockout | **creator-hub-mcp** | Dragging a file from the editor's **Local Assets** tab onto the viewport spawns the matching catalog Smart Item already pointed at it (image / ambient sound / video screen) — the fastest way to get real media into a greybox before committing to a layout. See **add-3d-models** and **audio-video**. |
+| Handing reference material to the Creator Hub AI assistant | **creator-hub-mcp** | The composer takes up to 8 attachments per prompt (paperclip, drag-drop, or paste). Attach a mood board, a mockup, or a `.glb` instead of describing it — files from disk reach the agent as real absolute paths, with no size cap. |
 
 This skill focuses on the **design decisions and optimization constraints** that shape implementations. For detailed code patterns, see the referenced skills.

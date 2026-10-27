@@ -9,7 +9,6 @@
  *
  * Design (see PLAN.md v2.14 / this session's design chat):
  *   - 1 log         = LOG_FUEL_SECONDS (+120 s; was 90, 2026-10-26)
- *   - 1 branch      = BRANCH_FUEL_SECONDS (+60 s; was 45)
  *   - Hard cap      = FUEL_MAX (600 s -> ~6.7 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
  *                     and can burn to 0. A lit torch sparks it back
@@ -33,16 +32,10 @@
  * ring out to FUEL_MAX_BURST_RADIUS_M.
  */
 
-import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
-
-
 // MARK: Tuning constants
 /** Total seconds one log adds to a fire's fuel tank. */
 export const LOG_FUEL_SECONDS    = 120
-/** Kindling. Half a log so a near-ring trip still matters. */
-export const BRANCH_FUEL_SECONDS = 60
-
-/** Global multiplier on wood fed into any fire (hearth + hidden fires, sticks + logs).
+/** Global multiplier on wood fed into any fire (hearth + hidden fires).
  *  Applied in fuelSecondsForKind, so feeds, the cap check and shared-fuel splits all use it. */
 export const FUEL_TIME_MUL       = 1.0
 
@@ -155,8 +148,8 @@ export const EMBER_MIN_NET_WARMTH_FRAC = 0.125
 
 // MARK: fuelSecondsForKind
 /** Seconds a carried piece adds when fed to a fire. */
-export function fuelSecondsForKind(kind: number): number {
-	return (kind === WOOD_KIND_BRANCH ? BRANCH_FUEL_SECONDS : LOG_FUEL_SECONDS) * FUEL_TIME_MUL
+export function fuelSecondsForKind(_kind: number): number {
+	return LOG_FUEL_SECONDS * FUEL_TIME_MUL
 }
 
 

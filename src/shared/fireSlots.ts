@@ -7,6 +7,24 @@
  * hiddenCampfireState for EVERY slot (used or not) on join, and only a
  * seed spot or builtFirePlaced may mark a slot placed.
  */
+/**
+ * Built-fire recycling: the built fire extinguished the LONGEST
+ * (smallest extinguishedAt > 0, unlit), or -1. Burning fires, the
+ * hearth (not a slot) and non-built pits are never candidates.
+ */
+export function pickRecycleSlot(
+	built: ReadonlyArray<boolean>,
+	lit: ReadonlyArray<boolean>,
+	extinguishedAt: ReadonlyArray<number>,
+): number {
+	let best = -1
+	for (let i = 0; i < built.length; i++) {
+		if (!built[i] || lit[i] || !(extinguishedAt[i] > 0)) continue
+		if (best < 0 || extinguishedAt[i] < extinguishedAt[best]) best = i
+	}
+	return best
+}
+
 export class FireSlotTable {
 	readonly placed: boolean[]
 	readonly x     : number[]

@@ -41,8 +41,6 @@ export interface GroveParams {
 	woodPool          : number
 	/** How many of that pool start active. */
 	woodActive        : number
-	/** Chance a buried piece is a log (rest branches). */
-	logChance         : number
 	/** Future discovery socket. */
 	specialDiscovery  : GroveSpecialDiscovery
 }
@@ -89,7 +87,6 @@ export function groveParamsForDest(
 		woodPool,
 		14 + Math.floor(rng() * 12), // 14..25
 	)
-	const logChance = 0.10 + rng() * 0.16 // 0.10..0.26
 	return {
 		destIndex,
 		treeCount,
@@ -97,7 +94,6 @@ export function groveParamsForDest(
 		minSepM,
 		woodPool,
 		woodActive,
-		logChance,
 		specialDiscovery: 'none',
 	}
 }

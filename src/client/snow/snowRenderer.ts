@@ -79,7 +79,9 @@ import { getTerrain } from 'src/shared/terrain/terrainCache'
 
 import {
 	drainDirtyRoots,
+	drainFrontRoots,
 	getDisplayedStages,
+	isHeatFrontActive,
 	isSnowHydrated,
 } from 'src/client/snow/snowModel'
 
@@ -87,6 +89,10 @@ const CREATE_BUDGET_PER_FRAME = 150
 /** Max urgent (budget-exempt) tile rebuilds per frame, nearest first. */
 const URGENT_MAX_PER_FRAME = 6
 const CREATE_HARD_CAP         = 300
+// While a predicted crystal heat front sweeps (snowModel.isHeatFrontActive): the roots at the
+// front rebuild first and under a bigger budget, so the melt keeps up with the sphere edge.
+const FRONT_CREATE_BUDGET_PER_FRAME = 420
+const FRONT_CREATE_HARD_CAP         = 700
 const SYNC_FALLBACK_MS        = 8000
 const BOX_LIFT_M              = 0.01
 const MELTED_LEAF_HEIGHT_M    = 0.02
@@ -148,10 +154,22 @@ type CoarseRec = {
 const roots             = new Map<number, RootState>()
 const pendingRoots      = new Set<number>()
 const urgentRoots       = new Set<number>()
+/** Roots a predicted heat front touched and not yet rebuilt (front priority). */
+const frontRoots        = new Set<number>()
 const fullPassRemaining = new Set<number>()
 const anims             = new Map<Entity, LeafAnim>()
 const retireQueue: Array<{ entity: Entity; framesLeft: number }> = []
 const coarsePlanes      = new Map<string, CoarseRec>()
+/**
+ * Coarse sheets that are no longer wanted but still stand in (sunk) for
+ * the roots they covered until those roots' fine nodes exist. Retiring a
+ * 128-256 m sheet at once left its tiles bare for many frames while the
+ * per-frame create budget rebuilt them (snow chunks flickering out as a
+ * fast melt front, e.g. the crystal burst, invalidated sheets).
+ */
+const heldCoarse: Array<{ entity: Entity; tiles: number[]; framesLeft: number }> = []
+/** Safety cap on how long a held sheet may stand in (frames). */
+const COARSE_HOLD_MAX_FRAMES = 180
 
 let groundEntities:   Entity[] = []
 let initialized       = false
@@ -345,6 +363,36 @@ function dropAllCoarseSheets(): void {
 		liveNodeCount--
 	}
 	coarsePlanes.clear()
+	for (const h of heldCoarse) queueRetire(h.entity)
+	heldCoarse.length = 0
+}
+
+
+// MARK: holdCoarseSheet
+// Sink an unwanted coarse sheet (so it cannot z-fight fine nodes) but
+// keep it drawn until every root it covered has been rebuilt.
+function holdCoarseSheet(rec: CoarseRec): void {
+	anims.delete(rec.entity)
+	sinkRetiringBox(rec.entity)
+	const tiles: number[] = []
+	for (let rz = 0; rz < rec.tiles; rz++) for (let rx = 0; rx < rec.tiles; rx++) tiles.push((rec.tz + rz) * SNOW_TILES_X + rec.tx + rx)
+	heldCoarse.push({ entity: rec.entity, tiles, framesLeft: COARSE_HOLD_MAX_FRAMES })
+}
+
+
+// MARK: releaseHeldCoarse
+function releaseHeldCoarse(): void {
+	if (heldCoarse.length === 0) return
+	let write = 0
+	for (const h of heldCoarse) {
+		h.framesLeft--
+		let waiting = false
+		if (h.framesLeft > 0) for (const k of h.tiles) if (pendingRoots.has(k)) { waiting = true; break }
+		if (waiting) { heldCoarse[write++] = h; continue }
+		// Already sunk: remove after the usual retire frames.
+		retireQueue.push({ entity: h.entity, framesLeft: RETIRE_FRAMES })
+	}
+	heldCoarse.length = write
 }
 
 
@@ -377,6 +425,7 @@ function snowRenderSystem(dt: number): void {
 
 	const dirtyBefore = pendingRoots.size
 	drainDirtyRoots(pendingRoots, urgentRoots)
+	drainFrontRoots(frontRoots)
 	if (pendingRoots.size > dirtyBefore) coarseDirty = true
 
 	promoteNearbyPlanes()
@@ -384,6 +433,7 @@ function snowRenderSystem(dt: number): void {
 	if (coarseDirty) syncCoarsePlanes()
 
 	if (pendingRoots.size > 0) processPendingRoots()
+	releaseHeldCoarse()
 
 	// Pristine snow is drawn without waiting on the server. The splash
 	// still holds for the CRDT snapshot so the campfire ring is melted
@@ -439,6 +489,23 @@ function processPendingRoots(): void {
 		inOrder.add(u.k)
 	}
 
+	// Heat-front roots next (nearest the focus first), ahead of ordinary dirty roots.
+	const urgentCount = order.length
+	const frontActive = isHeatFrontActive()
+	const frontSet    = new Set<number>()
+	if (frontRoots.size > 0) {
+		const fr: Array<{ k: number; d: number }> = []
+		for (const k of frontRoots) {
+			if (!pendingRoots.has(k)) { frontRoots.delete(k); continue }
+			if (inOrder.has(k)) continue
+			fr.push({ k, d: distSq(k) })
+		}
+		fr.sort((a, b) => a.d - b.d)
+		for (const r of fr) { order.push(r.k); inOrder.add(r.k); frontSet.add(r.k) }
+	}
+	const budget  = frontActive ? FRONT_CREATE_BUDGET_PER_FRAME : CREATE_BUDGET_PER_FRAME
+	const hardCap = frontActive ? FRONT_CREATE_HARD_CAP : CREATE_HARD_CAP
+
 	const rest: Array<{ k: number; d: number }> = []
 	for (const k of pendingRoots) {
 		if (inOrder.has(k)) continue
@@ -448,21 +515,26 @@ function processPendingRoots(): void {
 	for (const r of rest) order.push(r.k)
 
 	let spent = 0
-	let urgentLeft = order.length - rest.length
+	let idx = 0
 	for (const k of order) {
-		const isUrgent = urgentLeft > 0
-		if (isUrgent) urgentLeft--
-		if (!isUrgent && spent >= CREATE_BUDGET_PER_FRAME) break
+		const isUrgent = idx++ < urgentCount
+		if (!isUrgent && spent >= budget) break
 		// Urgent roots (local torch / stomp) always rebuild this frame so
 		// a 16 m pristine cube cannot stay standing under the player.
 		const cap = isUrgent || spent === 0
 			? Number.POSITIVE_INFINITY
-			: CREATE_HARD_CAP - spent
+			: hardCap - spent
 		const created = rebuildRoot(k, cap)
-		if (created < 0) break
+		if (created < 0) {
+			// A front root too big for what is left this frame waits for the next one; the rest of
+			// the front must not starve behind it.
+			if (frontSet.has(k)) continue
+			break
+		}
 		spent += created
 		pendingRoots.delete(k)
 		fullPassRemaining.delete(k)
+		frontRoots.delete(k)
 	}
 }
 
@@ -894,7 +966,7 @@ function syncCoarsePlanes(): void {
 
 	for (const [key, rec] of coarsePlanes) {
 		if (desired.has(key)) continue
-		queueRetire(rec.entity)
+		holdCoarseSheet(rec)
 		coarsePlanes.delete(key)
 		liveNodeCount--
 	}

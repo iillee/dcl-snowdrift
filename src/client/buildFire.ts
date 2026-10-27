@@ -2,53 +2,60 @@
  * buildFire.ts - Build Your Own Fire lighting (src/shared/ruleset.ts).
  *
  * Carrying a log with a lit torch (away from fires): the TORCH tooltip
- * reads LIGHT CAMPFIRE (or a short reason) and E / the torch button
+ * reads LIGHT CAMPFIRE only when the server would accept it (no refusal reasons) and E / the torch button
  * lights the carried log at your feet. A refused carried log is returned.
  *
  * Dropped logs (F) are ordinary wood and never light.
  */
 
 import { Transform, engine } from '@dcl/sdk/ecs'
+import { Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { room } from 'src/shared/messages'
 import {
-	BUILT_FIRE_COST_KIND,
+	canBuildWithKind,
+	BUILT_FIRE_MAX,
 	BuildFireVerdict,
-	buildVerdictText,
+	builtFireFrontSpot,
 	isBuildYourOwnFire,
 	validateBuiltFireSpot,
 } from 'src/shared/ruleset'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
 
 import { playSurgeSfxLocal } from 'src/client/audio'
+import { playCampfireEmote, stopCampfireEmote } from 'src/client/campfireEmote'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
 	getCurrentHiddenSeed,
 	getPlacedFireCount,
 	getPlacedFirePositions,
+	getRecycleNextPos,
 	isInHiddenRelightRange,
 	isReadyToIgniteHidden,
 } from 'src/client/hiddenCampfire'
 import { consumeCarriedForBuild, getCarriedKind, hasLogs, restoreRejectedFeed } from 'src/client/logsInventory'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
+import { isEmberFailing } from 'src/client/emberFail'
+import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import { isReadyToIgniteMonument } from 'src/client/stationMarkers'
 import { isTorchEquipped, isTorchLit } from 'src/client/torchEquip'
 
 
-/** How long (ms) a server refusal reason stays in the prompt. */
-const REJECT_TEXT_MS     = 2500
 /** Give up waiting for the server echo after this (ms). */
 const PENDING_TIMEOUT_MS = 4000
 
 /** True when the target is the carried log (lit at the player's feet). */
 let carriedMode  = false
+/** Where the fire would go: BUILT_FIRE_FRONT_M in front of the player (their facing). */
 let carriedX     = 0
 let carriedZ     = 0
+/** The player's feet + facing yaw at evaluate time (what the server request carries; it derives the same front spot). */
+let playerX      = 0
+let playerZ      = 0
+let playerYaw    = 0
 let verdict      : BuildFireVerdict | null = null
 let pendingUntil = 0
-let rejectText   = ''
-let rejectUntil  = 0
 
 
 // MARK: evaluate
@@ -69,13 +76,26 @@ function evaluate(): void {
 	if (hx * hx + hz * hz <= CAMPFIRE_RELIGHT_RADIUS_SQ_M) return
 	const stageAt = (x: number, z: number) => getSnowStageAtWorld(x, activeGroundYAt(x, z), z)
 	// Carrying a log: the torch tooltip offers to light it right here.
-	if (!hasLogs() || getCarriedKind() !== BUILT_FIRE_COST_KIND) return
+	if (!hasLogs() || !canBuildWithKind(getCarriedKind())) return
 	carriedMode = true
-	carriedX    = t.position.x
-	carriedZ    = t.position.z
-	verdict = validateBuiltFireSpot(map, carriedX, carriedZ, getPlacedFirePositions(), stageAt, getPlacedFireCount())
-	// Too close to a fire: no tooltip at all (Luke's call).
-	if (verdict === 'spacing') verdict = null
+	const fwd   = Vector3.rotate(Vector3.Forward(), t.rotation)
+	playerX     = t.position.x
+	playerZ     = t.position.z
+	playerYaw   = Math.atan2(fwd.x, fwd.z)
+	const spot  = builtFireFrontSpot(playerX, playerZ, playerYaw)
+	carriedX    = spot.x
+	carriedZ    = spot.z
+	// Mirror the server: at the cap the oldest dead built fire is
+	// recycled (no dead one = unavailable); it never blocks spacing.
+	const count = getPlacedFireCount()
+	const full  = count >= Math.min(BUILT_FIRE_MAX, HIDDEN_CAMPFIRE_COUNT)
+	const rec   = full ? getRecycleNextPos() : null
+	if (full && !rec) return
+	const fires = rec ? getPlacedFirePositions().filter((p) => p.x !== rec.x || p.z !== rec.z) : getPlacedFirePositions()
+	verdict = validateBuiltFireSpot(map, carriedX, carriedZ, fires, stageAt, rec ? count - 1 : count)
+	// Ember fail gate as on the server, then positives only.
+	if (verdict === 'ok' && isEmberFailing()) verdict = null
+	if (verdict !== 'ok') verdict = null
 }
 
 
@@ -83,9 +103,7 @@ function evaluate(): void {
 /** Prompt label next to a dropped log (or a fresh refusal), else null. */
 export function getBuildPromptText(): string | null {
 	if (!isBuildYourOwnFire()) return null
-	if (Date.now() < rejectUntil) return rejectText
-	if (verdict === null) return null
-	return buildVerdictText(verdict)
+	return verdict === 'ok' && carriedMode ? 'BUILD CAMPFIRE' : null
 }
 
 
@@ -102,10 +120,11 @@ export function tryBuildFire(): boolean {
 	if (!isBuildReady()) return false
 	const kind = consumeCarriedForBuild()
 	if (kind < 0) return false
-	room.send('builtFireCarriedRequest', { seed: getCurrentHiddenSeed(), x: carriedX, z: carriedZ, kind })
-	console.log(`buildFire: light carried log at (${carriedX.toFixed(1)}, ${carriedZ.toFixed(1)})`)
+	room.send('builtFireCarriedRequest', { seed: getCurrentHiddenSeed(), x: playerX, z: playerZ, yaw: playerYaw, kind })
+	console.log(`buildFire: light carried log in front of player at (${carriedX.toFixed(1)}, ${carriedZ.toFixed(1)})`)
 	pendingUntil = Date.now() + PENDING_TIMEOUT_MS
 	playSurgeSfxLocal()
+	playCampfireEmote()
 	carriedMode = false
 	verdict    = null
 	return true
@@ -121,12 +140,9 @@ export function setupBuildFire(): void {
 	room.onMessage('builtFirePlaced', () => { pendingUntil = 0 })
 	room.onMessage('builtFireRejected', ({ kind, reason, carried }) => {
 		pendingUntil = 0
+		if (carried === 1) stopCampfireEmote()
 		if (carried === 1) restoreRejectedFeed(kind)
-		// Too close to a fire: log back, no tooltip.
-		if (reason === 'spacing') return
-		// Non-verdict reasons (stale seed, ember fail, pile gone) -> generic.
-		rejectText  = buildVerdictText(reason as BuildFireVerdict) || "CAN'T LIGHT HERE"
-		rejectUntil = Date.now() + REJECT_TEXT_MS
+		// Refused: log back, no message (positive tooltips only).
 		console.log(`buildFire: server refused (${reason}), log stays on the ground`)
 	})
 

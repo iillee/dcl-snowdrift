@@ -18,7 +18,7 @@
  * Local pickup effect: reuses pickupLogs(kind) so the F slot fills
  * the same way it does for a dropped pile. Two systems (scatter
  * chunks + dropped piles) share one carry state; the player carries
- * either a branch or a log.
+ * a log.
  *
  * Trees are not piles of meshes. Each trunk holds four logs. Standing
  * close with an empty F slot offers Chop, and each chop spends one
@@ -211,7 +211,7 @@ function spawnChunk(idx: number, armed: boolean): void {
 		return
 	}
 	const entity = engine.addEntity()
-	attachWoodModel(entity, c.kind, c.worldX, c.worldZ, (idx * 37) % 360, c.worldY)
+	attachWoodModel(entity, c.worldX, c.worldZ, (idx * 37) % 360, c.worldY)
 
 	let beacon: Entity | null = null
 	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldY, c.worldZ)

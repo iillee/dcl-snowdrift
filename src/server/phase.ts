@@ -21,6 +21,7 @@ import {
 	nextDailyIndex,
 } from 'src/shared/phase'
 import { onCycleRoll } from 'src/server/cycle'
+import { markRunTainted } from 'src/server/runIntegrity'
 
 
 const HEARTBEAT_S = 15
@@ -34,6 +35,8 @@ let nightsThisRun    = 0
 let heartbeatClock   = 0
 let installed        = false
 let clockArmed       = false
+/** Date.now() when day 1 of this run began (0 = not started). Leaderboard elapsed time. */
+let runStartedAtMs   = 0
 
 
 // MARK: currentConfig
@@ -98,6 +101,13 @@ export function isPhaseClockArmed(): boolean {
  */
 export function getDayNumber(): number {
 	return cycleId + 1
+}
+
+
+// MARK: getRunStartedAtMs
+/** Wall-clock ms when this run's day 1 began (0 until the first player arms the clock). */
+export function getRunStartedAtMs(): number {
+	return runStartedAtMs
 }
 
 
@@ -226,6 +236,7 @@ function resetToDay(reason: string): void {
 	clockArmed       = true
 	phaseIndex       = 0
 	phaseStartedAtMs = Date.now()
+	runStartedAtMs   = phaseStartedAtMs
 	cycleId          = 0
 	nightsThisRun    = 0
 	console.log(`[Server] phase: resetToDay: cycleId=${cycleId} (${reason})`)
@@ -245,6 +256,7 @@ export function armPhaseClock(reason: string): void {
 	clockArmed       = true
 	phaseIndex       = 0
 	phaseStartedAtMs = Date.now()
+	runStartedAtMs   = phaseStartedAtMs
 	cycleId          = 0
 	nightsThisRun    = 0
 	console.log(`[Server] phase: armPhaseClock: DAWN ${currentConfig().durationSec}s (${reason})`)
@@ -285,6 +297,7 @@ export function setupPhaseServer(): void {
 	room.onMessage('devAdvancePhase', (_payload, context) => {
 		const from = context?.from ?? 'unknown'
 		console.log(`[Server] phase: devAdvancePhase from ${from}`)
+		markRunTainted('devAdvancePhase')
 		advancePhase('dev')
 	})
 

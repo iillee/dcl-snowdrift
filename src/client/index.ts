@@ -32,6 +32,7 @@ import { SEED_NETWORK_ID } from 'src/shared/networkIds'
 
 import { initAudio } from 'src/client/audio'
 import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
+import { initLeaderboardHotkey } from 'src/client/ui/layers/layer.leaderboard'
 import { initClientHandler } from 'src/client/clientHandler'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { beginCollapsedAtHome, setupFrostDeath } from 'src/client/frost/death'
@@ -46,10 +47,12 @@ import { initSnowRenderer } from 'src/client/snow/snowRenderer'
 import { runStress } from 'src/client/stress'
 import { setupCampfire } from 'src/client/campfire'
 import { setupCycleClient } from 'src/client/cycle'
+import { setupServerSession } from 'src/client/serverSession'
 import { setupDaySplash } from 'src/client/daySplash'
 import { setupFireNetworkGlow } from 'src/client/fireNetworkGlow'
 import { setupEmberFailClient } from 'src/client/emberFail'
 import { setupPhaseClient } from 'src/client/phase'
+import { setupLeaderboardClient } from 'src/client/leaderboard'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupVolcanoSmoke } from 'src/client/volcanoSmoke'
 import { setupVolcanoCrown } from 'src/client/volcanoCrown'
@@ -159,6 +162,7 @@ export async function setupClient(): Promise<void> {
 	setupLoadTimeline()
 	initAudio()
 	initHelpPanelHotkey()
+	initLeaderboardHotkey()
 
 	// Campfire + smoke FIRST so the fireplace GLB claims asset-load
 	// bandwidth before snow/terrain/prop floods. Late joiners were
@@ -201,6 +205,7 @@ export async function setupClient(): Promise<void> {
 	// Server-authoritative 24 h cycle clock. Register the listener BEFORE
 	// initClientHandler so we don't miss the hydration `cycleState` that
 	// arrives immediately after joinRoster.
+	setupServerSession()
 	setupCycleClient()
 	setupPhaseClient()
 	setupDaySplash()
@@ -232,6 +237,8 @@ export async function setupClient(): Promise<void> {
 	// on the very first frame the joiner is in the room.
 	setupHearthFuelClient()
 	setupEmberFailClient()
+	// Leaderboard board + name sender - before initClientHandler for the join hydration.
+	setupLeaderboardClient()
 	// Remote-torch + chain-light subscribers MUST register before
 	// initClientHandler for the same reason as the hydration paths
 	// above: the server's sendTorchStatesTo(joiner) inside joinRoster

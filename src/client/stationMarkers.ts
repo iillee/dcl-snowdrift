@@ -65,10 +65,11 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playBeamSfx, playIceMeltSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
+import { playBeamSfx, playIceMeltSfxAt, playChargeStartSfxAt, playMonumentSfxAt, playReleaseBurstSfxAt, unlockAudio } from 'src/client/audio'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
-import { setOptimisticStage } from 'src/client/snow/snowModel'
+import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
+import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
 import { setSnowCellOffsets } from 'src/client/snow/snowRenderer'
 import {
 	CINE_SETTLE_S,
@@ -88,7 +89,6 @@ import {
 	CHARGE_RING_M,
 	CHARGE_SHAKE_ENABLED,
 	CHARGE_SHAKE_FROM,
-	CRYSTAL_FLOAT_HEIGHT_M,
 	CRYSTAL_HEAT_RADIUS_M,
 	CRYSTAL_WARMTH_EDGE_FRAC,
 	isFloatingCrystals,
@@ -97,6 +97,13 @@ import {
 	CRYSTAL_RISE_S,
 	CRYSTAL_LASER_DRAW_S,
 	CRYSTAL_FINALE_BEAMS_ENABLED,
+	CRYSTAL_LASER_ENABLED,
+	CRYSTAL_SKY_IDLE_PULSE_PERIOD_S,
+	CRYSTAL_SKY_IDLE_PULSE_AMP,
+	CRYSTAL_SKY_IDLE_PULSE_TRAVEL_S,
+	CRYSTAL_SKY_IDLE_PULSE_WIDTH,
+	CRYSTAL_SPHERE_MAX_M,
+	CRYSTAL_BURST_S,
 	CRYSTAL_THAW_SPREAD_S,
 	CRYSTAL_SKY_DROP_S,
 	CRYSTAL_CHARGE_S,
@@ -108,6 +115,7 @@ import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { fireFinalChargePulse, monumentHasChargeLink } from 'src/client/fireNetworkGlow'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
+import { crystalFloatAboveGround } from 'src/shared/crystalFloat'
 import { announceCinematic, announceWithoutCinematic, igniterName } from 'src/client/monumentAnnounce'
 import { isFrostDying } from 'src/client/frost/death'
 import { isEmberFailing } from 'src/client/emberFail'
@@ -652,9 +660,9 @@ function setObeliskSolid(slot: Slot, solid: boolean): void {
 /** Mean hovering top-tip height above ground for a slot (m). */
 function hoverTipH(slot: Slot): number {
 	if (isFloatingCrystals()) {
-		// Fixed float: bottom tip CRYSTAL_FLOAT_HEIGHT_M above its ground.
+		// Shared float: every bottom tip at the same world Y (crystalFloat.ts).
 		const capTop = sceneHeightLimitM() - HOVER_CEILING_MARGIN_M - HOVER_BOB_M - slot.groundY
-		return Math.max(OB_TOTAL_M + FROZEN_TIP_Y_M + 1, Math.min(CRYSTAL_FLOAT_HEIGHT_M + OB_TOTAL_M, capTop))
+		return Math.max(OB_TOTAL_M + FROZEN_TIP_Y_M + 1, Math.min(crystalFloatAboveGround(activeTerrain(), slot.groundY) + OB_TOTAL_M, capTop))
 	}
 	// Bottom tip (volcano beam origin) a margin above the beam target so
 	// the beam descends to the volcano; same formula terrain gen checked.
@@ -1136,7 +1144,8 @@ function startIgniteCinematic(index: number): boolean {
 		riseS       : riseHoldS() + riseDurS(),
 		crystal     : isFloatingCrystals() ? {
 			holdS: CRYSTAL_RELEASE_HOLD_S, riseS: CRYSTAL_RISE_S, chargeS: CRYSTAL_CHARGE_S,
-			skyOffS: CRYSTAL_SKY_OFF_S, laserS: CRYSTAL_LASER_DRAW_S, laserHoldS: CRYSTAL_LASER_HOLD_S, spreadS: CRYSTAL_THAW_SPREAD_S,
+			// Burst mode: thaw starts the moment the charge ends (no laser draw / hold).
+			skyOffS: CRYSTAL_LASER_ENABLED ? CRYSTAL_SKY_OFF_S : 0, laserS: CRYSTAL_LASER_ENABLED ? CRYSTAL_LASER_DRAW_S : 0, laserHoldS: CRYSTAL_LASER_ENABLED ? CRYSTAL_LASER_HOLD_S : 0, spreadS: CRYSTAL_THAW_SPREAD_S,
 			thawR: CRYSTAL_HEAT_RADIUS_M,
 		} : undefined,
 		rigPos      : () => {
@@ -1179,6 +1188,7 @@ function clearAll(): void {
 		destroyBeam(s.volcano)
 		destroyBeam(lasers[i])
 		lasers[i] = null
+		clearSphere(i)
 		skyCalm[i] = false
 		laserHitT[i] = -1
 		removeCrystalFx(i)
@@ -1539,6 +1549,12 @@ function syncSnowOffsets(): void {
 					const key = worldToCellKey(c.x + dx, c.z + dz)
 					if (key === null) continue
 					if (active) {
+						// Floating crystals: never sink the snow into the socket. A
+						// client that thought a seated crystal was active (local /
+						// stale flag) drew the socket snow 1.5 m down to ground level,
+						// so the pit looked open with the tip poking out. A released
+						// crystal's 50 m heat zone keeps it clear anyway.
+						if (isFloatingCrystals()) continue
 						const d = pitCellDepth(dx, dz, monumentSocketDepth(groundYForLevel(map.levels[st.cz * map.w + st.cx])))
 						if (d > 0) out.set(key, -d)
 						continue
@@ -1598,6 +1614,8 @@ function animSystem(dt: number): void {
 				setObeliskSolid(slot, true)
 				// Cinematic: the sky beam has just landed in the top tip.
 				if (slot.cine && !isFloatingCrystals()) startGem(slot)
+				// Floating crystals: the sky beam just landed in the top tip = start of the charge (once: the phase moves on).
+				if (isFloatingCrystals() && !CRYSTAL_LASER_ENABLED) playChargeStartSfxAt(Vector3.create(slot.x, slot.groundY + hoverTipH(slot), slot.z))
 				setPhase(slot, 'settle')
 			}
 			continue
@@ -1690,7 +1708,7 @@ export function setupStationMarkers(): void {
 	engine.addSystem(gemSystem)
 	engine.addSystem(syncSnowOffsets)
 	engine.addSystem(gazeSystem)
-	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem) }
+	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem); engine.addSystem(burstSystem); engine.addSystem(skyIdlePulseSystem) }
 
 	room.onMessage('monumentCharge', ({ seed, index, charge }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
@@ -1976,11 +1994,16 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 		// Pulse crest runs from the sky (tMid 1) down into the tip (tMid 0).
 		const sky = slot.sky
 		if (sky) {
-			const front = 1.2 - ((t / SKY_PULSE_PERIOD_S) % 1) * 1.4
+			// Same slow synced crest as the permanent idle beam (Luke: no fast charge pulse).
+			const P = Math.max(0.2, CRYSTAL_SKY_IDLE_PULSE_PERIOD_S)
+			const inCycle = ((Date.now() / 1000) % P + P) % P
+			const uu = inCycle / Math.max(0.1, CRYSTAL_SKY_IDLE_PULSE_TRAVEL_S)
+			const W = Math.max(0.02, CRYSTAL_SKY_IDLE_PULSE_WIDTH)
+			const front = uu <= 1 ? 1 + W * 2 - uu * (1 + W * 4) : -10
 			for (let k2 = 0; k2 < sky.segs.length; k2++) {
 				const tr = Transform.getMutableOrNull(sky.segs[k2])
 				if (!tr) continue
-				const s = 1 + SKY_PULSE_AMP * Math.exp(-(((sky.tMid[k2] - front) / 0.12) ** 2))
+				const s = 1 + CRYSTAL_SKY_IDLE_PULSE_AMP * Math.exp(-(((sky.tMid[k2] - front) / W) ** 2))
 				tr.scale = Vector3.create(sky.xz[k2] * s, tr.scale.y, sky.xz[k2] * s)
 			}
 		}
@@ -1996,6 +2019,12 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 			if (tr) tr.scale = Vector3.create(sky.xz[k2], tr.scale.y, sky.xz[k2])
 		}
 	}
+	if (!CRYSTAL_LASER_ENABLED) {
+		// Burst: the charge sphere releases outward (thaw front tracks it).
+		startBurst(slot, i)
+		startVolcanoBeam(slot) // -> 'done'
+		return
+	}
 	if (t < tLaser) return
 	if (!lasers[i]) {
 		lasers[i] = buildBeam(slot.beamRoot, bottomBeamJoint(slot), Vector3.create(slot.x, slot.groundY, slot.z), BEAM_SEGMENTS, BEAM_XZ_M, BEAM_FADE_START, false)
@@ -2006,6 +2035,85 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 		laserHitT[i] = 0
 		startVolcanoBeam(slot) // -> 'done' + gem on (already full)
 	}
+}
+
+// MARK: Release sphere + burst
+/** Burst per monument: entity + seconds since release (-1 = none). */
+const bursts: Array<{ e: Entity; t: number; endR: number; cx: number; cz: number; h: number; doneR: number; stepAcc: number } | null> = new Array(8).fill(null)
+/** Predicted-melt step (s): the client melts the cells the sphere edge has newly crossed this often. */
+const BURST_MELT_STEP_S = 0.05
+/** Sphere centre: the bottom tip at float height (same point the server thaw front uses). */
+function sphereCentre(slot: Slot): Vector3 {
+	return Vector3.create(slot.x, slot.groundY + crystalFloatAboveGround(activeTerrain(), slot.groundY), slot.z)
+}
+function paintEnergy(e: Entity, a: number, glow: number): void {
+	Material.setPbrMaterial(e, {
+		albedoColor      : Color4.create(0.78, 0.6, 1, 0.55 * a),
+		emissiveColor    : Color3.create(0.7, 0.45, 1),
+		emissiveIntensity: glow * a,
+		transparencyMode : MaterialTransparencyMode.MTM_ALPHA_BLEND,
+		castShadows      : false,
+	})
+}
+function startBurst(slot: Slot, i: number): void {
+	if (bursts[i]) return
+	const e = engine.addEntity()
+	Transform.create(e, { position: sphereCentre(slot), scale: Vector3.create(CRYSTAL_SPHERE_MAX_M, CRYSTAL_SPHERE_MAX_M, CRYSTAL_SPHERE_MAX_M) })
+	MeshRenderer.setSphere(e)
+	paintEnergy(e, 1, 3)
+	const h = crystalFloatAboveGround(activeTerrain(), slot.groundY)
+	bursts[i] = { e, t: 0, endR: Math.hypot(CRYSTAL_HEAT_RADIUS_M + HEAT_FRONT_BAND_M, h), cx: slot.x, cz: slot.z, h, doneR: 0, stepAcc: 0 }
+	playBeamSfx(BEAM_SFX_VOLUME, 0.05)
+	// Guarded above (one burst per monument), so this plays once per release, for every client.
+	playReleaseBurstSfxAt(sphereCentre(slot))
+}
+/* Burst radius 0 -> hypot(R + 3 m band, this crystal's float height above ground) over CRYSTAL_BURST_S (per burst endR); alpha 1 -> 0. */
+/** Synced idle pulse on every released crystal's sky beam (shared epoch clock). */
+function skyIdlePulseSystem(): void {
+	const P = Math.max(0.2, CRYSTAL_SKY_IDLE_PULSE_PERIOD_S)
+	const inCycle = ((Date.now() / 1000) % P + P) % P
+	const u = inCycle / Math.max(0.1, CRYSTAL_SKY_IDLE_PULSE_TRAVEL_S)
+	const W = Math.max(0.02, CRYSTAL_SKY_IDLE_PULSE_WIDTH)
+	// Crest from just above the sky end (tMid 1) to just past the tip (tMid 0).
+	const front = u <= 1 ? 1 + W * 2 - u * (1 + W * 4) : -10
+	for (const slot of slots) {
+		// Only once released and settled ('done'): the charge pulse owns the beam before.
+		if (!slot || slot.phase !== 'done' || !slot.sky) continue
+		const sky = slot.sky
+		for (let k = 0; k < sky.segs.length; k++) {
+			const tr = Transform.getMutableOrNull(sky.segs[k])
+			if (!tr) continue
+			const s = 1 + CRYSTAL_SKY_IDLE_PULSE_AMP * Math.exp(-(((sky.tMid[k] - front) / W) ** 2))
+			tr.scale = Vector3.create(sky.xz[k] * s, tr.scale.y, sky.xz[k] * s)
+		}
+	}
+}
+function burstSystem(dt: number): void {
+	for (let i = 0; i < bursts.length; i++) {
+		const b = bursts[i]
+		if (!b) continue
+		b.t += dt
+		const u = Math.min(1, b.t / CRYSTAL_BURST_S)
+		const d = Math.max(CRYSTAL_SPHERE_MAX_M, 2 * b.endR * u)
+		Transform.getMutable(b.e).scale = Vector3.create(d, d, d)
+		const a = Math.pow(1 - u, 1.5)
+		paintEnergy(b.e, a, 3)
+		// Predicted melt: the cells under the sphere's ground circle melt locally, in step with its edge
+		// (same linear sphere growth + geometry as the server front), so the thaw does not wait on
+		// 10 Hz / bursty PaintTile sync. The server's tiles reconcile it (snowModel.predictHeatFrontMelt).
+		b.stepAcc += dt
+		if (u >= 1 || b.stepAcc >= BURST_MELT_STEP_S) {
+			b.stepAcc = 0
+			const r = Math.min(heatFrontRadiusM(u, CRYSTAL_HEAT_RADIUS_M, b.h), CRYSTAL_HEAT_RADIUS_M)
+			if (r > b.doneR) { predictHeatFrontMelt(b.cx, b.cz, b.doneR, r); b.doneR = r }
+		}
+		if (u >= 1) { engine.removeEntity(b.e); bursts[i] = null }
+	}
+}
+function clearSphere(i: number): void {
+	const b = bursts[i]
+	if (b) { engine.removeEntity(b.e); if (b.doneR < CRYSTAL_HEAT_RADIUS_M) releaseHeatFrontPrediction() }
+	bursts[i] = null
 }
 
 /** Hold the laser through the laser hold + the thaw spread, then retract it into the crystal and remove it. */

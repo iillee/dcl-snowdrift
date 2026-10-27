@@ -28,7 +28,6 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { clampWoodKind, WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 
 import { getHiddenCampfireWorldPos } from 'src/client/hiddenCampfire'
 
@@ -47,18 +46,14 @@ const ARC_EXTRA_Y     = 0.85
 /** Aim slightly above the log pile so it lands in the flame bed. */
 const FIRE_AIM_Y      = 0.95
 
-const LOG_MODEL_SRC    = 'assets/models/logs_pickup.glb'
-const BRANCH_MODEL_SRC = 'assets/models/branch.glb'
-const LOG_SCALE        = 1
-const BRANCH_SCALE     = 0.32
-const BRANCH_PITCH_X_DEG = 90
+const LOG_MODEL_SRC = 'assets/models/logs_pickup.glb'
+const LOG_SCALE     = 1
 
 
 interface Rig {
 	root   : Entity
 	shrink : Entity
 	log    : Entity
-	branch : Entity
 	timer  : number
 	busy   : boolean
 	/** Elapsed seconds into the current arc (0..FEED_DURATION_S). */
@@ -111,24 +106,10 @@ export function setupLogsFeedFx(): void {
 		})
 		VisibilityComponent.create(log, { visible: false })
 
-		const branch = engine.addEntity()
-		Transform.create(branch, {
-			parent  : shrink,
-			scale   : Vector3.create(BRANCH_SCALE, BRANCH_SCALE, BRANCH_SCALE),
-			rotation: Quaternion.fromEulerDegrees(BRANCH_PITCH_X_DEG, 40, 0),
-		})
-		GltfContainer.create(branch, {
-			src                         : BRANCH_MODEL_SRC,
-			visibleMeshesCollisionMask  : 0,
-			invisibleMeshesCollisionMask: 0,
-		})
-		VisibilityComponent.create(branch, { visible: false })
-
 		pool.push({
 			root,
 			shrink,
 			log,
-			branch,
 			timer  : 0,
 			busy   : false,
 			elapsed: 0,
@@ -150,7 +131,7 @@ export function setupLogsFeedFx(): void {
  * (-1 main hearth, else a hidden pit index). Cosmetic only.
  */
 export function spawnLogsFeed(
-	kind    : number,
+	_kind   : number,
 	target  : number,
 	playerId?: string,
 ): void {
@@ -194,7 +175,7 @@ export function spawnLogsFeed(
 	Transform.getMutable(rig.root).position = launch
 	Transform.getMutable(rig.root).scale    = Vector3.One()
 	Transform.getMutable(rig.shrink).scale  = Vector3.One()
-	applyFeedVisual(rig, kind)
+	applyFeedVisual(rig)
 }
 
 
@@ -233,13 +214,8 @@ function resolveFirePos(target: number): Vector3 {
 
 
 // MARK: applyFeedVisual
-function applyFeedVisual(
-	rig : Rig,
-	kind: number,
-): void {
-	const isBranch = clampWoodKind(kind) === WOOD_KIND_BRANCH
-	VisibilityComponent.createOrReplace(rig.log,    { visible: !isBranch })
-	VisibilityComponent.createOrReplace(rig.branch, { visible:  isBranch })
+function applyFeedVisual(rig: Rig): void {
+	VisibilityComponent.createOrReplace(rig.log, { visible: true })
 }
 
 
@@ -302,5 +278,4 @@ function releaseRig(rig: Rig): void {
 	Transform.getMutable(rig.root).scale   = Vector3.Zero()
 	Transform.getMutable(rig.shrink).scale = Vector3.Zero()
 	VisibilityComponent.createOrReplace(rig.log,    { visible: false })
-	VisibilityComponent.createOrReplace(rig.branch, { visible: false })
 }

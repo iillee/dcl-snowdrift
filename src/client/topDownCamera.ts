@@ -25,7 +25,7 @@
  * heights. Blocked for ISO_OCCLUDE_BLOCKED_S → test the other three yaws
  * (45 + 90k°, nearest first) and blend to the first clear one over
  * ISO_YAW_BLEND_S. ISO_YAW_MIN_HOLD_S between turns stops flip-flopping;
- * if no yaw is clear the current one stays. Desktop key 4 (IA_ACTION_6)
+ * if no yaw is clear the current one stays. The rotate button
  * turns the view 90° by hand. Hiding foreground cliffs instead is not
  * practical: terrain is merged slab meshes, not per-cliff entities.
  *
@@ -240,17 +240,14 @@ export function setupTopDownCamera(): void {
 	})
 
 	// Hotkeys:
-	//   1 (IA_ACTION_3) = toggle spectator / isometric view
+	//   1 (IA_ACTION_3) = toggle spectator / isometric view (also the mobile eye slot)
+	//   (2 mute: audio.ts, 3 leaderboard: layer.leaderboard.tsx, 4 help: layer.helpPanel.tsx.
+	//   Rotate has no hotkey, button only.)
 	// E (IA_PRIMARY) is claimed by torchInput.ts and must NOT be consumed here.
 	engine.addSystem((dt: number) => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) { // 1: view
 			playUiClick()
 			toggleTopDownCamera()
-		}
-		// 4 (IA_ACTION_6): turn the overview 90° clockwise by hand.
-		if (active && inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
-			playUiClick()
-			rotateView(1)
 		}
 
 		if (inputSystem.isTriggered(InputAction.IA_POINTER, PointerEventType.PET_UP)) {

@@ -37,6 +37,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { onCycleRoll } from 'src/server/cycle'
+import { noteContributor } from 'src/server/leaderboard'
 
 
 /**
@@ -198,6 +199,7 @@ export function setupLogsServer(): void {
 			return
 		}
 		console.log(`[Server] logs: pickup ${id} by ${from}`)
+		noteContributor(from) // picked up wood
 		removePile(id)
 	})
 

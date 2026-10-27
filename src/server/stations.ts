@@ -25,6 +25,8 @@ import {
 	stationHasIce,
 } from 'src/shared/monumentIce'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
+import { crystalFloatAboveGround } from 'src/shared/crystalFloat'
+import { groundYAtWorld } from 'src/shared/terrain/terrainMap'
 import { MONUMENT_PIT_SIZE_M, MONUMENT_SOCKET_SIZE_M, cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { SNOW_TILE_M } from 'src/shared/snowGrid'
 import {
@@ -44,12 +46,15 @@ import {
 	CRYSTAL_HEAT_RADIUS_M,
 	CRYSTAL_THAW_SPREAD_S,
 	CRYSTAL_THAW_DELAY_S,
+	CRYSTAL_LASER_ENABLED,
 	chainHops,
 	chargeHopWeight,
 	chargeRateFromWeight,
 	isFloatingCrystals,
 } from 'src/shared/ruleset'
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
+import { noteContributor, recordRunProgress } from 'src/server/leaderboard'
+import { markRunTainted } from 'src/server/runIntegrity'
 import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
 import { getVisibleEdges } from 'src/server/fireNetworkLinks'
 import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
@@ -378,6 +383,7 @@ export function setupStationsServer(): void {
 		}
 		if (worldThawed) return
 		if (!cycleSeedsEqual(seed, currentSeed)) return
+		markRunTainted('debugThaw')
 		console.log(`[Server] stations: DEBUG thaw requested by ${from}`)
 		for (let i = 0; i < stationTotal(); i++) {
 			if (active[i]) continue
@@ -404,6 +410,7 @@ export function setupStationsServer(): void {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
 		const i = active.indexOf(false)
 		if (i < 0) return
+		markRunTainted('debugVolcanoStage')
 		console.log(`[Server] stations: DEBUG stage +1 (station ${i}) requested by ${from}`)
 		active[i] = true
 		releasePitSnow(i)
@@ -494,17 +501,20 @@ function releaseCrystal(i: number, by: string, force = false): void {
 	if (active[i] && !force) return
 	active[i] = true
 	charge[i] = 1
+	noteContributor(by) // releasing a crystal counts toward the leaderboard
 	sendCharge(i)
 	if (!iceFullyMelted(iceMask[i])) { iceMask[i] = MONUMENT_ICE_FULL_MASK; broadcastIce(i) }
 	const st = activeTerrain()?.stations[i]
 	if (st) {
 		const c = cellCenterWorld(st.cx, st.cz)
-		startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S)
+		startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S, CRYSTAL_LASER_ENABLED ? 0 : crystalFloatAboveGround(activeTerrain(), groundYAtWorld(activeTerrain()!, c.x, c.z)))
 		console.log(`[Server] stations[${i}]: crystal heat front started (held so far ${heatZoneCellCount()})`)
 	}
 	publishCoverageIfDirty()
 	console.log(`[Server] stations[${i}]: CRYSTAL RELEASED by ${by || '?'} (${getActiveStationCount()}/${stationTotal()})`)
 	broadcastOne(i, true, by)
+	// Personal-best leaderboard: every contributor gets this run's new count.
+	recordRunProgress(getActiveStationCount(), stationTotal())
 }
 
 function chargeSystem(dt: number): void {

@@ -34,8 +34,8 @@ const PRELOAD_SRCS = [
 	'assets/images/muted_padded.png',
 	'assets/images/unmute_padded.png',
 	'assets/images/logs.png',
-	'assets/images/branch.png',
 	'assets/images/heart_outline.png',
+	'assets/images/leaderboard_star.png',
 ]
 
 // Fully transparent so the tiles are invisible but the SDK still

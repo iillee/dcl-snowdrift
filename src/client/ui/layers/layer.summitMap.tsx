@@ -22,6 +22,7 @@ import { closeSummitMap, isSummitMapOpen } from 'src/client/summitMap'
 import { isStationLit } from 'src/client/stationMarkers'
 import { alpha } from 'src/client/ui/utils/colors'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { isBuildYourOwnFire } from 'src/shared/ruleset'
 import { MAZE_PLAYFIELD_METERS } from 'src/shared/settings'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import {
@@ -86,7 +87,7 @@ function collectMarks(map: TerrainMap): MapMark[] {
 
 	{
 		const p = worldToMapPct(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z)
-		out.push({ key: 'spawn', ...p, glyph: '○', size: GLYPH_LG_PX })
+		if (!isBuildYourOwnFire()) out.push({ key: 'spawn', ...p, glyph: '○', size: GLYPH_LG_PX })
 	}
 
 	map.stations.forEach((st, i) => {

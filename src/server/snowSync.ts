@@ -26,6 +26,8 @@ import {
 	tileKeyOfCell,
 } from 'src/shared/snowGrid'
 
+import { SERVER_SESSION } from 'src/server/session'
+
 const tileEntities = new Map<number, Entity>()
 const tileBuffers  = new Map<number, number[]>()
 const dirtyTiles   = new Set<number>()
@@ -85,7 +87,7 @@ function ensureTile(tileKey: number): number[] {
 	if (buf !== undefined) return buf
 	buf = new Array<number>(SNOW_TILE_CELL_COUNT).fill(0)
 	const entity = engine.addEntity()
-	PaintTile.create(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
+	PaintTile.create(entity, { cells: buf.slice(), tileKey, stamp: tileStamp, session: SERVER_SESSION })
 	tileBuffers.set(tileKey, buf)
 	tileEntities.set(tileKey, entity)
 	trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
@@ -145,7 +147,7 @@ export function flushDirtySnowTiles(): number {
 			console.error(`snowSync: flushDirtySnowTiles: tile ${tileKey} marked dirty but never allocated`)
 			continue
 		}
-		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
+		PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp, session: SERVER_SESSION })
 		trySync(entity, [PaintTile.componentId], tileNetworkId(tileKey))
 		flushed++
 	}
@@ -310,7 +312,7 @@ export function relinkSnowSync(): void {
 		if (wasUnlinked && NetworkEntity.getOrNull(entity) !== null) {
 			const buf = tileBuffers.get(tileKey)
 			if (buf !== undefined) {
-				PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp })
+				PaintTile.createOrReplace(entity, { cells: buf.slice(), tileKey, stamp: tileStamp, session: SERVER_SESSION })
 			}
 			console.log(`snowSync: relinkSnowSync: linked tile ${tileKey} and republished`)
 		}

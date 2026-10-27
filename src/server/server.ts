@@ -25,6 +25,8 @@ import {
 } from 'src/shared/settings'
 import { snowGridCapacity } from 'src/shared/snowGrid'
 
+import { setupSessionBeat } from 'src/server/session'
+
 import { loadDiscordWebhookUrl, notifyPlayerJoin } from 'src/server/analytics'
 import { onCycleRoll, sendCycleStateTo, setupCycleServer } from 'src/server/cycle'
 import { sendEmberFailTo, setupEmberFailServer } from 'src/server/emberFail'
@@ -39,6 +41,7 @@ import {
 	sendStationStateTo,
 	setupStationsServer,
 } from 'src/server/stations'
+import { sendLeaderboardTo, setupLeaderboardServer } from 'src/server/leaderboard'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
 import { armPhaseClock, isPhaseClockArmed, sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
 import { assignTeam, getTeam, rosterSize } from 'src/server/roster'
@@ -103,6 +106,7 @@ export async function setupServer(): Promise<void> {
 		`[Server] snow grid: ${snowCap.cellCapacity} cells ` +
 		`(${snowCap.cellsPerTileAxis}×${snowCap.cellsPerTileAxis}/tile × ${snowCap.tiles} tiles)`
 	)
+	setupSessionBeat()
 	initSnowSync()
 	seedStartingArea()
 	const seededTiles = flushDirtySnowTiles()
@@ -124,6 +128,8 @@ export async function setupServer(): Promise<void> {
 	// Ignition stations (click-activate → beam). After cycle + hidden
 	// campfire so we share the same authoritative seed.
 	setupStationsServer()
+	// Fastest-completion leaderboard (floating crystals): loads from Storage.
+	setupLeaderboardServer()
 	setupLogsServer()
 	setupWoodServer()
 	setupTorchServer()
@@ -266,6 +272,7 @@ export async function setupServer(): Promise<void> {
 		// local fallback seed (never equal to the server's fresh seed), so
 		// stationState was dropped and late joiners saw unlit monuments.
 		sendStationStateTo(from)
+		sendLeaderboardTo(from)
 		sendFireNetworkStateTo(from)
 		// Hydrate held-torch lit states for everyone already in the room so
 		// the joiner sees flames instead of dark sticks until each remote

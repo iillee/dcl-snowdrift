@@ -26,7 +26,7 @@ import { InputAction, PointerEventType, PrimaryPointerInfo, engine, inputSystem 
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 import { getPlayer } from '@dcl/sdk/players'
-import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
@@ -412,7 +412,8 @@ function ZoomCluster() {
 				uiBackground = {{ color: PANEL_BG }}
 				onMouseDown = {() => { playUiClick(); rotateView(1) }}
 			>
-				<Label value = "<b>90°</b>" fontSize = {22} color = {WHITE} font = "sans-serif" textAlign = "middle-center" uiTransform = {{ width: '100%', height: '100%' }} />
+				{/* Rotate icon ported from dcl-pixelwars (overview_rotate.png). */}
+				<UiEntity uiTransform = {{ width: ZOOM_GLYPH_LEN, height: ZOOM_GLYPH_LEN, pointerFilter: 'none' }} uiBackground = {{ textureMode: 'stretch', texture: { src: 'assets/images/overview_rotate.png' }, color: WHITE }} />
 			</UiEntity>
 		</UiEntity>
 	)

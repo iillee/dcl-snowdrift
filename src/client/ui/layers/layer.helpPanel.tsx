@@ -24,6 +24,7 @@ import { playUiClick } from 'src/client/audio'
 import { getDayNumber, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { getLitMonumentCount, getMonumentTotal } from 'src/client/stationMarkers'
+import { closeLeaderboard } from 'src/client/leaderboard'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
@@ -116,7 +117,7 @@ class HelpPanelLayer extends Layer {
 					}}
 				/>
 				<Label
-					value    = "Don't let the fire die"
+					value    = {`${getLitMonumentCount()}/${getMonumentTotal()} <color=#FFCC4D>monuments</color> activated`}
 					fontSize = {TAG_FONT}
 					color    = {WHITE}
 					font     = "sans-serif"
@@ -124,9 +125,9 @@ class HelpPanelLayer extends Layer {
 					uiTransform = {{ width: '100%', height: TAG_LINE_H, margin: { bottom: LINE_GAP } }}
 				/>
 				<Label
-					value    = {`${getLitMonumentCount()}/${getMonumentTotal()} monuments activated`}
+					value    = "Don't let the fire die"
 					fontSize = {TAG_FONT}
-					color    = {GOLD}
+					color    = {WHITE}
 					font     = "sans-serif"
 					textAlign= "middle-center"
 					uiTransform = {{ width: '100%', height: TAG_LINE_H }}
@@ -150,6 +151,7 @@ export function isHelpPanelVisible(): boolean {
 /** Flip visibility of the help panel (bound to the HelpButton). */
 export function toggleHelpPanel(): void {
 	cancelHelpAutoClose()
+	if (helpPanelLayer.visibility.isHidden) closeLeaderboard() // opening: never overlap the leaderboard
 	helpPanelLayer.toggle()
 }
 
@@ -170,6 +172,7 @@ export function autoOpenHelpPanel(seconds: number): void {
 		})
 	}
 	if (isHelpPanelVisible()) return // player already has it open: leave it alone
+	closeLeaderboard()
 	helpPanelLayer.show()
 	autoCloseAtMs = Date.now() + seconds * 1000
 }
@@ -177,15 +180,15 @@ export function autoOpenHelpPanel(seconds: number): void {
 
 // MARK: initHelpPanelHotkey
 /**
- * Desktop hotkey: `3` (IA_ACTION_5) toggles the help panel, matching
- * the `1` = spectator and `2` = mute pattern already used by the top
- * HUD row. Skip on mobile — there is no on-screen slot bound to
- * ACTION_5 there, and the panel is opened via the touch HelpButton.
+ * Desktop hotkey: `4` (IA_ACTION_6) toggles the help panel (1 view, 2 mute, 3 leaderboard,
+ * 4 help), matching the top HUD row order (+, -, rotate, eye, mute, star, ?).
+ * Skipped on mobile: the native help slot fires the same action, and
+ * touchControls.ts handles it there (a second handler would double-toggle).
  */
 export function initHelpPanelHotkey(): void {
 	if (isMobile()) return
 	engine.addSystem(() => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) { // 4: help (1 view, 2 mute, 3 leaderboard)
 			playUiClick()
 			toggleHelpPanel()
 		}

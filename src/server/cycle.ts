@@ -31,6 +31,8 @@ import { nextRebuildEpochMs } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
 import { setActiveTerrain } from 'src/shared/terrain/terrainCache'
 
+import { SERVER_SESSION } from 'src/server/session'
+
 
 // MARK: State
 let currentSeed         = 0
@@ -78,6 +80,7 @@ function broadcastCycleState(): void {
 	room.send('cycleState', {
 		seed              : currentSeed,
 		nextRebuildEpochMs: currentNextRebuild,
+		session           : SERVER_SESSION,
 	})
 }
 
@@ -91,7 +94,7 @@ function broadcastCycleState(): void {
 export function sendCycleStateTo(userId: string): void {
 	room.send(
 		'cycleState',
-		{ seed: currentSeed, nextRebuildEpochMs: currentNextRebuild },
+		{ seed: currentSeed, nextRebuildEpochMs: currentNextRebuild, session: SERVER_SESSION },
 		{ to: [userId] },
 	)
 }

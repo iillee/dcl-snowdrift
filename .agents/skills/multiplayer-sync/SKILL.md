@@ -9,6 +9,8 @@ Decentraland runs scenes locally in a player's instance of the explorer. By defa
 
 To sync any changes in the scene state, SDK7 uses CRDT-based synchronization.
 
+> **Smart wearables:** none of this works there — no `syncEntity`, no `MessageBus`. Only the wearer's avatar position and emotes reach other players; anything else needs a third-party server. See **smart-wearables** → Multiplayer.
+
 > **Runtime constraint:** Decentraland runs in a QuickJS sandbox. No Node.js APIs (`fs`, `http`, `path`, `process`). Use `fetch()` and `WebSocket` for network communication. See the **scene-runtime** skill for async patterns.
 
 ## Sync Strategy Decision Tree
@@ -360,11 +362,11 @@ The local player's `Transform` is scene-local; **another player's entity reports
 
 Some components that *look* multiplayer are **client-local**: writing them on a remote player's entity changes only what the writing client sees. They are never relayed, and `syncEntity` does not help — player entities are engine-owned, not scene-created.
 
-- **`AvatarNametag`** (the rank/role plate above an avatar, `@dcl/sdk` 7.28.0+) is client-local. If every player should see the same plate on everyone, each client must compute and write the whole set itself.
+- **`AvatarNametag`** (the rank/role plate above an avatar, `@dcl/sdk` 7.28.0+) is client-local. If every player should see the same plate on everyone, each client must compute and write the whole set itself. **It is still not implemented on mobile** — it was previously listed as shipping in v1.14.0, but the Oct 2026 refresh (docs commit `5f212e3`, mobile app v1.15.0) moved it back to *missing, no ETA*. Mobile players see no plate at all, so **never make the plate the only carrier of information a player needs**: mirror rank/role in a `TextShape`, a HUD list or a color the avatar already wears.
 
 Two ways to make a client-local visual agree across clients:
 
-1. **Derive it** from data every client already has. E.g. sort all `PlayerIdentityData` addresses and index a fixed roster — same address list, same result on every client, independent of join order. No messages, no drift. This is the pattern in `scenes/4,24-avatar-nametag`.
+1. **Derive it** from data every client already has. E.g. sort all `PlayerIdentityData` addresses and index a fixed roster — same address list, same result on every client, independent of join order. No messages, no drift. This is the pattern in `scenes/4,24-avatar-nametag`; the full roster code (diff check, throttled re-scan) is in **player-avatar** `references/avatar-nametag.md`.
 2. **Replicate the *input*, not the visual.** Sync the assignment (a synced component or a `MessageBus` message), then have every client apply it locally to the player entity it resolves for that user id.
 
 In both cases: resolve the target `Entity` from the user id on **every** write. Player entity ids are recycled across disconnects, so a cached `Entity` can land the write on a different player.
@@ -373,8 +375,8 @@ In both cases: resolve the target `Entity` from the user id on **every** write. 
 
 Every client connected to the local preview realm counts as a separate player — but **the desktop Explorer only allows one instance at a time**. Pressing Preview a second time in the Creator Hub re-focuses the window that is already open; it does not add a second player. Two ways to get a second local client:
 
-- **Second desktop instance**: tick **Multi-Instance Preview** in Creator Hub's Preview Options dropdown (requires `@dcl/sdk` >= 7.20.4), or run `npx sdk-commands start --multi-instance`; then press Preview / run the command again. `-n` ("open a new instance of the Client even if one is already running") forces a new window on its own. Multi-instance needs each window to authenticate as a *different* account, so it disables Skip Auth Screen — expect an auth screen per instance and sign in with a different wallet in each.
-- **Desktop + browser**: leave the desktop client open and add the Bevy web client as player 2 — Preview Options → *Preview with: Bevy (Web)*, or `npx sdk-commands start --web` (alias `--bevy-web`), which opens `https://decentraland.org/bevy-web/?preview=true&realm=<local realm origin>` (`.zone` under `--dclenv zone`). Browser tabs have no instance limit.
+- **Second desktop instance**: in Creator Hub open **Play Options** (the dropdown arrow on the **Play** button), hover the **Desktop Client** row to open its flyout, and tick **Multi-Instance Preview** (requires `@dcl/sdk` >= 7.20.4); or run `npx sdk-commands start --multi-instance`. Then press **Play** / run the command again. `-n` ("open a new instance of the Client even if one is already running") forces a new window on its own. Multi-instance needs each window to authenticate as a *different* account, so it disables Skip Auth Screen — expect an auth screen per instance and sign in with a different wallet in each.
+- **Desktop + browser**: leave the desktop client open and add the Bevy web client as player 2 — **Play Options** → select the **Web (Bevy)** client row, or `npx sdk-commands start --web` (alias `--bevy-web`), which opens `https://decentraland.org/bevy-web/?preview=true&realm=<local realm origin>` (`.zone` under `--dclenv zone`). Browser tabs have no instance limit.
 
 The `decentraland://` deep link Preview fires (`realm=…&position=…&dclenv=…&local-scene=true`) is subject to the same single-instance rule unless it carries `open-deeplink-in-new-instance=true` (from `-n`) or `multi-instance=true`; let the CLI or Creator Hub build it rather than typing it by hand.
 

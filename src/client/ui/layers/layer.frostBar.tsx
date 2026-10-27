@@ -29,7 +29,8 @@ import { getFrostLocal, getWarmthLocal } from 'src/client/frost/accumulation'
 import { isGiveUpVisible, isItemInputBlocked, requestGiveUp } from 'src/client/frost/frozenState'
 import { playUiClick } from 'src/client/audio'
 import { FROST_MAX } from 'src/shared/frost/tuning'
-import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
+import { isFloatingCrystals } from 'src/shared/ruleset'
+import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, LeaderboardButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
@@ -458,6 +459,7 @@ class FrostBarLayer extends Layer {
 				{!mobile && SHOW_CLOCK_BUTTON && <ClockButton />}
 				{!mobile && <SpectatorButton />}
 				{!mobile && <MuteButton />}
+				{!mobile && isFloatingCrystals() && <LeaderboardButton />}
 				{!mobile && <HelpButton />}
 				{!mobile && SHOW_DEV_ROLL_BUTTON && <DevRollButton />}
 				{!mobile && SHOW_DEV_ADVANCE_PHASE && <DevAdvancePhaseButton />}

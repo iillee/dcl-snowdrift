@@ -80,14 +80,16 @@ export const Messages = {
 	}),
 
 	// Build Your Own Fire (src/shared/ruleset.ts).
-	// Client -> Server: light the log the player is CARRYING at (x, z)
-	// (their feet) straight from the torch tooltip. The client already
+	// Client -> Server: light the log the player is CARRYING, in FRONT of them:
+	// (x, z) = the player's feet and yaw = their facing (rad); the server derives
+	// the spot with builtFireFrontSpot and validates it. The client already
 	// cleared its carry slot; on refusal builtFireRejected returns it
 	// (`kind` > 0 / carried=1 tells the client to restore it).
 	builtFireCarriedRequest: Schemas.Map({
 		seed: Schemas.Int,
 		x   : Schemas.Number,
 		z   : Schemas.Number,
+		yaw : Schemas.Number,
 		kind: Schemas.Int,
 	}),
 	// Server -> Client: slot `index` now holds a player-built fire at
@@ -98,6 +100,12 @@ export const Messages = {
 		index: Schemas.Int,
 		x    : Schemas.Number,
 		z    : Schemas.Number,
+	}),
+	// Server -> Client: built slot the next build at the cap would
+	// recycle (oldest extinguished), or -1. Sent on change + join.
+	builtFireRecycleNext: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
 	}),
 	// Server -> Client (sender only): lighting refused; carried=1 means
 	// give the log back. `reason` is a ruleset BuildFireVerdict.
@@ -127,6 +135,17 @@ export const Messages = {
 	cycleState: Schemas.Map({
 		seed              : Schemas.Int,
 		nextRebuildEpochMs: Schemas.Number,
+		// Server session id (src/server/session.ts): one value per server
+		// process start. A change means the server restarted and every piece
+		// of client state from the old session is stale.
+		session           : Schemas.Int,
+	}),
+
+	// Server -> Client: liveness + session id, broadcast every few seconds.
+	// Lets an idle client notice a server restart (new session) or silence
+	// without having to send a paintTick and wait for pleaseRejoin.
+	serverBeat: Schemas.Map({
+		session: Schemas.Int,
 	}),
 
 	// Client → Server: broadcast the local player's torch lit state and
@@ -191,7 +210,7 @@ export const Messages = {
 	logPickupRequest: Schemas.Map({ id: Schemas.Int, py: Schemas.Float }),
 
 	// Client → Server: I dropped my carried wood at world position
-	// (x, z). `kind` is WOOD_KIND_BRANCH or WOOD_KIND_LOG so the pile
+	// (x, z). `kind` is WOOD_KIND_LOG (the only wood kind) so the pile
 	// GLB and a later pickup keep the same burn time. Server
 	// unconditionally spawns a new pile with a fresh id and broadcasts
 	// logPileAdded. Server does NOT track who is carrying (yet).
@@ -232,8 +251,7 @@ export const Messages = {
 
 	// Client -> Server: player fed a carried piece to a fire. `target`
 	// selects which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1
-	// == the respective hidden bonfire. `kind` is WOOD_KIND_BRANCH or
-	// WOOD_KIND_LOG; fuel seconds come from fuelSecondsForKind. The
+	// == the respective hidden bonfire. `kind` is WOOD_KIND_LOG; fuel seconds come from fuelSecondsForKind. The
 	// server refuses a piece that would pass FUEL_MAX.
 	feedFireRequest: Schemas.Map({
 		target: Schemas.Int,
@@ -253,7 +271,7 @@ export const Messages = {
 
 	// Server -> Client: a feed landed. Everyone plays the wood-into-fire
 	// arc. `userId` is the feeder; `target` is -1 (main) or a hidden pit
-	// index; `kind` picks the branch / log GLB.
+	// index; `kind` is always WOOD_KIND_LOG.
 	feedFireFx: Schemas.Map({
 		userId: Schemas.String,
 		target: Schemas.Int,
@@ -538,6 +556,19 @@ export const Messages = {
 		waveAgeMs: Schemas.Int,
 		waveDurMs: Schemas.Int,
 	}),
+
+	// Client -> Server: the sender's display name, for the leaderboard's
+	// contributor list. Cosmetic only (server sanitises + caps it); the
+	// wallet always comes from the authenticated sender. Re-sent after a
+	// server restart.
+	playerName: Schemas.Map({ name: Schemas.String }),
+
+	// Server -> Client (floating-crystals ruleset): the fastest-completion
+	// leaderboard. `json` is a JSON array of rows
+	// { days, ms, at, names[], total } (src/shared/leaderboard.ts), at most
+	// LEADERBOARD_SHOW rows, ranked best-first. Sent to joiners and
+	// broadcast whenever it changes. Only the server writes records.
+	leaderboardState: Schemas.Map({ json: Schemas.String }),
 }
 
 export const room = registerMessages(Messages)

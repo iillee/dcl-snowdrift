@@ -10,6 +10,9 @@
  * both orthogonal cells agree, ladders both ways), string-pulled into
  * straight runs, then rasterised to 1 m snow cells NETWORK_PATH_WIDTH_M wide.
  *
+ * Near monuments the links form a forest (monument -> direct fires ->
+ * relay parents, see pruneMonumentTrees), not the RNG web.
+ *
  * Both server (melts / protects the cells) and client (draws the glow)
  * call routeFireLink with the same inputs, so only fire ids and positions
  * go over the wire.
@@ -41,6 +44,13 @@ export const NETWORK_ORGANIC_ENABLED     = true
 export const NETWORK_SMOOTH_ITERS        = 4
 /** Meander: max sideways offset (m), base wavelength (m, +/-20% per link), fade-in distance from each run end (fire / ladder) (m), resample step (m). */
 export const NETWORK_MEANDER_AMP_M       = 1.5
+/**
+ * Turn rounding fallback when the full organic curve doesn't fit: each
+ * corner is replaced by a curve whose tangent points sit up to this far
+ * (m) from the corner, shrinking until the centreline stays walkable on
+ * its level. Never eats the last NETWORK_END_STRAIGHT_M into a fire. 0 = off.
+ */
+export const NETWORK_TURN_FILLET_M      = 14
 export const NETWORK_MEANDER_WAVELENGTH_M = 55
 export const NETWORK_MEANDER_FADE_M      = 10
 export const NETWORK_ORGANIC_STEP_M      = 2
@@ -165,20 +175,35 @@ export const NETWORK_LINK_DIM_WRITE_S = 0.2
 // MARK: Topology tunables (pruneNetwork)
 /**
  * Which links the lit nodes form:
- *   'rng'     relative-neighbourhood graph (default, sparse, tidy)
- *   'gabriel' Gabriel graph (a few more triangles)
+ *   'rng'     relative-neighbourhood graph (sparse, tidy; fires rarely get 3+ links)
+ *   'gabriel' Gabriel graph (more meshes, fires can link 3+ neighbours)
+ *   'dense'   (default) every pair in NETWORK_DENSE_RANGE_M links except near-duplicates (see
+ *             topologyBlocked); the parallel-route drop still removes overlapping paths
  *   'legacy'  old behaviour: RNG + keep-every-held-link hysteresis, and
  *             every charging fire links its monument directly
  */
-export const NETWORK_TOPOLOGY: 'rng' | 'gabriel' | 'legacy' = 'rng'
+export const NETWORK_TOPOLOGY: 'rng' | 'gabriel' | 'dense' | 'legacy' = 'dense'
+/** dense: fires farther apart than this (m) only link when needed to join two pieces (<= NETWORK_LINK_RANGE_M). */
+export const NETWORK_DENSE_RANGE_M = 140
+/** dense: a link is a near-duplicate (dropped) when a closer third fire leaves both ends within this angle (deg) of it. Lower = more links kept. */
+export const NETWORK_DENSE_COLLINEAR_DEG = 25
 /** After pruning, re-add the shortest routable link joining split components (MST-safe). */
 export const NETWORK_RECONNECT_ENABLED = true
 /**
- * Fire-link rule (floating crystals): a fire linked to a monument always
- * keeps at least one fire-to-fire link when any routable fire candidate
- * exists (monument-only = network of one). false = off.
+ * Monument trees (floating crystals, default): near a monument the network
+ * is a forest. Fires with a charge link link ONLY to the monument; relay
+ * fires out of range link to exactly one parent one hop closer. See
+ * pruneMonumentTrees. false = the flat RNG network below.
  */
-export const NETWORK_FIRE_LINK_RULE_ENABLED = true
+export const NETWORK_MONUMENT_TREE_ENABLED = true
+/**
+ * Fire-link rule (old, only used when NETWORK_MONUMENT_TREE_ENABLED is off):
+ * a fire linked to a monument always keeps at least one fire-to-fire link
+ * when any routable fire candidate exists (monument-only = network of one).
+ * It tangled the heat paths around monuments (every ring fire linked the
+ * monument AND its neighbours), so it is off by default. false = off.
+ */
+export const NETWORK_FIRE_LINK_RULE_ENABLED = false
 /**
  * Monument links (fire -> monument) skip the prune and the parallel drop:
  * every routable fire in MONUMENT_LINK_RANGE_M links (and so charges).
@@ -193,6 +218,11 @@ export const NETWORK_PARALLEL_DROP_ENABLED = true
 export const NETWORK_PARALLEL_NEAR_M   = 4
 /** Drop when more than this fraction of the link's samples are beside another route. */
 export const NETWORK_PARALLEL_FRAC     = 0.5
+/**
+ * Also drop the longer of two kept links whose routes cross (never a bridge, never a monument or tree link),
+ * so a dense mesh does not become a tangle. Crossings next to a shared fire do not count (NETWORK_CROSS_END_SKIP_M).
+ */
+export const NETWORK_CROSS_DROP_ENABLED = true
 /** Samples this close (m) to the link's own end nodes are ignored (paths always meet at fires). */
 export const NETWORK_PARALLEL_END_SKIP_M = 6
 
@@ -360,8 +390,11 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	// whole-route fallback if the curves push it past the budget.
 	if (NETWORK_ORGANIC_ENABLED) {
 		const lo = Math.min(a.id, b.id), hi = Math.max(a.id, b.id)
-		const curved = runs.map((r, i) => ({ level: r.level, pts: organicRun(map, r, lo * 7919 + hi * 104729 + i * 31) }))
+		const curved = runs.map((r, i) => ({ level: r.level, pts: organicRun(map, r, lo * 7919 + hi * 104729 + i * 31, i === 0, i === runs.length - 1) }))
 		if (runsLen(curved) <= budget) for (let i = 0; i < runs.length; i++) runs[i].pts = curved[i].pts
+		else runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) }) // rounding only shortens
+	} else {
+		runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) })
 	}
 	const lengthM = runsLen(runs)
 
@@ -477,13 +510,61 @@ function runIsClear(map: TerrainMap, level: number, pts: { x: number; z: number 
 }
 
 /** Curvier run: smooth + meander; falls back to smooth-only, then to the straight run, if it leaves walkable cells. */
-function organicRun(map: TerrainMap, r: LinkRun, seed: number): { x: number; z: number }[] {
+function organicRun(map: TerrainMap, r: LinkRun, seed: number, startFire = true, endFire = true): { x: number; z: number }[] {
 	const smooth = chaikin(r.pts, NETWORK_SMOOTH_ITERS)
 	for (const amp of [NETWORK_MEANDER_AMP_M, NETWORK_MEANDER_AMP_M / 2, 0]) {
 		const pts = amp > 0 ? meander(smooth, seed, amp) : smooth
 		if (runIsClear(map, r.level, pts)) return pts
 	}
-	return r.pts
+	return filletRun(map, r.level, r.pts, startFire, endFire)
+}
+
+/**
+ * Round each interior corner with a quadratic curve (tangent distance
+ * up to NETWORK_TURN_FILLET_M, halved until the centreline stays on
+ * level walkable ground). End legs keep NETWORK_END_STRAIGHT_M straight.
+ */
+export function filletRun(map: TerrainMap, level: number, pts: { x: number; z: number }[], startFire = true, endFire = true): { x: number; z: number }[] {
+	if (NETWORK_TURN_FILLET_M <= 0 || pts.length < 3) return pts
+	const out: { x: number; z: number }[] = [pts[0]]
+	const last = pts.length - 1
+	// Tangent point consumed so far on the incoming leg (start of the next straight).
+	for (let k = 1; k < last; k++) {
+		const p = out[out.length - 1], c = pts[k], n = pts[k + 1]
+		const l1 = Math.hypot(c.x - p.x, c.z - p.z), l2 = Math.hypot(n.x - c.x, n.z - c.z)
+		if (l1 < 1e-3 || l2 < 1e-3) { out.push(c); continue }
+		const u1x = (c.x - p.x) / l1, u1z = (c.z - p.z) / l1, u2x = (n.x - c.x) / l2, u2z = (n.z - c.z) / l2
+		if (u1x * u2x + u1z * u2z > 0.995) { out.push(c); continue } // nearly straight
+		// Room on each leg: half of it (the next corner shares the leg), minus the fire-end straight.
+		// Asymmetric tangents: the quadratic stays tangent to both legs, so a
+		// short fire-end leg (kept straight) still meets the curve smoothly.
+		const room1 = k === 1 ? (startFire ? l1 - NETWORK_END_STRAIGHT_M : l1 * 0.9) : l1 * 0.5
+		const room2 = k === last - 1 ? (endFire ? l2 - NETWORK_END_STRAIGHT_M : l2 * 0.9) : l2 * 0.5
+		let t1 = Math.min(NETWORK_TURN_FILLET_M, Math.max(0, room1))
+		let t2 = Math.min(NETWORK_TURN_FILLET_M, Math.max(0, room2))
+		// One side may be short, but give the curve some length overall.
+		if (t1 < 0.3) t1 = 0
+		if (t2 < 0.3) t2 = 0
+		let placed = false
+		for (; t1 + t2 >= 2 && t1 >= 0.3 && t2 >= 0.3; t1 *= 0.5, t2 *= 0.5) {
+			const a = { x: c.x - u1x * t1, z: c.z - u1z * t1 }, b = { x: c.x + u2x * t2, z: c.z + u2z * t2 }
+			const curve: { x: number; z: number }[] = []
+			const N = Math.max(4, Math.ceil((t1 + t2) / 3))
+			for (let s = 0; s <= N; s++) {
+				const u = s / N, w0 = (1 - u) * (1 - u), w1 = 2 * u * (1 - u), w2 = u * u
+				curve.push({ x: w0 * a.x + w1 * c.x + w2 * b.x, z: w0 * a.z + w1 * c.z + w2 * b.z })
+			}
+			let ok = straightOnLevel(map, level, p, a)
+			for (let s = 1; ok && s < curve.length; s++) ok = straightOnLevel(map, level, curve[s - 1], curve[s])
+			if (!ok) continue
+			out.push(...curve)
+			placed = true
+			break
+		}
+		if (!placed) out.push(c)
+	}
+	out.push(pts[last])
+	return out
 }
 
 /** Keep only points needed so each straight hop stays on `level` walkable cells. */
@@ -660,10 +741,64 @@ export function parallelFraction(r: FireLinkRoute, a: FireNode, b: FireNode, o: 
  *      beside another kept route goes, unless it is a bridge.
  * Returns kept candidates with their routes.
  */
+export interface KeptLink { cand: NetCand; route: FireLinkRoute }
+export interface PruneOptions {
+	/** Monument trees on/off (default NETWORK_MONUMENT_TREE_ENABLED). */
+	tree?: boolean
+	/** Old fire-link rule, flat network only (default NETWORK_FIRE_LINK_RULE_ENABLED). */
+	fireRule?: boolean
+	/** Keys of links that are live now: preferred as a relay's parent (no re-parenting flicker when a fire is added). */
+	held?: ReadonlySet<string>
+	/** Monument node id + centre, for "closer to a monument" (default: mean of the link ends seen per monument). */
+	monuments?: ReadonlyArray<{ id: number; x: number; z: number }>
+}
 export function pruneNetwork(
 	cands: NetCand[],
 	route: (c: NetCand) => FireLinkRoute | null,
-): { cand: NetCand; route: FireLinkRoute }[] {
+	opts: PruneOptions = {},
+): KeptLink[] {
+	const tree = opts.tree ?? NETWORK_MONUMENT_TREE_ENABLED
+	if (tree && cands.some((c) => c.a.id >= NETWORK_MONUMENT_ID_MIN || c.b.id >= NETWORK_MONUMENT_ID_MIN)) return pruneMonumentTrees(cands, route, opts)
+	return pruneFlat(cands, route, opts.fireRule ?? NETWORK_FIRE_LINK_RULE_ENABLED)
+}
+
+/**
+ * Topology prune for one fire-fire pair a-b (ab = squared length). `na` / `nb` map each
+ * node's candidate neighbours to squared distance. true = the link is not kept (it may
+ * still come back through the reconnect step if it is needed to join two pieces).
+ *   rng / gabriel: some third fire c blocks it (lune / circle rule, see NETWORK_TOPOLOGY)
+ *   dense: every pair within NETWORK_DENSE_RANGE_M links, except a near-duplicate: a third
+ *     fire c closer to both ends that sits (nearly) on the way, so a-c and c-b leave the
+ *     ends within NETWORK_DENSE_COLLINEAR_DEG of the a-b line (a-b would just run beside them).
+ */
+function topologyBlocked(
+	a: FireNode, b: FireNode, ab: number,
+	na: ReadonlyMap<number, number>, nb: ReadonlyMap<number, number>,
+	posOf: (id: number) => FireNode | undefined,
+): boolean {
+	if (NETWORK_TOPOLOGY === 'dense' && ab > NETWORK_DENSE_RANGE_M ** 2) return true
+	for (const [k, ac] of na) {
+		if (k === b.id) continue
+		const bc = nb.get(k)
+		if (bc === undefined) continue
+		if (NETWORK_TOPOLOGY === 'dense') {
+			if (ac >= ab || bc >= ab) continue
+			const c = posOf(k)
+			if (!c || ac < 1e-6 || bc < 1e-6 || ab < 1e-6) continue
+			const ux = b.x - a.x, uz = b.z - a.z
+			const cosA = ((c.x - a.x) * ux + (c.z - a.z) * uz) / Math.sqrt(ac * ab)
+			const cosB = ((c.x - b.x) * -ux + (c.z - b.z) * -uz) / Math.sqrt(bc * ab)
+			const cosT = Math.cos((NETWORK_DENSE_COLLINEAR_DEG * Math.PI) / 180)
+			if (cosA > cosT && cosB > cosT) return true
+		} else if (NETWORK_TOPOLOGY === 'gabriel' ? ac + bc < ab : Math.max(ac, bc) < ab) return true
+	}
+	return false
+}
+
+function pruneFlat(	cands: NetCand[],
+	route: (c: NetCand) => FireLinkRoute | null,
+	fireRule: boolean,
+): KeptLink[] {
 	const d2 = (c: NetCand) => (c.a.x - c.b.x) ** 2 + (c.a.z - c.b.z) ** 2
 	const pos = new Map<number, FireNode>()
 	const adj = new Map<number, Map<number, number>>()
@@ -683,17 +818,10 @@ export function pruneNetwork(
 		const ab = d2(c)
 		const na = adj.get(c.a.id)!, nb = adj.get(c.b.id)!
 		if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (c.a.id >= NETWORK_MONUMENT_ID_MIN || c.b.id >= NETWORK_MONUMENT_ID_MIN)) { pruned.push(c); continue }
-		let blocked = false
-		for (const [k, ac] of na) {
-			if (k === c.b.id) continue
-			const bc = nb.get(k)
-			if (bc === undefined) continue
-			if (NETWORK_TOPOLOGY === 'gabriel' ? ac + bc < ab : Math.max(ac, bc) < ab) { blocked = true; break }
-		}
-		if (!blocked) pruned.push(c)
+		if (!topologyBlocked(c.a, c.b, ab, na, nb, (k) => pos.get(k))) pruned.push(c)
 	}
 	// 2. route
-	const kept: { cand: NetCand; route: FireLinkRoute }[] = []
+	const kept: KeptLink[] = []
 	const keptKeys = new Set<string>()
 	for (const c of pruned) { const r = route(c); if (r) { kept.push({ cand: c, route: r }); keptKeys.add(c.key) } }
 	// 3. reconnect (union-find)
@@ -715,7 +843,7 @@ export function pruneNetwork(
 	// monument-only only when it is a network of one). Hearth counts.
 	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
 	const fireLinksOf = (id: number, list: typeof kept) => list.filter((k) => (k.cand.a.id === id || k.cand.b.id === id) && !isMon(k.cand.a.id) && !isMon(k.cand.b.id)).length
-	if (NETWORK_FIRE_LINK_RULE_ENABLED) {
+	if (fireRule) {
 		const ids = new Set<number>()
 		for (const k of kept) for (const id of [k.cand.a.id, k.cand.b.id]) if (!isMon(id)) ids.add(id)
 		for (const id of [...ids].sort((p, q) => p - q)) {
@@ -730,7 +858,13 @@ export function pruneNetwork(
 			}
 		}
 	}
-	// 4. parallel drop (bridge-safe)
+	return dropParallel(kept, fireRule, new Set())
+}
+
+/** Step 4: parallel drop (bridge-safe). Links in `protect` (tree links) are never dropped. */
+function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<string>): KeptLink[] {
+	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	const fireLinksOf = (id: number, list: typeof kept) => list.filter((k) => (k.cand.a.id === id || k.cand.b.id === id) && !isMon(k.cand.a.id) && !isMon(k.cand.b.id)).length
 	if (NETWORK_PARALLEL_DROP_ENABLED && kept.length > 1) {
 		const order = [...kept].sort((p, q) => q.route.lengthM - p.route.lengthM || (p.cand.key < q.cand.key ? -1 : 1))
 		const alive = new Set(kept)
@@ -750,7 +884,7 @@ export function pruneNetwork(
 		}
 		// Never drop a fire's last fire-to-fire link while it also feeds a monument.
 		const fireRuleNeeds = (e: typeof kept[number]): boolean => {
-			if (!NETWORK_FIRE_LINK_RULE_ENABLED || isMon(e.cand.a.id) || isMon(e.cand.b.id)) return false
+			if (!fireRule || isMon(e.cand.a.id) || isMon(e.cand.b.id)) return false
 			const left = [...alive].filter((k) => k !== e)
 			for (const id of [e.cand.a.id, e.cand.b.id]) {
 				const hasMon = left.some((k) => (k.cand.a.id === id || k.cand.b.id === id) && (isMon(k.cand.a.id) || isMon(k.cand.b.id)))
@@ -767,22 +901,226 @@ export function pruneNetwork(
 		const pad = NETWORK_PARALLEL_NEAR_M
 		for (const e of order) {
 			if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (isMon(e.cand.a.id) || isMon(e.cand.b.id))) continue
+			if (protect.has(e.cand.key)) continue
 			const be = boxes.get(e)!
-			let worst = 0
+			let worst = 0, crosses = false
 			for (const o of alive) {
 				if (o === e) continue
 				const bo = boxes.get(o)!
 				if (bo.x0 - pad > be.x1 || be.x0 - pad > bo.x1 || bo.z0 - pad > be.z1 || be.z0 - pad > bo.z1) continue
 				worst = Math.max(worst, parallelFraction(e.route, e.cand.a, e.cand.b, o.route))
-				if (worst > NETWORK_PARALLEL_FRAC) break
+				if (NETWORK_CROSS_DROP_ENABLED && routesCross(e.cand, e.route, o.cand, o.route)) crosses = true
+				if (worst > NETWORK_PARALLEL_FRAC || crosses) break
 			}
-			if (worst > NETWORK_PARALLEL_FRAC && connectedWithout(e) && !fireRuleNeeds(e)) alive.delete(e)
+			if ((worst > NETWORK_PARALLEL_FRAC || crosses) && connectedWithout(e) && !fireRuleNeeds(e)) alive.delete(e)
 		}
 		return kept.filter((k) => alive.has(k))
 	}
 	return kept
 }
 
+// MARK: Monument trees
+/**
+ * Monument trees (floating crystals). Near a monument the network is a
+ * forest, never a web:
+ *   hop 1  fires with a routable charge link (fire -> monument, all kept).
+ *          They link ONLY to the monument: no fire-fire link to another
+ *          hop-1 fire.
+ *   hop 2+ a fire out of monument range links to exactly ONE parent: the
+ *          nearest routable fire that is closer to a monument and keeps it
+ *          within the charge chain (hop <= 1 + NETWORK_TREE_FIRE_HOPS), so
+ *          its tree depth equals its chain-charging hop. RNG neighbours are
+ *          tried first and a parent whose route would cross an already-kept
+ *          route loses to one that does not (when one is among the nearest
+ *          few). Closer-to-a-monument makes cycles impossible.
+ *   rest   fires outside every tree (hearth, too far from the chain, far
+ *          fires) keep the RNG + reconnect network, and join a tree only
+ *          through the reconnect step (union-find: never closes a cycle).
+  */
+/** Fire-fire hops a tree reaches past the direct (hop 1) fires. = CHARGE_CHAIN_MAX_HOPS - 1 (kept here to avoid an import cycle; checked in topologyCheck). */
+export const NETWORK_TREE_FIRE_HOPS = 2
+/** Parent candidates routed (nearest first) while looking for a crossing-free one. */
+export const NETWORK_TREE_PARENT_TRIES = 6
+/** Crossings this close (m) to a node both routes end at are not counted (routes always meet at fires). */
+export const NETWORK_CROSS_END_SKIP_M = 5
+
+function segCross(p1: { x: number; z: number }, p2: { x: number; z: number }, p3: { x: number; z: number }, p4: { x: number; z: number }): { x: number; z: number } | null {
+	const d1x = p2.x - p1.x, d1z = p2.z - p1.z, d2x = p4.x - p3.x, d2z = p4.z - p3.z
+	const den = d1x * d2z - d1z * d2x
+	if (Math.abs(den) < 1e-9) return null
+	const t = ((p3.x - p1.x) * d2z - (p3.z - p1.z) * d2x) / den
+	const u = ((p3.x - p1.x) * d1z - (p3.z - p1.z) * d1x) / den
+	if (t <= 0 || t >= 1 || u <= 0 || u >= 1) return null
+	return { x: p1.x + d1x * t, z: p1.z + d1z * t }
+}
+
+/** True when two routes cross in plan view on the same level (ignoring crossings next to a fire both end at). */
+export function routesCross(ca: NetCand, ra: FireLinkRoute, cb: NetCand, rb: FireLinkRoute): boolean {
+	const shared: FireNode[] = []
+	for (const p of [ca.a, ca.b]) for (const q of [cb.a, cb.b]) if (p.id === q.id && Math.hypot(p.x - q.x, p.z - q.z) < 0.5) shared.push(p)
+	const skip2 = NETWORK_CROSS_END_SKIP_M ** 2
+	for (const x of ra.runs) for (const y of rb.runs) {
+		if (x.level !== y.level) continue
+		for (let i = 1; i < x.pts.length; i++) {
+			const p = x.pts[i - 1], q = x.pts[i]
+			const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), z0 = Math.min(p.z, q.z), z1 = Math.max(p.z, q.z)
+			for (let j = 1; j < y.pts.length; j++) {
+				const r = y.pts[j - 1], s = y.pts[j]
+				if (Math.max(r.x, s.x) < x0 || Math.min(r.x, s.x) > x1 || Math.max(r.z, s.z) < z0 || Math.min(r.z, s.z) > z1) continue
+				const hit = segCross(p, q, r, s)
+				if (!hit) continue
+				if (shared.some((n) => (n.x - hit.x) ** 2 + (n.z - hit.z) ** 2 < skip2)) continue
+				return true
+			}
+		}
+	}
+	return false
+}
+
+/** Number of kept link pairs whose routes cross. */
+export function countRouteCrossings(kept: ReadonlyArray<{ cand: NetCand; route: FireLinkRoute }>): number {
+	let n = 0
+	for (let i = 0; i < kept.length; i++) for (let j = i + 1; j < kept.length; j++) if (routesCross(kept[i].cand, kept[i].route, kept[j].cand, kept[j].route)) n++
+	return n
+}
+
+function pruneMonumentTrees(
+	cands: NetCand[],
+	route: (c: NetCand) => FireLinkRoute | null,
+	opts: PruneOptions,
+): KeptLink[] {
+	const held = opts.held
+	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	const d2 = (c: NetCand) => (c.a.x - c.b.x) ** 2 + (c.a.z - c.b.z) ** 2
+	const sorted = [...cands].sort((p, q) => d2(p) - d2(q) || (p.key < q.key ? -1 : 1))
+	const kept: KeptLink[] = []
+	const keptKeys = new Set<string>()
+	const protect = new Set<string>()
+	const add = (c: NetCand, r: FireLinkRoute, tree: boolean) => {
+		kept.push({ cand: c, route: r }); keptKeys.add(c.key)
+		if (tree) protect.add(c.key)
+	}
+
+	// Monument centres: given, else the mean of the link ends seen for that monument.
+	const centre = new Map<number, { x: number; z: number; n: number }>()
+	for (const m of opts.monuments ?? []) centre.set(m.id, { x: m.x, z: m.z, n: 1 })
+	if (!opts.monuments) {
+		for (const c of cands) {
+			const e = isMon(c.a.id) ? c.a : isMon(c.b.id) ? c.b : null
+			if (!e) continue
+			const cur = centre.get(e.id) ?? { x: 0, z: 0, n: 0 }
+			centre.set(e.id, { x: cur.x + e.x, z: cur.z + e.z, n: cur.n + 1 })
+		}
+	}
+	const dMon = (f: FireNode): number => {
+		let best = Infinity
+		for (const m of centre.values()) best = Math.min(best, Math.hypot(f.x - m.x / m.n, f.z - m.z / m.n))
+		return best
+	}
+
+	// 1. Monument links: every routable one (hop 1).
+	const hop = new Map<number, number>()
+	for (const c of sorted) {
+		if (!isMon(c.a.id) && !isMon(c.b.id)) continue
+		const r = route(c)
+		if (!r) continue
+		add(c, r, true)
+		hop.set(isMon(c.a.id) ? c.b.id : c.a.id, 1)
+	}
+
+	// Fire-fire candidates, adjacency and the RNG (planar, short) subset.
+	const ff = sorted.filter((c) => !isMon(c.a.id) && !isMon(c.b.id))
+	const nbr = new Map<number, { c: NetCand; o: FireNode }[]>()
+	const adj = new Map<number, Map<number, number>>()
+	const firesById = new Map<number, FireNode>()
+	const push = (id: number, e: { c: NetCand; o: FireNode }) => { const l = nbr.get(id); if (l) l.push(e); else nbr.set(id, [e]) }
+	for (const c of ff) {
+		push(c.a.id, { c, o: c.b }); push(c.b.id, { c, o: c.a })
+		firesById.set(c.a.id, c.a); firesById.set(c.b.id, c.b)
+		const w = d2(c)
+		if (!adj.has(c.a.id)) adj.set(c.a.id, new Map())
+		if (!adj.has(c.b.id)) adj.set(c.b.id, new Map())
+		adj.get(c.a.id)!.set(c.b.id, w)
+		adj.get(c.b.id)!.set(c.a.id, w)
+	}
+	const rng = new Set<string>()
+	for (const c of ff) {
+		const ab = d2(c)
+		const na = adj.get(c.a.id)!, nb = adj.get(c.b.id)!
+		if (!topologyBlocked(c.a, c.b, ab, na, nb, (k) => firesById.get(k))) rng.add(c.key)
+	}
+
+	// 2. Relays: closest-to-the-monument first, each links ONE parent: the nearest fire
+	// that is closer to a monument and still inside the chain (hop <= 1 + NETWORK_TREE_FIRE_HOPS
+	// once this fire joins). Closer-than-me makes cycles impossible. Candidates on the RNG come
+	// first, then the nearest crossing-free route of the first few (else the nearest).
+	// The hearth never relays charge, so it is never a tree node.
+	const order = [...firesById.values()].filter((f) => !hop.has(f.id) && f.id !== NETWORK_HEARTH_ID).map((f) => ({ f, d: dMon(f) })).sort((p, q) => p.d - q.d || p.f.id - q.f.id)
+	const isHeld = (e: { c: NetCand }) => (held?.has(e.c.key) ? 1 : 0)
+	const isRng = (e: { c: NetCand }) => (rng.has(e.c.key) ? 1 : 0)
+	for (const { f, d } of order) {
+		const ps = (nbr.get(f.id) ?? [])
+			.filter((e) => (hop.get(e.o.id) ?? 99) <= NETWORK_TREE_FIRE_HOPS && dMon(e.o) < d)
+			.sort((p, q) => isHeld(q) - isHeld(p) || isRng(q) - isRng(p) || d2(p.c) - d2(q.c) || (p.c.key < q.c.key ? -1 : 1))
+		let first: { c: NetCand; r: FireLinkRoute; h: number } | null = null
+		let pick: { c: NetCand; r: FireLinkRoute; h: number } | null = null
+		let tried = 0
+		for (const e of ps) {
+			if (tried >= NETWORK_TREE_PARENT_TRIES) break
+			const r = route(e.c)
+			if (!r) continue
+			tried++
+			const cand = { c: e.c, r, h: hop.get(e.o.id)! + 1 }
+			if (!first) first = cand
+			if (!kept.some((k) => routesCross(k.cand, k.route, e.c, r))) { pick = cand; break }
+		}
+		if (!pick) pick = first
+		if (pick) { add(pick.c, pick.r, true); hop.set(f.id, pick.h) }
+	}
+
+	// 3. Everything outside the trees: RNG on fire pairs (as before; tree fires still block as third nodes).
+	// An RNG link that crosses a kept route waits for the reconnect step (added there only if it is needed).
+	const crossesKept = (c: NetCand, r: FireLinkRoute) => kept.some((k) => routesCross(k.cand, k.route, c, r))
+	for (const c of ff) {
+		if (hop.has(c.a.id) || hop.has(c.b.id) || !rng.has(c.key)) continue
+		const r = route(c)
+		if (r && !crossesKept(c, r)) add(c, r, false)
+	}
+	// Reconnect split components (shortest first). Tree-to-tree joins are not made: a
+	// link needs a fire outside the trees at one end, and union-find never closes a cycle.
+	if (NETWORK_RECONNECT_ENABLED) {
+		const parent = new Map<number, number>()
+		const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p) } return p }
+		const unite = (x: number, y: number) => parent.set(find(x), find(y))
+		for (const k of kept) unite(k.cand.a.id, k.cand.b.id)
+		for (const allowCross of [false, true]) for (const c of ff) {
+			if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
+			if (hop.has(c.a.id) && hop.has(c.b.id)) continue
+			const r = route(c)
+			if (!r || (!allowCross && crossesKept(c, r))) continue
+			add(c, r, false)
+			unite(c.a.id, c.b.id)
+		}
+	}
+	// Any component that holds a monument or a tree fire is made a forest: its non-tree links
+	// (RNG / reconnect, shortest first) only stay if they join two separate pieces, so a relay
+	// that also sits in a loop of outside links never closes a cycle near a monument.
+	const comp = new Map<number, number>()
+	const cf = (x: number): number => { let p = comp.get(x) ?? x; if (p !== x) { p = cf(p); comp.set(x, p) } return p }
+	for (const k of kept) comp.set(cf(k.cand.a.id), cf(k.cand.b.id))
+	const treeRoots = new Set<number>()
+	for (const k of kept) for (const id of [k.cand.a.id, k.cand.b.id]) if (isMon(id) || hop.has(id)) treeRoots.add(cf(id))
+	const forest = new Map<number, number>()
+	const ff2 = (x: number): number => { let p = forest.get(x) ?? x; if (p !== x) { p = ff2(p); forest.set(x, p) } return p }
+	const out: KeptLink[] = []
+	for (const k of kept) if (protect.has(k.cand.key)) { forest.set(ff2(k.cand.a.id), ff2(k.cand.b.id)); out.push(k) }
+	for (const k of kept) {
+		if (protect.has(k.cand.key)) continue
+		if (treeRoots.has(cf(k.cand.a.id)) && ff2(k.cand.a.id) === ff2(k.cand.b.id)) continue
+		forest.set(ff2(k.cand.a.id), ff2(k.cand.b.id)); out.push(k)
+	}
+	return dropParallel(out, false, protect)
+}
 // MARK: trimEnd
 function trimEnd(map: TerrainMap, run: LinkRun, atStart: boolean, end: { x: number; z: number }): void {
 	const pts = atStart ? [...run.pts].reverse() : run.pts.slice()

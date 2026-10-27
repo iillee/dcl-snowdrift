@@ -42,10 +42,13 @@
  * the cinematic is force-ended, so it can never stay stuck.
  */
 
+import { CINE_CRYSTAL_FOV_DEG, CINE_CRYSTAL_FRAME_GROUND_R_M, cineAspect, crystalEndPose } from 'src/shared/crystalCineFrame'
+import { CRYSTAL_CINE_PULLBACK_MUL, CRYSTAL_CINE_PULLBACK_RISE_M, CRYSTAL_CINE_PULLBACK_S } from 'src/shared/ruleset'
 import {
 	InputAction,
 	InputModifier,
 	MainCamera,
+	UiCanvasInformation,
 	PointerEventType,
 	Transform,
 	VirtualCamera,
@@ -194,6 +197,8 @@ let crane: Vector3[] = []
 let craneEndT = 0
 /** Crane start time (s; crystals: after the release hold) and exact-look flag (look locked on the target, no spring). */
 let craneT0 = 0
+/** Crane table drives the camera only up to this time (crystals hand over to the wide pull-out early; else = craneEndT). */
+let craneHandoffT = Infinity
 let craneExactLook = false
 /** Keys interpolate linearly (dense pre-eased keys) instead of smoothstep per span. */
 let linearKeys = false
@@ -259,6 +264,7 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 	releasing = false
 	t         = 0
 	startedMs = Date.now()
+	craneHandoffT = Infinity
 	buildKeys(tgt)
 
 	lookP = craneLook(0)
@@ -269,6 +275,9 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 	Transform.create(cam, { position: crane[0] })
 	VirtualCamera.create(cam, {
 		lookAtEntity     : lookEnt,
+		// Explicit: omitting it leaves the FOV to the Explorer's default / the previously active camera (e.g. the 24 deg
+		// overview camera), which zoomed the framed shot in. The end pose is solved for exactly this vertical FOV.
+		fov              : CINE_CRYSTAL_FOV_DEG,
 		defaultTransition: { transitionMode: VirtualCamera.Transition.Time(CINE_BLEND_IN_S) },
 	})
 	// Remember the camera the player was on (e.g. the overview VirtualCamera)
@@ -464,12 +473,17 @@ function buildKeys(tgt: CineTarget): void {
 export const CINE_CRYSTAL_LOW_DIST_M  = 7
 export const CINE_CRYSTAL_LOW_EYE_M   = 1.2
 /** Final pose must frame the whole thaw disc: vertical FOV assumed (deg) and safety margin (m beyond the radius). */
-export const CINE_CRYSTAL_FOV_DEG     = 60
+export { CINE_CRYSTAL_FOV_DEG, CINE_CRYSTAL_END_PITCH_DEG } from 'src/shared/crystalCineFrame'
 export const CINE_CRYSTAL_FRAME_PAD_M = 6
 /** Final pose pitch (deg below horizontal, to the disc centre). */
-export const CINE_CRYSTAL_END_PITCH_DEG = 22
+/**
+ * The crystal pull-out to the wide end pose starts this long BEFORE the sky beam lands (s), blended out of the end of the
+ * rise crane, so the camera is already wide for the whole 2 s charge + burst (the zoom used to span a 5 s charge; the 2 s
+ * charge left it close to the monument when the beam hit).
+ */
+export const CINE_CRYSTAL_ZOOM_LEAD_S = 2.5
 /** Linger after the ring reaches full radius before handing back (s). */
-export const CINE_CRYSTAL_END_HOLD_S  = 0.5
+export const CINE_CRYSTAL_END_HOLD_S  = 2
 
 /**
  * Crystal release, all on the ruleset timeline:
@@ -491,24 +505,20 @@ function buildCrystalKeys(tgt: CineTarget, c: CrystalCine): void {
 	const tUp    = tRise + c.riseS
 	const tZoom  = tUp + c.chargeS
 	const tThaw  = tZoom + c.skyOffS + c.laserS + c.laserHoldS
-	endT = tThaw + c.spreadS + CINE_CRYSTAL_END_HOLD_S
+	const tMelt  = tThaw + c.spreadS
+	const pullS  = Math.max(0, CRYSTAL_CINE_PULLBACK_S)
+	endT = tMelt + pullS + CINE_CRYSTAL_END_HOLD_S
 
-	// End pose: distance so the disc (radius + pad) fits the vertical FOV
-	// at the chosen pitch, and the bearing whose line is clearest / in bounds.
-	const R = c.thawR + CINE_CRYSTAL_FRAME_PAD_M
-	const half = (CINE_CRYSTAL_FOV_DEG / 2) * DEG_C
-	const pitch = CINE_CRYSTAL_END_PITCH_DEG * DEG_C
-	// Smallest slant distance L with near + far disc edges inside +-half of the centre ray.
-	let L = R
-	for (; L < 600; L += 2) {
-		const hd = L * Math.cos(pitch), h = L * Math.sin(pitch)
-		const near = Math.atan2(h, Math.max(0.1, hd - R)) - pitch
-		const far  = pitch - Math.atan2(h, hd + R)
-		const side = Math.atan2(R, L)
-		if (near <= half && far <= half && side <= half * 1.4) break
-	}
-	const endHd = L * Math.cos(pitch)
-	const endH  = L * Math.sin(pitch)
+	// End pose (crystalEndPose): oblique 45-50 deg view of the whole melt circle with the tip
+	// ~9 % below the top of the (letterboxed) frame.
+	const topY = hov + tgt.halfLen
+	const canvas = UiCanvasInformation.getOrNull(engine.RootEntity)
+	const aspect = cineAspect(canvas?.width ?? 0, canvas?.height ?? 0)
+	const ep = crystalEndPose(topY - g, CINE_CRYSTAL_FRAME_GROUND_R_M, sceneHeightLimitM() - CINE_CEILING_MARGIN_M - g, aspect)
+	const endHd = ep.dist
+	const endH  = ep.camH
+	const lookY = g + ep.lookH
+	console.log(`monumentCinematic: crystal end pose h=${(topY - g).toFixed(1)} dist=${endHd.toFixed(0)} camH=${endH.toFixed(0)} lookH=${ep.lookH.toFixed(0)} pitch=${ep.pitchDeg.toFixed(1)} aspect=${aspect.toFixed(2)} fov=${CINE_CRYSTAL_FOV_DEG}`)
 	const { sx, sz } = pickSideAt(tgt, endHd)
 	const orbit = (dist: number, y: number, rot: number): Vector3 => {
 		const co = Math.cos(rot), si = Math.sin(rot)
@@ -531,23 +541,42 @@ function buildCrystalKeys(tgt: CineTarget, c: CrystalCine): void {
 	const p0 = crane[0]
 	const pUp = crane[crane.length - 1]
 	const pEnd = orbit(endHd, g + endH, 0.7)
-	const centre = Vector3.create(tgt.x, g, tgt.z)
-	// One eased curve for both position and look (sample() eases each span).
-	const zoomAt = (u: number) => () => {
-		const k = u * u * u * (u * (u * 6 - 15) + 10)
-		return { pos: lerpV(pUp, pEnd, k), look: lerpV(tip(), centre, k) }
-	}
+	const centre = Vector3.create(tgt.x, lookY, tgt.z)
+	// Pull-out: starts CINE_CRYSTAL_ZOOM_LEAD_S before the sky beam lands, blending the (still rising) crane
+	// position into the wide end pose on one smootherstep; look eases from the tip to the disc centre.
+	const lead  = Math.max(0, Math.min(CINE_CRYSTAL_ZOOM_LEAD_S, c.riseS * 0.6))
+	const tZ0   = tUp - lead
+	const zoomS = lead + c.chargeS
+	craneHandoffT = tZ0
 	keys = [
 		{ t: 0,      pos: () => p0, look: () => Vector3.create(tgt.x, g + 1.2, tgt.z) },
 		{ t: tRise,  pos: () => p0, look: tip },
 	]
-	// Zoom: dense keys on the smootherstep curve (linear between them).
-	const ZN = 24
+	// Dense keys on the smootherstep curve (linear between them).
+	const ZN = 32
 	for (let k = 0; k <= ZN; k++) {
-		const z = zoomAt(k / ZN)
-		keys.push({ t: tUp + (c.chargeS * k) / ZN, pos: () => z().pos, look: () => z().look })
+		const tt = tZ0 + (zoomS * k) / ZN
+		const e  = smoother(k / ZN)
+		keys.push({ t: tt, pos: () => lerpV(cranePos(Math.min(tt, tUp)), pEnd, e), look: () => lerpV(tip(), centre, e) })
+	}	// Hold the wide pose through the burst + melt, then one eased
+	// pull-back along the view ray (look fixed, slight rise, ceiling clamp).
+	keys.push({ t: tMelt, pos: () => pEnd, look: () => centre })
+	if (pullS > 0) {
+		const dx = pEnd.x - centre.x, dy = pEnd.y - centre.y, dz = pEnd.z - centre.z
+		const m = Math.max(1, CRYSTAL_CINE_PULLBACK_MUL) - 1
+		const yMax = sceneHeightLimitM() - CINE_CEILING_MARGIN_M
+		const pBack = Vector3.create(pEnd.x + dx * m, Math.min(yMax, pEnd.y + dy * m + CRYSTAL_CINE_PULLBACK_RISE_M), pEnd.z + dz * m)
+		const PN = 16
+		for (let k = 1; k <= PN; k++) {
+			const u = k / PN
+			const e = u * u * u * (u * (u * 6 - 15) + 10)
+			const p = lerpV(pEnd, pBack, e)
+			keys.push({ t: tMelt + (pullS * k) / PN, pos: () => p, look: () => centre })
+		}
+		keys.push({ t: endT, pos: () => pBack, look: () => centre })
+	} else {
+		keys.push({ t: endT, pos: () => pEnd, look: () => centre })
 	}
-	keys.push({ t: endT, pos: () => pEnd, look: () => centre })
 	linearKeys = true
 }
 
@@ -681,7 +710,8 @@ function cineSystem(dt: number): void {
 
 	let pos: Vector3
 	let want: Vector3
-	if (t >= craneT0 && t <= craneEndT) {
+	const onCrane = t >= craneT0 && t <= Math.min(craneEndT, craneHandoffT)
+	if (onCrane) {
 		pos  = cranePos(t)
 		want = craneLook(t)
 		if (craneExactLook) { lookP = want; lookV = Vector3.Zero() }
@@ -690,7 +720,7 @@ function cineSystem(dt: number): void {
 		pos  = safe(s.pos)
 		want = s.look
 	}
-	if (!(craneExactLook && t >= craneT0 && t <= craneEndT)) springLook(want, dt)
+	if (!(craneExactLook && onCrane)) springLook(want, dt)
 	if (cam) Transform.getMutable(cam).position = pos
 	if (lookEnt) Transform.getMutable(lookEnt).position = lookP
 }

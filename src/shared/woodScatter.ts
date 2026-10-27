@@ -7,14 +7,14 @@
  * src/server/wood.ts).
  *
  * Bands:
- *   - Near  (15-35 m): one-torch trip. Mostly branches, a few logs.
+ *   - Near  (15-35 m): one-torch trip.
  *   - Far   (35-80 m): gather belt, peak density at 50 m.
  *   - Outer (80-160 m): thin field toward the far trees and the
  *     second generation of hidden fires, peak density at 110 m.
  *   - Dest: dense buried wood inside the Low migration destination.
  *
  * A piece whose body would cross a cliff cell is skipped. Kind is
- * stamped at placement (stable per seed). Wilderness is kindling.
+ * stamped at placement (stable per seed); every scattered piece is a log.
  * Each scattered tree_4 holds four logs at the trunk.
  * Those are not world meshes: the player chops the tree, and each
  * chop spends one of the four.
@@ -33,7 +33,7 @@ import {
 	impassableCellsForMazeSeed,
 } from 'src/shared/terrain/terrainCache'
 import { cellCenterWorld, groundFlatWithin, groundYAtWorld, nearStation, TerrainMap } from 'src/shared/terrain/terrainMap'
-import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
+import { WOOD_KIND_LOG } from 'src/shared/woodKind'
 import { icedStationIndex } from 'src/shared/monumentIce'
 import {
 	isBuildYourOwnFire,
@@ -41,7 +41,6 @@ import {
 	WOOD_MONUMENT_LOG_COUNT,
 	WOOD_MONUMENT_MAX_M,
 	WOOD_MONUMENT_MIN_M,
-	WOOD_FRONTIER_LOG_CHANCE,
 	WOOD_FRONTIER_RING_MAX_M,
 	WOOD_FRONTIER_RING_MIN_M,
 	WOOD_FRONTIER_RING_POOL,
@@ -102,15 +101,9 @@ export const WOOD_OUTER_PEAK_M = 110
 export const WOOD_OUTER_MAX_M = 160
 /**
  * How far a buried piece can stick from its centre. Half the long
- * axis of branch.glb, so a branch lying toward a cliff still misses it.
+ * axis of a log lying on the ground, so one pointing at a cliff still misses it.
  */
 const WOOD_CLIFF_REACH_M = 2.1
-
-/**
- * Chance a placed chunk is a full log instead of a branch. About
- * 12 % of the live buried pieces.
- */
-export const WOOD_LOG_CHANCE = 0.12
 
 export const WOOD_BAND_NEAR  = 0
 export const WOOD_BAND_FAR   = 1
@@ -176,7 +169,7 @@ export interface WoodChunk {
 	worldZ : number
 	/** Terrain surface height under (worldX, worldZ). Visuals sit here. */
 	worldY : number
-	/** WOOD_KIND_BRANCH or WOOD_KIND_LOG. */
+	/** Always WOOD_KIND_LOG. */
 	kind   : number
 	/** WOOD_BAND_NEAR / FAR / OUTER / TREE / DEST. */
 	band   : number
@@ -212,12 +205,6 @@ function makeRng(seed: number): () => number {
 		t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
 		return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 	}
-}
-
-
-// MARK: pickKind
-function pickKind(rng: () => number, logChance: number = WOOD_LOG_CHANCE): number {
-	return rng() < logChance ? WOOD_KIND_LOG : WOOD_KIND_BRANCH
 }
 
 
@@ -320,7 +307,7 @@ function placeNearBand(
 			worldX: x,
 			worldZ: z,
 			worldY: groundAt(x, z),
-			kind  : pickKind(rng),
+			kind  : WOOD_KIND_LOG,
 			band  : WOOD_BAND_NEAR,
 		})
 	}
@@ -351,7 +338,7 @@ function placeFarBand(
 			worldX: x,
 			worldZ: z,
 			worldY: groundAt(x, z),
-			kind  : pickKind(rng),
+			kind  : WOOD_KIND_LOG,
 			band  : WOOD_BAND_FAR,
 		})
 	}
@@ -382,7 +369,7 @@ function placeOuterBand(
 			worldX: x,
 			worldZ: z,
 			worldY: groundAt(x, z),
-			kind  : pickKind(rng),
+			kind  : WOOD_KIND_LOG,
 			band  : WOOD_BAND_OUTER,
 		})
 	}
@@ -455,7 +442,7 @@ function placeDestBands(
 				worldX: x,
 				worldZ: z,
 			worldY: groundAt(x, z),
-				kind  : pickKind(rng, params.logChance),
+				kind  : WOOD_KIND_LOG,
 				band  : WOOD_BAND_DEST,
 			})
 			placed++
@@ -591,7 +578,7 @@ function placeFrontierBands(
 			const x   = CENTRE_X + vx * t + nx * off
 			const z   = CENTRE_Z + vz * t + nz * off
 			if (!frontierSpotOk(x, z, reserved)) continue
-			push(x, z, pickKind(rng, WOOD_FRONTIER_LOG_CHANCE), WOOD_BAND_FRONTIER_ROUTE)
+			push(x, z, WOOD_KIND_LOG, WOOD_BAND_FRONTIER_ROUTE)
 			placed++
 		}
 	}
@@ -606,7 +593,7 @@ function placeFrontierBands(
 			const a = 2 * Math.PI * rng()
 			const x = CENTRE_X + r * Math.cos(a), z = CENTRE_Z + r * Math.sin(a)
 			if (!frontierSpotOk(x, z, reserved)) continue
-			push(x, z, pickKind(rng, WOOD_FRONTIER_LOG_CHANCE), WOOD_BAND_FRONTIER_RING)
+			push(x, z, WOOD_KIND_LOG, WOOD_BAND_FRONTIER_RING)
 			placed++
 		}
 	}

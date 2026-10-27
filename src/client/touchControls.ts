@@ -9,14 +9,12 @@
  *                            (see layer.mobileActions) is the mobile
  *                            surface for the desktop E-press.
  *   \u2022 IA_SECONDARY (`F`) \u2014 hidden. Reserved / unused in Cryocene.
- *   \u2022 IA_ACTION_3  (`1`) \u2014 icon swapped to the eye glyph; dispatches
- *                            toggleTopDownCamera on rising edge.
- *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the help glyph.
- *   \u2022 IA_ACTION_5  (`3`) \u2014 icon swapped to the mute/unmute glyph.
- *                            Sits in the last slot. The unused `4` key
- *                            is hidden so the client does not replace
- *                            that slot with the "+" overflow.
- *   \u2022 IA_ACTION_6  (`4`) \u2014 hidden.
+ *   \u2022 IA_ACTION_3  (`1`) \u2014 eye glyph; topDownCamera toggles the view.
+ *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the mute/unmute glyph.
+ *   \u2022 IA_ACTION_5  (`3`) \u2014 star glyph: leaderboard (floating crystals;
+ *                            hidden in other rulesets).
+ *   \u2022 IA_ACTION_6  (`4`) \u2014 help glyph. Rotate has no hotkey / native
+ *                            slot (the overview has its own on-screen button).
  *
  * TouchScreenControls only affects native on-screen buttons, so all of
  * this is a no-op on desktop.
@@ -36,6 +34,8 @@ import { isMobile } from '@dcl/sdk/platform'
 
 import { isMusicMuted, toggleMusic }             from 'src/client/audio'
 import { toggleHelpPanel }                       from 'src/client/ui/layers/layer.helpPanel'
+import { toggleLeaderboardPanel }                from 'src/client/ui/layers/layer.leaderboard'
+import { isFloatingCrystals }                    from 'src/shared/ruleset'
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch }  from 'src/client/torchEquip'
@@ -57,6 +57,8 @@ const UNMUTE_ICON_SRC = 'assets/images/unmute_padded.png'
 // 700x700 white "?" glyph on transparent bg. Matches the eye + mute icon
 // footprint so all three buttons read as one visual family.
 const HELP_ICON_SRC   = 'assets/images/help-v3.png'
+// 700x700 white star on transparent bg (scripts/make-star-icon.js): leaderboard.
+const STAR_ICON_SRC   = 'assets/images/leaderboard_star_padded.png'
 
 
 // MARK: applyLayout
@@ -75,7 +77,8 @@ function applyLayout(): void {
 			// has its own mobile UI for the underlying actions.
 			{ inputAction: InputAction.IA_PRIMARY,   hide: true },
 			{ inputAction: InputAction.IA_SECONDARY, hide: true },
-			// Eye, help, and mute. The toggle itself is polled below.
+			// Slots: 1 eye (view), 2 mute, 3 star (leaderboard, floating crystals
+			// only), 4 help. Same order as the desktop keys. Toggles are polled below.
 			{
 				inputAction: InputAction.IA_ACTION_3,
 				hide       : false,
@@ -84,18 +87,20 @@ function applyLayout(): void {
 			{
 				inputAction: InputAction.IA_ACTION_4,
 				hide       : false,
-				icon       : { tex: { $case: 'texture', texture: { src: HELP_ICON_SRC } } },
-			},
-			{
-				inputAction: InputAction.IA_ACTION_5,
-				hide       : false,
 				icon       : { tex: { $case: 'texture', texture: { src: muteSrc } } },
 			},
-			// The unused "4" key is what pushes the cluster past five
-			// buttons, which is when the client swaps the last slot for
-			// a "+" that hides mute. Hiding it leaves exactly five, so
-			// mute sits in that slot.
-			{ inputAction: InputAction.IA_ACTION_6,   hide: true },
+			isFloatingCrystals()
+				? {
+					inputAction: InputAction.IA_ACTION_5,
+					hide       : false,
+					icon       : { tex: { $case: 'texture' as const, texture: { src: STAR_ICON_SRC } } },
+				}
+				: { inputAction: InputAction.IA_ACTION_5, hide: true },
+			{
+				inputAction: InputAction.IA_ACTION_6,
+				hide       : false,
+				icon       : { tex: { $case: 'texture', texture: { src: HELP_ICON_SRC } } },
+			},
 		],
 		hideJoystick : false,
 		hideCrosshair: false,
@@ -126,17 +131,24 @@ export function setupTouchControls(): void {
 	// Rising-edge dispatch. inputSystem.isTriggered(...PET_DOWN) already
 	// gives us rising-edge semantics, so no manual `prev` bookkeeping.
 	//
-	// NOTE: IA_ACTION_3 is NOT handled here — topDownCamera.ts already
+	// NOTE: IA_ACTION_3 (view) is NOT handled here - topDownCamera.ts already
 	// owns that input action and calls toggleTopDownCamera() on it. If
 	// we also toggled here, mobile taps would flip the camera twice per
 	// press (net: no visible change). Keep the eye dispatch there.
+	// Likewise audio.ts / layer.leaderboard.tsx / layer.helpPanel.tsx skip
+	// their desktop key handlers on mobile; this system is the only mobile
+	// dispatcher for 2 (mute), 3 (leaderboard) and 4 (help).
 	engine.addSystem(() => {
-		// ACTION_4 (`?`) opens the HelpPanel. Glyph is state-less — no re-apply.
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+		// ACTION_6 (4) opens the HelpPanel. Glyph is state-less - no re-apply.
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) { // 4: help
 			toggleHelpPanel()
 		}
-		// ACTION_5 (`3`, mute) — flip music state and re-apply so the glyph tracks it.
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+		// ACTION_5 (3, star slot, floating crystals only) opens the leaderboard.
+		if (isFloatingCrystals() && inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) { // 3: leaderboard
+			toggleLeaderboardPanel()
+		}
+		// ACTION_4 (2, mute) - flip music state and re-apply so the glyph tracks it.
+		if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) { // 2: mute
 			toggleMusic()
 			applyLayout()
 		}
@@ -148,5 +160,5 @@ export function setupTouchControls(): void {
 		// now owns mobile relight via its onMouseDown → tryRelightAtFire().
 	})
 
-	console.log('touchControls: setupTouchControls: mobile layout applied (E/F/4 hidden, mute in the last slot)')
+	console.log('touchControls: setupTouchControls: mobile layout applied (E/F hidden; 1 eye, 2 mute, 3 star, 4 help)')
 }

@@ -58,6 +58,13 @@ export function isFloatingCrystals(): boolean {
 
 
 // MARK: Floating crystal tunables
+/**
+ * Soft outer-wall bias for monument placement (crystals): a socket's
+ * score is scaled from MONUMENT_EDGE_MIN_MUL (against the wall) up to 1
+ * at MONUMENT_EDGE_PREF_M from it. Not a hard rule. 0 m = off.
+ */
+export const MONUMENT_EDGE_PREF_M  = 30
+export const MONUMENT_EDGE_MIN_MUL = 0.5
 /** Monuments per world in floating-crystals mode (classic / build-your-own-fire keep 3). Max 8. */
 export const MONUMENT_COUNT = 6
 /**
@@ -111,10 +118,36 @@ export const CHARGE_SHAKE_FROM = 0.8
 /** Pre-release lift (m) at full charge, and gem glow before release. */
 export const CHARGE_PRE_LIFT_M = 0.8
 export const CHARGE_PRE_GLOW = 0.7
-/** Released crystal: bottom tip height above its ground (m). */
+/** Released crystals: shared bottom-tip world Y = highest monument ground + this (m); see crystalFloat.ts. */
 export const CRYSTAL_FLOAT_HEIGHT_M = 25
 /** Crystal release: the heat zone thaws outward from the crystal over this many seconds (0 = instant). */
-export const CRYSTAL_THAW_SPREAD_S = 7
+export const CRYSTAL_THAW_SPREAD_S_LASER = 7
+/**
+ * Release burst (replaces the downward laser when CRYSTAL_LASER_ENABLED is
+ * false): the monument itself charges (CRYSTAL_CHARGE_S, no colour change, no
+ * growing sphere), then the energy sphere (CRYSTAL_SPHERE_MAX_M diameter at
+ * start) bursts: its radius
+ * runs 0 -> hypot(R, float height) over CRYSTAL_BURST_S, fading out, so its
+ * ground circle reaches the 50 m melt radius as it ends. The server thaw
+ * front tracks that same ground circle (startHeatZoneFront fromHeightM).
+ */
+export const CRYSTAL_LASER_ENABLED = false
+/**
+ * Permanent sky beam idle pulse after release: one gentle crest every
+ * PERIOD travels DOWN the beam (sky -> crystal tip) over TRAVEL_S, extra
+ * width AMP at the crest, crest width WIDTH (fraction of beam length).
+ * Position is normalised to beam length, phase from the wall clock
+ * (Date.now, shared epoch): every beam on every client leaves the sky and
+ * lands in its crystal at the same moment, late joiners included.
+ */
+export const CRYSTAL_SKY_IDLE_PULSE_PERIOD_S = 2.8
+export const CRYSTAL_SKY_IDLE_PULSE_TRAVEL_S = 1.6
+export const CRYSTAL_SKY_IDLE_PULSE_AMP = 0.5
+export const CRYSTAL_SKY_IDLE_PULSE_WIDTH = 0.12
+export const CRYSTAL_SPHERE_MAX_M = 3
+/** Slowed from 1.6 s: a longer, smoother melt (the thaw front, sphere edge and cinematic all derive from this). */
+export const CRYSTAL_BURST_S = 3
+export const CRYSTAL_THAW_SPREAD_S = CRYSTAL_LASER_ENABLED ? CRYSTAL_THAW_SPREAD_S_LASER : CRYSTAL_BURST_S
 /**
  * Charging monument heat (floating crystals): acts like a campfire whose
  * tier steps with charge. Below CHARGE_HEAT_TIER_AT[0] -> Low, below [1]
@@ -142,18 +175,23 @@ export function chargeHeatFuel(charge: number): number {
  * ground. The server starts the thaw front exactly at the laser hit.
  */
 export const CRYSTAL_RELEASE_HOLD_S = 2
+/** Release cinematic: after the melt has spread, ease the camera back along its view (s, distance x, extra rise m). 0 s = off (default: the end shot just holds; 3.5 re-enables the zoom-out). */
+export const CRYSTAL_CINE_PULLBACK_S      = 0
+export const CRYSTAL_CINE_PULLBACK_MUL    = 1.4
+export const CRYSTAL_CINE_PULLBACK_RISE_M = 6
 /** Rise to float height; the sky beam drops over the last CRYSTAL_SKY_DROP_S and lands in the top tip as it ends. */
 export const CRYSTAL_RISE_S = 4
 export const CRYSTAL_SKY_DROP_S = 1.4
-/** Charging from the sky beam (crystal brightens, pulses run down the beam); the camera zooms out + down over this. */
-export const CRYSTAL_CHARGE_S = 5
+/** The 2 s charge after the sky beam lands in the top tip: then the burst fires. The cinematic camera zoom and CRYSTAL_THAW_DELAY_S derive from this. */
+export const CRYSTAL_CHARGE_S = 2
 /** Gap between charging ending and the laser (s). 0: the sky beam stays on permanently; no lift-away step. */
 export const CRYSTAL_SKY_OFF_S = 0
 /** Laser draws down into the earth, then is held before the thaw starts. */
 export const CRYSTAL_LASER_DRAW_S = 0.15 // near-instant shot crystal -> ground (was 0.6)
 export const CRYSTAL_LASER_HOLD_S = 2
 /** Thaw front start after release (server, all players) = end of the laser hold. */
-export const CRYSTAL_THAW_DELAY_S = CRYSTAL_RELEASE_HOLD_S + CRYSTAL_RISE_S + CRYSTAL_CHARGE_S + CRYSTAL_SKY_OFF_S + CRYSTAL_LASER_DRAW_S + CRYSTAL_LASER_HOLD_S
+export const CRYSTAL_THAW_DELAY_S = CRYSTAL_RELEASE_HOLD_S + CRYSTAL_RISE_S + CRYSTAL_CHARGE_S +
+	(CRYSTAL_LASER_ENABLED ? CRYSTAL_SKY_OFF_S + CRYSTAL_LASER_DRAW_S + CRYSTAL_LASER_HOLD_S : 0)
 /** Floating crystals: idle volcano look from the start (never reacts to monuments). */
 export const CRYSTAL_IDLE_LAVA_COVER    = 0.25
 export const CRYSTAL_IDLE_LAVA_TOP_M    = 0.04
@@ -259,8 +297,44 @@ export function chainHops(seeds: Iterable<number>, edges: ReadonlyArray<readonly
 export const BUILT_FIRE_COST_KIND = WOOD_KIND_LOG
 /** Pieces per build. The carry slot holds one, so only 1 is supported today. */
 export const BUILT_FIRE_COST_COUNT = 1
-/** Fuel (s) a fresh built fire starts with. 1 log = 120 s (Ember tier). */
+/** Fuel (s) a fresh LOG-built fire starts with. 1 log = 120 s (Low tier). */
 export const BUILT_FIRE_START_FUEL = LOG_FUEL_SECONDS
+
+// MARK: Wood types
+/**
+ * Data-driven wood table (step one of wood tiers: pine / maple / oak /
+ * yew later = new entries). The wood you BUILD with only sets the fire's
+ * starting fuel (hence starting tier); every built fire then links,
+ * relays and charges like any other and grows through the normal tiers
+ * as it is fed. Feed fuel per piece stays fuelSecondsForKind (hearthFuel).
+ * burnMul / heatMul are placeholders for future tiers (1 = unchanged,
+ * not applied yet).
+ */
+export interface WoodType {
+	name: string
+	/** May light a new campfire (carried, lit torch). */
+	canBuild: boolean
+	/** Pieces needed to build (the carry slot holds one, so 1). */
+	buildCount: number
+	/** Starting fuel (s) of a fire built with it. */
+	buildStartFuel: number
+	burnMul: number
+	heatMul: number
+}
+export const WOOD_TYPES: Readonly<Record<number, WoodType>> = {
+	[WOOD_KIND_LOG]   : { name: 'log',    canBuild: true, buildCount: 1, buildStartFuel: BUILT_FIRE_START_FUEL, burnMul: 1, heatMul: 1 },
+}
+export function woodType(kind: number): WoodType | null {
+	return WOOD_TYPES[kind] ?? null
+}
+/** True when this carried wood kind can light a new campfire. */
+export function canBuildWithKind(kind: number): boolean {
+	return woodType(kind)?.canBuild === true
+}
+/** Starting fuel (s) for a fire built with kind. */
+export function buildStartFuelFor(kind: number): number {
+	return woodType(kind)?.buildStartFuel ?? BUILT_FIRE_START_FUEL
+}
 /**
  * Test 2 switch. true = built fires never drain (fuel stays put) and
  * shared fuel skips them (they report as full). false for Test 1.
@@ -301,8 +375,6 @@ export const WOOD_FRONTIER_RING_MIN_M = 140
 export const WOOD_FRONTIER_RING_MAX_M = 320
 export const WOOD_FRONTIER_RING_POOL = 80
 export const WOOD_FRONTIER_RING_ACTIVE = 30
-/** Chance a frontier piece is a log (the build currency) not a branch. */
-export const WOOD_FRONTIER_LOG_CHANCE = 0.6
 /** Guaranteed cluster near the frozen (iced) monument, replacing the
  *  classic guaranteed campfire there. Always active, all logs. */
 export const WOOD_ICED_CLUSTER_COUNT = 5
@@ -328,12 +400,21 @@ export type BuildFireVerdict =
 	| 'spacing'
 	| 'snow'
 	| 'cap'
-	| 'stick'
+
+/**
+ * The built fire goes in FRONT of the player (not under their feet): this far (m) along their facing. The client sends its
+ * own position + facing yaw; client pre-check and server both derive the spot with builtFireFrontSpot and validate THAT point.
+ */
+export const BUILT_FIRE_FRONT_M = 1.2
+/** Spot for a fire built by a player at (px, pz) facing `yaw` (rad; forward = (sin yaw, cos yaw) in x/z). Pure. */
+export function builtFireFrontSpot(px: number, pz: number, yaw: number): { x: number; z: number } {
+	return { x: px + Math.sin(yaw) * BUILT_FIRE_FRONT_M, z: pz + Math.cos(yaw) * BUILT_FIRE_FRONT_M }
+}
 
 /** Short player-facing reason for an invalid ghost. */
 export function buildVerdictText(v: BuildFireVerdict): string {
 	switch (v) {
-		case 'ok'      : return 'LIGHT CAMPFIRE'
+		case 'ok'      : return 'BUILD CAMPFIRE'
 		case 'bounds'  : return "CAN'T LIGHT HERE"
 		case 'steep'   : return 'TOO STEEP'
 		case 'lava'    : return 'TOO HOT'
@@ -341,7 +422,6 @@ export function buildVerdictText(v: BuildFireVerdict): string {
 		case 'spacing' : return 'TOO CLOSE TO FIRE'
 		case 'snow'    : return 'TOO MUCH SNOW'
 		case 'cap'     : return 'FIRE LIMIT REACHED'
-		case 'stick'   : return 'NEEDS A LOG'
 	}
 }
 

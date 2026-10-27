@@ -30,6 +30,7 @@ import { frostBarLayer }              from 'src/client/ui/layers/layer.frostBar'
 import { hotbarBridgeLayer }          from 'src/client/ui/layers/layer.hotbarBridge'
 import { inventoryHotbarLayer }       from 'src/client/ui/layers/layer.inventoryHotbar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
+import { leaderboardLayer }           from 'src/client/ui/layers/layer.leaderboard'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 // hotbarLayer retired — the torch button now lives inside the top
 // action bar (see layer.brushSize.tsx > TorchButton). The layer file
@@ -123,6 +124,8 @@ export function setupUi() {
 			// is clicked. Registered above HUD chrome so its border isn't
 			// clipped by lower layers, but below deathFade / splash.
 			...hideDuringCinematic([helpPanelLayer]),
+			// Fastest-completion leaderboard (star button): same slot + look as the help panel.
+			...hideDuringCinematic([leaderboardLayer]),
 			// Monument cinematic letterbox: above HUD chrome, below splashes.
 			cinematicLayer,
 			// Sunrise "Day X" sits above HUD chrome, below death / ember /

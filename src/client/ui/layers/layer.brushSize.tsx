@@ -18,6 +18,7 @@ import { forceLocalCycleRoll } from 'src/client/cycle'
 import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
 import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
+import { toggleLeaderboardPanel } from 'src/client/ui/layers/layer.leaderboard'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
 import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
 import { feedFire, getCarriedKind, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
@@ -33,7 +34,6 @@ import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
 import { canZoomIn, canZoomOut, isTopDownActive, rotateView, toggleTopDownCamera, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
-import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -84,10 +84,16 @@ function slotIconSize(): number { return isMobile() ? 64  : 40 }
 // the active/inactive state by swapping the icon size + a colour cast
 // via a coloured backdrop is not needed at this scale.
 const EYE_ICON_SRC = 'assets/images/eye.png'
+/** Overview rotate icon (from dcl-pixelwars). */
+const ROTATE_ICON_SRC = 'assets/images/overview_rotate.png'
+const ROTATE_ICON_M   = 34
 // Eye PNGs are wider than tall. DCL's textureMode has no 'contain'
 // (aspect-preserving fit), so we hardcode a box that roughly matches
 // the icon's aspect. Bump _W / _H together to resize.
 const EYE_ICON_W   = 48
+/** Leaderboard star (scripts/make-star-icon.js): white on transparent. */
+const STAR_ICON_SRC = 'assets/images/leaderboard_star.png'
+const STAR_ICON_PX  = 38
 const EYE_ICON_H   = 32
 
 
@@ -340,6 +346,39 @@ export function HelpButton() {
 }
 
 
+// MARK: LeaderboardButton
+/**
+ * Star button: opens the fastest-completion leaderboard. Sits between
+ * the mute and help buttons (floating-crystals ruleset only; the caller
+ * gates it). Same footprint + border as its neighbours. Hotkey: 3
+ * (initLeaderboardHotkey in layer.leaderboard.tsx).
+ */
+export function LeaderboardButton() {
+	return (
+		<UiEntity
+			key = "ui_LeaderboardBtn"
+			uiTransform = {{
+				...HUD_SQUARE,
+				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); toggleLeaderboardPanel() }}
+		>
+			<UiEntity
+				key = "ui_LeaderboardBtn_icon"
+				uiTransform = {{ width: STAR_ICON_PX, height: STAR_ICON_PX }}
+				uiBackground = {{ textureMode: 'stretch', texture: { src: STAR_ICON_SRC }, color: WHITE }}
+			/>
+		</UiEntity>
+	)
+}
+
+
 // MARK: ClockIcon
 /**
  * Minimalist analogue-clock glyph built from UiEntity primitives so we
@@ -502,9 +541,10 @@ export function SpectatorButton() {
 					}}
 				/>
 			</UiEntity>
-			{specActive && <ZoomHudButton kind="in"  dockRight={(BTN_SIZE + gap) * 2} />}
-			{specActive && <ZoomHudButton kind="out" dockRight={BTN_SIZE + gap} />}
-			{specActive && <RotateHudButton dockRight={(BTN_SIZE + gap) * 3} />}
+			{/* Order left -> right: + , - , rotate , eye (then mute, ?, hearts). */}
+			{specActive && <ZoomHudButton kind="in"  dockRight={(BTN_SIZE + gap) * 3} />}
+			{specActive && <ZoomHudButton kind="out" dockRight={(BTN_SIZE + gap) * 2} />}
+			{specActive && <RotateHudButton dockRight={BTN_SIZE + gap} />}
 		</UiEntity>
 	)
 }
@@ -562,7 +602,7 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 
 // MARK: RotateHudButton
 /**
- * Manual overview rotate (same as the 4 key): turns the iso view 90 deg
+ * Manual overview rotate (same as the 1 key): turns the iso view 90 deg
  * clockwise. Cliff auto-rotate (ISO_AUTO_ROTATE_ENABLED) stays on too.
  */
 function RotateHudButton(props: { dockRight: number }) {
@@ -582,13 +622,10 @@ function RotateHudButton(props: { dockRight: number }) {
 			uiBackground = {{ color: PANEL_BG }}
 			onMouseDown  = {() => { playUiClick(); rotateView(1) }}
 		>
-			<Label
-				value    = "<b>90°</b>"
-				fontSize = {26}
-				color    = {WHITE}
-				font     = "sans-serif"
-				textAlign= "middle-center"
-				uiTransform = {{ width: '100%', height: '100%' }}
+			{/* Rotate icon ported from dcl-pixelwars (assets/images/overview_rotate.png, white silhouette, tinted). */}
+			<UiEntity
+				uiTransform  = {{ width: ROTATE_ICON_M, height: ROTATE_ICON_M, pointerFilter: 'none' }}
+				uiBackground = {{ textureMode: 'stretch', texture: { src: ROTATE_ICON_SRC }, color: WHITE }}
 			/>
 		</UiEntity>
 	)
@@ -899,7 +936,7 @@ export function TorchButton() {
 /**
  * Wood inventory slot to the LEFT of the torch slot. Identical
  * footprint to TorchButton. Empty when not carrying; shows logs.png
- * or branch.png when the F-slot is filled. Gold border while the
+ * when the F-slot is filled. Gold border while the
  * Feed tooltip is up.
  */
 export function LogsButton() {
@@ -950,9 +987,7 @@ export function LogsButton() {
 					uiBackground = {{
 						textureMode: 'stretch',
 						texture    : {
-							src: getCarriedKind() === WOOD_KIND_BRANCH
-								? 'assets/images/branch.png'
-								: 'assets/images/logs.png',
+							src: 'assets/images/logs.png',
 						},
 						color      : WHITE,
 					}}
