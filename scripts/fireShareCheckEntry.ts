@@ -18,5 +18,10 @@ ok('fed capped -> to others', near(r.fed, 10) && near(r.others[0], 50), JSON.str
 ok('all capped -> null', splitFuelKeepShare(590, [595], 600, 60, 0.5) === null)
 r = splitFuelKeepShare(200, [100, 100, 100], 600, 60, 0.5)!
 ok('total conserved', near(r.fed + sum(r.others), 60), JSON.stringify(r))
+r = splitFuelKeepShare(600, [200, 500], 600, 120, 0.5)!
+ok('fed full -> all to others, lowest first', near(r.fed, 0) && near(r.others[0], 120) && near(r.others[1], 0), JSON.stringify(r))
+r = splitFuelKeepShare(600, [500, 540], 600, 120, 0.5)!
+ok('fed full, overflow water-filled', near(r.fed, 0) && near(r.others[0], 80) && near(r.others[1], 40), JSON.stringify(r))
+ok('fed full, others too small -> null', splitFuelKeepShare(600, [550, 560], 600, 120, 0.5) === null)
 console.log(fails ? `${fails} FAILED` : 'all pass')
 if (fails) process.exit(1)

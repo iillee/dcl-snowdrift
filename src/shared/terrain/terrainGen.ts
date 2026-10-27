@@ -24,6 +24,14 @@
 import { computeVolcanoCrownCells, crownLevelFor } from 'src/shared/terrain/volcanoCrown'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
+	MONUMENT_COUNT,
+	MONUMENT_DISTANCE_BANDS,
+	MONUMENT_MIN_ANGLE_DEG,
+	MONUMENT_RELAX_SEP_FRAC,
+	isFloatingCrystals,
+	CRYSTAL_NEAR_MONUMENT_TARGET_M,
+} from 'src/shared/ruleset'
+import {
 	MAJOR_GROVE_COUNT,
 	TERRAIN_CELL_M,
 	TERRAIN_GRID_H,
@@ -169,7 +177,9 @@ const VOLCANO_OPPOSITE_RAD   = Math.PI / 2
 // hover ~20 m above the crater rim and beam down from the bottom tip, so the socket itself needs
 // no line of sight: low ground and canyons are valid (and preferred).
 // Not groves. Scaled so playtest_52 and full_100 share the same feel.
-const STATION_COUNT            = 3
+const STATION_COUNT            = isFloatingCrystals() ? MONUMENT_COUNT : 3
+/** World gen accepts the map with at least this many (crystals: fewer than MONUMENT_COUNT is logged, not a reroll). */
+const STATION_MIN_VALID        = 3
 /** Min Chebyshev cells between any two stations. */
 const STATION_MIN_SEP_CELLS    = Math.round(sc(12))
 /** Min Chebyshev cells from hearth centre. */
@@ -223,6 +233,10 @@ const NEAR_W_DIST = 1.5
 export const NEAR_STATION_PULL: number = 0.75
 /** Ranked near sockets tried in turn when one blocks the far picks. */
 const NEAR_STATION_TRIES = 8
+/** Effective pull: crystals mode aims the near monument at CRYSTAL_NEAR_MONUMENT_TARGET_M. */
+function nearPull(): number {
+	return isFloatingCrystals() ? CRYSTAL_NEAR_MONUMENT_TARGET_M / NEAR_STATION_TARGET_M : NEAR_STATION_PULL
+}
 /** Hearth line of sight: eye height above the hearth ground (m). */
 export const NEAR_LOS_EYE_M = 1.7
 /**
@@ -392,20 +406,26 @@ function buildOnce(
 	// Stations need the final heights (crown extruded) so the hover beam
 	// check matches what the player sees. Empty when the volcano is
 	// missing or no three sockets clear separation.
-	const nearPicks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion)
+	// Floating crystals: pick the near monument at its target up front so the
+	// far picks are built around it (a late pull often loses to their angles).
+	const nearPicks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, isFloatingCrystals() ? nearPull() : 1)
 	let stations: TerrainStation[] = []
+	let best: TerrainStation[] = []
 	for (let k = 0; k < nearPicks.length; k++) {
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [nearPicks[k].station])
+		if (stations.length > best.length) best = stations
 		if (stations.length >= STATION_COUNT) {
 			console.log('terrainGen: ' + nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : ''))
 			break
 		}
 	}
-	if (stations.length < STATION_COUNT) {
+	stations = best
+	if (stations.length < STATION_COUNT && stations.length < STATION_MIN_VALID) {
 		console.log('terrainGen: near monument blocked the far picks - falling back to far-only stations')
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [])
 	}
-	if (NEAR_STATION_PULL !== 1 && stations.length >= STATION_COUNT && stations[0].near) {
+	if (stations.length < STATION_COUNT) console.log(`terrainGen: only ${stations.length}/${STATION_COUNT} monuments placed`)
+	if (nearPull() !== 1 && stations.length >= STATION_MIN_VALID && stations[0].near) {
 		stations = pullNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, stations)
 	}
 
@@ -2285,7 +2305,7 @@ function pullNearStation(
 	const dOf  = (st: TerrainStation) => Math.hypot(st.cx + 0.5 - HEARTH_FX, st.cz + 0.5 - HEARTH_FZ)
 	const aOf  = (st: TerrainStation) => Math.atan2(st.cz + 0.5 - HEARTH_FZ, st.cx + 0.5 - HEARTH_FX)
 	const curD = dOf(cur)
-	const picks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, NEAR_STATION_PULL)
+	const picks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, nearPull())
 	for (const p of picks) {
 		const c = p.station
 		if (dOf(c) >= curD) continue
@@ -2297,7 +2317,7 @@ function pullNearStation(
 			if (diff < STATION_MIN_ANGLE_RAD) { ok = false; break }
 		}
 		if (!ok) continue
-		console.log('terrainGen: near monument pulled x' + NEAR_STATION_PULL + ': ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm -> ' + p.log)
+		console.log('terrainGen: near monument pulled x' + nearPull().toFixed(2) + ': ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm -> ' + p.log)
 		return [c, ...far]
 	}
 	console.log('terrainGen: near monument pull: no valid closer socket, kept at ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm')
@@ -2378,20 +2398,22 @@ function pickStations(
 	const out: TerrainStation[] = preset.slice()
 	const oAng = (st: TerrainStation): number =>
 		Math.atan2(st.cz + 0.5 - HEARTH_FZ, st.cx + 0.5 - HEARTH_FX)
+	const minAngle = isFloatingCrystals() ? (MONUMENT_MIN_ANGLE_DEG * Math.PI) / 180 : STATION_MIN_ANGLE_RAD
 	const angOk = (ang: number): boolean => {
 		for (const o of out) {
 			let diff = Math.abs(ang - oAng(o)) % (Math.PI * 2)
 			if (diff > Math.PI) diff = Math.PI * 2 - diff
-			if (diff < STATION_MIN_ANGLE_RAD) return false
+			if (diff < minAngle) return false
 		}
 		return true
 	}
-	const sepOk = (c: Cand): boolean => {
+	const sepOkAt = (c: Cand, sep: number): boolean => {
 		for (const o of out) {
-			if (Math.max(Math.abs(c.cx - o.cx), Math.abs(c.cz - o.cz)) < STATION_MIN_SEP_CELLS) return false
+			if (Math.max(Math.abs(c.cx - o.cx), Math.abs(c.cz - o.cz)) < sep) return false
 		}
 		return true
 	}
+	const sepOk = (c: Cand): boolean => sepOkAt(c, STATION_MIN_SEP_CELLS)
 	const taken = (c: Cand): boolean => out.some(o => o.cx === c.cx && o.cz === c.cz)
 	const take = (c: Cand): void => {
 		const b = beamOf(c)
@@ -2404,6 +2426,26 @@ function pickStations(
 		})
 	}
 
+	// Floating crystals: the hover beam is unused (crystals float at a
+	// fixed height), and monuments fan out over distance bands from the
+	// hearth so some are near, some far (fractions of the farthest route).
+	const crystals = isFloatingCrystals()
+	const beamOk = (c: Cand): boolean => crystals || beamOf(c).clear
+	if (crystals) {
+		let maxRoute = 1
+		for (const c of cands) maxRoute = Math.max(maxRoute, c.route)
+		for (const [lo, hi] of MONUMENT_DISTANCE_BANDS) {
+			if (out.length >= STATION_COUNT) break
+			// Best-scoring candidate whose route falls in the band.
+			for (const c of cands) {
+				const f = c.route / maxRoute
+				if (f < lo || f > hi) continue
+				if (taken(c) || !sepOk(c) || !angOk(c.ang)) continue
+				take(c)
+				break
+			}
+		}
+	}
 	// Pass 1: one socket per elevation (low ground first) with a clear
 	// hover beam, so stations fan across Low / Mid / High.
 	for (const want of [LOW, MID, HIGH]) {
@@ -2411,7 +2453,7 @@ function pickStations(
 		for (const c of cands) {
 			if (c.level !== want) continue
 			if (taken(c) || !sepOk(c) || !angOk(c.ang)) continue
-			if (!beamOf(c).clear) continue
+			if (!beamOk(c)) continue
 			take(c)
 			break
 		}
@@ -2420,7 +2462,7 @@ function pickStations(
 	for (const c of cands) {
 		if (out.length >= STATION_COUNT) break
 		if (taken(c) || !sepOk(c) || !angOk(c.ang)) continue
-		if (!beamOf(c).clear) continue
+		if (!beamOk(c)) continue
 		take(c)
 	}
 	// Pass 3: relax angle and the beam check (keep separation).
@@ -2428,6 +2470,15 @@ function pickStations(
 		if (out.length >= STATION_COUNT) break
 		if (taken(c) || !sepOk(c)) continue
 		take(c)
+	}
+	// Pass 4 (crystals): relax separation for a crowded small map.
+	if (crystals) {
+		const sep = Math.max(2, Math.round(STATION_MIN_SEP_CELLS * MONUMENT_RELAX_SEP_FRAC))
+		for (const c of cands) {
+			if (out.length >= STATION_COUNT) break
+			if (taken(c) || !sepOkAt(c, sep)) continue
+			take(c)
+		}
 	}
 	return out
 }
@@ -2485,7 +2536,7 @@ function validate(map: TerrainMap): string {
 	if (map.volcano.level !== HIGH && map.volcano.level !== RIM) {
 		return `volcano level ${map.volcano.level}`
 	}
-	if (map.stations.length < STATION_COUNT) {
+	if (map.stations.length < STATION_MIN_VALID) {
 		return `stations ${map.stations.length}/${STATION_COUNT}`
 	}
 	{
@@ -2506,7 +2557,8 @@ function validate(map: TerrainMap): string {
 			for (let b = a + 1; b < map.stations.length; b++) {
 				const A = map.stations[a]
 				const B = map.stations[b]
-				if (Math.max(Math.abs(A.cx - B.cx), Math.abs(A.cz - B.cz)) < STATION_MIN_SEP_CELLS) {
+				const minSep = isFloatingCrystals() ? Math.max(2, Math.round(STATION_MIN_SEP_CELLS * MONUMENT_RELAX_SEP_FRAC)) : STATION_MIN_SEP_CELLS
+				if (Math.max(Math.abs(A.cx - B.cx), Math.abs(A.cz - B.cz)) < minSep) {
 					return 'stations too close'
 				}
 			}

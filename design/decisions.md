@@ -6,6 +6,19 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-26 session - fire network (branch `fire-network`, 2e202ec / 67f6758 / 3d5e7ea + uncommitted)
+
+- **Links:** NETWORK_LINK_RANGE_M 140, NETWORK_MAX_ROUTE_M 260; A* routes may use ladders (NETWORK_LADDER_COST 3), path ends at ladder base and lip. Server holds links; clients re-route with shared code for identical paths.
+- **Route shape:** organic smoothing (SMOOTH_ITERS 4), meander 1.5 m / 55 m wavelength, fade 10 m near fires. Owner: less curved than the first pass.
+- **Orbs:** spheres, size 0.25, spacing 1.5 m, float 0.6 m, bob 0.1 m / 4.5 s / 20 m wave, pulse 0.1 / 1.6 s; shrink to 0.3x near a weak fire (full at 150 s fuel, 30 m influence).
+- **Shared fuel:** fed fire keeps 50% (SHARE_KEEP), rest to lowest-fuel lit fire within 2 hops; share wave swells existing orbs (no new entities). A full linked fire accepts wood and passes it all on (uncommitted).
+- **Fire out:** orbs + warmth vanish immediately; path stays dug until snowfall (PATH_REFREEZE_ENABLED false); fire model kept. Path warmth = Low tier (PATH_WARM_FUEL 100).
+- **Overlapping paths:** per-cell hold counts, so a dying fire never frees cells another lit path holds (uncommitted).
+- **Stepped trench gradient:** built, owner disliked the look; OFF via NETWORK_PATH_GRADIENT_ENABLED (code kept).
+- **Tuning:** log 120 s, branch 60 s; drainMul day 0.5, dusk/night 1.5 (was 2.0); cliff cap LOD CAP_KEEP_M 200; NEAR_STATION_PULL 0.75 (nearest monument ~120 m from spawn).
+- **Monument:** ice keeps melt progress (MONUMENT_ICE_REFREEZE_ENABLED false); guaranteed campfire 25-60 m from the frozen monument; ignite caption name in gold.
+- **UI:** respawn text pulses (0.08 / 1.2 s); help panel drops the phase countdown and linked-fires lines.
+
 ## 2026-10-26 session - staged volcano, world end, overview zoom, first-load fix
 
 - **Cinematic camera:** one continuous crane move with precomputed terrain clearance (CINE_CRANE_SAMPLES 160, CINE_CRANE_LIFT_WIN 10) and a spring-smoothed look target that ignores the obelisk bob (CINE_LOOK_OMEGA 5, CINE_LOOK_SKY_LIFT_M / CINE_LOOK_LAND_LIFT_M). beam.wav softened: BEAM_SFX_VOLUME 0.45, BEAM_SFX_FADE_IN_S 0.8.

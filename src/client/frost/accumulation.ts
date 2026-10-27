@@ -48,6 +48,7 @@ import { NETWORK_PATH_WARM_FUEL } from 'src/shared/fireNetwork'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { thawHeatAt } from 'src/client/worldThaw'
+import { crystalHeatAt, monumentChargeHeatAt } from 'src/client/stationMarkers'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
 import { activeGroundYAt, activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -325,7 +326,10 @@ export function initFrostAccumulation(): void {
 		// edge). Blocks open-air / night cold in proportion and warms
 		// like a Warm campfire. Outside the zone (0) winter is normal.
 		const thawHeat = thawHeatAt(x, z)
-		const ambientCold = ambientColdPerSec(phase) * (1 - thawHeat)
+		// Floating crystals: a released crystal's heat zone works like the
+		// thaw zone (0..1, CRYSTAL_WARMTH_EDGE_FRAC at the edge).
+		const crystalHeat = crystalHeatAt(x, z)
+		const ambientCold = ambientColdPerSec(phase) * (1 - Math.max(thawHeat, crystalHeat))
 		if (mainMeltRSq > 0 && dx * dx + dz * dz <= mainMeltRSq) {
 			warmthFuel   = getMainFireFuel()
 			warmthPerSec = hearthWarmthPerSec(warmthFuel)
@@ -354,6 +358,21 @@ export function initFrostAccumulation(): void {
 			if (w > warmthPerSec) {
 				warmthPerSec = w
 				warmthFuel   = CRATER_HEAT_FUEL
+			}
+		}
+		if (crystalHeat > 0) {
+			const w = hearthWarmthPerSec(CRATER_HEAT_FUEL) * crystalHeat
+			if (w > warmthPerSec) {
+				warmthPerSec = w
+				warmthFuel   = CRATER_HEAT_FUEL
+			}
+		}
+		// Charging monument (floating crystals): a campfire of its charge tier.
+		{
+			const mf = monumentChargeHeatAt(x, z)
+			if (mf > 0) {
+				const w = hearthWarmthPerSec(mf)
+				if (w > warmthPerSec) { warmthPerSec = w; warmthFuel = mf }
 			}
 		}
 		// Lit monuments give no heat and melt no snow (visual only).

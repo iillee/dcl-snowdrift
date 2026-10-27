@@ -46,9 +46,15 @@ type CellState = { stage: 0 | 1 | 2; changedAtMs: number }
 const cells          = new Map<number, CellState>()
 const protectedCells = new Set<number>()
 /** Fire-network path cells (src/server/fireNetwork.ts). Separate from fire rings so releasing one never frees the other. */
-const pathProtected  = new Set<number>()
+const pathProtected  = new Map<number, [number, number, number]>() // per cell: how many links hold it at stage cap 0 / 1 / 2
 /** Cells under a campfire that has melted at least once this cycle. */
 const scarredCells   = new Set<number>()
+/**
+ * Permanent heat zones (floating crystals): melted, never regrow, and
+ * unlike protectedCells no fire shrink / snuff can release them. The
+ * generalised form of the crater always-melt. Cleared on cycle wipe.
+ */
+const heatZoneCells  = new Set<number>()
 
 let serverClockMs = 0
 let coverageDirty = false
@@ -179,6 +185,22 @@ function markFireScar(
 }
 
 
+// MARK: releaseDimple
+/**
+ * Item dimple gone (the buried wood was picked up): drop the cell's scar
+ * so snowfall refills it to full depth at the normal regrowth rate. The
+ * cell keeps its current stage; nothing else is touched.
+ */
+export function releaseDimple(cx: number, cz: number): void {
+	const key = worldToCellKey(cx, cz)
+	if (key === null) return
+	if (scarredCells.delete(key)) {
+		const st = cells.get(key)
+		if (st) st.changedAtMs = serverClockMs
+	}
+}
+
+
 // MARK: seedFireDimple
 /**
  * Put a shallow one-cell dip (stage FIRE_SCAR_MAX_STAGE) under a
@@ -260,7 +282,13 @@ export function tickRegrowth(
 			cells.delete(key)
 			continue
 		}
-		if (protectedCells.has(key) || pathProtected.has(key)) {
+		if (protectedCells.has(key) || heatZoneCells.has(key)) {
+			state.changedAtMs = serverClockMs
+			continue
+		}
+		const pc = pathProtected.get(key)
+		if (pc && state.stage >= pathCapOf(pc)) {
+			// Held by a fire-network path at (or below) its terrace depth.
 			state.changedAtMs = serverClockMs
 			continue
 		}
@@ -292,14 +320,33 @@ export function tickRegrowth(
 
 // MARK: meltPathCell / releasePathCell
 /** Fire network: melt + hold one cell clear while its link stands. */
-export function meltPathCell(key: number): void {
+function pathCapOf(pc: [number, number, number]): number {
+	return pc[0] > 0 ? 0 : pc[1] > 0 ? 1 : 2
+}
+/** Fire network: hold one cell at no more than stage `cap` (0 = clear, 1 / 2 = terrace step) while its link stands. */
+export function meltPathCell(key: number, cap: number = 0): void {
 	if (!isCellKeyValid(key)) return
-	pathProtected.add(key)
-	applyMelt(key, 0)
+	const c = Math.max(0, Math.min(2, Math.round(cap))) as 0 | 1 | 2
+	let pc = pathProtected.get(key)
+	if (!pc) { pc = [0, 0, 0]; pathProtected.set(key, pc) }
+	pc[c]++
+	const want = pathCapOf(pc) as 0 | 1 | 2
+	if (want === 0) { applyMelt(key, 0); return }
+	if (inThawZone(key)) return
+	const prev = cells.get(key)
+	const cur = prev ? prev.stage : STAGE_PRISTINE
+	if (cur <= want) return
+	cells.set(key, { stage: want, changedAtMs: serverClockMs })
+	writeStage(key, want)
+	coverageDirty = true
 }
 /** Fire network: stop holding a cell; it keeps its stage and regrows with weather. */
-export function releasePathCell(key: number): void {
-	pathProtected.delete(key)
+export function releasePathCell(key: number, cap: number = 0): void {
+	const pc = pathProtected.get(key)
+	if (!pc) return
+	const c = Math.max(0, Math.min(2, Math.round(cap)))
+	if (pc[c] > 0) pc[c]--
+	if (pc[0] + pc[1] + pc[2] === 0) pathProtected.delete(key)
 }
 
 
@@ -374,6 +421,85 @@ export function meltVolcanoCraterHeat(): number {
 		)
 	}
 	return changed
+}
+
+
+// MARK: meltHeatZone
+/**
+ * Permanent heat disc of `radiusM` at (cx, cz), every terrain level
+ * (a floating crystal warms the whole territory under it). Cells melt
+ * now and are held clear against snowfall for the rest of the cycle.
+ * Returns cells newly held by this zone.
+ */
+export function meltHeatZone(cx: number, cz: number, radiusM: number): number {
+	let added = 0
+	forEachCellInDisc(cx, cz, radiusM, (key) => {
+		if (!heatZoneCells.has(key)) { heatZoneCells.add(key); added++ }
+		applyMelt(key, 0)
+	})
+	coverageDirty = true
+	console.log(`[Server] snowState: meltHeatZone r=${radiusM}m +${added} cells (heat-zone total ${heatZoneCells.size})`)
+	return added
+}
+
+// MARK: heat-zone melt front
+/**
+ * Gradual heat zone (crystal release): a melt front expands from (cx, cz)
+ * to radiusM over spreadS. As it passes, each cell steps down its depth
+ * stages (2 -> 1 -> 0 over the trailing HEAT_FRONT_BAND_M) and joins the
+ * permanent heat zone at 0. Processed per tick by ring (annulus), so a
+ * tick only touches cells the front newly reached. Server-authoritative;
+ * clients and late joiners see it through the normal snow sync.
+ */
+const HEAT_FRONT_BAND_M = 3
+interface HeatFront { cx: number; cz: number; R: number; startMs: number; durMs: number; doneR: number }
+const heatFronts: HeatFront[] = []
+
+export function startHeatZoneFront(cx: number, cz: number, radiusM: number, spreadS: number, delayS = 0): void {
+	if (spreadS <= 0 && delayS <= 0) { meltHeatZone(cx, cz, radiusM); return }
+	heatFronts.push({ cx, cz, R: radiusM, startMs: Date.now() + Math.max(0, delayS) * 1000, durMs: Math.max(1, spreadS * 1000), doneR: 0 })
+	console.log(`[Server] snowState: heat front r=${radiusM}m over ${spreadS}s at (${cx.toFixed(0)}, ${cz.toFixed(0)})`)
+}
+
+function lowerCellTo(key: number, want: 0 | 1 | 2): void {
+	if (!isCellKeyValid(key) || inThawZone(key)) return
+	if (want === 0) { heatZoneCells.add(key); applyMelt(key, 0); return }
+	const prev = cells.get(key)
+	const cur = prev ? prev.stage : STAGE_PRISTINE
+	if (cur <= want) return
+	cells.set(key, { stage: want, changedAtMs: serverClockMs })
+	writeStage(key, want)
+	coverageDirty = true
+}
+
+/** Advance every heat front; returns true while any is still running. */
+export function tickHeatFronts(nowMs: number): boolean {
+	for (let i = heatFronts.length - 1; i >= 0; i--) {
+		const f = heatFronts[i]
+		if (nowMs < f.startMs) continue // delayed start (crystal still rising)
+		const u = Math.min(1, (nowMs - f.startMs) / f.durMs)
+		// Front radius runs past R by the band so the edge cells reach 0.
+		const r = u * (f.R + HEAT_FRONT_BAND_M)
+		const lo = Math.max(0, f.doneR - HEAT_FRONT_BAND_M)
+		const lo2 = lo * lo
+		forEachCellInDisc(f.cx, f.cz, Math.min(r, f.R), (key, distSq) => {
+			if (distSq < lo2) return
+			const lag = r - Math.sqrt(distSq)
+			lowerCellTo(key, lag >= HEAT_FRONT_BAND_M ? 0 : lag >= (2 * HEAT_FRONT_BAND_M) / 3 ? 1 : 2)
+		})
+		f.doneR = r
+		if (u >= 1) {
+			// Final sweep: everything inside R is held clear.
+			meltHeatZone(f.cx, f.cz, f.R)
+			heatFronts.splice(i, 1)
+		}
+	}
+	return heatFronts.length > 0
+}
+
+/** Cells held by permanent heat zones (crystals). */
+export function heatZoneCellCount(): number {
+	return heatZoneCells.size
 }
 
 
@@ -456,6 +582,8 @@ export function clearAllSnow(): void {
 	protectedCells.clear()
 	pathProtected.clear()
 	scarredCells.clear()
+	heatZoneCells.clear()
+	heatFronts.length = 0
 	zeroAllSnowTiles()
 	noteComponentChange(cleared)
 	coverageDirty = true

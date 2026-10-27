@@ -10,11 +10,12 @@
 import { Transform, engine } from '@dcl/sdk/ecs'
 
 import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { feedFitsFire } from 'src/shared/hearthFuel'
+import { fuelSecondsForKind } from 'src/shared/hearthFuel'
+import { networkFeedRoom } from 'src/client/fireNetworkGlow'
 import { clampWoodKind, WOOD_KIND_LOG } from 'src/shared/woodKind'
 
 import { playDropSfx, playPickupSfx, playSurgeSfxLocal } from 'src/client/audio'
-import { getHiddenFireFuel, getMainFireFuel, requestFeedFire } from 'src/client/hearthFuel'
+import { getMainFireFuel, requestFeedFire } from 'src/client/hearthFuel'
 import { getLitHiddenFires, isInHiddenRelightRange } from 'src/client/hiddenCampfire'
 import { spawnLogsFeed } from 'src/client/logsFeedFx'
 import { spawnLogsBounce } from 'src/client/logsPickupFx'
@@ -94,6 +95,21 @@ export function clearCarriedWood(): void {
 }
 
 
+
+// MARK: consumeCarriedForBuild
+/**
+ * Build Your Own Fire: spend the carried piece on a campfire lit from
+ * the torch tooltip. No drop sound or pile. Returns the kind spent, or
+ * -1 when empty. A refusal puts it back via restoreRejectedFeed.
+ */
+export function consumeCarriedForBuild(): number {
+	if (!_hasLogs) return -1
+	_hasLogs = false
+	console.log(`logsInventory: consumeCarriedForBuild: kind=${_kind} spent on a campfire`)
+	return _kind
+}
+
+
 // MARK: isInFeedRange
 /**
  * True when the local player is inside the feed radius of a fire that
@@ -123,8 +139,9 @@ export function isCarriedFeedBlocked(): boolean {
 	if (!_hasLogs) return false
 	if (!isInFeedRange()) return false
 	const target = pickFeedTarget()
-	const fuel   = target < 0 ? getMainFireFuel() : getHiddenFireFuel(target)
-	return !feedFitsFire(fuel, _kind)
+	// A full fire still takes the piece when linked fires (shared fuel)
+	// have room: the server sends the overflow to them.
+	return networkFeedRoom(target < 0 ? 0 : target + 1) < fuelSecondsForKind(_kind)
 }
 
 

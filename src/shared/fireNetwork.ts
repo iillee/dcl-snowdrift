@@ -46,6 +46,18 @@ export const NETWORK_MEANDER_FADE_M      = 10
 export const NETWORK_ORGANIC_STEP_M      = 2
 /** Cleared path width (m). */
 export const NETWORK_PATH_WIDTH_M      = 4
+/**
+ * Terraced trench: centre fully clear, then snow steps up toward the
+ * sides (stage caps 1 = 1/3 depth, 2 = 2/3 depth), then full snow.
+ * false = old flat NETWORK_PATH_WIDTH_M strip with sheer walls.
+ */
+export const NETWORK_PATH_GRADIENT_ENABLED = false
+/** Fully clear half-width (m) around the centreline (1 = ~2 m walkable). */
+export const NETWORK_PATH_CLEAR_HALF_M  = 1.0
+/** Width (m) of each step band outward from the clear centre: [1/3-depth band, 2/3-depth band]. */
+export const NETWORK_PATH_STEP_WIDTHS_M: readonly number[] = [1.0, 1.0]
+/** Snow stage cap per step band (stage 1 = 0.5 m = 1/3, stage 2 = 1.0 m = 2/3 of full 1.5 m). */
+export const NETWORK_PATH_STEP_STAGES: readonly number[] = [1, 2]
 /** Seconds for the melt to run from both fires to the middle. */
 export const NETWORK_MELT_S            = 6
 /** Seconds for protection to retreat along a broken link (from the dead end). Snow then regrows at the normal weather rate. */
@@ -115,6 +127,65 @@ export const FIRE_NETWORK_DEBUG        = false
 /** Node id of the hearth. Hidden fire i is i + 1. */
 export const NETWORK_HEARTH_ID         = 0
 
+/** Route ends: the last leg into each fire / monument end is straight for this far (m), so trails never overshoot or hook around the pit. */
+export const NETWORK_END_STRAIGHT_M = 12 // >= half a 16 m cell diagonal (11.3 m)
+
+/** Charge links (fire -> monument): a swell of orb scale races fire -> monument every PERIOD s while charging (amp = extra scale at the crest, width m = gaussian half-width). Drawn within DIST m of the player. */
+export const NETWORK_CHARGE_PULSE_AMP = 0.9
+export const NETWORK_CHARGE_PULSE_PERIOD_S = 1.5
+export const NETWORK_CHARGE_PULSE_WIDTH_M = 2.5
+export const NETWORK_CHARGE_PULSE_DIST_M = 160
+/** Crystal release: one final, bigger pulse fire -> monument (amp, seconds to travel, delay after the release message). */
+export const NETWORK_FINAL_PULSE_AMP = 1.8
+export const NETWORK_FINAL_PULSE_S = 1.2
+export const NETWORK_FINAL_PULSE_DELAY_S = 0.3
+/** Legacy sine flow (unused since the travelling pulse). */
+export const NETWORK_CHARGE_FLOW_AMP = 0.35
+export const NETWORK_CHARGE_FLOW_PERIOD_S = 1.2
+export const NETWORK_CHARGE_FLOW_WAVELENGTH_M = 6
+
+// MARK: Link crossfade (client visual only)
+/** Orbs of a removed link shrink + dim to nothing over this many seconds (server state / warmth switch at once). */
+export const NETWORK_LINK_FADE_OUT_S = 2.5
+/** Orbs of a new link grow from 0 over this many seconds (after the melt front reaches them). */
+export const NETWORK_LINK_FADE_IN_S  = 2.5
+/** Dim write cadence (s) while a link fades out (material writes are throttled). */
+export const NETWORK_LINK_DIM_WRITE_S = 0.2
+
+// MARK: Topology tunables (pruneNetwork)
+/**
+ * Which links the lit nodes form:
+ *   'rng'     relative-neighbourhood graph (default, sparse, tidy)
+ *   'gabriel' Gabriel graph (a few more triangles)
+ *   'legacy'  old behaviour: RNG + keep-every-held-link hysteresis, and
+ *             every charging fire links its monument directly
+ */
+export const NETWORK_TOPOLOGY: 'rng' | 'gabriel' | 'legacy' = 'rng'
+/** After pruning, re-add the shortest routable link joining split components (MST-safe). */
+export const NETWORK_RECONNECT_ENABLED = true
+/**
+ * Fire-link rule (floating crystals): a fire linked to a monument always
+ * keeps at least one fire-to-fire link when any routable fire candidate
+ * exists (monument-only = network of one). false = off.
+ */
+export const NETWORK_FIRE_LINK_RULE_ENABLED = true
+/**
+ * Monument links (fire -> monument) skip the prune and the parallel drop:
+ * every routable fire in MONUMENT_LINK_RANGE_M links (and so charges).
+ * They still count as third nodes when pruning fire-to-fire links.
+ */
+export const NETWORK_MONUMENT_LINKS_KEEP_ALL = true
+/** Node ids at or above this are monuments (= ruleset MONUMENT_NODE_ID_BASE; kept here to avoid an import cycle). */
+export const NETWORK_MONUMENT_ID_MIN = 1000
+/** Drop a link whose route mostly runs beside another kept route (never a bridge). */
+export const NETWORK_PARALLEL_DROP_ENABLED = true
+/** "Beside": a route sample within this distance (m) of another kept route. */
+export const NETWORK_PARALLEL_NEAR_M   = 4
+/** Drop when more than this fraction of the link's samples are beside another route. */
+export const NETWORK_PARALLEL_FRAC     = 0.5
+/** Samples this close (m) to the link's own end nodes are ignored (paths always meet at fires). */
+export const NETWORK_PARALLEL_END_SKIP_M = 6
+
 
 // MARK: Types
 export interface FireNode { id: number; x: number; z: number }
@@ -129,7 +200,7 @@ export interface FireLinkRoute {
 	/** Total route length (m). */
 	lengthM: number
 	/** Snow cell keys to clear, with t = distance (m) from fire A along the route. */
-	cells  : { key: number; t: number }[]
+	cells  : { key: number; t: number; cap: number }[]
 }
 
 export function linkKey(a: number, b: number): string {
@@ -262,6 +333,15 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	run.push({ x: b.x, z: b.z })
 	runs.push({ level: runLevel, pts: run })
 	for (const r of runs) r.pts = stringPull(map, r.level, r.pts)
+	// Clean ends: the A* chain runs through 16 m cell CENTRES, and the end
+	// fire sits anywhere in its cell. When string-pulling can't skip the
+	// end cell's centre (e.g. a wall beside the fire fails the path-width
+	// check) the route ran past the fire to that centre and hooked back:
+	// orbs overshot the fire by 2-3 and wrapped around it. Drop interior
+	// points within NETWORK_END_STRAIGHT_M of each fire end so the last leg
+	// comes straight in (only if that leg stays on clear walkable ground).
+	trimEnd(map, runs[0], true, a)
+	trimEnd(map, runs[runs.length - 1], false, b)
 
 	const runsLen = (rs: LinkRun[]) => { let L = 0; for (const r of rs) for (let k = 1; k < r.pts.length; k++) L += Math.hypot(r.pts[k].x - r.pts[k - 1].x, r.pts[k].z - r.pts[k - 1].z); return L }
 	if (runsLen(runs) > budget) return null
@@ -275,14 +355,34 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	}
 	const lengthM = runsLen(runs)
 
-	return { runs, lengthM, cells: rasterizeRuns(map, runs, NETWORK_PATH_WIDTH_M / 2) }
+	return { runs, lengthM, cells: pathCells(map, runs) }
 }
 
 
+// MARK: pathCells
+/** Snow cells the link holds, each with its max snow stage (0 = clear). */
+function pathCells(map: TerrainMap, runs: LinkRun[]): { key: number; t: number; cap: number }[] {
+	if (!NETWORK_PATH_GRADIENT_ENABLED) return rasterizeRuns(map, runs, NETWORK_PATH_WIDTH_M / 2).map((c) => ({ key: c.key, t: c.t, cap: 0 }))
+	let outer = NETWORK_PATH_CLEAR_HALF_M
+	for (const w of NETWORK_PATH_STEP_WIDTHS_M) outer += w
+	return rasterizeRuns(map, runs, outer).map((c) => {
+		let edge = NETWORK_PATH_CLEAR_HALF_M, cap = 0
+		if (c.d > edge) {
+			cap = 3
+			for (let i = 0; i < NETWORK_PATH_STEP_WIDTHS_M.length; i++) {
+				edge += NETWORK_PATH_STEP_WIDTHS_M[i]
+				if (c.d <= edge) { cap = NETWORK_PATH_STEP_STAGES[i] ?? 2; break }
+			}
+		}
+		return { key: c.key, t: c.t, cap: Math.max(0, Math.min(2, cap)) }
+	})
+}
+
 // MARK: rasterizeRuns
 /** Snow cells within `radiusM` of the run polylines (same level only), with t = distance from fire A. */
-export function rasterizeRuns(map: TerrainMap, runs: LinkRun[], radiusM: number): { key: number; t: number }[] {
+export function rasterizeRuns(map: TerrainMap, runs: LinkRun[], radiusM: number): { key: number; t: number; d: number }[] {
 	const seen = new Map<number, number>()
+	const dist = new Map<number, number>()
 	let t0 = 0
 	for (const r of runs) {
 		for (let k = 1; k < r.pts.length; k++) {
@@ -294,18 +394,20 @@ export function rasterizeRuns(map: TerrainMap, runs: LinkRun[], radiusM: number)
 				const x = p.x + (q.x - p.x) * u, z = p.z + (q.z - p.z) * u
 				const t = t0 + L * u
 				forEachCellInDisc(x, z, radiusM, (key) => {
-					if (seen.has(key)) return
-					// No clearing up a cliff face or onto the plateau above.
 					const c = snowCellCenter(key)
+					const dd = Math.hypot(c.x - x, c.z - z)
+					if (seen.has(key)) { if (dd < dist.get(key)!) dist.set(key, dd); return }
+					// No clearing up a cliff face or onto the plateau above.
 					if (levelAtWorld(map, c.x, c.z) !== r.level) return
 					seen.set(key, t)
+					dist.set(key, dd)
 				})
 			}
 			t0 += L
 		}
 	}
-	const cells: { key: number; t: number }[] = []
-	for (const [key, t] of seen) cells.push({ key, t })
+	const cells: { key: number; t: number; d: number }[] = []
+	for (const [key, t] of seen) cells.push({ key, t, d: dist.get(key)! })
 	return cells
 }
 
@@ -462,4 +564,211 @@ export function splitFuelKeepShare(fedFuel: number, others: number[], cap: numbe
 	if (fed > fedHead) { toOthers += fed - fedHead; fed = fedHead }
 	const o = others.length ? splitFuelWaterFill(others, cap, Math.min(othHead, toOthers)) : []
 	return { fed, others: o ?? others.map(() => 0) }
+}
+
+
+// MARK: pruneNetwork
+export interface NetCand { a: FireNode; b: FireNode; key: string }
+
+function routeSamples(r: FireLinkRoute, step = 1): { x: number; z: number }[] {
+	const out: { x: number; z: number }[] = []
+	for (const run of r.runs) {
+		for (let k = 1; k < run.pts.length; k++) {
+			const p = run.pts[k - 1], q = run.pts[k]
+			const L = Math.hypot(q.x - p.x, q.z - p.z)
+			const n = Math.max(1, Math.ceil(L / step))
+			for (let i = 0; i < n; i++) out.push({ x: p.x + ((q.x - p.x) * i) / n, z: p.z + ((q.z - p.z) * i) / n })
+		}
+	}
+	return out
+}
+
+function segDistSq(px: number, pz: number, a: { x: number; z: number }, b: { x: number; z: number }): number {
+	const dx = b.x - a.x, dz = b.z - a.z
+	const L2 = dx * dx + dz * dz
+	let t = L2 > 0 ? ((px - a.x) * dx + (pz - a.z) * dz) / L2 : 0
+	t = Math.max(0, Math.min(1, t))
+	const ex = a.x + dx * t - px, ez = a.z + dz * t - pz
+	return ex * ex + ez * ez
+}
+
+/** Fraction of `r`'s samples (away from its ends) within NEAR of route `o`. */
+export function parallelFraction(r: FireLinkRoute, a: FireNode, b: FireNode, o: FireLinkRoute): number {
+	const near2 = NETWORK_PARALLEL_NEAR_M ** 2
+	const skip2 = NETWORK_PARALLEL_END_SKIP_M ** 2
+	let n = 0, hit = 0
+	for (const s of routeSamples(r)) {
+		if ((s.x - a.x) ** 2 + (s.z - a.z) ** 2 < skip2 || (s.x - b.x) ** 2 + (s.z - b.z) ** 2 < skip2) continue
+		n++
+		let close = false
+		for (const run of o.runs) {
+			for (let k = 1; k < run.pts.length && !close; k++) if (segDistSq(s.x, s.z, run.pts[k - 1], run.pts[k]) <= near2) close = true
+			if (close) break
+		}
+		if (close) hit++
+	}
+	return n === 0 ? 0 : hit / n
+}
+
+/**
+ * Streamlined network on `cands` (fire-fire pairs in range + charge
+ * pairs). Deterministic for the same inputs, so the same lit set always
+ * yields the same links (no flicker).
+ *   1. RNG / Gabriel prune on straight distance: a-b goes if some node c
+ *      with candidate edges to both is closer (blocks via a shared neighbour).
+ *   2. Route the survivors; unroutable ones drop.
+ *   3. Reconnect: Kruskal over all candidates (shortest first) adds any
+ *      routable link that joins two split components.
+ *   4. Parallel drop: longest first, a link whose route mostly runs
+ *      beside another kept route goes, unless it is a bridge.
+ * Returns kept candidates with their routes.
+ */
+export function pruneNetwork(
+	cands: NetCand[],
+	route: (c: NetCand) => FireLinkRoute | null,
+): { cand: NetCand; route: FireLinkRoute }[] {
+	const d2 = (c: NetCand) => (c.a.x - c.b.x) ** 2 + (c.a.z - c.b.z) ** 2
+	const pos = new Map<number, FireNode>()
+	const adj = new Map<number, Map<number, number>>()
+	for (const c of cands) {
+		if (!pos.has(c.a.id)) pos.set(c.a.id, c.a)
+		if (!pos.has(c.b.id)) pos.set(c.b.id, c.b)
+		const w = d2(c)
+		if (!adj.has(c.a.id)) adj.set(c.a.id, new Map())
+		if (!adj.has(c.b.id)) adj.set(c.b.id, new Map())
+		adj.get(c.a.id)!.set(c.b.id, w)
+		adj.get(c.b.id)!.set(c.a.id, w)
+	}
+	const sorted = [...cands].sort((p, q) => d2(p) - d2(q) || (p.key < q.key ? -1 : 1))
+	// 1. prune
+	const pruned: NetCand[] = []
+	for (const c of sorted) {
+		const ab = d2(c)
+		const na = adj.get(c.a.id)!, nb = adj.get(c.b.id)!
+		if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (c.a.id >= NETWORK_MONUMENT_ID_MIN || c.b.id >= NETWORK_MONUMENT_ID_MIN)) { pruned.push(c); continue }
+		let blocked = false
+		for (const [k, ac] of na) {
+			if (k === c.b.id) continue
+			const bc = nb.get(k)
+			if (bc === undefined) continue
+			if (NETWORK_TOPOLOGY === 'gabriel' ? ac + bc < ab : Math.max(ac, bc) < ab) { blocked = true; break }
+		}
+		if (!blocked) pruned.push(c)
+	}
+	// 2. route
+	const kept: { cand: NetCand; route: FireLinkRoute }[] = []
+	const keptKeys = new Set<string>()
+	for (const c of pruned) { const r = route(c); if (r) { kept.push({ cand: c, route: r }); keptKeys.add(c.key) } }
+	// 3. reconnect (union-find)
+	const parent = new Map<number, number>()
+	const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p) } return p }
+	const unite = (x: number, y: number) => parent.set(find(x), find(y))
+	for (const k of kept) unite(k.cand.a.id, k.cand.b.id)
+	if (NETWORK_RECONNECT_ENABLED) {
+		for (const c of sorted) {
+			if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
+			const r = route(c)
+			if (!r) continue
+			kept.push({ cand: c, route: r }); keptKeys.add(c.key)
+			unite(c.a.id, c.b.id)
+		}
+	}
+	// 3b. Fire-link rule: a fire whose only kept links go to monuments gets
+	// its shortest routable fire-to-fire candidate back (a fire may be
+	// monument-only only when it is a network of one). Hearth counts.
+	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	const fireLinksOf = (id: number, list: typeof kept) => list.filter((k) => (k.cand.a.id === id || k.cand.b.id === id) && !isMon(k.cand.a.id) && !isMon(k.cand.b.id)).length
+	if (NETWORK_FIRE_LINK_RULE_ENABLED) {
+		const ids = new Set<number>()
+		for (const k of kept) for (const id of [k.cand.a.id, k.cand.b.id]) if (!isMon(id)) ids.add(id)
+		for (const id of [...ids].sort((p, q) => p - q)) {
+			const hasMon = kept.some((k) => (k.cand.a.id === id || k.cand.b.id === id) && (isMon(k.cand.a.id) || isMon(k.cand.b.id)))
+			if (!hasMon || fireLinksOf(id, kept) > 0) continue
+			for (const c of sorted) {
+				if (isMon(c.a.id) || isMon(c.b.id) || (c.a.id !== id && c.b.id !== id) || keptKeys.has(c.key)) continue
+				const r = route(c)
+				if (!r) continue
+				kept.push({ cand: c, route: r }); keptKeys.add(c.key)
+				break
+			}
+		}
+	}
+	// 4. parallel drop (bridge-safe)
+	if (NETWORK_PARALLEL_DROP_ENABLED && kept.length > 1) {
+		const order = [...kept].sort((p, q) => q.route.lengthM - p.route.lengthM || (p.cand.key < q.cand.key ? -1 : 1))
+		const alive = new Set(kept)
+		const connectedWithout = (skip: typeof kept[number]): boolean => {
+			const from = skip.cand.a.id, to = skip.cand.b.id
+			const seen = new Set([from]); const q = [from]
+			while (q.length) {
+				const x = q.pop()!
+				if (x === to) return true
+				for (const e of alive) {
+					if (e === skip) continue
+					const o = e.cand.a.id === x ? e.cand.b.id : e.cand.b.id === x ? e.cand.a.id : -1
+					if (o >= 0 && !seen.has(o)) { seen.add(o); q.push(o) }
+				}
+			}
+			return false
+		}
+		// Never drop a fire's last fire-to-fire link while it also feeds a monument.
+		const fireRuleNeeds = (e: typeof kept[number]): boolean => {
+			if (!NETWORK_FIRE_LINK_RULE_ENABLED || isMon(e.cand.a.id) || isMon(e.cand.b.id)) return false
+			const left = [...alive].filter((k) => k !== e)
+			for (const id of [e.cand.a.id, e.cand.b.id]) {
+				const hasMon = left.some((k) => (k.cand.a.id === id || k.cand.b.id === id) && (isMon(k.cand.a.id) || isMon(k.cand.b.id)))
+				if (hasMon && fireLinksOf(id, left) === 0) return true
+			}
+			return false
+		}
+		const bbox = (r: FireLinkRoute) => {
+			let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+			for (const run of r.runs) for (const p of run.pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z) }
+			return { x0, x1, z0, z1 }
+		}
+		const boxes = new Map(kept.map((k) => [k, bbox(k.route)]))
+		const pad = NETWORK_PARALLEL_NEAR_M
+		for (const e of order) {
+			if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (isMon(e.cand.a.id) || isMon(e.cand.b.id))) continue
+			const be = boxes.get(e)!
+			let worst = 0
+			for (const o of alive) {
+				if (o === e) continue
+				const bo = boxes.get(o)!
+				if (bo.x0 - pad > be.x1 || be.x0 - pad > bo.x1 || bo.z0 - pad > be.z1 || be.z0 - pad > bo.z1) continue
+				worst = Math.max(worst, parallelFraction(e.route, e.cand.a, e.cand.b, o.route))
+				if (worst > NETWORK_PARALLEL_FRAC) break
+			}
+			if (worst > NETWORK_PARALLEL_FRAC && connectedWithout(e) && !fireRuleNeeds(e)) alive.delete(e)
+		}
+		return kept.filter((k) => alive.has(k))
+	}
+	return kept
+}
+
+// MARK: trimEnd
+function trimEnd(map: TerrainMap, run: LinkRun, atStart: boolean, end: { x: number; z: number }): void {
+	const pts = atStart ? [...run.pts].reverse() : run.pts.slice()
+	const r2 = NETWORK_END_STRAIGHT_M * NETWORK_END_STRAIGHT_M
+	// pts[last] is the end node; drop interior points near it (keep >= 2 points).
+	let cut = pts.length - 1
+	while (cut - 1 > 0 && (pts[cut - 1].x - end.x) ** 2 + (pts[cut - 1].z - end.z) ** 2 < r2) cut--
+	if (cut === pts.length - 1) return
+	const prev = pts[cut - 1]
+	if (!clearLine(map, run.level, prev, end) && !straightOnLevel(map, run.level, prev, end)) return
+	const out = [...pts.slice(0, cut), pts[pts.length - 1]]
+	run.pts = atStart ? out.reverse() : out
+}
+
+/** Centreline-only walkable check (the full-width clearLine can fail beside a wall). */
+function straightOnLevel(map: TerrainMap, level: number, p: { x: number; z: number }, q: { x: number; z: number }): boolean {
+	const L = Math.hypot(q.x - p.x, q.z - p.z)
+	const n = Math.max(1, Math.ceil(L))
+	for (let s = 0; s <= n; s++) {
+		const x = p.x + ((q.x - p.x) * s) / n, z = p.z + ((q.z - p.z) * s) / n
+		if (levelAtWorld(map, x, z) !== level) return false
+		const c = cellOfWorld(x, z)
+		if (map.landforms[c.cz * W + c.cx] === LANDFORM_LAVA) return false
+	}
+	return true
 }

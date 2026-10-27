@@ -63,7 +63,7 @@ import {
 } from 'src/server/snowSync'
 import { sendTorchStatesTo, setupTorchServer } from 'src/server/torch'
 import { getCurrentWeatherLevel, sendCurrentWeatherTo, setupWeather } from 'src/server/weather'
-import { sendWoodStateTo, setupWoodServer } from 'src/server/wood'
+import { seedFrontierWoodDimples, sendWoodStateTo, setupWoodServer } from 'src/server/wood'
 import { setupWorldFlameServer } from 'src/server/worldFlame'
 import { sendFireNetworkStateTo, setupFireNetworkServer } from 'src/server/fireNetwork'
 
@@ -154,6 +154,7 @@ export async function setupServer(): Promise<void> {
 		seedStartingArea()
 		meltVolcanoCraterHeat()
 		seedHiddenCampfireDimples()
+		seedFrontierWoodDimples()
 	})
 
 	// PaintTick summary accumulators (coalesced log every few seconds).

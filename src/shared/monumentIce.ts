@@ -14,6 +14,7 @@
  */
 
 import { SNOW_STAGE_HEIGHT_M } from 'src/shared/snowGrid'
+import { isFloatingCrystals } from 'src/shared/ruleset'
 import {
 	MONUMENT_PIT_DEPTH_M,
 	MONUMENT_PIT_SIZE_M,
@@ -171,5 +172,8 @@ export function stationHasIce(
 	map: Parameters<typeof icedStationIndex>[0],
 	index: number,
 ): boolean {
-	return index >= 0 && index === icedStationIndex(map)
+	if (index < 0) return false
+	// Floating crystals: no monument ice at all (fires charge, not melt).
+	if (isFloatingCrystals()) return false
+	return index === icedStationIndex(map)
 }

@@ -35,12 +35,48 @@ import {
 	thawWaveCentre,
 } from 'src/shared/terrain/thawWave'
 
-const STATION_COUNT = 3
+import { engine } from '@dcl/sdk/ecs'
+import {
+	CHARGE_DECAY_ENABLED,
+	CHARGE_DECAY_PER_S,
+	CHARGE_ICE_GONE_AT,
+	MONUMENT_LINK_RANGE_M,
+	CRYSTAL_HEAT_RADIUS_M,
+	CRYSTAL_THAW_SPREAD_S,
+	CRYSTAL_THAW_DELAY_S,
+	chargeRatePerS,
+	isFloatingCrystals,
+} from 'src/shared/ruleset'
+import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
+import { ChargePair, monumentLinkedSlots, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
+import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
+import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
+import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
+import { chargeHeatFuel } from 'src/shared/ruleset'
+
+/** Array capacity (MONUMENT_COUNT max 8). The live count is stationTotal(). */
+const STATION_CAP = 8
+/** Monuments in the current layout (3 classic, MONUMENT_COUNT crystals). */
+function stationTotal(): number {
+	const n = activeTerrain()?.stations.length ?? 3
+	return Math.max(1, Math.min(STATION_CAP, n))
+}
+/** Floating crystals: charge 0..1 per monument (server-authoritative). */
+const charge: number[] = new Array<number>(STATION_CAP).fill(0)
+/** Last charge value broadcast per monument. */
+const sentCharge: number[] = new Array<number>(STATION_CAP).fill(-1)
+/** Last player to build/feed a fire that charged monument i. */
+const chargeBy: string[] = new Array<string>(STATION_CAP).fill('')
+const CHARGE_TICK_S = 0.25
+const CHARGE_SEND_STEP = 0.004
+let chargeAcc = 0
 
 let currentSeed = 0
-const active: boolean[] = [false, false, false]
+const active: boolean[] = new Array<boolean>(STATION_CAP).fill(false)
 /** Melted ice-chunk bitmask per monument (src/shared/monumentIce.ts). */
-const iceMask: number[] = [0, 0, 0]
+const iceMask: number[] = new Array<number>(STATION_CAP).fill(0)
+/** Charging-monument heat ring (m) currently melted/protected per monument (0 = none). */
+const monHeatR: number[] = new Array<number>(STATION_CAP).fill(0)
 let worldThawed = false
 /**
  * Day number the thaw happened on. Players get the rest of that day
@@ -155,7 +191,10 @@ function broadcastThaw(): void {
  * fire the world thaw (victory day bookkeeping). Never lowers the stage.
  */
 function advanceThawStage(reason: string): void {
-	const n = Math.min(STATION_COUNT, getActiveStationCount())
+	const lit = Math.min(stationTotal(), getActiveStationCount())
+	// Thaw stages are 0..3 (THAW_STAGE_RADIUS_M); with more monuments
+	// (floating crystals) the full-world stage 3 comes with the last one.
+	const n = lit >= stationTotal() ? 3 : Math.min(3, lit)
 	if (n <= thawStage) return
 	thawStage = n
 	const centre = thawWaveCentre(activeTerrain())
@@ -168,7 +207,7 @@ function advanceThawStage(reason: string): void {
 		`wave ${seg.fromM.toFixed(0)} -> ${seg.toM.toFixed(0)} m over ${(seg.durMs / 1000).toFixed(1)} s ` +
 		`starting in ${((seg.startMs - Date.now()) / 1000).toFixed(1)} s`,
 	)
-	if (n >= STATION_COUNT && !worldThawed) {
+	if (lit >= stationTotal() && !worldThawed) {
 		worldThawed = true
 		thawDay = getDayNumber()
 		console.log(`[Server] stations: WORLD THAW (${reason}) seed=${currentSeed}`)
@@ -182,7 +221,8 @@ function advanceThawStage(reason: string): void {
 
 function resetForCycle(seed: number): void {
 	currentSeed = seed
-	for (let i = 0; i < STATION_COUNT; i++) { active[i] = false; iceMask[i] = 0 }
+	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0 }
+	resetCharges()
 	worldThawed = false
 	thawDay = 0
 	thawStage = 0
@@ -190,7 +230,7 @@ function resetForCycle(seed: number): void {
 	lavaLitAtMs = 0
 	clearWeatherThawLock()
 	console.log(`[Server] stations: reset for cycle seed=${currentSeed}`)
-	for (let i = 0; i < STATION_COUNT; i++) { broadcastOne(i); broadcastIce(i) }
+	for (let i = 0; i < STATION_CAP; i++) { broadcastOne(i); broadcastIce(i) }
 	broadcastThaw()
 }
 
@@ -208,13 +248,16 @@ export function isWorldThawed(): boolean {
 
 
 export function sendStationStateTo(userId: string): void {
-	for (let i = 0; i < STATION_COUNT; i++) {
+	for (let i = 0; i < stationTotal(); i++) {
 		room.send(
 			'stationState',
 			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0, by: '' },
 			{ to: [userId] },
 		)
 		broadcastIce(i, userId)
+		if (isFloatingCrystals()) {
+			room.send('monumentCharge', { seed: currentSeed, index: i, charge: charge[i] }, { to: [userId] })
+		}
 	}
 	room.send('worldThawState', thawPayload(), { to: [userId] })
 }
@@ -222,17 +265,32 @@ export function sendStationStateTo(userId: string): void {
 
 export function setupStationsServer(): void {
 	currentSeed = getCurrentCycleSeed()
-	for (let i = 0; i < STATION_COUNT; i++) { active[i] = false; iceMask[i] = 0 }
+	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0 }
 	worldThawed = false
 	thawStage = 0
 	thawSeg = null
 	lavaLitAtMs = 0
+	resetCharges()
 	console.log(`[Server] stations: setup seed=${currentSeed}`)
+	if (isFloatingCrystals()) {
+		engine.addSystem(chargeSystem, undefined, 'monumentChargeSystem')
+		// Crystal heat fronts at ~8 Hz (ring batches), coverage published per tick.
+		let frontAcc = 0
+		engine.addSystem((dt: number) => {
+			frontAcc += dt
+			if (frontAcc < 0.125) return
+			frontAcc = 0
+			tickHeatFronts(Date.now())
+			publishCoverageIfDirty()
+		}, undefined, 'crystalHeatFrontSystem')
+	}
 
 	room.onMessage('monumentIceMelt', ({ seed, index, chunk }, context) => {
 		const from = context?.from ?? 'unknown'
+		// Floating crystals: ice recedes with charge, not the torch.
+		if (isFloatingCrystals()) { broadcastIce(index, context?.from); return }
 		if (!cycleSeedsEqual(seed, currentSeed)) return
-		if (index < 0 || index >= STATION_COUNT) return
+		if (index < 0 || index >= stationTotal()) return
 		if (!isIceChunk(chunk)) return
 		if (!stationHasIce(activeTerrain(), index)) return
 		if (active[index]) return
@@ -264,7 +322,7 @@ export function setupStationsServer(): void {
 			)
 			return
 		}
-		if (index < 0 || index >= STATION_COUNT) {
+		if (index < 0 || index >= stationTotal()) {
 			console.log(
 				`[Server] stations: activate rejected from ${from} — bad index ${index}`,
 			)
@@ -274,6 +332,11 @@ export function setupStationsServer(): void {
 			console.log(`[Server] stations[${index}]: activate from ${from} ignored — already active`)
 			broadcastOne(index)
 			if (thawStage > 0) broadcastThaw()
+			return
+		}
+		if (isFloatingCrystals()) {
+			// Charge-driven: activation only happens at full charge.
+			broadcastOne(index)
 			return
 		}
 		// Only the iced monument needs its ice melted; the others ignite at once.
@@ -290,7 +353,7 @@ export function setupStationsServer(): void {
 		releasePitSnow(index)
 		console.log(
 			`[Server] stations[${index}]: activated by ${from} ` +
-			`(seed=${currentSeed}, active=${getActiveStationCount()}/${STATION_COUNT})`,
+			`(seed=${currentSeed}, active=${getActiveStationCount()}/${stationTotal()})`,
 		)
 		broadcastOne(index, true, context?.from ?? '')
 		advanceThawStage(`station ${index} by ${from}`)
@@ -307,7 +370,7 @@ export function setupStationsServer(): void {
 		if (worldThawed) return
 		if (!cycleSeedsEqual(seed, currentSeed)) return
 		console.log(`[Server] stations: DEBUG thaw requested by ${from}`)
-		for (let i = 0; i < STATION_COUNT; i++) {
+		for (let i = 0; i < stationTotal(); i++) {
 			if (active[i]) continue
 			active[i] = true
 			releasePitSnow(i)
@@ -315,7 +378,8 @@ export function setupStationsServer(): void {
 				iceMask[i] = MONUMENT_ICE_FULL_MASK
 				broadcastIce(i)
 			}
-			broadcastOne(i, true)
+			if (isFloatingCrystals()) releaseCrystal(i, '', true)
+			else broadcastOne(i, true)
 		}
 		advanceThawStage(`debug button by ${from}`)
 	})
@@ -338,6 +402,11 @@ export function setupStationsServer(): void {
 			iceMask[i] = MONUMENT_ICE_FULL_MASK
 			broadcastIce(i)
 		}
+		if (isFloatingCrystals()) {
+			releaseCrystal(i, '', true)
+			if (getActiveStationCount() >= stationTotal()) advanceThawStage(`debug +1 by ${from}`)
+			return
+		}
 		broadcastOne(i, true)
 		advanceThawStage(`debug +1 by ${from}`)
 	})
@@ -354,4 +423,139 @@ export function setupStationsServer(): void {
 		worldThawed = false
 		rollCycle()
 	})
+}
+
+
+// MARK: Floating crystals - charging
+
+function resetCharges(): void {
+	for (let i = 0; i < STATION_CAP; i++) { charge[i] = 0; sentCharge[i] = -1; chargeBy[i] = '' }
+	chargeAcc = 0
+	setChargingSlots([])
+	setChargePairs([])
+	if (isFloatingCrystals()) {
+		for (let i = 0; i < stationTotal(); i++) sendCharge(i)
+	}
+}
+
+function sendCharge(i: number): void {
+	sentCharge[i] = charge[i]
+	room.send('monumentCharge', { seed: currentSeed, index: i, charge: charge[i] })
+}
+
+/**
+ * Charging monument = a campfire of the tier its charge maps to
+ * (chargeHeatFuel): melt + protect the tier ring around the base when it
+ * steps up. Never shrinks while charging (charge never drops unless decay
+ * is on; then the ring is pulled in like a campfire tier decay).
+ */
+function syncChargeHeat(i: number, x: number, z: number): void {
+	const r = hearthRadiusFromFuel(chargeHeatFuel(charge[i]))
+	if (r === monHeatR[i]) return
+	if (r > 0) meltDisc(x, z, r)
+	if (r < monHeatR[i]) releaseDiscOutside(x, z, r, monHeatR[i])
+	console.log(`[Server] stations[${i}]: charge heat ring ${monHeatR[i].toFixed(0)} -> ${r.toFixed(0)} m (charge ${(charge[i] * 100).toFixed(0)}%)`)
+	monHeatR[i] = r
+	publishCoverageIfDirty()
+}
+
+/** Ice chunk k melts at charge (k+1)/N * CHARGE_ICE_GONE_AT. */
+function recedeIce(i: number): void {
+	if (!stationHasIce(activeTerrain(), i)) return
+	const chunks: number[] = []
+	for (let k = 0; k < 32; k++) if (isIceChunk(k)) chunks.push(k)
+	let changed = false
+	for (let n = 0; n < chunks.length; n++) {
+		const at = ((n + 1) / chunks.length) * CHARGE_ICE_GONE_AT
+		const bit = 1 << chunks[n]
+		if (charge[i] >= at && (iceMask[i] & bit) === 0) {
+			iceMask[i] = (iceMask[i] | bit) & MONUMENT_ICE_FULL_MASK
+			clearSnowOverChunk(i, chunks[n])
+			changed = true
+		}
+	}
+	if (changed) { publishCoverageIfDirty(); broadcastIce(i) }
+}
+
+/**
+ * Full charge: release the crystal. Same fresh stationState path as an
+ * activation (cinematic + rise + gold name), plus a permanent heat zone.
+ */
+function releaseCrystal(i: number, by: string, force = false): void {
+	if (active[i] && !force) return
+	active[i] = true
+	charge[i] = 1
+	sendCharge(i)
+	if (!iceFullyMelted(iceMask[i])) { iceMask[i] = MONUMENT_ICE_FULL_MASK; broadcastIce(i) }
+	const st = activeTerrain()?.stations[i]
+	if (st) {
+		const c = cellCenterWorld(st.cx, st.cz)
+		startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S)
+		console.log(`[Server] stations[${i}]: crystal heat front started (held so far ${heatZoneCellCount()})`)
+	}
+	publishCoverageIfDirty()
+	console.log(`[Server] stations[${i}]: CRYSTAL RELEASED by ${by || '?'} (${getActiveStationCount()}/${stationTotal()})`)
+	broadcastOne(i, true, by)
+}
+
+function chargeSystem(dt: number): void {
+	chargeAcc += dt
+	if (chargeAcc < CHARGE_TICK_S) return
+	const step = chargeAcc
+	chargeAcc = 0
+	if (worldThawed) return
+	const map = activeTerrain()
+	if (!map) return
+	const fires = getHiddenFireNodes().filter((f) => f.lit)
+	const chargingIds = new Set<number>()
+	const pairs: ChargePair[] = []
+	let released = false
+	for (let i = 0; i < stationTotal() && i < map.stations.length; i++) {
+		if (active[i]) continue
+		const c = cellCenterWorld(map.stations[i].cx, map.stations[i].cz)
+		const dists: number[] = []
+		let best = -1
+		let bestD = Infinity
+		// Candidates: every lit fire within MONUMENT_LINK_RANGE_M (fireNetwork
+		// routes + prunes them). Only fires with a LIVE link charge.
+		const linked = monumentLinkedSlots(MONUMENT_NODE_ID_BASE + i)
+		for (const f of fires) {
+			const d = Math.hypot(f.x - c.x, f.z - c.z)
+			if (d > MONUMENT_LINK_RANGE_M) continue
+			// Link end on the pit square's edge facing the fire (+ pad).
+			const ux = (f.x - c.x) / Math.max(0.01, d), uz = (f.z - c.z) / Math.max(0.01, d)
+			const toEdge = (MONUMENT_PIT_SIZE_M / 2) / Math.max(0.01, Math.abs(ux), Math.abs(uz)) + CHARGE_LINK_EDGE_PAD_M
+			const e = Math.min(toEdge, Math.max(0, d - 1))
+			const side = MONUMENT_PIT_SIZE_M / 2 + CHARGE_LINK_EDGE_PAD_M
+			const mids = [[side, 0], [-side, 0], [0, side], [0, -side]]
+				.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))
+				.sort((p, q) => Math.hypot(p.x - f.x, p.z - f.z) - Math.hypot(q.x - f.x, q.z - f.z))
+			pairs.push({ slot: f.index, mon: MONUMENT_NODE_ID_BASE + i, fx: f.x, fz: f.z, ends: [{ x: c.x + ux * e, z: c.z + uz * e }, ...mids] })
+			if (!linked.has(f.index)) continue // in range but unrouted / pruned: no charge
+			dists.push(d)
+			chargingIds.add(f.index)
+			if (d < bestD && slotToucher(f.index)) { bestD = d; best = f.index }
+		}
+		if (best >= 0) chargeBy[i] = slotToucher(best)
+		syncChargeHeat(i, c.x, c.z)
+		const prev = charge[i]
+		if (dists.length > 0) charge[i] = Math.min(1, charge[i] + chargeRatePerS(dists) * step)
+		else if (CHARGE_DECAY_ENABLED) charge[i] = Math.max(0, charge[i] - CHARGE_DECAY_PER_S * step)
+		if (charge[i] === prev) continue
+		syncChargeHeat(i, c.x, c.z)
+		if (charge[i] >= 1) {
+			monHeatR[i] = 0 // hands over to the 50 m crystal heat zone
+			releaseCrystal(i, chargeBy[i])
+			released = true
+			continue
+		}
+		recedeIce(i)
+		if (Math.abs(charge[i] - sentCharge[i]) >= CHARGE_SEND_STEP) sendCharge(i)
+	}
+	setChargingSlots(chargingIds)
+	setChargePairs(pairs)
+	if (released && getActiveStationCount() >= stationTotal()) {
+		// Victory: all three released -> finale beams (client) + thaw wave.
+		advanceThawStage('3 crystals released')
+	}
 }

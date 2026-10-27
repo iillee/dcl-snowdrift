@@ -78,6 +78,7 @@ import {
 	HIDDEN_IGNITE_RADIUS_SQ_M,
 } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
+import { FireSlotTable } from 'src/shared/fireSlots'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
 import type { TerrainMap } from 'src/shared/terrain/terrainMap'
 
@@ -139,6 +140,8 @@ const litLocal          : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).f
 // Debounce: don't spam ignite requests while the player stands inside a
 // pit's trigger waiting for the server's broadcast to come back.
 const ignitionRequested : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+/** Slots that hold a real pit this cycle (seed spot or built fire). */
+const slots = new FireSlotTable(HIDDEN_CAMPFIRE_COUNT)
 let   beaconPulseTime                       = 0
 let   currentSeed                           = 0
 
@@ -146,6 +149,11 @@ let   currentSeed                           = 0
 // MARK: spawnUnlitPit
 function spawnUnlitPit(index: number): void {
 	if (firePitEntity[index] !== null) return
+	// Never spawn a pit for an unused slot. The join hydrate sends a
+	// lit=0 state for every slot, and the snuff branch used to spawn a
+	// pit (at world 0,0) for each one; in Build Your Own Fire those 42
+	// phantom pits counted as placed fires and tripped the 40 cap.
+	if (!slots.isPlaced(index)) return
 	const e = engine.addEntity()
 	firePitEntity[index] = e
 	Transform.create(e, {
@@ -418,6 +426,8 @@ function getReadyIgniteIndex(): number {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		if (litLocal[i]) continue
 		if (ignitionRequested[i]) continue
+		// Unused slot (no pit this cycle): nothing to ignite.
+		if (firePitEntity[i] === null) continue
 		const dx = t.position.x - worldX[i]
 		const dz = t.position.z - worldZ[i]
 		const d2 = dx * dx + dz * dz
@@ -575,6 +585,47 @@ export function getHiddenCampfireWorldPos(
 }
 
 
+// MARK: clearSlot
+/** Tear a slot down to nothing (no pit, no visuals, origin position). */
+function clearSlot(index: number): void {
+	removeLocatorBeacon(index)
+	applyUnlitVisuals(index)
+	const pit = firePitEntity[index]
+	if (pit !== null) {
+		engine.removeEntity(pit)
+		firePitEntity[index] = null
+	}
+	worldX[index] = 0
+	worldY[index] = 0
+	worldZ[index] = 0
+	slots.clear(index)
+}
+
+
+// MARK: getPlacedFirePositions
+/**
+ * Every pit placed this cycle (hidden or player-built, lit or dead).
+ * Build Your Own Fire uses it for the spacing check.
+ */
+export function getPlacedFirePositions(): { x: number; z: number }[] {
+	return slots.positions()
+}
+
+
+// MARK: getPlacedFireCount
+/** How many slots hold a pit this cycle (all built, in Build Your Own Fire). */
+export function getPlacedFireCount(): number {
+	return slots.count()
+}
+
+
+// MARK: getCurrentHiddenSeed
+/** Cycle seed this module is tracking (echoed on build requests). */
+export function getCurrentHiddenSeed(): number {
+	return currentSeed
+}
+
+
 // MARK: onCycleRoll
 /**
  * Wipe every pit's lit state, move them to the new cycle's positions,
@@ -608,6 +659,9 @@ function handleCycleSeedChange(newSeed: number): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		const spot = positions[i]
 		if (!spot) {
+			// Build Your Own Fire: player-built pits from the old cycle
+			// have no seed spot; clear them out entirely.
+			if (firePitEntity[i] !== null || litLocal[i]) clearSlot(i)
 			console.log(`hiddenCampfire: handleCycleSeedChange: slot ${i} has no clear tile`)
 			continue
 		}
@@ -616,6 +670,7 @@ function handleCycleSeedChange(newSeed: number): void {
 		worldX[i] = spot.x
 		worldY[i] = groundedPitY(spot.x, spot.z, spot.y)
 		worldZ[i] = spot.z
+		slots.place(i, spot.x, spot.z)
 		relocatePit(i)
 	}
 	seatedMap = activeTerrain()
@@ -704,6 +759,7 @@ export function setupHiddenCampfire(): void {
 		worldX[i] = spot.x
 		worldY[i] = groundedPitY(spot.x, spot.z, spot.y)
 		worldZ[i] = spot.z
+		slots.place(i, spot.x, spot.z)
 		console.log(
 			`hiddenCampfire[${i}]: tile=(${spot.tx},${spot.tz}) ` +
 			`world=(${worldX[i].toFixed(1)},${worldY[i].toFixed(1)},${worldZ[i].toFixed(1)})`,
@@ -734,6 +790,9 @@ export function setupHiddenCampfire(): void {
 			return
 		}
 		if (lit === 1) {
+			// A lit state for a slot we never placed (missed builtFirePlaced)
+			// has nowhere to draw; skip rather than light a pit at 0,0.
+			if (!slots.isPlaced(index)) return
 			applyLitVisuals(index)
 		} else {
 			// lit=0 = snuff (fuel exhausted). Tear down flame + smoke +
@@ -748,6 +807,21 @@ export function setupHiddenCampfire(): void {
 			else if (AudioSource.has(pit)) AudioSource.deleteFrom(pit)
 			console.log(`hiddenCampfire[${index}]: snuffed, pit kept (entity ${firePitEntity[index]})`)
 		}
+	})
+
+	// Build Your Own Fire: the server tells us where a built fire sits.
+	// Move (or spawn) the slot's pit there; its fuel + lit state follow.
+	room.onMessage('builtFirePlaced', ({ seed, index, x, z }) => {
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		if (firePitEntity[index] !== null && worldX[index] === x && worldZ[index] === z) return
+		if (litLocal[index]) applyUnlitVisuals(index)
+		worldX[index] = x
+		worldY[index] = groundedPitY(x, z, activeGroundYAt(x, z))
+		worldZ[index] = z
+		slots.place(index, x, z)
+		relocatePit(index)
+		console.log(`hiddenCampfire[${index}]: built fire placed at (${x.toFixed(1)}, ${z.toFixed(1)})`)
 	})
 
 	// Cycle rollover. Fires on hydration (first cycleState arrival)

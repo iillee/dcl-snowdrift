@@ -27,6 +27,7 @@ import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
 import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { isInLavaRelightRange } from 'src/client/volcanoCrown'
+import { isBuildReady, tryBuildFire } from 'src/client/buildFire'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
 import { syncTorchFlameNow } from 'src/client/torch'
@@ -79,6 +80,14 @@ export function isTorchRelightOnCooldown(): boolean {
  */
 export function tryRelightAtFire(): void {
 	if (!isTorchEquipped()) return
+	// Build Your Own Fire: carrying a log with a lit torch, away from
+	// any fire -> E lights a campfire (carried log, at your feet). isBuildReady is false
+	// at a fire, so relight / feed keep working there. Ahead of the
+	// relight cooldown so a fresh relight never blocks a build.
+	if (isBuildReady()) {
+		tryBuildFire()
+		return
+	}
 	// Post-relight cooldown swallows the input entirely — no SFX, no
 	// fuel top-off, no state change. Prevents accidental double-taps
 	// from firing the whoosh twice in a row.
@@ -96,6 +105,7 @@ export function tryRelightAtFire(): void {
 		relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
 		return
 	}
+
 
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (t === null) return

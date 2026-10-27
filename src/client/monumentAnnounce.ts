@@ -1,4 +1,4 @@
-﻿/**
+/**
  * monumentAnnounce.ts — shared monument-ignition announcement.
  *
  * - Caption "<name> ignites an ancient monument" in the bottom letterbox bar
@@ -16,6 +16,7 @@ import { getPlayer } from '@dcl/sdk/players'
 import { isMonumentCinematicActive, setCinematicCloseListener } from 'src/client/monumentCinematic'
 import { isWorldCovered } from 'src/client/ui/layers/layer.loadingSplash'
 import { autoOpenHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
+import { isFloatingCrystals } from 'src/shared/ruleset'
 
 
 // MARK: Tuning
@@ -55,7 +56,8 @@ export function igniterName(userId: string): string {
 export function announceCinematic(name: string): void {
 	install()
 	captionName = name.replace(/[<>]/g, '') // no stray rich-text tags from names
-	caption = `${captionName} ignites an ancient monument`
+	// Floating crystals: no caption (a shared goal, not a personal feat).
+	caption = isFloatingCrystals() ? '' : `${captionName} ignites an ancient monument`
 	inCine  = true
 	lingerUntilMs = 0
 	helpPending = false

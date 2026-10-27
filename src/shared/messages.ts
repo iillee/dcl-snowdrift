@@ -79,6 +79,34 @@ export const Messages = {
 		index: Schemas.Int,
 	}),
 
+	// Build Your Own Fire (src/shared/ruleset.ts).
+	// Client -> Server: light the log the player is CARRYING at (x, z)
+	// (their feet) straight from the torch tooltip. The client already
+	// cleared its carry slot; on refusal builtFireRejected returns it
+	// (`kind` > 0 / carried=1 tells the client to restore it).
+	builtFireCarriedRequest: Schemas.Map({
+		seed: Schemas.Int,
+		x   : Schemas.Number,
+		z   : Schemas.Number,
+		kind: Schemas.Int,
+	}),
+	// Server -> Client: slot `index` now holds a player-built fire at
+	// (x, z). Sent before its fuel + hiddenCampfireState so clients move
+	// the pit first. Also sent on join for every built fire.
+	builtFirePlaced: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+		x    : Schemas.Number,
+		z    : Schemas.Number,
+	}),
+	// Server -> Client (sender only): lighting refused; carried=1 means
+	// give the log back. `reason` is a ruleset BuildFireVerdict.
+	builtFireRejected: Schemas.Map({
+		kind   : Schemas.Int,
+		reason : Schemas.String,
+		carried: Schemas.Int,
+	}),
+
 	// Server → Client: authoritative cycle state.
 	//   seed                 — current run id (Schemas.Int, so generators
 	//                          clamp to 1..0x7FFFFFFF; compare with
@@ -461,6 +489,15 @@ export const Messages = {
 		by    : Schemas.String,
 	}),
 
+	// Server -> Client (floating-crystals ruleset): monument charge 0..1.
+	// Broadcast as it changes (~4 Hz while charging) and to joiners.
+	// Number, not Float (Float payloads arrive empty).
+	monumentCharge: Schemas.Map({
+		seed  : Schemas.Int,
+		index : Schemas.Int,
+		charge: Schemas.Number,
+	}),
+
 	// Client -> Server: the sender's lit torch melted one ice chunk of a
 	// monument pit (src/shared/monumentIce.ts). seed = cycle seed, index
 	// = station, chunk = chunk index. Idempotent; the server sets the bit,
@@ -496,8 +533,8 @@ export const Messages = {
 		// step started (server clock) at send time; negative while it
 		// waits for the volcano beam to land. Clients and late joiners
 		// place the wave by age.
-		fromM    : Schemas.Float,
-		toM      : Schemas.Float,
+		fromM    : Schemas.Number,
+		toM      : Schemas.Number,
 		waveAgeMs: Schemas.Int,
 		waveDurMs: Schemas.Int,
 	}),

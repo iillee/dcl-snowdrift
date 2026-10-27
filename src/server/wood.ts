@@ -38,7 +38,17 @@ import {
 	WOOD_FAR_ACTIVE,
 	WOOD_NEAR_ACTIVE,
 	WOOD_OUTER_ACTIVE,
+	WOOD_BAND_FRONTIER_RING,
+	WOOD_BAND_FRONTIER_ROUTE,
+	WOOD_BAND_ICED_CLUSTER,
 } from 'src/shared/woodScatter'
+import {
+	WOOD_FRONTIER_DIMPLE_FRACTION,
+	WOOD_FRONTIER_RING_ACTIVE,
+	WOOD_FRONTIER_ROUTE_ACTIVE,
+} from 'src/shared/ruleset'
+import { getTerrain } from 'src/shared/terrain/terrainCache'
+import { releaseDimple, seedFireDimple } from 'src/server/snowState'
 
 import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
@@ -97,6 +107,26 @@ function rebuildScatter(seed: number): void {
 	for (const c of scatter) {
 		if (c.band === WOOD_BAND_TREE) active.add(c.idx)
 	}
+	// Build Your Own Fire frontier wood (bands only exist in that ruleset).
+	const route: number[] = []
+	const ring : number[] = []
+	for (const c of scatter) {
+		if (c.band === WOOD_BAND_FRONTIER_ROUTE) route.push(c.idx)
+		else if (c.band === WOOD_BAND_FRONTIER_RING) ring.push(c.idx)
+		else if (c.band === WOOD_BAND_ICED_CLUSTER) active.add(c.idx)
+	}
+	const stations = getTerrain(cycleMazeSeed(seed)).stations.length
+	shuffleTake(route, WOOD_FRONTIER_ROUTE_ACTIVE * stations, active)
+	shuffleTake(ring,  WOOD_FRONTIER_RING_ACTIVE, active)
+	frontierDimples.clear()
+	for (const idx of active) {
+		const c = scatter[idx]
+		const frontier = c.band === WOOD_BAND_FRONTIER_ROUTE || c.band === WOOD_BAND_FRONTIER_RING || c.band === WOOD_BAND_ICED_CLUSTER
+		if (frontier && Math.random() < WOOD_FRONTIER_DIMPLE_FRACTION) frontierDimples.set(idx, { x: c.worldX, z: c.worldZ })
+	}
+	if (route.length + ring.length > 0) {
+		console.log(`[Server] wood: frontier pool route=${route.length} ring=${ring.length} dimpled=${frontierDimples.size}`)
+	}
 
 	let branches = 0
 	let logs     = 0
@@ -121,6 +151,22 @@ function rebuildScatter(seed: number): void {
 		`active=${active.size} (near=${nearN} far=${farN} outer=${outerN} ` +
 		`dest=${destN} tree=${treeN} branches=${branches} logs=${logs})`
 	)
+}
+
+
+/** Active frontier pieces that get a shallow snow dimple this cycle. */
+/** idx -> spot; an entry exists ONLY while that piece is still lying there. */
+const frontierDimples = new Map<number, { x: number; z: number }>()
+
+
+// MARK: seedFrontierWoodDimples
+/**
+ * Build Your Own Fire: shallow snow over some frontier wood so it is not
+ * all under full-depth powder. Call after any clearAllSnow. No-op in
+ * the classic ruleset (no frontier bands).
+ */
+export function seedFrontierWoodDimples(): void {
+	for (const p of frontierDimples.values()) seedFireDimple(p.x, p.z)
 }
 
 
@@ -154,6 +200,7 @@ export function sendWoodStateTo(userId: string): void {
  */
 export function setupWoodServer(): void {
 	rebuildScatter(getCurrentCycleSeed())
+	seedFrontierWoodDimples()
 
 	room.onMessage('woodPickupRequest', ({ seed, idx }, context) => {
 		const from = context?.from ?? 'unknown'
@@ -179,6 +226,11 @@ export function setupWoodServer(): void {
 			return
 		}
 		active.delete(idx)
+		// The dimple only exists while the piece lies under it: release the
+		// scar so snow refills the spot normally (was never released, so the
+		// dip stayed for the rest of the cycle).
+		const dimple = frontierDimples.get(idx)
+		if (dimple) { frontierDimples.delete(idx); releaseDimple(dimple.x, dimple.z) }
 		console.log(
 			`[Server] wood: pickup idx=${idx} kind=${chunk.kind} by ${from} ` +
 			`(${active.size}/${scatter.length} remaining)`

@@ -81,7 +81,30 @@ import { GEM_ALPHA_REST, GEM_ENABLED, MONUMENT_GEM_FADE_S, MONUMENT_MATTE_PBR, g
 import { isTorchLit } from 'src/client/torchEquip'
 import { setVolcanoLavaStage } from 'src/client/volcanoCrown'
 import { DEBUG_VOLCANO_STAGE_OVERRIDE } from 'src/client/devFlags'
+import { Billboard, BillboardMode } from '@dcl/sdk/ecs'
+import {
+	CHARGE_PRE_GLOW,
+	CHARGE_PRE_LIFT_M,
+	CHARGE_RING_M,
+	CHARGE_SHAKE_ENABLED,
+	CHARGE_SHAKE_FROM,
+	CRYSTAL_FLOAT_HEIGHT_M,
+	CRYSTAL_HEAT_RADIUS_M,
+	CRYSTAL_WARMTH_EDGE_FRAC,
+	isFloatingCrystals,
+	chargeHeatFuel,
+	CRYSTAL_RELEASE_HOLD_S,
+	CRYSTAL_RISE_S,
+	CRYSTAL_LASER_DRAW_S,
+	CRYSTAL_THAW_SPREAD_S,
+	CRYSTAL_SKY_DROP_S,
+	CRYSTAL_CHARGE_S,
+	CRYSTAL_SKY_OFF_S,
+	CRYSTAL_LASER_HOLD_S,
+} from 'src/shared/ruleset'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
+import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
+import { fireFinalChargePulse, monumentHasChargeLink } from 'src/client/fireNetworkGlow'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
 import { announceCinematic, announceWithoutCinematic, igniterName } from 'src/client/monumentAnnounce'
@@ -187,6 +210,15 @@ const ICE_RESEND_MS = 3000
 // MARK: Tuning - rise / hover
 /** Rise out of the ground (s). Applies to every client's rise animation. Was 6. */
 export const MONUMENT_RISE_S = 10
+// Floating crystals release timing (hold / rise / laser) lives in src/shared/ruleset.ts (server thaw timing shares it).
+/** Laser retracts into the crystal over this many seconds once the thaw ring is full. */
+const CRYSTAL_LASER_RETRACT_S = 1.2
+/** Flash fires this long before the hold ends (s); grows over CRYSTAL_FLASH_S. */
+const CRYSTAL_FLASH_LEAD_S = 0.25
+const CRYSTAL_FLASH_S = 0.45
+const CRYSTAL_FLASH_MAX_M = 7
+function riseHoldS(): number { return isFloatingCrystals() ? CRYSTAL_RELEASE_HOLD_S : 0 }
+function riseDurS(): number { return isFloatingCrystals() ? CRYSTAL_RISE_S : MONUMENT_RISE_S }
 /** Pause once stationary before the sky beam drops (s). */
 export const MONUMENT_SETTLE_S = 0.6
 /** Hover bob amplitude (m) and period (s): barely noticeable. Was 2.5 m (before that 0.6 m / 12 s). */
@@ -272,7 +304,7 @@ const COLOR_BEAM    = Color4.create(0.55, 0.8, 1.0, 1)
 const BEAM_EMISSIVE = Color3.create(0.45, 0.72, 1.0)
 const BEAM_EMISSIVE_INTENSITY = 5
 
-const STATION_COUNT_MAX = 3
+const STATION_COUNT_MAX = 8 // array capacity; live count = map.stations.length (3 classic, MONUMENT_COUNT crystals)
 
 
 // MARK: Types
@@ -352,9 +384,9 @@ type IceDrop = {
 
 // MARK: State
 const slots: Array<Slot | null> = [null, null, null]
-const pendingActive = [false, false, false]
+const pendingActive: boolean[] = new Array<boolean>(8).fill(false)
 /** Server ice masks received before / across a slot rebuild. */
-const pendingIce = [0, 0, 0]
+const pendingIce: number[] = new Array<number>(8).fill(0)
 const drops: IceDrop[] = []
 let lastMap: TerrainMap | null = null
 let currentSeed = 0
@@ -425,7 +457,9 @@ function landedCount(): number {
  * / heat is server-driven (worldThaw.ts) and starts when the beam lands.
  */
 function syncVolcanoFromStations(): void {
-	const n = DEBUG_VOLCANO_STAGE_OVERRIDE >= 0 ? DEBUG_VOLCANO_STAGE_OVERRIDE : landedCount()
+	// Floating crystals: the volcano is not the objective (stays at stage 0).
+	const n = DEBUG_VOLCANO_STAGE_OVERRIDE >= 0 ? DEBUG_VOLCANO_STAGE_OVERRIDE
+		: isFloatingCrystals() ? 0 : landedCount()
 	setVolcanoSmokeBoost(n)
 	setVolcanoLavaStage(n)
 }
@@ -518,7 +552,8 @@ function startGem(slot: Slot): void {
 	if (!GEM_ENABLED) return
 	if (slot.gemOn) return
 	slot.gemOn = true
-	slot.gemK  = 0
+	// Floating crystals: continue from the charge pre-glow.
+	if (!isFloatingCrystals()) slot.gemK = 0
 }
 
 /** Already-lit monument (late join / hydration): straight to the gem. */
@@ -613,6 +648,11 @@ function setObeliskSolid(slot: Slot, solid: boolean): void {
 // MARK: Poses
 /** Mean hovering top-tip height above ground for a slot (m). */
 function hoverTipH(slot: Slot): number {
+	if (isFloatingCrystals()) {
+		// Fixed float: bottom tip CRYSTAL_FLOAT_HEIGHT_M above its ground.
+		const capTop = sceneHeightLimitM() - HOVER_CEILING_MARGIN_M - HOVER_BOB_M - slot.groundY
+		return Math.max(OB_TOTAL_M + FROZEN_TIP_Y_M + 1, Math.min(CRYSTAL_FLOAT_HEIGHT_M + OB_TOTAL_M, capTop))
+	}
 	// Bottom tip (volcano beam origin) a margin above the beam target so
 	// the beam descends to the volcano; same formula terrain gen checked.
 	const targetY = slot.aim ? slot.aim.y : volcanoLavaTopY()
@@ -926,7 +966,7 @@ function destroyBeam(beam: Beam | null): void {
 function ensureBeams(slot: Slot, map: TerrainMap | null): void {
 	const top    = topBeamJoint(slot)
 	const bottom = bottomBeamJoint(slot)
-	if (!slot.sky) {
+	if (!slot.sky && !isFloatingCrystals()) {
 		// The sky beam rides the bob (beamRoot), so leave room for its peak.
 		const topY = sceneHeightLimitM() - SKY_BEAM_CEILING_MARGIN_M - HOVER_BOB_M
 		if (topY > top.y + 2) {
@@ -936,7 +976,8 @@ function ensureBeams(slot: Slot, map: TerrainMap | null): void {
 			)
 		}
 	}
-	if (!slot.volcano && map) {
+	// Floating crystals: no volcano beam (finale beams: crystalFinale).
+	if (!slot.volcano && map && !isFloatingCrystals()) {
 		const target = slot.aim ?? volcanoBeamTarget(map)
 		if (target) {
 			slot.volcano = buildBeam(
@@ -1015,8 +1056,10 @@ function finishActivate(index: number, animate: boolean): void {
 	if (!slot) return
 	// Already active (local optimistic melt or echo): ignore.
 	if (slot.active) return
-	if (animate) startRise(slot)
-	else {
+	if (animate) {
+		startRise(slot)
+		if (isFloatingCrystals()) fireFinalChargePulse(index)
+	} else {
 		snapDone(slot)
 		syncVolcanoFromStations()
 	}
@@ -1073,7 +1116,11 @@ function startIgniteCinematic(index: number): boolean {
 	const slot = slots[index]
 	if (!slot || slot.phase !== 'rising') return false
 	const map = activeTerrain()
-	const aim = slot.aim ?? (map ? volcanoBeamTarget(map) : null)
+	// Floating crystals: no volcano beam; frame the crystal against a
+	// point on the ground between it and the map centre (camera look-at).
+	const aim = isFloatingCrystals()
+		? { x: slot.x * 0.85, y: slot.groundY, z: slot.z * 0.85 }
+		: slot.aim ?? (map ? volcanoBeamTarget(map) : null)
 	if (!aim) return false
 	slot.cine = true
 	startMonumentCinematic({
@@ -1083,7 +1130,12 @@ function startIgniteCinematic(index: number): boolean {
 		hoverCentreY: hoverCentreY(slot),
 		halfLen     : OB_TOTAL_M / 2,
 		aim         : Vector3.create(aim.x, aim.y, aim.z),
-		riseS       : MONUMENT_RISE_S,
+		riseS       : riseHoldS() + riseDurS(),
+		crystal     : isFloatingCrystals() ? {
+			holdS: CRYSTAL_RELEASE_HOLD_S, riseS: CRYSTAL_RISE_S, chargeS: CRYSTAL_CHARGE_S,
+			skyOffS: CRYSTAL_SKY_OFF_S, laserS: CRYSTAL_LASER_DRAW_S, laserHoldS: CRYSTAL_LASER_HOLD_S, spreadS: CRYSTAL_THAW_SPREAD_S,
+			thawR: CRYSTAL_HEAT_RADIUS_M,
+		} : undefined,
 		rigPos      : () => {
 			const tr = Transform.getOrNull(slot.rig)
 			return tr ? Vector3.clone(tr.position) : Vector3.create(slot.x, hoverCentreY(slot), slot.z)
@@ -1122,6 +1174,10 @@ function clearAll(): void {
 		engine.removeEntity(s.rig)
 		destroyBeam(s.sky)
 		destroyBeam(s.volcano)
+		destroyBeam(lasers[i])
+		lasers[i] = null
+		laserHitT[i] = -1
+		removeCrystalFx(i)
 		engine.removeEntity(s.beamRoot)
 		slots[i] = null
 	}
@@ -1222,6 +1278,11 @@ function meltSystem(dt: number): void {
 	meltingIndex = -1
 	needTorchIndex = -1
 	readyIgniteIndex = -1
+	if (isFloatingCrystals()) {
+		// Charge (server) melts the ice; no torch melt or ignite prompt.
+		setMeltSfx(false, dt)
+		return
+	}
 	let anyHeating = false
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	const blocked = isItemInputBlocked()
@@ -1505,7 +1566,10 @@ function animSystem(dt: number): void {
 
 		if (slot.phase === 'rising') {
 			// Straight up, no rotation: spin + bob only start once hovering.
-			const u = Math.min(1, slot.phaseT / MONUMENT_RISE_S)
+			const hold = riseHoldS()
+			const flashAt = hold - CRYSTAL_FLASH_LEAD_S
+			if (hold > 0 && slot.phaseT >= flashAt && slot.phaseT - dt < flashAt) spawnReleaseFlash(slot)
+			const u = Math.max(0, Math.min(1, (slot.phaseT - hold) / riseDurS()))
 			const e = smoothstep(u)
 			const y0 = frozenCentreY(slot)
 			const y1 = hoverCentreY(slot)
@@ -1513,7 +1577,12 @@ function animSystem(dt: number): void {
 			// Ignition cinematic only: the sky beam drops during the last
 			// CINE_SKY_DROP_S of the rise and lands in the top tip (at its
 			// hover position) exactly as the rise ends.
-			if (slot.cine) {
+			// Floating crystals (all viewers): the sky beam drops onto the top tip over the end of the rise.
+			if (isFloatingCrystals() && slot.phaseT >= hold + riseDurS() - CRYSTAL_SKY_DROP_S) {
+				if (!slot.sky) buildSkyBeam(slot)
+				revealBeam(slot.sky, (slot.phaseT - (hold + riseDurS() - CRYSTAL_SKY_DROP_S)) / CRYSTAL_SKY_DROP_S, SKY_BEAM_SEGMENTS)
+			}
+			if (slot.cine && !isFloatingCrystals()) {
 				const dropT0 = MONUMENT_RISE_S - CINE_SKY_DROP_S
 				if (slot.phaseT >= dropT0) {
 					ensureBeams(slot, map)
@@ -1524,7 +1593,7 @@ function animSystem(dt: number): void {
 				slot.hoverT = 0
 				setObeliskSolid(slot, true)
 				// Cinematic: the sky beam has just landed in the top tip.
-				if (slot.cine) startGem(slot)
+				if (slot.cine && !isFloatingCrystals()) startGem(slot)
 				setPhase(slot, 'settle')
 			}
 			continue
@@ -1537,7 +1606,10 @@ function animSystem(dt: number): void {
 		applyHover(slot)
 
 		if (slot.phase === 'settle') {
-			if (slot.phaseT >= (slot.cine ? CINE_SETTLE_S : MONUMENT_SETTLE_S)) {
+			if (isFloatingCrystals() || slot.phaseT >= (slot.cine ? CINE_SETTLE_S : MONUMENT_SETTLE_S)) {
+				// Floating crystals: the laser fires straight down to the ground point
+				// (thaw front starts server-side at the same moment), then done.
+				if (isFloatingCrystals()) { crystalAfterRise(slot, i, dt); continue }
 				ensureBeams(slot, map)
 				if (slot.cine) {
 					// Sky beam already landed during the rise: straight to the volcano beam.
@@ -1569,6 +1641,11 @@ function animSystem(dt: number): void {
 function startVolcanoBeam(slot: Slot): void {
 	// Sky beam has landed in the top tip (non-cinematic path; idempotent).
 	startGem(slot)
+	if (isFloatingCrystals()) {
+		// No volcano beam: the crystal just floats and glows.
+		setPhase(slot, 'done')
+		return
+	}
 	setPhase(slot, 'volcanoBeam')
 	if (slot.beamSfx) {
 		slot.beamSfx = false
@@ -1582,7 +1659,8 @@ function resetForSeed(seed: number): void {
 	if (cycleSeedsEqual(seed, currentSeed) && currentSeed !== 0) return
 	console.log(`stationMarkers: cycle roll ${currentSeed} -> ${seed}, clearing activations`)
 	currentSeed = seed
-	for (let i = 0; i < STATION_COUNT_MAX; i++) { pendingActive[i] = false; pendingIce[i] = 0 }
+	for (let i = 0; i < STATION_COUNT_MAX; i++) { pendingActive[i] = false; pendingIce[i] = 0; pendingCharge[i] = 0 }
+	finaleT = -1
 	// Markers rebuild via activeTerrain watcher when layout changes
 	// (clearAll also removes the ground crystal hum emitters).
 }
@@ -1608,6 +1686,13 @@ export function setupStationMarkers(): void {
 	engine.addSystem(gemSystem)
 	engine.addSystem(syncSnowOffsets)
 	engine.addSystem(gazeSystem)
+	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem) }
+
+	room.onMessage('monumentCharge', ({ seed, index, charge }) => {
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		if (index < 0 || index >= STATION_COUNT_MAX) return
+		pendingCharge[index] = Math.max(0, Math.min(1, Number(charge) || 0))
+	})
 
 	room.onMessage('monumentIceState', ({ seed, index, mask }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
@@ -1648,4 +1733,291 @@ export function setupStationMarkers(): void {
 	onCycleSeedChange(({ newSeed }) => { resetForSeed(newSeed) })
 
 	console.log('stationMarkers: setupStationMarkers: installed')
+}
+
+
+// MARK: Floating crystals - charge visuals
+/** Charge 0..1 per monument from the server (monumentCharge). */
+const pendingCharge: number[] = new Array<number>(8).fill(0)
+/** Seconds since all three crystals were up (finale beams), -1 = not yet. */
+let finaleT = -1
+const FINALE_BEAM_DRAW_S = 4
+const RING_POSTS = 32
+const BAR_W_M = 4
+const BAR_H_M = 0.35
+const BAR_Y_M = 7
+const SHAKE_M = 0.06
+const CHARGE_COL = Color4.create(1.0, 0.55, 0.15, 1)
+const CHARGE_EMI = Color3.create(1.0, 0.5, 0.1)
+
+type CrystalFx = { ring: Entity[]; bar: Entity; fill: Entity; shownCharge: number; glowAcc: number }
+const fx: Array<CrystalFx | null> = []
+
+function removeCrystalFx(i: number): void {
+	const f = fx[i]
+	if (!f) return
+	for (const e of f.ring) engine.removeEntity(e)
+	engine.removeEntity(f.fill)
+	engine.removeEntity(f.bar)
+	fx[i] = null
+}
+
+function buildCrystalFx(slot: Slot): CrystalFx {
+	// No charge-radius ring posts any more (the links show what charges).
+	const ring: Entity[] = []
+	const bar = engine.addEntity()
+	Transform.create(bar, { position: Vector3.create(slot.x, slot.groundY + BAR_Y_M, slot.z) })
+	Billboard.create(bar, { billboardMode: BillboardMode.BM_Y })
+	const bg = engine.addEntity()
+	Transform.create(bg, { parent: bar, scale: Vector3.create(BAR_W_M + 0.15, BAR_H_M + 0.15, 1) })
+	MeshRenderer.setPlane(bg)
+	Material.setBasicMaterial(bg, { diffuseColor: Color4.create(0.05, 0.05, 0.08, 0.85), castShadows: false })
+	ring.push(bg)
+	const fill = engine.addEntity()
+	Transform.create(fill, { parent: bar, position: Vector3.create(0, 0, -0.02), scale: Vector3.create(0.001, BAR_H_M, 1) })
+	MeshRenderer.setPlane(fill)
+	paintGlow(fill, CHARGE_COL, CHARGE_EMI, 2)
+	return { ring, bar, fill, shownCharge: -1, glowAcc: 0 }
+}
+
+function crystalSystem(dt: number): void {
+	const nowS = Date.now() / 1000
+	let up = 0
+	let total = 0
+	for (let i = 0; i < slots.length; i++) {
+		const slot = slots[i]
+		if (!slot) continue
+		total++
+		if (slot.active) {
+			removeCrystalFx(i)
+			if (slot.phase === 'done') up++
+			continue
+		}
+		const ch = pendingCharge[i] ?? 0
+		let f = fx[i]
+		// Bar hidden until charging starts (charge > 0 or a live charge link);
+		// once it has charge it stays until release.
+		const started = ch > 0 || monumentHasChargeLink(i)
+		if (!started) { if (f) removeCrystalFx(i); continue }
+		if (!f) { f = buildCrystalFx(slot); fx[i] = f }
+		// Progress bar fill grows from the left.
+		if (Math.abs(ch - f.shownCharge) > 0.001) {
+			f.shownCharge = ch
+			const w = Math.max(0.001, BAR_W_M * ch)
+			const tr = Transform.getMutable(f.fill)
+			tr.scale = Vector3.create(w, BAR_H_M, 1)
+			tr.position = Vector3.create(-BAR_W_M / 2 + w / 2, 0, -0.02)
+		}
+		// Pre-glow: the crystal brightens with charge (throttled writes).
+		f.glowAcc += dt
+		if (GEM_ENABLED && f.glowAcc >= 0.25) {
+			f.glowAcc = 0
+			const k = ch * CHARGE_PRE_GLOW
+			if (Math.abs(k - slot.gemK) > 0.01) { slot.gemK = k; applyGem(slot) }
+		}
+		// Near full: vibrate + lift slightly out of the socket.
+		if (CHARGE_SHAKE_ENABLED && ch >= CHARGE_SHAKE_FROM) {
+			const u = (ch - CHARGE_SHAKE_FROM) / (1 - CHARGE_SHAKE_FROM)
+			const tr = Transform.getMutableOrNull(slot.rig)
+			if (tr) {
+				const j = SHAKE_M * (0.4 + u)
+				tr.position = Vector3.create(
+					slot.x + Math.sin(nowS * 61) * j,
+					frozenCentreY(slot) + CHARGE_PRE_LIFT_M * u + Math.sin(nowS * 47) * j * 0.5,
+					slot.z + Math.cos(nowS * 53) * j,
+				)
+			}
+		}
+	}
+	// Finale: once all three float, each beams to the next.
+	if (total >= 3 && up >= total) {
+		if (finaleT < 0) {
+			finaleT = 0
+			for (let i = 0; i < total; i++) {
+				const a = slots[i]
+				const b = slots[(i + 1) % total]
+				if (!a || !b || a.volcano) continue
+				const end = bottomBeamJoint(b)
+				a.volcano = buildBeam(a.beamRoot, bottomBeamJoint(a), end, BEAM_SEGMENTS, BEAM_XZ_M, BEAM_FADE_START, false)
+				aimVolcanoBeam(a, hoverBob(a))
+			}
+			playBeamSfx(BEAM_SFX_VOLUME, BEAM_SFX_FADE_IN_S)
+			console.log('stationMarkers: all crystals released - finale beams')
+		}
+		if (finaleT <= FINALE_BEAM_DRAW_S) {
+			finaleT += dt
+			for (const s of slots) if (s) revealBeam(s.volcano, finaleT / FINALE_BEAM_DRAW_S, BEAM_SEGMENTS)
+		}
+	}
+}
+
+// MARK: monumentChargeHeatAt
+/**
+ * Campfire-equivalent fuel of the strongest CHARGING monument whose tier
+ * ring (hearthRadiusFromFuel) covers (x, z); 0 = none. Charge comes from
+ * the server (monumentCharge, also sent to late joiners). Released
+ * monuments hand over to crystalHeatAt.
+ */
+export function monumentChargeHeatAt(x: number, z: number): number {
+	if (!isFloatingCrystals()) return 0
+	let best = 0
+	for (let i = 0; i < slots.length; i++) {
+		const s = slots[i]
+		if (!s || pendingActive[i]) continue
+		const fuel = chargeHeatFuel(pendingCharge[i] ?? 0)
+		if (fuel <= best) continue
+		const r = hearthRadiusFromFuel(fuel)
+		if ((x - s.x) ** 2 + (z - s.z) ** 2 <= r * r) best = fuel
+	}
+	return best
+}
+
+// MARK: crystalHeatAt
+/**
+ * Warmth factor 0..1 at (x, z) from released crystals (floating-crystals
+ * ruleset): 1 at a crystal, CRYSTAL_WARMTH_EDGE_FRAC at
+ * CRYSTAL_HEAT_RADIUS_M, 0 outside. Uses the server active flag
+ * (pendingActive) so warmth starts at release, not after the rise.
+ */
+export function crystalHeatAt(x: number, z: number): number {
+	if (!isFloatingCrystals()) return 0
+	let best = 0
+	const r2 = CRYSTAL_HEAT_RADIUS_M * CRYSTAL_HEAT_RADIUS_M
+	for (let i = 0; i < slots.length; i++) {
+		const s = slots[i]
+		if (!s || !pendingActive[i]) continue
+		const dx = x - s.x
+		const dz = z - s.z
+		const d2 = dx * dx + dz * dz
+		if (d2 > r2) continue
+		const t = Math.sqrt(d2) / CRYSTAL_HEAT_RADIUS_M
+		const h = 1 - (1 - CRYSTAL_WARMTH_EDGE_FRAC) * t
+		if (h > best) best = h
+	}
+	return best
+}
+
+// MARK: Release flash (floating crystals)
+type Flash = { e: Entity; t: number }
+const flashes: Flash[] = []
+/** Bright burst at the seated crystal as the final pulse lands. */
+function spawnReleaseFlash(slot: Slot): void {
+	const tr = Transform.getOrNull(slot.rig)
+	const p = tr ? tr.position : Vector3.create(slot.x, slot.groundY + 2, slot.z)
+	const e = engine.addEntity()
+	Transform.create(e, { position: Vector3.create(p.x, p.y, p.z), scale: Vector3.create(0.5, 0.5, 0.5) })
+	MeshRenderer.setSphere(e)
+	flashes.push({ e, t: 0 })
+	paintFlash(e, 1)
+	if (flashes.length === 1) engine.addSystem(flashSystem, undefined, 'crystalReleaseFlash')
+}
+function paintFlash(e: Entity, a: number): void {
+	Material.setPbrMaterial(e, {
+		albedoColor      : Color4.create(1, 0.95, 0.75, 0.85 * a),
+		emissiveColor    : Color3.create(1, 0.9, 0.6),
+		emissiveIntensity: 6 * a,
+		transparencyMode : MaterialTransparencyMode.MTM_ALPHA_BLEND,
+		castShadows      : false,
+	})
+}
+function flashSystem(dt: number): void {
+	for (let i = flashes.length - 1; i >= 0; i--) {
+		const f = flashes[i]
+		f.t += dt
+		const u = Math.min(1, f.t / CRYSTAL_FLASH_S)
+		const s = 0.5 + (CRYSTAL_FLASH_MAX_M - 0.5) * (1 - (1 - u) * (1 - u))
+		Transform.getMutable(f.e).scale = Vector3.create(s, s, s)
+		paintFlash(f.e, 1 - u)
+		if (u >= 1) { engine.removeEntity(f.e); flashes.splice(i, 1) }
+	}
+	if (flashes.length === 0) engine.removeSystem('crystalReleaseFlash')
+}
+
+
+// MARK: Crystal laser (floating crystals release)
+/** Seconds since the laser hit the ground per monument (-1 = none / gone). */
+const laserHitT: number[] = new Array<number>(8).fill(-1)
+/** Downward laser per monument (the sky beam lives in slot.sky). */
+const lasers: Array<Beam | null> = new Array<Beam | null>(8).fill(null)
+/** Sky-beam charge pulse: crest period (s) and extra XZ scale at the crest. */
+const SKY_PULSE_PERIOD_S = 0.9
+const SKY_PULSE_AMP = 1.2
+
+/** Same sky beam as the classic activation: from high above down into the top tip. */
+function buildSkyBeam(slot: Slot): void {
+	const top = topBeamJoint(slot)
+	const topY = sceneHeightLimitM() - SKY_BEAM_CEILING_MARGIN_M - HOVER_BOB_M
+	if (topY <= top.y + 2) return
+	slot.sky = buildBeam(slot.beamRoot, top, Vector3.create(top.x, topY, top.z), SKY_BEAM_SEGMENTS, SKY_BEAM_XZ_M, SKY_BEAM_FADE_START, true)
+}
+
+/**
+ * After the rise (phase 'settle', phaseT from the sky beam landing):
+ *   0 .. CHARGE        crystal charges from the sky beam (brightens, pulses run down it)
+ *   .. + SKY_OFF       sky beam lifts away (charging stops)
+ *   .. + LASER_DRAW    laser draws down into the earth (beam sfx)
+ * then 'done'; the server thaw starts LASER_HOLD later (CRYSTAL_THAW_DELAY_S).
+ */
+function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
+	const t = slot.phaseT
+	const tOff = CRYSTAL_CHARGE_S
+	const tLaser = tOff + CRYSTAL_SKY_OFF_S
+	if (!slot.sky && t < tOff) { buildSkyBeam(slot); revealBeam(slot.sky, 1, SKY_BEAM_SEGMENTS) }
+	if (t < tOff) {
+		const u = t / CRYSTAL_CHARGE_S
+		const k = CHARGE_PRE_GLOW + (1 - CHARGE_PRE_GLOW) * u
+		if (GEM_ENABLED && Math.abs(k - slot.gemK) > 0.01) { slot.gemK = k; applyGem(slot) }
+		// Pulse crest runs from the sky (tMid 1) down into the tip (tMid 0).
+		const sky = slot.sky
+		if (sky) {
+			const front = 1.2 - ((t / SKY_PULSE_PERIOD_S) % 1) * 1.4
+			for (let k2 = 0; k2 < sky.segs.length; k2++) {
+				const tr = Transform.getMutableOrNull(sky.segs[k2])
+				if (!tr) continue
+				const s = 1 + SKY_PULSE_AMP * Math.exp(-(((sky.tMid[k2] - front) / 0.12) ** 2))
+				tr.scale = Vector3.create(sky.xz[k2] * s, tr.scale.y, sky.xz[k2] * s)
+			}
+		}
+		return
+	}
+	if (t < tLaser) {
+		// Sky beam lifts away from the tip up into the sky.
+		const sky = slot.sky
+		if (sky) {
+			const gone = Math.ceil(((t - tOff) / CRYSTAL_SKY_OFF_S) * SKY_BEAM_SEGMENTS)
+			for (let k2 = 0; k2 < sky.segs.length; k2++) {
+				const tr = Transform.getMutableOrNull(sky.segs[k2])
+				if (tr) tr.scale = Vector3.create(sky.xz[k2], tr.scale.y, sky.xz[k2])
+				if (sky.tMid[k2] * SKY_BEAM_SEGMENTS < gone && MeshRenderer.has(sky.segs[k2])) MeshRenderer.deleteFrom(sky.segs[k2])
+			}
+		}
+		return
+	}
+	if (slot.sky) { destroyBeam(slot.sky); slot.sky = null }
+	if (!lasers[i]) {
+		lasers[i] = buildBeam(slot.beamRoot, bottomBeamJoint(slot), Vector3.create(slot.x, slot.groundY, slot.z), BEAM_SEGMENTS, BEAM_XZ_M, BEAM_FADE_START, false)
+		playBeamSfx(BEAM_SFX_VOLUME, BEAM_SFX_FADE_IN_S)
+	}
+	revealBeam(lasers[i], (t - tLaser) / CRYSTAL_LASER_DRAW_S, BEAM_SEGMENTS)
+	if (t - tLaser >= CRYSTAL_LASER_DRAW_S) {
+		laserHitT[i] = 0
+		startVolcanoBeam(slot) // -> 'done' + gem on (already full)
+	}
+}
+
+/** Hold the laser through the laser hold + the thaw spread, then retract it into the crystal and remove it. */
+function laserSystem(dt: number): void {
+	for (let i = 0; i < laserHitT.length; i++) {
+		if (laserHitT[i] < 0) continue
+		const b = lasers[i]
+		if (!slots[i] || !b) { laserHitT[i] = -1; continue }
+		laserHitT[i] += dt
+		const u = (laserHitT[i] - CRYSTAL_LASER_HOLD_S - CRYSTAL_THAW_SPREAD_S) / CRYSTAL_LASER_RETRACT_S
+		if (u <= 0) continue
+		const keep = Math.ceil((1 - Math.min(1, u)) * BEAM_SEGMENTS)
+		for (let k = 0; k < b.segs.length; k++) {
+			if (b.order[k] >= keep && MeshRenderer.has(b.segs[k])) MeshRenderer.deleteFrom(b.segs[k])
+		}
+		if (u >= 1) { destroyBeam(b); lasers[i] = null; laserHitT[i] = -1 }
+	}
 }

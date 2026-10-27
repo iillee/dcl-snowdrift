@@ -19,6 +19,7 @@
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { icedStationIndex } from 'src/shared/monumentIce'
+import { isBuildYourOwnFire } from 'src/shared/ruleset'
 import { trunkDiscs } from 'src/shared/props/scatter'
 import {
 	MAJOR_GROVE_COUNT,
@@ -222,6 +223,9 @@ function mulberry32(seed: number): () => number {
 export function pickHiddenCampfires(
 	seed: number,
 ): HiddenCampfireSpot[] {
+	// Build Your Own Fire: no hidden pits at all (the guaranteed iced-
+	// monument pit included). Slots stay free for player-built fires.
+	if (isBuildYourOwnFire()) return []
 	const rand     = mulberry32(seed)
 	const mazeSeed = cycleMazeSeed(seed)
 	const map      = getTerrain(mazeSeed)

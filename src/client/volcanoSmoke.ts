@@ -111,6 +111,9 @@ const COLOR_OVER_START = Color4.create(0.55, 0.54, 0.53, 0.60)
 const COLOR_OVER_END   = Color4.create(0.80, 0.80, 0.82, 0.0)
 
 
+import { CRYSTAL_IDLE_SMOKE_ALPHA, CRYSTAL_IDLE_SMOKE_RATE, CRYSTAL_IDLE_SMOKE_SIZE, isFloatingCrystals } from 'src/shared/ruleset'
+
+
 // MARK: State
 let emitter: ReturnType<typeof engine.addEntity> | null = null
 let lastMap: TerrainMap | null = null
@@ -119,6 +122,14 @@ let stationBoost = 0
 /** Live plume parameters (blended toward the stage targets). */
 type SmokeParams = { rate: number; size: number; speed: number; lift: number; alpha: number }
 function stageParams(st: number): SmokeParams {
+	// Floating crystals: 'dormant' is a thin idle wisp (stage-1 shape, scaled).
+	if (st <= 0 && isFloatingCrystals()) return {
+		rate : SMOKE_RATE_BY_STAGE[1]  * CRYSTAL_IDLE_SMOKE_RATE,
+		size : SMOKE_SIZE_BY_STAGE[1]  * CRYSTAL_IDLE_SMOKE_SIZE,
+		speed: SMOKE_SPEED_BY_STAGE[1],
+		lift : SMOKE_LIFT_BY_STAGE[1],
+		alpha: SMOKE_ALPHA_BY_STAGE[1] * CRYSTAL_IDLE_SMOKE_ALPHA,
+	}
 	return {
 		rate : SMOKE_RATE_BY_STAGE[st],
 		size : SMOKE_SIZE_BY_STAGE[st],
@@ -291,9 +302,9 @@ function smokeBlendSystem(dt: number): void {
 		alpha: from.alpha + (to.alpha - from.alpha) * k,
 	}
 	// Shrinking toward dormant keeps the old shape while the rate fades.
-	if (stationBoost <= 0) cur = { ...from, rate: cur.rate, alpha: from.alpha }
+	if (stationBoost <= 0 && !isFloatingCrystals()) cur = { ...from, rate: cur.rate, alpha: from.alpha }
 	writeParams()
-	if (done && stationBoost <= 0 && lastMap !== null) {
+	if (done && stationBoost <= 0 && !isFloatingCrystals() && lastMap !== null) {
 		ParticleSystem.getMutable(emitter).playbackState = PBParticleSystem_PlaybackState.PS_STOPPED
 	}
 }

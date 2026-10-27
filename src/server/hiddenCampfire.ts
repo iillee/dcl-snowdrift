@@ -53,6 +53,19 @@ import { rosterSize } from 'src/server/roster'
 import { meltDisc, releaseDiscOutside, seedFireDimple } from 'src/server/snowState'
 import { isFireLinked, registerFireFuel, tryShareFeed } from 'src/server/fireNetworkLinks'
 import { NETWORK_BURN_MUL } from 'src/shared/fireNetwork'
+import {
+	BUILT_FIRE_COST_KIND,
+	BUILT_FIRE_MAX,
+	BUILT_FIRE_PERMANENT,
+	BUILT_FIRE_START_FUEL,
+	isBuildYourOwnFire,
+	validateBuiltFireSpot,
+} from 'src/shared/ruleset'
+import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
+import { activeTerrain, getTerrain } from 'src/shared/terrain/terrainCache'
+import { getStageAtWorld } from 'src/server/snowState'
+import { CHARGE_FIRE_DRAIN_MUL } from 'src/shared/ruleset'
+import { chargeTargetsOf, clearSlotTouches, isSlotCharging, noteSlotTouched } from 'src/server/chargeLinks'
 
 
 // MARK: Melt-growth tuning
@@ -76,6 +89,22 @@ const fuel              : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const lastBroadcastFuel : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-999)
 const lastBroadcastTier : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(-1)
 const heartbeatClock    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/** Build Your Own Fire: slot holds a player-built fire this cycle. */
+const built             : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+/** Server cap; never more than the slot arrays hold. */
+const BUILT_CAP = Math.min(BUILT_FIRE_MAX, HIDDEN_CAMPFIRE_COUNT)
+
+/** Permanent built fires neither drain nor take shared fuel. */
+function isPermanentSlot(i: number): boolean {
+	return BUILT_FIRE_PERMANENT && built[i]
+}
+
+/** Number of player-built fires placed this cycle (lit or dead). */
+export function builtFireCount(): number {
+	let n = 0
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) if (built[i]) n++
+	return n
+}
 
 /** Same tuning as main hearth. Broadcast on fuel delta > 3s, tier
  *  change, or 2s heartbeat while lit. */
@@ -147,7 +176,9 @@ function resetForCycle(newSeed: number): void {
 		lastBroadcastFuel[i]  = -999
 		lastBroadcastTier[i]  = -1
 		heartbeatClock[i]     = 0
+		built[i]              = false
 	}
+	clearSlotTouches()
 	recomputePositions()
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		console.log(
@@ -265,6 +296,10 @@ export function snuffAllHiddenFires(): void {
  */
 export function sendHiddenCampfireStateTo(userId: string): void {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		// Built fires: position first so the client moves the pit there.
+		if (built[i]) {
+			room.send('builtFirePlaced', { seed: currentSeed, index: i, x: worldX[i], z: worldZ[i] }, { to: [userId] })
+		}
 		// Fuel first when lit so applyLitVisuals reads a real tank.
 		if (lit[i]) broadcastFuel(i, userId)
 		room.send(
@@ -350,7 +385,11 @@ export function setupHiddenCampfireServer(): void {
 			const prev             = fuel[i]
 			const prevTier         = hearthTierFromFuel(prev)
 			const netMul           = NETWORK_BURN_MUL !== 1 && isFireLinked(i + 1) ? NETWORK_BURN_MUL : 1
-			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - drainRate * netMul * dt)
+			// Permanent built fires (ruleset Test 2) hold their fuel.
+			// Floating crystals: a fire charging a monument burns faster.
+			const chargeMul        = isSlotCharging(i) ? CHARGE_FIRE_DRAIN_MUL : 1
+			const burn             = isPermanentSlot(i) ? 0 : drainRate * netMul * chargeMul * dt
+			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - burn)
 
 			// Downward tier crossing on decay -> shrink the ring so it
 			// visibly retracts in step with fuel loss.
@@ -391,8 +430,9 @@ export function setupHiddenCampfireServer(): void {
 	// (handled by src/server/hearthFuel.ts); anything in [0, N) is a
 	// hidden fire slot. Ignites nothing - fire must already be lit.
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		registerFireFuel(i + 1, () => (lit[i] ? fuel[i] : 0), (n) => {
-			if (!lit[i]) return
+		// Permanent built fires report full so shared fuel passes them by.
+		registerFireFuel(i + 1, () => (lit[i] ? (isPermanentSlot(i) ? FUEL_MAX : fuel[i]) : 0), (n) => {
+			if (!lit[i] || isPermanentSlot(i)) return
 			const prevTier = hearthTierFromFuel(fuel[i])
 			fuel[i] = Math.min(FUEL_MAX, fuel[i] + n)
 			if (hearthTierFromFuel(fuel[i]) > prevTier) seedHiddenMeltRing(i)
@@ -415,6 +455,10 @@ export function setupHiddenCampfireServer(): void {
 		}
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = fuel[target]
+		noteSlotTouched(target, from)
+		// Charge visual: the share wave runs fire -> monument (no fuel moves).
+		const mons = chargeTargetsOf(target)
+		if (mons.length) room.send('fireNetworkShare', { from: target + 1, ids: mons })
 		const share = tryShareFeed(target + 1, add, from)
 		if (share === 'shared') {
 			if (context?.from) room.send('feedFireFx', { userId: context.from, target, kind: clampWoodKind(kind) })
@@ -430,6 +474,7 @@ export function setupHiddenCampfireServer(): void {
 			}
 			return
 		}
+		noteSlotTouched(target, from)
 		const prevTier = hearthTierFromFuel(prev)
 		fuel[target]   = prev + add
 		const newTier  = hearthTierFromFuel(fuel[target])
@@ -451,6 +496,8 @@ export function setupHiddenCampfireServer(): void {
 		}
 	})
 
+	if (isBuildYourOwnFire()) setupBuiltFireHandler()
+
 	// Reset on cycle boundary. Registered here (not in server.ts) so
 	// this module owns its own lifecycle.
 	onCycleRoll(({ newSeed }) => {
@@ -460,4 +507,65 @@ export function setupHiddenCampfireServer(): void {
 	// Initial broadcast for any client that connected before this
 	// module registered its handler.
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) broadcastOne(i)
+}
+
+
+// MARK: setupBuiltFireHandler
+/**
+ * Build Your Own Fire: a client with a log and a lit torch asks to
+ * build at (x, z). Re-validate with the shared rules, take a free slot,
+ * light it with BUILT_FIRE_START_FUEL, and broadcast. From here the slot
+ * is an ordinary lit campfire (fuel, feed, network, extinction, reset).
+ */
+function setupBuiltFireHandler(): void {
+	// Shared tail: validate (x, z), take a slot, light it. Returns a
+	// verdict string ('ok' on success).
+	const tryBuildAt = (x: number, z: number, from: string): string => {
+		if (isEmberFailing()) return 'ember'
+		if (!Number.isFinite(x) || !Number.isFinite(z)) return 'bounds'
+		const count = builtFireCount()
+		if (count >= BUILT_CAP) return 'cap'
+		const map = activeTerrain() ?? getTerrain(cycleMazeSeed(currentSeed))
+		const fires: { x: number; z: number }[] = []
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (worldX[i] === 0 && worldZ[i] === 0) continue
+			fires.push({ x: worldX[i], z: worldZ[i] })
+		}
+		const verdict = validateBuiltFireSpot(map, x, z, fires, getStageAtWorld, count)
+		if (verdict !== 'ok') return verdict
+		let slot = -1
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (!built[i] && !lit[i] && worldX[i] === 0 && worldZ[i] === 0) { slot = i; break }
+		}
+		if (slot < 0) return 'cap'
+		built[slot]              = true
+		worldX[slot]             = x
+		worldZ[slot]             = z
+		lit[slot]                = true
+		secondsSinceIgnite[slot] = 0
+		fuel[slot]               = BUILT_FIRE_START_FUEL
+		noteSlotTouched(slot, from)
+		console.log(
+			`[Server] builtFire[${slot}]: built by ${from} at (${x.toFixed(1)}, ${z.toFixed(1)}) ` +
+			`fuel=${BUILT_FIRE_START_FUEL}s (${count + 1}/${BUILT_CAP} built)`,
+		)
+		if (fireRelitHandler) fireRelitHandler()
+		room.send('builtFirePlaced', { seed: currentSeed, index: slot, x, z })
+		broadcastFuel(slot)
+		broadcastOne(slot)
+		return 'ok'
+	}
+
+	// Light the carried log at the player's feet (torch tooltip).
+	room.onMessage('builtFireCarriedRequest', ({ seed, x, z, kind }, context) => {
+		const from = context?.from ?? 'unknown'
+		const reject = (reason: string) => {
+			console.log(`[Server] builtFire: carried light from ${from} rejected: ${reason}`)
+			if (context?.from) room.send('builtFireRejected', { kind: clampWoodKind(kind), reason, carried: 1 }, { to: [context.from] })
+		}
+		if (!cycleSeedsEqual(seed, currentSeed)) { reject('stale'); return }
+		if (clampWoodKind(kind) !== BUILT_FIRE_COST_KIND) { reject('stick'); return }
+		const v = tryBuildAt(x, z, from)
+		if (v !== 'ok') reject(v)
+	})
 }

@@ -147,6 +147,13 @@ export type CineTarget = {
 	riseS   : number
 	/** Called once when the cinematic ends (finished, skipped or aborted). */
 	onEnd   : () => void
+	/** Floating crystals: release sequence (hold = final pulse + flash, then rise s). No volcano / beam shots. */
+	crystal?: CrystalCine
+}
+/** Floating-crystals release timings (src/shared/ruleset.ts) + thaw radius. */
+export type CrystalCine = {
+	holdS: number; riseS: number; chargeS: number; skyOffS: number
+	laserS: number; laserHoldS: number; spreadS: number; thawR: number
 }
 
 type Key = { t: number; pos: () => Vector3; look: () => Vector3 }
@@ -185,6 +192,11 @@ let startedMs = 0
 /** Baked crane path (terrain-safe world positions) and its end time (s). */
 let crane: Vector3[] = []
 let craneEndT = 0
+/** Crane start time (s; crystals: after the release hold) and exact-look flag (look locked on the target, no spring). */
+let craneT0 = 0
+let craneExactLook = false
+/** Keys interpolate linearly (dense pre-eased keys) instead of smoothstep per span. */
+let linearKeys = false
 /** Raw (unsmoothed) look target for the crane part, bob-free. */
 let craneLook: (time: number) => Vector3 = () => Vector3.Zero()
 /** Critically damped look-target state. */
@@ -338,6 +350,10 @@ function pickSide(tgt: CineTarget): { sx: number; sz: number } {
 }
 
 function buildKeys(tgt: CineTarget): void {
+	craneT0 = 0
+	craneExactLook = false
+	linearKeys = false
+	if (tgt.crystal) { buildCrystalKeys(tgt, tgt.crystal); return }
 	const { sx, sz } = pickSide(tgt)
 	const g   = tgt.groundY
 	const hov = tgt.hoverCentreY
@@ -443,6 +459,140 @@ function buildKeys(tgt: CineTarget): void {
 	]
 }
 
+// MARK: Crystal release (floating crystals)
+/** Ground-level framing distance / eye height (m) for the opening hold. */
+export const CINE_CRYSTAL_LOW_DIST_M  = 7
+export const CINE_CRYSTAL_LOW_EYE_M   = 1.2
+/** Final pose must frame the whole thaw disc: vertical FOV assumed (deg) and safety margin (m beyond the radius). */
+export const CINE_CRYSTAL_FOV_DEG     = 60
+export const CINE_CRYSTAL_FRAME_PAD_M = 6
+/** Final pose pitch (deg below horizontal, to the disc centre). */
+export const CINE_CRYSTAL_END_PITCH_DEG = 22
+/** Linger after the ring reaches full radius before handing back (s). */
+export const CINE_CRYSTAL_END_HOLD_S  = 0.5
+
+/**
+ * Crystal release, all on the ruleset timeline:
+ *   hold   low ground shot (final pulse + flash)
+ *   rise   classic crane (same Bezier / lift bake as the classic shot) with
+ *          the look LOCKED on the top tip (screen centre); the sky beam
+ *          drops onto the tip as the rise ends
+ *   charge one eased move (out + down together) from the crane end to the
+ *          wide pose that frames the whole thaw disc; look eases from the
+ *          tip to the disc centre on the same curve
+ *   then   hold still: sky beam off, laser down, laser hold, thaw to full
+ *          radius, release
+ */
+function buildCrystalKeys(tgt: CineTarget, c: CrystalCine): void {
+	const g   = tgt.groundY
+	const hov = tgt.hoverCentreY
+	const tip = (): Vector3 => { const p = tgt.rigPos(); return Vector3.create(p.x, p.y + tgt.halfLen, p.z) }
+	const tRise  = c.holdS
+	const tUp    = tRise + c.riseS
+	const tZoom  = tUp + c.chargeS
+	const tThaw  = tZoom + c.skyOffS + c.laserS + c.laserHoldS
+	endT = tThaw + c.spreadS + CINE_CRYSTAL_END_HOLD_S
+
+	// End pose: distance so the disc (radius + pad) fits the vertical FOV
+	// at the chosen pitch, and the bearing whose line is clearest / in bounds.
+	const R = c.thawR + CINE_CRYSTAL_FRAME_PAD_M
+	const half = (CINE_CRYSTAL_FOV_DEG / 2) * DEG_C
+	const pitch = CINE_CRYSTAL_END_PITCH_DEG * DEG_C
+	// Smallest slant distance L with near + far disc edges inside +-half of the centre ray.
+	let L = R
+	for (; L < 600; L += 2) {
+		const hd = L * Math.cos(pitch), h = L * Math.sin(pitch)
+		const near = Math.atan2(h, Math.max(0.1, hd - R)) - pitch
+		const far  = pitch - Math.atan2(h, hd + R)
+		const side = Math.atan2(R, L)
+		if (near <= half && far <= half && side <= half * 1.4) break
+	}
+	const endHd = L * Math.cos(pitch)
+	const endH  = L * Math.sin(pitch)
+	const { sx, sz } = pickSideAt(tgt, endHd)
+	const orbit = (dist: number, y: number, rot: number): Vector3 => {
+		const co = Math.cos(rot), si = Math.sin(rot)
+		return Vector3.create(tgt.x + (sx * co - sz * si) * dist, y, tgt.z + (sx * si + sz * co) * dist)
+	}
+
+	// Rise crane: the classic Bezier (low close -> wide), baked with the
+	// same smoothed terrain lift + bounds / ceiling clamp.
+	const hAbove = Math.max(0, hov - g)
+	const midD   = Math.max(CINE_MID_DIST_M, hAbove * CINE_MID_DIST_PER_H)
+	const wideD  = Math.max(CINE_WIDE_DIST_M * 0.5, hAbove * CINE_WIDE_DIST_PER_H)
+	const cD = [CINE_CRYSTAL_LOW_DIST_M, CINE_CRYSTAL_LOW_DIST_M + 2, midD, wideD]
+	const cH = [g + CINE_CRYSTAL_LOW_EYE_M, g + CINE_CRYSTAL_LOW_EYE_M + 1, g + hAbove * CINE_MID_HEIGHT_FRAC, hov]
+	const cR = [0, 0.15, 0.5, 0.7]
+	crane = bakeCrane(cD, cH, cR, orbit)
+	craneT0 = tRise
+	craneEndT = tUp
+	craneExactLook = true
+	craneLook = () => tip()
+	const p0 = crane[0]
+	const pUp = crane[crane.length - 1]
+	const pEnd = orbit(endHd, g + endH, 0.7)
+	const centre = Vector3.create(tgt.x, g, tgt.z)
+	// One eased curve for both position and look (sample() eases each span).
+	const zoomAt = (u: number) => () => {
+		const k = u * u * u * (u * (u * 6 - 15) + 10)
+		return { pos: lerpV(pUp, pEnd, k), look: lerpV(tip(), centre, k) }
+	}
+	keys = [
+		{ t: 0,      pos: () => p0, look: () => Vector3.create(tgt.x, g + 1.2, tgt.z) },
+		{ t: tRise,  pos: () => p0, look: tip },
+	]
+	// Zoom: dense keys on the smootherstep curve (linear between them).
+	const ZN = 24
+	for (let k = 0; k <= ZN; k++) {
+		const z = zoomAt(k / ZN)
+		keys.push({ t: tUp + (c.chargeS * k) / ZN, pos: () => z().pos, look: () => z().look })
+	}
+	keys.push({ t: endT, pos: () => pEnd, look: () => centre })
+	linearKeys = true
+}
+
+const DEG_C = Math.PI / 180
+
+/** pickSide, but scoring the line out to `dist`. */
+function pickSideAt(tgt: CineTarget, dist: number): { sx: number; sz: number } {
+	let best = { sx: 1, sz: 0 }
+	let bestScore = Number.POSITIVE_INFINITY
+	for (let k = 0; k < 16; k++) {
+		const a = (k / 16) * Math.PI * 2
+		const sx = Math.cos(a), sz = Math.sin(a)
+		const score = sightCost(tgt, sx, sz, dist)
+		if (score < bestScore - 1e-6) { bestScore = score; best = { sx, sz } }
+	}
+	return best
+}
+
+/** Classic crane bake (Bezier in distance / height / bearing + smoothed terrain lift + ceiling clamp). */
+function bakeCrane(cD: number[], cH: number[], cR: number[], orbit: (d: number, y: number, r: number) => Vector3): Vector3[] {
+	const n = CINE_CRANE_SAMPLES
+	const raw: Vector3[] = []
+	const need: number[] = []
+	for (let i = 0; i <= n; i++) {
+		const u = smoother(i / n)
+		const p = orbit(bez(cD[0], cD[1], cD[2], cD[3], u), bez(cH[0], cH[1], cH[2], cH[3], u), bez(cR[0], cR[1], cR[2], cR[3], u))
+		const x = Math.max(CINE_BOUNDS_MARGIN_M, Math.min(SCENE_WORLD_SIZE_X_METERS - CINE_BOUNDS_MARGIN_M, p.x))
+		const z = Math.max(CINE_BOUNDS_MARGIN_M, Math.min(SCENE_WORLD_SIZE_Z_METERS - CINE_BOUNDS_MARGIN_M, p.z))
+		raw.push(Vector3.create(x, p.y, z))
+		need.push(Math.max(0, activeGroundYAt(x, z) + CINE_GROUND_CLEAR_M - p.y))
+	}
+	const W = CINE_CRANE_LIFT_WIN
+	const dil = need.map((_, i) => {
+		let m = 0
+		for (let j = Math.max(0, i - 2 * W); j <= Math.min(n, i + 2 * W); j++) m = Math.max(m, need[j])
+		return m
+	})
+	const yMax = sceneHeightLimitM() - CINE_CEILING_MARGIN_M
+	return raw.map((p, i) => {
+		let sum = 0, cnt = 0
+		for (let j = Math.max(0, i - W); j <= Math.min(n, i + W); j++) { sum += dil[j]; cnt++ }
+		return Vector3.create(p.x, Math.min(yMax, p.y + sum / cnt), p.z)
+	})
+}
+
 /** Clamp a camera point inside the scene, above terrain, under the ceiling. */
 function safe(p: Vector3): Vector3 {
 	const x = Math.max(CINE_BOUNDS_MARGIN_M, Math.min(SCENE_WORLD_SIZE_X_METERS - CINE_BOUNDS_MARGIN_M, p.x))
@@ -458,7 +608,8 @@ function sample(time: number): { pos: Vector3; look: Vector3 } {
 		const a = keys[i]
 		const b = keys[i + 1]
 		if (time <= b.t) {
-			const u = smooth((time - a.t) / Math.max(1e-3, b.t - a.t))
+			const r = (time - a.t) / Math.max(1e-3, b.t - a.t)
+			const u = linearKeys ? Math.max(0, Math.min(1, r)) : smooth(r)
 			return { pos: lerpV(a.pos(), b.pos(), u), look: lerpV(a.look(), b.look(), u) }
 		}
 	}
@@ -530,15 +681,16 @@ function cineSystem(dt: number): void {
 
 	let pos: Vector3
 	let want: Vector3
-	if (t <= craneEndT) {
+	if (t >= craneT0 && t <= craneEndT) {
 		pos  = cranePos(t)
 		want = craneLook(t)
+		if (craneExactLook) { lookP = want; lookV = Vector3.Zero() }
 	} else {
 		const s = sample(t)
 		pos  = safe(s.pos)
 		want = s.look
 	}
-	springLook(want, dt)
+	if (!(craneExactLook && t >= craneT0 && t <= craneEndT)) springLook(want, dt)
 	if (cam) Transform.getMutable(cam).position = pos
 	if (lookEnt) Transform.getMutable(lookEnt).position = lookP
 }
@@ -547,7 +699,7 @@ function cineSystem(dt: number): void {
 function cranePos(time: number): Vector3 {
 	const n = crane.length - 1
 	if (n <= 0) return crane[0] ?? Vector3.Zero()
-	const f = Math.max(0, Math.min(1, time / Math.max(1e-3, craneEndT))) * n
+	const f = Math.max(0, Math.min(1, (time - craneT0) / Math.max(1e-3, craneEndT - craneT0))) * n
 	const i = Math.min(n - 1, Math.floor(f))
 	return lerpV(crane[i], crane[i + 1], f - i)
 }

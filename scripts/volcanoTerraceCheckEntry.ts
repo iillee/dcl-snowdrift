@@ -7,6 +7,7 @@
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { generateTerrain, terrainPieceStats, mergeLevelRects } from 'src/shared/terrain/terrainGen'
 import { pickSummitMapSeat } from 'src/shared/terrain/summitMapSeat'
+import { isFloatingCrystals } from 'src/shared/ruleset'
 import { LANDFORM_VOLCANO, LANDFORM_LAVA, groundFlatWithin, groundYAtWorld, cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { pickHiddenCampfires, HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import {
@@ -30,7 +31,7 @@ for (let s = 0; s < N; s++) {
 	const W = m.w
 	const pc = mergeLevelRects(m).length; piecesSum += pc; piecesMax = Math.max(piecesMax, pc)
 	const seat = pickSummitMapSeat(m)
-	if (!seat || m.landforms[seat.cz * W + seat.cx] !== LANDFORM_LAVA || m.routeDist[seat.cz * W + seat.cx] < 0 || !(m.ladders.some(l => m.levels[l.highCz * W + l.highCx] === TERRAIN_LEVEL_VOLCANO_RIM && m.landforms[l.highCz * W + l.highCx] !== LANDFORM_LAVA ? true : m.landforms[l.highCz * W + l.highCx] === LANDFORM_LAVA))) { seatBad++; real('  seed', s, 'summit seat', JSON.stringify(seat)) }
+	if (!seat || (isFloatingCrystals() ? m.levels[seat.cz * W + seat.cx] !== TERRAIN_LEVEL_VOLCANO_RIM : m.landforms[seat.cz * W + seat.cx] !== LANDFORM_LAVA) || m.routeDist[seat.cz * W + seat.cx] < 0 || !(m.ladders.some(l => m.levels[l.highCz * W + l.highCx] === TERRAIN_LEVEL_VOLCANO_RIM && m.landforms[l.highCz * W + l.highCx] !== LANDFORM_LAVA ? true : m.landforms[l.highCz * W + l.highCx] === LANDFORM_LAVA))) { seatBad++; real('  seed', s, 'summit seat', JSON.stringify(seat)) }
 	for (const st of m.stations) if (!st.near) farLift[st.beamLiftM ?? -1] = (farLift[st.beamLiftM ?? -1] ?? 0) + 1
 	if (!m.volcano) { bad++; real('  seed', s, 'no volcano'); continue }
 	let summit = false, lx = 0, lz = 0, ln = 0

@@ -32,6 +32,7 @@ import { isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCam
 import { getMonumentPromptText, isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
 import { UI_THEME }                                   from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
+import { getBuildPromptText, isBuildReady, tryBuildFire } from 'src/client/buildFire'
 
 
 const { fontSizes, borderRadius } = UI_THEME
@@ -64,7 +65,7 @@ const PADDING_X_DT    = 14
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
 	if (isItemInputBlocked()) return false
-	return isReadyToIgniteHidden() || getMonumentPromptText() !== null
+	return isReadyToIgniteHidden() || getMonumentPromptText() !== null || getBuildPromptText() !== null
 }
 
 
@@ -73,7 +74,9 @@ function onPromptPress(): void {
 	if (isReadyToIgniteHidden()) { requestHiddenIgnite(); return }
 	// Monument ice melts by proximity; the bubble ignites once it is gone
 	// ("IGNITE MONUMENT"), otherwise it is just a status readout.
-	if (isReadyToIgniteMonument()) requestMonumentIgnite()
+	if (isReadyToIgniteMonument()) { requestMonumentIgnite(); return }
+	// Build Your Own Fire: tapping the bubble builds (mobile friendly).
+	if (isBuildReady()) tryBuildFire()
 }
 
 
@@ -106,7 +109,7 @@ class HiddenCampfirePromptLayer extends Layer {
 		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
 		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
 		const labelH   = Math.round(fontPx * 1.6)
-		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : (getMonumentPromptText() ?? '')
+		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : (getMonumentPromptText() ?? getBuildPromptText() ?? '')
 
 		return (
 			<UiEntity

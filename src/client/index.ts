@@ -77,6 +77,7 @@ import { setupSceneBoundsDebug } from 'src/client/sceneBoundsDebug'
 import { setupTorch } from 'src/client/torch'
 import { setupTorchChain } from 'src/client/torchChain'
 import { setupTorchInput } from 'src/client/torchInput'
+import { setupBuildFire } from 'src/client/buildFire'
 import { setupTouchControls } from 'src/client/touchControls'
 import { setupUi } from 'src/client/ui'
 import { setupRelightPromptVisibility } from 'src/client/ui/layers/layer.relightPrompt'
@@ -284,6 +285,8 @@ export async function setupClient(): Promise<void> {
 	// comment there. Do NOT re-add them here.
 	setupTorch()
 	setupTorchInput()
+	// Build Your Own Fire placement ghost (no-op in the classic ruleset).
+	setupBuildFire()
 
 	// Hide the native mobile `E` / `F` on-screen buttons before UI mounts —
 	// the mobile action layer renders scene-branded replacements.

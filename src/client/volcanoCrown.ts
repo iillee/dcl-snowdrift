@@ -77,12 +77,19 @@ const liningEntities: Entity[] = []
 let lastMap: TerrainMap | null = null
 let installed = false
 
+import { CRYSTAL_IDLE_LAVA_COVER, CRYSTAL_IDLE_LAVA_EMISSIVE, CRYSTAL_IDLE_LAVA_HEAT, CRYSTAL_IDLE_LAVA_TOP_M, isFloatingCrystals } from 'src/shared/ruleset'
+
 /** One lava cell: world centre, normalised distance from the lake centre (0 = centre cell). */
 type LavaCell = { x: number; z: number; d: number; e: Entity | null; a: number }
 const lavaCells: LavaCell[] = []
 /** Live lava look (blended toward the stage target). */
 type LavaParams = { cover: number; top: number; emis: number; heat: number }
 function lavaStageParams(st: number): LavaParams {
+	// Floating crystals: a low idle lava glow from the start.
+	if (st <= 0 && isFloatingCrystals()) return {
+		cover: CRYSTAL_IDLE_LAVA_COVER, top: CRYSTAL_IDLE_LAVA_TOP_M,
+		emis : CRYSTAL_IDLE_LAVA_EMISSIVE, heat: CRYSTAL_IDLE_LAVA_HEAT,
+	}
 	return {
 		cover: LAVA_COVER_BY_STAGE[st],
 		top  : LAVA_TOP_BY_STAGE[st],

@@ -34,6 +34,28 @@ import {
 } from 'src/shared/terrain/terrainCache'
 import { cellCenterWorld, groundFlatWithin, groundYAtWorld, nearStation, TerrainMap } from 'src/shared/terrain/terrainMap'
 import { WOOD_KIND_BRANCH, WOOD_KIND_LOG } from 'src/shared/woodKind'
+import { icedStationIndex } from 'src/shared/monumentIce'
+import {
+	isBuildYourOwnFire,
+	isFloatingCrystals,
+	WOOD_MONUMENT_LOG_COUNT,
+	WOOD_MONUMENT_MAX_M,
+	WOOD_MONUMENT_MIN_M,
+	WOOD_FRONTIER_LOG_CHANCE,
+	WOOD_FRONTIER_RING_MAX_M,
+	WOOD_FRONTIER_RING_MIN_M,
+	WOOD_FRONTIER_RING_POOL,
+	WOOD_FRONTIER_ROUTE_POOL,
+	WOOD_FRONTIER_ROUTE_SPREAD_M,
+	WOOD_FRONTIER_ROUTE_T_MAX,
+	WOOD_FRONTIER_ROUTE_T_MIN,
+	WOOD_ICED_CLUSTER_COUNT,
+	WOOD_ICED_CLUSTER_MAX_M,
+	WOOD_ICED_CLUSTER_MIN_M,
+	WOOD_ICED_CLUSTER_SPREAD_M,
+} from 'src/shared/ruleset'
+import { cellOfWorld, inGrid, levelAtWorld } from 'src/shared/terrain/terrainMap'
+import { isInsidePlayfield, TERRAIN_LEVEL_MOUNTAIN } from 'src/shared/settings'
 
 
 // MARK: Tuning constants
@@ -96,6 +118,12 @@ export const WOOD_BAND_TREE  = 2
 export const WOOD_BAND_OUTER = 3
 /** Buried wood packed at the Low migration destination. */
 export const WOOD_BAND_DEST  = 4
+/** Build Your Own Fire: wood along hearth -> monument routes. */
+export const WOOD_BAND_FRONTIER_ROUTE = 5
+/** Build Your Own Fire: thin far ring past the classic outer band. */
+export const WOOD_BAND_FRONTIER_RING  = 6
+/** Build Your Own Fire: guaranteed log cluster near the frozen monument. */
+export const WOOD_BAND_ICED_CLUSTER   = 7
 
 /** Sampling radius (m) around the destination centroid for dest wood.
  *  Matches the outer destination tree radii so wood fills the grove,
@@ -508,5 +536,156 @@ export function computeWoodScatter(
 	const sites = treeSitesFromProps(mazeSeed, reserved)
 	placeTreeLogs(out, sites)
 	console.log(`woodScatter: computeWoodScatter: ${sites.length} tree clusters`)
+	// Build Your Own Fire extras go LAST so every classic index is stable.
+	// Frontier wood may sit on any walkable level (like grove wood), so it
+	// uses the impassable set, not the Mid-shelf-only `reserved`.
+	if (isBuildYourOwnFire()) placeFrontierBands(seed, out, impassableCellsForMazeSeed(mazeSeed))
 	return out
+}
+
+
+// MARK: frontierSpotOk
+function frontierSpotOk(x: number, z: number, reserved: ReadonlySet<string>): boolean {
+	if (scatterMap === null) return false
+	if (!isInsidePlayfield(x, z)) return false
+	const c = cellOfWorld(x, z)
+	if (!inGrid(c.cx, c.cz)) return false
+	if (levelAtWorld(scatterMap, x, z) >= TERRAIN_LEVEL_MOUNTAIN) return false
+	if (scatterMap.routeDist[c.cz * scatterMap.w + c.cx] < 0) return false
+	return !onCliff(x, z, reserved)
+}
+
+
+// MARK: placeFrontierBands
+/**
+ * Build Your Own Fire wood, biased to the frontier: along each straight
+ * hearth -> monument line (with lateral spread), a thin ring further
+ * out than the classic bands, and a guaranteed log cluster 25-60 m from
+ * the frozen monument (replaces the classic guaranteed campfire there).
+ * Own RNG salt, so classic bands are unchanged.
+ */
+function placeFrontierBands(
+	seed    : number,
+	out     : WoodChunk[],
+	reserved: ReadonlySet<string>,
+): void {
+	const map = scatterMap
+	if (map === null) return
+	const rng = makeRng((seed | 0) ^ 0x46524E54) // 'FRNT'
+	const push = (x: number, z: number, kind: number, band: number) => out.push({
+		idx: out.length, worldX: x, worldZ: z, worldY: groundAt(x, z), kind, band,
+	})
+	const before = out.length
+
+	// Routes toward every monument.
+	for (const s of map.stations) {
+		const m  = cellCenterWorld(s.cx, s.cz)
+		const vx = m.x - CENTRE_X, vz = m.z - CENTRE_Z
+		const L  = Math.hypot(vx, vz) || 1
+		const nx = -vz / L, nz = vx / L
+		let placed = 0, tries = 0
+		while (placed < WOOD_FRONTIER_ROUTE_POOL && tries < WOOD_FRONTIER_ROUTE_POOL * 30) {
+			tries++
+			const t   = WOOD_FRONTIER_ROUTE_T_MIN + rng() * (WOOD_FRONTIER_ROUTE_T_MAX - WOOD_FRONTIER_ROUTE_T_MIN)
+			const off = (rng() * 2 - 1) * WOOD_FRONTIER_ROUTE_SPREAD_M
+			const x   = CENTRE_X + vx * t + nx * off
+			const z   = CENTRE_Z + vz * t + nz * off
+			if (!frontierSpotOk(x, z, reserved)) continue
+			push(x, z, pickKind(rng, WOOD_FRONTIER_LOG_CHANCE), WOOD_BAND_FRONTIER_ROUTE)
+			placed++
+		}
+	}
+
+	// Far ring.
+	{
+		const min2 = WOOD_FRONTIER_RING_MIN_M ** 2, max2 = WOOD_FRONTIER_RING_MAX_M ** 2
+		let placed = 0, tries = 0
+		while (placed < WOOD_FRONTIER_RING_POOL && tries < WOOD_FRONTIER_RING_POOL * 30) {
+			tries++
+			const r = Math.sqrt(min2 + rng() * (max2 - min2))
+			const a = 2 * Math.PI * rng()
+			const x = CENTRE_X + r * Math.cos(a), z = CENTRE_Z + r * Math.sin(a)
+			if (!frontierSpotOk(x, z, reserved)) continue
+			push(x, z, pickKind(rng, WOOD_FRONTIER_LOG_CHANCE), WOOD_BAND_FRONTIER_RING)
+			placed++
+		}
+	}
+
+	// Guaranteed cluster by the frozen monument (same level, ring scan).
+	const k = icedStationIndex(map)
+	let iced = 0
+	if (k >= 0) {
+		const st = map.stations[k]
+		const m  = cellCenterWorld(st.cx, st.cz)
+		const lv = levelAtWorld(map, m.x, m.z)
+		const mid = (WOOD_ICED_CLUSTER_MIN_M + WOOD_ICED_CLUSTER_MAX_M) / 2
+		let centre: { x: number; z: number } | null = null
+		// Pass 0 keeps the monument's own level; pass 1 accepts any
+		// reachable level in the band (the same-level shelf can be tiny).
+		for (let pass = 0; pass < 2 && centre === null; pass++)
+		for (let d = 0; centre === null && (mid - d >= WOOD_ICED_CLUSTER_MIN_M || mid + d <= WOOD_ICED_CLUSTER_MAX_M); d += 4) {
+			for (const rad of d === 0 ? [mid] : [mid - d, mid + d]) {
+				if (rad < WOOD_ICED_CLUSTER_MIN_M || rad > WOOD_ICED_CLUSTER_MAX_M) continue
+				const steps = Math.max(12, Math.round((2 * Math.PI * rad) / 6))
+				for (let a = 0; a < steps; a++) {
+					const ang = (a / steps) * Math.PI * 2
+					const x = m.x + Math.sin(ang) * rad, z = m.z + Math.cos(ang) * rad
+					if (pass === 0 && levelAtWorld(map, x, z) !== lv) continue
+					if (!frontierSpotOk(x, z, reserved)) continue
+					if (!groundFlatWithin(map, x, z, WOOD_ICED_CLUSTER_SPREAD_M + 2)) continue
+					centre = { x, z }
+					break
+				}
+				if (centre !== null) break
+			}
+		}
+
+		// Fallback: the monument sits in a small pocket ringed by mountain,
+		// so the 25-60 m band has no walkable ground. Take the nearest
+		// clear spot from 8 m out to 100 m instead.
+		for (let rad = 8; centre === null && rad <= 100; rad += 4) {
+			const steps = Math.max(12, Math.round((2 * Math.PI * rad) / 6))
+			for (let a = 0; a < steps; a++) {
+				const ang = (a / steps) * Math.PI * 2
+				const x = m.x + Math.sin(ang) * rad, z = m.z + Math.cos(ang) * rad
+				if (!frontierSpotOk(x, z, reserved)) continue
+				if (nearStation(map, x, z, WOOD_ICED_CLUSTER_SPREAD_M + 1)) continue
+				centre = { x, z }
+				break
+			}
+		}
+		if (centre !== null) {
+			for (let i = 0, tries = 0; iced < WOOD_ICED_CLUSTER_COUNT && tries < 60; tries++, i++) {
+				const a = (i / WOOD_ICED_CLUSTER_COUNT) * Math.PI * 2 + rng() * 0.6
+				const r = 1 + rng() * WOOD_ICED_CLUSTER_SPREAD_M
+				const x = centre.x + Math.cos(a) * r, z = centre.z + Math.sin(a) * r
+				if (!frontierSpotOk(x, z, reserved)) continue
+				push(x, z, WOOD_KIND_LOG, WOOD_BAND_ICED_CLUSTER)
+				iced++
+			}
+		}
+	}
+	// Floating crystals: a few guaranteed logs around EVERY monument so
+	// a solo player can ring it with fires (always active, like the
+	// iced cluster). Appended after the classic draws (same RNG stream
+	// continues), so build-your-own-fire layouts are unchanged.
+	let monLogs = 0
+	if (isFloatingCrystals()) {
+		for (const st of map.stations) {
+			const m = cellCenterWorld(st.cx, st.cz)
+			for (let n = 0, tries = 0; n < WOOD_MONUMENT_LOG_COUNT && tries < 200; tries++) {
+				const r = WOOD_MONUMENT_MIN_M + rng() * (WOOD_MONUMENT_MAX_M - WOOD_MONUMENT_MIN_M)
+				const a = rng() * Math.PI * 2
+				const x = m.x + Math.cos(a) * r, z = m.z + Math.sin(a) * r
+				if (!frontierSpotOk(x, z, reserved)) continue
+				if (nearStation(map, x, z, 4)) continue
+				push(x, z, WOOD_KIND_LOG, WOOD_BAND_ICED_CLUSTER)
+				n++; monLogs++
+			}
+		}
+	}
+	console.log(
+		`woodScatter: placeFrontierBands: +${out.length - before} frontier pieces ` +
+		`(iced monument cluster=${iced}/${WOOD_ICED_CLUSTER_COUNT}, monument logs=${monLogs})`,
+	)
 }
