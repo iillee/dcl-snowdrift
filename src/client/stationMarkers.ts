@@ -65,7 +65,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playBeamSfx, playIceMeltSfxAt, playChargeStartSfxAt, playMonumentSfxAt, playReleaseBurstSfxAt, unlockAudio } from 'src/client/audio'
+import { playBeamSfx, playIceMeltSfxAt, playChargeStartSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
@@ -2064,8 +2064,6 @@ function startBurst(slot: Slot, i: number): void {
 	const h = crystalFloatAboveGround(activeTerrain(), slot.groundY)
 	bursts[i] = { e, t: 0, endR: Math.hypot(CRYSTAL_HEAT_RADIUS_M + HEAT_FRONT_BAND_M, h), cx: slot.x, cz: slot.z, h, doneR: 0, stepAcc: 0 }
 	playBeamSfx(BEAM_SFX_VOLUME, 0.05)
-	// Guarded above (one burst per monument), so this plays once per release, for every client.
-	playReleaseBurstSfxAt(sphereCentre(slot))
 }
 /* Burst radius 0 -> hypot(R + 3 m band, this crystal's float height above ground) over CRYSTAL_BURST_S (per burst endR); alpha 1 -> 0. */
 /** Synced idle pulse on every released crystal's sky beam (shared epoch clock). */
