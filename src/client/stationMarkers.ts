@@ -96,6 +96,7 @@ import {
 	CRYSTAL_RELEASE_HOLD_S,
 	CRYSTAL_RISE_S,
 	CRYSTAL_LASER_DRAW_S,
+	CRYSTAL_FINALE_BEAMS_ENABLED,
 	CRYSTAL_THAW_SPREAD_S,
 	CRYSTAL_SKY_DROP_S,
 	CRYSTAL_CHARGE_S,
@@ -1833,7 +1834,7 @@ function crystalSystem(dt: number): void {
 		}
 	}
 	// Finale: once all three float, each beams to the next.
-	if (total >= 3 && up >= total) {
+	if (CRYSTAL_FINALE_BEAMS_ENABLED && total >= 3 && up >= total) {
 		if (finaleT < 0) {
 			finaleT = 0
 			for (let i = 0; i < total; i++) {

@@ -26,12 +26,12 @@ import { InputAction, PointerEventType, PrimaryPointerInfo, engine, inputSystem 
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 import { getPlayer } from '@dcl/sdk/players'
-import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
+import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { playUiClick } from 'src/client/audio'
-import { applyPanDelta, beginDrag, beginPan, canZoomIn, canZoomOut, endDrag, endPan, getAvatarOffscreenHint, getDpadSpeed, isTopDownActive, zoomIn, zoomOut } from 'src/client/topDownCamera'
+import { applyPanDelta, beginDrag, beginPan, canZoomIn, canZoomOut, endDrag, endPan, getAvatarOffscreenHint, getDpadSpeed, isTopDownActive, rotateView, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
@@ -405,6 +405,15 @@ function ZoomCluster() {
 			<ZoomButton kind = "in"  enabled = {canZoomIn()}  keyId = "zoom_in" />
 			<UiEntity uiTransform = {{ width: ZOOM_GAP }} />
 			<ZoomButton kind = "out" enabled = {canZoomOut()} keyId = "zoom_out" />
+			<UiEntity uiTransform = {{ width: ZOOM_GAP }} />
+			<UiEntity
+				key = "rotate_view"
+				uiTransform = {{ width: ZOOM_BTN, height: ZOOM_BTN, justifyContent: 'center', alignItems: 'center', borderRadius: borderRadius.md }}
+				uiBackground = {{ color: PANEL_BG }}
+				onMouseDown = {() => { playUiClick(); rotateView(1) }}
+			>
+				<Label value = "<b>90°</b>" fontSize = {22} color = {WHITE} font = "sans-serif" textAlign = "middle-center" uiTransform = {{ width: '100%', height: '100%' }} />
+			</UiEntity>
 		</UiEntity>
 	)
 }

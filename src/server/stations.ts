@@ -175,9 +175,6 @@ function clearSnowOverChunk(index: number, chunk: number): void {
  * protectedCells is cleared on cycle wipe (clearAllSnow).
  */
 function releasePitSnow(index: number): void {
-	// Floating crystals: no ice; every socket stays an empty, snow-free
-	// pit for the whole cycle (keepCrystalPitsClear), before and after release.
-	if (isFloatingCrystals()) return
 	const st = activeTerrain()?.stations[index]
 	if (!st) return
 	const c = cellCenterWorld(st.cx, st.cz)
@@ -197,6 +194,12 @@ function broadcastThaw(): void {
  * fire the world thaw (victory day bookkeeping). Never lowers the stage.
  */
 function advanceThawStage(reason: string): void {
+	// Floating crystals: no volcano auto-thaw / WORLD THAWED victory. Each
+	// crystal keeps its own 50 m thaw zone; the volcano stays idle.
+	if (isFloatingCrystals()) {
+		console.log(`[Server] stations: thaw stage skipped (${reason}) - floating crystals has no world thaw`)
+		return
+	}
 	const lit = Math.min(stationTotal(), getActiveStationCount())
 	// Thaw stages are 0..3 (THAW_STAGE_RADIUS_M); with more monuments
 	// (floating crystals) the full-world stage 3 comes with the last one.
@@ -227,7 +230,6 @@ function advanceThawStage(reason: string): void {
 
 function resetForCycle(seed: number): void {
 	currentSeed = seed
-	pitsCleared = false // re-held on the next charge tick, after clearAllSnow
 	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0 }
 	resetCharges()
 	worldThawed = false
@@ -460,7 +462,7 @@ function syncChargeHeat(i: number, x: number, z: number): void {
 	const r = hearthRadiusFromFuel(chargeHeatFuel(charge[i]))
 	if (r === monHeatR[i]) return
 	if (r > 0) meltDisc(x, z, r)
-	if (r < monHeatR[i]) { releaseDiscOutside(x, z, r, monHeatR[i]); pitsCleared = false } // re-hold the pit square
+	if (r < monHeatR[i]) releaseDiscOutside(x, z, r, monHeatR[i])
 	console.log(`[Server] stations[${i}]: charge heat ring ${monHeatR[i].toFixed(0)} -> ${r.toFixed(0)} m (charge ${(charge[i] * 100).toFixed(0)}%)`)
 	monHeatR[i] = r
 	publishCoverageIfDirty()
@@ -505,28 +507,7 @@ function releaseCrystal(i: number, by: string, force = false): void {
 	broadcastOne(i, true, by)
 }
 
-/** Floating crystals: set once per cycle (after the snow wipe) once every pit is held clear. */
-let pitsCleared = false
-/**
- * Floating crystals have no monument ice, so nothing ever melted the pit
- * and snow lay flush over the recess + socket (the 'filled' look on the
- * non-spawn sockets). Melt + heat-protect every monument pit square, for
- * all N monuments, like the classic socket after its ice is gone.
- */
-function keepCrystalPitsClear(): void {
-	const map = activeTerrain()
-	if (!map) return
-	for (let i = 0; i < stationTotal() && i < map.stations.length; i++) {
-		const c = cellCenterWorld(map.stations[i].cx, map.stations[i].cz)
-		meltMonumentIceSquare(c.x, c.z, MONUMENT_PIT_SIZE_M)
-	}
-	publishCoverageIfDirty()
-	pitsCleared = true
-	console.log(`[Server] stations: crystal pits held clear (${stationTotal()} monuments)`)
-}
-
 function chargeSystem(dt: number): void {
-	if (!pitsCleared) keepCrystalPitsClear()
 	chargeAcc += dt
 	if (chargeAcc < CHARGE_TICK_S) return
 	const step = chargeAcc

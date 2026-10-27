@@ -30,7 +30,7 @@ import { tryChopWood } from 'src/client/wood'
 import { tryRelightAtFire } from 'src/client/torchInput'
 import { clearProps } from 'src/client/props/spawn'
 import { PrecipitationLevel, getPrecipitation } from 'src/client/snowfall'
-import { canZoomIn, canZoomOut, isTopDownActive, toggleTopDownCamera, zoomIn, zoomOut } from 'src/client/topDownCamera'
+import { canZoomIn, canZoomOut, isTopDownActive, rotateView, toggleTopDownCamera, zoomIn, zoomOut } from 'src/client/topDownCamera'
 import { SeedHolder, seedHolder } from 'src/shared/components'
 import { room } from 'src/shared/messages'
 import { WOOD_KIND_BRANCH } from 'src/shared/woodKind'
@@ -504,6 +504,7 @@ export function SpectatorButton() {
 			</UiEntity>
 			{specActive && <ZoomHudButton kind="in"  dockRight={(BTN_SIZE + gap) * 2} />}
 			{specActive && <ZoomHudButton kind="out" dockRight={BTN_SIZE + gap} />}
+			{specActive && <RotateHudButton dockRight={(BTN_SIZE + gap) * 3} />}
 		</UiEntity>
 	)
 }
@@ -553,6 +554,41 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 					// Sans-serif + / – sit a few px low in the 72 square.
 					margin: { bottom: 8 },
 				}}
+			/>
+		</UiEntity>
+	)
+}
+
+
+// MARK: RotateHudButton
+/**
+ * Manual overview rotate (same as the 4 key): turns the iso view 90 deg
+ * clockwise. Cliff auto-rotate (ISO_AUTO_ROTATE_ENABLED) stays on too.
+ */
+function RotateHudButton(props: { dockRight: number }) {
+	return (
+		<UiEntity
+			key = "ui_RotateViewBtn"
+			uiTransform = {{
+				...HUD_SQUARE,
+				positionType  : 'absolute',
+				position      : { top: 0, right: props.dockRight },
+				justifyContent: 'center',
+				alignItems    : 'center',
+				borderRadius  : borderRadius.md,
+				borderWidth   : TORCH_BORDER_W,
+				borderColor   : TORCH_BORDER_OFF,
+			}}
+			uiBackground = {{ color: PANEL_BG }}
+			onMouseDown  = {() => { playUiClick(); rotateView(1) }}
+		>
+			<Label
+				value    = "<b>90°</b>"
+				fontSize = {26}
+				color    = {WHITE}
+				font     = "sans-serif"
+				textAlign= "middle-center"
+				uiTransform = {{ width: '100%', height: '100%' }}
 			/>
 		</UiEntity>
 	)

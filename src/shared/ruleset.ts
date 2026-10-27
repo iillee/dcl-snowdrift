@@ -169,6 +169,12 @@ export const CRYSTAL_NEAR_MONUMENT_TARGET_M = 95
 export const CRYSTAL_MAP_LAVA_CLEAR_M = 6
 /** Floating crystals: summit map tablet clearance from a rim ladder landing (m). */
 export const CRYSTAL_MAP_LADDER_CLEAR_M = 4
+/**
+ * Crystal-to-crystal finale chain when every crystal is released. Off
+ * (Luke): each beam left the last crystal's bottom joint and read as the
+ * old station-to-volcano laser.
+ */
+export const CRYSTAL_FINALE_BEAMS_ENABLED = false
 /** Released crystal permanent heat zone radius (m). */
 export const CRYSTAL_HEAT_RADIUS_M = 50
 /** Warmth at the zone edge as a fraction of the centre (1 = flat). */
