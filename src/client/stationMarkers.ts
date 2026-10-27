@@ -133,11 +133,13 @@ import {
 	pitDepthAtRing,
 } from 'src/shared/monumentIce'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import { groundYForLevel } from 'src/shared/settings'
 import {
 	MONUMENT_HOVER_BOTTOM_H_M,
 	MONUMENT_OBELISK_WIDTH_M,
 	MONUMENT_PIT_SIZE_M,
 	MONUMENT_SOCKET_DEPTH_M,
+	monumentSocketDepth,
 	MONUMENT_SOCKET_SIZE_M,
 	TerrainMap,
 	cellCenterWorld,
@@ -966,7 +968,7 @@ function destroyBeam(beam: Beam | null): void {
 function ensureBeams(slot: Slot, map: TerrainMap | null): void {
 	const top    = topBeamJoint(slot)
 	const bottom = bottomBeamJoint(slot)
-	if (!slot.sky && !isFloatingCrystals()) {
+	if (!slot.sky) {
 		// The sky beam rides the bob (beamRoot), so leave room for its peak.
 		const topY = sceneHeightLimitM() - SKY_BEAM_CEILING_MARGIN_M - HOVER_BOB_M
 		if (topY > top.y + 2) {
@@ -1176,6 +1178,7 @@ function clearAll(): void {
 		destroyBeam(s.volcano)
 		destroyBeam(lasers[i])
 		lasers[i] = null
+		skyCalm[i] = false
 		laserHitT[i] = -1
 		removeCrystalFx(i)
 		engine.removeEntity(s.beamRoot)
@@ -1489,12 +1492,12 @@ function setMeltSfx(on: boolean, dt: number): void {
  * (dx, dz) from the pit centre: the single recess step, plus the socket
  * depth for cells reaching over the socket (deepest point under them).
  */
-function pitCellDepth(dx: number, dz: number): number {
+function pitCellDepth(dx: number, dz: number, socketDepth: number = MONUMENT_SOCKET_DEPTH_M): number {
 	const ring = Math.max(Math.abs(dx), Math.abs(dz))
 	// Outer cells: normal ground (pitDepthAtRing is 0 with no recess).
 	let d = pitDepthAtRing(ring)
 	// Cells over the socket: snow refills it to ground level.
-	if (ring - SNOW_CELL_M / 2 < MONUMENT_SOCKET_SIZE_M / 2) d += MONUMENT_SOCKET_DEPTH_M
+	if (ring - SNOW_CELL_M / 2 < MONUMENT_SOCKET_SIZE_M / 2) d += socketDepth
 	return d
 }
 
@@ -1535,7 +1538,7 @@ function syncSnowOffsets(): void {
 					const key = worldToCellKey(c.x + dx, c.z + dz)
 					if (key === null) continue
 					if (active) {
-						const d = pitCellDepth(dx, dz)
+						const d = pitCellDepth(dx, dz, monumentSocketDepth(groundYForLevel(map.levels[st.cz * map.w + st.cx])))
 						if (d > 0) out.set(key, -d)
 						continue
 					}
@@ -1939,6 +1942,8 @@ function flashSystem(dt: number): void {
 const laserHitT: number[] = new Array<number>(8).fill(-1)
 /** Downward laser per monument (the sky beam lives in slot.sky). */
 const lasers: Array<Beam | null> = new Array<Beam | null>(8).fill(null)
+/** Sky beam pulse scale reset after charging (per monument). */
+const skyCalm: boolean[] = new Array<boolean>(8).fill(false)
 /** Sky-beam charge pulse: crest period (s) and extra XZ scale at the crest. */
 const SKY_PULSE_PERIOD_S = 0.9
 const SKY_PULSE_AMP = 1.2
@@ -1954,7 +1959,7 @@ function buildSkyBeam(slot: Slot): void {
 /**
  * After the rise (phase 'settle', phaseT from the sky beam landing):
  *   0 .. CHARGE        crystal charges from the sky beam (brightens, pulses run down it)
- *   .. + SKY_OFF       sky beam lifts away (charging stops)
+ *   .. + SKY_OFF       pause (0 now: the sky beam stays on permanently, steady glow)
  *   .. + LASER_DRAW    laser draws down into the earth (beam sfx)
  * then 'done'; the server thaw starts LASER_HOLD later (CRYSTAL_THAW_DELAY_S).
  */
@@ -1962,7 +1967,7 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 	const t = slot.phaseT
 	const tOff = CRYSTAL_CHARGE_S
 	const tLaser = tOff + CRYSTAL_SKY_OFF_S
-	if (!slot.sky && t < tOff) { buildSkyBeam(slot); revealBeam(slot.sky, 1, SKY_BEAM_SEGMENTS) }
+	if (!slot.sky) { buildSkyBeam(slot); revealBeam(slot.sky, 1, SKY_BEAM_SEGMENTS) }
 	if (t < tOff) {
 		const u = t / CRYSTAL_CHARGE_S
 		const k = CHARGE_PRE_GLOW + (1 - CHARGE_PRE_GLOW) * u
@@ -1980,20 +1985,17 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 		}
 		return
 	}
-	if (t < tLaser) {
-		// Sky beam lifts away from the tip up into the sky.
-		const sky = slot.sky
-		if (sky) {
-			const gone = Math.ceil(((t - tOff) / CRYSTAL_SKY_OFF_S) * SKY_BEAM_SEGMENTS)
-			for (let k2 = 0; k2 < sky.segs.length; k2++) {
-				const tr = Transform.getMutableOrNull(sky.segs[k2])
-				if (tr) tr.scale = Vector3.create(sky.xz[k2], tr.scale.y, sky.xz[k2])
-				if (sky.tMid[k2] * SKY_BEAM_SEGMENTS < gone && MeshRenderer.has(sky.segs[k2])) MeshRenderer.deleteFrom(sky.segs[k2])
-			}
+	// Charging over: the sky beam stays on permanently at a steady glow
+	// (pulse scale reset once). It clears only on the cycle reset.
+	const sky = slot.sky
+	if (sky && !skyCalm[i]) {
+		skyCalm[i] = true
+		for (let k2 = 0; k2 < sky.segs.length; k2++) {
+			const tr = Transform.getMutableOrNull(sky.segs[k2])
+			if (tr) tr.scale = Vector3.create(sky.xz[k2], tr.scale.y, sky.xz[k2])
 		}
-		return
 	}
-	if (slot.sky) { destroyBeam(slot.sky); slot.sky = null }
+	if (t < tLaser) return
 	if (!lasers[i]) {
 		lasers[i] = buildBeam(slot.beamRoot, bottomBeamJoint(slot), Vector3.create(slot.x, slot.groundY, slot.z), BEAM_SEGMENTS, BEAM_XZ_M, BEAM_FADE_START, false)
 		playBeamSfx(BEAM_SFX_VOLUME, BEAM_SFX_FADE_IN_S)

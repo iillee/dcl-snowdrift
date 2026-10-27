@@ -32,3 +32,18 @@ export const LOGS_PILE_WORLD_Y = TERRAIN_HEARTH_SURFACE_Y
 /** Player must be within this radius (m) of a pile centre to pick up. */
 export const LOGS_PICKUP_RADIUS_M  = 1.8
 export const LOGS_PICKUP_RADIUS_SQ = LOGS_PICKUP_RADIUS_M * LOGS_PICKUP_RADIUS_M
+/**
+ * Max vertical gap (m) between the player's feet and the item (its ground
+ * Y). Without it a player on a cliff anywhere above a dropped item picked
+ * it up. Server re-checks with the feet Y the client reports.
+ */
+export const LOGS_PICKUP_MAX_DY_M = 1.5
+/** Horizontal 1.8 m + vertical 1.5 m pickup reach (feet vs item ground Y). */
+export function inPickupReach(px: number, py: number, pz: number, x: number, y: number, z: number): boolean {
+	const dx = px - x, dz = pz - z
+	return dx * dx + dz * dz <= LOGS_PICKUP_RADIUS_SQ && Math.abs(py - y) <= LOGS_PICKUP_MAX_DY_M
+}
+/** Server-side vertical check (client-reported feet Y; NaN/missing passes for old clients). */
+export function pickupDyOk(py: number | undefined, itemY: number): boolean {
+	return py === undefined || !Number.isFinite(py) || Math.abs(py - itemY) <= LOGS_PICKUP_MAX_DY_M + 0.25
+}

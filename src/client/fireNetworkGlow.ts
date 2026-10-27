@@ -37,6 +37,7 @@ import {
 	NETWORK_FINAL_PULSE_DELAY_S,
 	NETWORK_FINAL_PULSE_S,
 	NETWORK_LINK_FADE_IN_S,
+	linkFullyVisibleS,
 	NETWORK_LINK_FADE_OUT_S,
 	NETWORK_SHARE_HOPS,
 	NETWORK_ORB_FULL_FUEL_S,
@@ -74,7 +75,7 @@ import { SNOW_CELL_M, cellCenterWorld as snowCellCenter, cellCoordsFromKey, cell
 import { onCycleSeedChange } from 'src/client/cycle'
 import { getHiddenFireFuel, getMainFireFuel } from 'src/client/hearthFuel'
 import { FUEL_MAX } from 'src/shared/hearthFuel'
-import { MONUMENT_NODE_ID_BASE, isMonumentNodeId } from 'src/shared/ruleset'
+import { MONUMENT_NODE_ID_BASE, chainHops, isMonumentNodeId } from 'src/shared/ruleset'
 
 
 // MARK: Tuning
@@ -149,7 +150,9 @@ export function fireFinalChargePulse(index: number): void {
 /** True while monument `index` has at least one live (lit) charge link. */
 export function monumentHasChargeLink(index: number): boolean {
 	const id = MONUMENT_NODE_ID_BASE + index
-	for (const l of glow.values()) if (l.b === id && l.state === 1) return true
+	// Only once the trail is fully drawn (matches the server's charge gate).
+	const now = Date.now()
+	for (const l of glow.values()) if (l.b === id && l.state === 1 && now - l.t0Ms >= linkFullyVisibleS(true) * 1000) return true
 	return false
 }
 
@@ -394,10 +397,33 @@ function updateStrengthTargets(l: GlowLink): void {
 	}
 }
 
+/** Chain-charging links -> pulse flows from end A (true) or end B (false). */
+const chainDir = new Map<GlowLink, boolean>()
+function updateChainDir(now: number): void {
+	chainDir.clear()
+	const seeds: number[] = []
+	const edges: [number, number][] = []
+	const byKey = new Map<string, GlowLink>()
+	for (const l of glow.values()) {
+		if (l.state !== 1) continue
+		const charge = isChargeLink(l)
+		if (now - l.t0Ms < linkFullyVisibleS(charge) * 1000) continue
+		if (charge) seeds.push(l.a)
+		else { edges.push([l.a, l.b]); byKey.set(`:`, l) }
+	}
+	if (seeds.length === 0) return
+	const hops = chainHops(seeds, edges, (id) => id > 0)
+	for (const [a, b] of edges) {
+		const ha = hops.get(a), hb = hops.get(b)
+		if (ha === undefined || hb === undefined || Math.abs(ha - hb) !== 1) continue
+		chainDir.set(byKey.get(`:`)!, ha > hb)
+	}
+}
+
 function tick(dt: number): void {
 	lodClock += dt
 	const lod = lodClock >= GLOW_LOD_S
-	if (lod) lodClock = 0
+	if (lod) { lodClock = 0; updateChainDir(Date.now()) }
 	const me = Transform.getOrNull(engine.PlayerEntity)?.position
 	const now = Date.now()
 	const bobOn = NETWORK_GLOW_STYLE === 'cubes' && NETWORK_CUBE_BOB_M > 0
@@ -427,6 +453,10 @@ function tick(dt: number): void {
 		const pAmp = finalOn ? (fin >= 0 ? NETWORK_FINAL_PULSE_AMP : 0) : NETWORK_CHARGE_PULSE_AMP
 		if (l.finalMs !== undefined && !finalOn) l.finalMs = undefined
 		if (lod && l.state === 1) updateStrengthTargets(l)
+		// Chain link toward a charging monument: same pulse, flowing from the
+		// higher-hop fire to the lower (cascades hop by hop into the monument).
+		const chainFromA = chainDir.get(l)
+		const flowing = charge || chainFromA !== undefined
 		for (const p of l.pieces) {
 			let want: number
 			if (l.state === 1) {
@@ -440,14 +470,14 @@ function tick(dt: number): void {
 			if (lod && me) {
 				const d = Math.hypot(p.pos.x - me.x, p.pos.z - me.z)
 				p.visible = d <= NETWORK_GLOW_DRAW_DIST_M
-				p.bob = charge ? d <= NETWORK_CHARGE_PULSE_DIST_M : (bobOn || pulseOn) && d <= NETWORK_CUBE_BOB_DIST_M
+				p.bob = flowing ? d <= NETWORK_CHARGE_PULSE_DIST_M : (bobOn || pulseOn) && d <= NETWORK_CUBE_BOB_DIST_M
 			}
 			const target = p.visible ? want : 0
 			const prev = p.shown
 			p.shown = target > p.shown ? Math.min(target, p.shown + stepIn) : Math.max(target, p.shown - stepOut)
 			if (p.shown > 0 || want > 0) allGone = false
 			if (p.str !== p.strTarget) p.str = p.strTarget > p.str ? Math.min(p.strTarget, p.str + strStep) : Math.max(p.strTarget, p.str - strStep)
-			const pulsing = (pulseOn || charge) && p.bob && p.shown > 0 && (l.state === 1 || finalOn)
+			const pulsing = (pulseOn || flowing) && p.bob && p.shown > 0 && (l.state === 1 || finalOn)
 			if (p.shown !== prev || pulsing || p.pulsed || p.wave !== p.waveApplied || p.str !== p.strApplied) {
 				const t = Transform.getMutable(p.e)
 				let k = 1 - (1 - p.shown) * (1 - p.shown) // ease-out grow/shrink
@@ -455,8 +485,8 @@ function tick(dt: number): void {
 					// sin(w*t - k*s): crests travel toward larger s = from fire A
 					// toward B. Charge links get a stronger, faster flow into the
 					// monument (the monument end never emits).
-					k *= charge
-						? 1 + pAmp * Math.exp(-(((p.t - front) / pw) ** 2))
+					k *= flowing
+						? 1 + pAmp * Math.exp(-((((chainFromA === false ? l.L - p.t : p.t) - front) / pw) ** 2))
 						: 1 + NETWORK_CUBE_PULSE_AMP * Math.sin(pulseW * now / 1000 - p.t * 0.6)
 				}
 				k *= p.wave // share wave swell (any distance)
@@ -466,7 +496,7 @@ function tick(dt: number): void {
 				p.pulsed = pulsing
 				t.scale = Vector3.create(p.sx * k, p.sy * k, p.sz * k)
 			}
-			if (bobOn && !charge && p.bob && p.shown > 0) {
+			if (bobOn && !flowing && p.bob && p.shown > 0) {
 				const y = p.pos.y + NETWORK_CUBE_BOB_M * Math.sin(bobW * now / 1000 - p.t * bobK)
 				Transform.getMutable(p.e).position = Vector3.create(p.pos.x, y, p.pos.z)
 			}

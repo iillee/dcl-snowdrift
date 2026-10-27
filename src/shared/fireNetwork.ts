@@ -149,6 +149,16 @@ export const NETWORK_CHARGE_FLOW_WAVELENGTH_M = 6
 export const NETWORK_LINK_FADE_OUT_S = 2.5
 /** Orbs of a new link grow from 0 over this many seconds (after the melt front reaches them). */
 export const NETWORK_LINK_FADE_IN_S  = 2.5
+/**
+ * Seconds after a link forms until its whole trail is visibly drawn on
+ * clients: the melt front covers it (fire-fire: both ends meet at L/2 in
+ * NETWORK_MELT_S; charge link: one way, full L in 2 * NETWORK_MELT_S),
+ * then the last orb finishes its NETWORK_LINK_FADE_IN_S grow-in. Charging
+ * (direct and chain) only counts a link after this (server + client bar).
+ */
+export function linkFullyVisibleS(chargeLink: boolean): number {
+	return (chargeLink ? 2 * NETWORK_MELT_S : NETWORK_MELT_S) + NETWORK_LINK_FADE_IN_S
+}
 /** Dim write cadence (s) while a link fades out (material writes are throttled). */
 export const NETWORK_LINK_DIM_WRITE_S = 0.2
 
@@ -564,6 +574,33 @@ export function splitFuelKeepShare(fedFuel: number, others: number[], cap: numbe
 	if (fed > fedHead) { toOthers += fed - fedHead; fed = fedHead }
 	const o = others.length ? splitFuelWaterFill(others, cap, Math.min(othHead, toOthers)) : []
 	return { fed, others: o ?? others.map(() => 0) }
+}
+
+
+/**
+ * Fuel follows heat (chain charging): like splitFuelKeepShare, but the
+ * shared part (and any fed-fire overflow) first fills the others with a
+ * chain hop > 0 in ascending hop order (closest to the monument first, each
+ * up to the cap); what is left water-fills all others (lowest fuel first).
+ * hops[k] = chain hop of others[k] (0 = not preferred).
+ */
+export function splitFuelChainFirst(fedFuel: number, others: number[], hops: number[], cap: number, total: number, keep: number): { fed: number; others: number[] } | null {
+	const base = splitFuelKeepShare(fedFuel, others, cap, total, keep)
+	if (!base) return null
+	let left = base.others.reduce((s, x) => s + x, 0)
+	const out = others.map(() => 0)
+	const order = others.map((_, k) => k).filter((k) => hops[k] > 0).sort((p, q) => hops[p] - hops[q] || others[p] - others[q])
+	for (const k of order) {
+		if (left <= 1e-9) break
+		const g = Math.min(left, Math.max(0, cap - others[k]))
+		out[k] += g; left -= g
+	}
+	if (left > 1e-9) {
+		const now = others.map((f, k) => f + out[k])
+		const w = splitFuelWaterFill(now, cap, left)
+		if (w) w.forEach((d, k) => { out[k] += d })
+	}
+	return { fed: base.fed, others: out }
 }
 
 

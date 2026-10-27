@@ -1,5 +1,5 @@
-﻿/** fireShareCheck: keep-and-share split math. node scripts/fireShareCheck.mjs */
-import { splitFuelKeepShare, splitFuelWaterFill } from 'src/shared/fireNetwork'
+/** fireShareCheck: keep-and-share split math. node scripts/fireShareCheck.mjs */
+import { splitFuelChainFirst, splitFuelKeepShare, splitFuelWaterFill } from 'src/shared/fireNetwork'
 let fails = 0
 const ok = (name: string, c: boolean, info = '') => { console.log(`${c ? 'PASS' : 'FAIL'} ${name} ${info}`); if (!c) fails++ }
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-3
@@ -23,5 +23,17 @@ ok('fed full -> all to others, lowest first', near(r.fed, 0) && near(r.others[0]
 r = splitFuelKeepShare(600, [500, 540], 600, 120, 0.5)!
 ok('fed full, overflow water-filled', near(r.fed, 0) && near(r.others[0], 80) && near(r.others[1], 40), JSON.stringify(r))
 ok('fed full, others too small -> null', splitFuelKeepShare(600, [550, 560], 600, 120, 0.5) === null)
+// Fuel follows heat (chain charging): share goes to the lowest-hop chain fire with room first.
+r = splitFuelChainFirst(200, [500, 100], [1, 0], 600, 60, 0.5)!
+ok('chain: share to hop-1 first (not lowest fuel)', near(r.fed, 30) && near(r.others[0], 30) && near(r.others[1], 0), JSON.stringify(r))
+r = splitFuelChainFirst(200, [590, 100], [1, 0], 600, 60, 0.5)!
+ok('chain: hop-1 fills, rest falls back to lowest fuel', near(r.others[0], 10) && near(r.others[1], 20) && near(r.fed, 30), JSON.stringify(r))
+r = splitFuelChainFirst(200, [300, 100, 100], [2, 1, 0], 600, 60, 0.5)!
+ok('chain: lowest hop wins', near(r.others[1], 30) && near(r.others[0], 0), JSON.stringify(r))
+r = splitFuelChainFirst(600, [580, 400], [1, 0], 600, 120, 0.5)!
+ok('chain: fed full overflow to hop-1 then lowest', near(r.fed, 0) && near(r.others[0], 20) && near(r.others[1], 100), JSON.stringify(r))
+r = splitFuelChainFirst(200, [100, 100], [1, 1], 600, 60, 0.5)!
+ok('chain: total conserved', near(r.fed + sum(r.others), 60), JSON.stringify(r))
+ok('chain: all capped -> null', splitFuelChainFirst(590, [595], [1], 600, 60, 0.5) === null)
 console.log(fails ? `${fails} FAILED` : 'all pass')
 if (fails) process.exit(1)

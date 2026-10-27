@@ -47,7 +47,8 @@ import {
 	WOOD_FRONTIER_RING_ACTIVE,
 	WOOD_FRONTIER_ROUTE_ACTIVE,
 } from 'src/shared/ruleset'
-import { getTerrain } from 'src/shared/terrain/terrainCache'
+import { activeGroundYAt, getTerrain } from 'src/shared/terrain/terrainCache'
+import { pickupDyOk } from 'src/shared/logs'
 import { releaseDimple, seedFireDimple } from 'src/server/snowState'
 
 import { offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
@@ -202,7 +203,7 @@ export function setupWoodServer(): void {
 	rebuildScatter(getCurrentCycleSeed())
 	seedFrontierWoodDimples()
 
-	room.onMessage('woodPickupRequest', ({ seed, idx }, context) => {
+	room.onMessage('woodPickupRequest', ({ seed, idx, py }, context) => {
 		const from = context?.from ?? 'unknown'
 		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(`[Server] wood: pickup rejected from ${from} - stale seed (${seed} vs ${currentSeed})`)
@@ -217,6 +218,10 @@ export function setupWoodServer(): void {
 		const chunk = scatter[idx]
 		if (!chunk) {
 			console.log(`[Server] wood: pickup ${idx} from ${from} - no scatter row`)
+			return
+		}
+		if (!pickupDyOk(py, activeGroundYAt(chunk.worldX, chunk.worldZ))) {
+			console.log(`[Server] wood: pickup ${idx} from ${from} rejected - feet Y ${py?.toFixed(1)} too far above/below`)
 			return
 		}
 		// Tree chops are the trunk itself, not a mesh buried in the snow.

@@ -129,7 +129,11 @@ export const CHARGE_HEAT_FUEL: readonly [number, number, number] = [
 ]
 /** Campfire-equivalent fuel for a charging monument (0 = no heat). */
 export function chargeHeatFuel(charge: number): number {
-	if (!CHARGE_HEAT_ENABLED || !isFloatingCrystals() || !(charge > 0) || charge >= 1) return 0
+	// charge >= 1 keeps Bright: the release tick used to drop this to 0, so
+	// the server released the whole charge-heat ring and snow regrew over
+	// it until the laser thaw melted it again. The ring now stays held and
+	// the crystal heat zone simply covers it (seamless hand-off).
+	if (!CHARGE_HEAT_ENABLED || !isFloatingCrystals() || !(charge > 0)) return 0
 	return charge < CHARGE_HEAT_TIER_AT[0] ? CHARGE_HEAT_FUEL[0] : charge < CHARGE_HEAT_TIER_AT[1] ? CHARGE_HEAT_FUEL[1] : CHARGE_HEAT_FUEL[2]
 }
 /**
@@ -143,10 +147,10 @@ export const CRYSTAL_RISE_S = 4
 export const CRYSTAL_SKY_DROP_S = 1.4
 /** Charging from the sky beam (crystal brightens, pulses run down the beam); the camera zooms out + down over this. */
 export const CRYSTAL_CHARGE_S = 5
-/** Sky beam lifts away (charging stops). */
-export const CRYSTAL_SKY_OFF_S = 0.5
+/** Gap between charging ending and the laser (s). 0: the sky beam stays on permanently; no lift-away step. */
+export const CRYSTAL_SKY_OFF_S = 0
 /** Laser draws down into the earth, then is held before the thaw starts. */
-export const CRYSTAL_LASER_DRAW_S = 0.6
+export const CRYSTAL_LASER_DRAW_S = 0.15 // near-instant shot crystal -> ground (was 0.6)
 export const CRYSTAL_LASER_HOLD_S = 2
 /** Thaw front start after release (server, all players) = end of the laser hold. */
 export const CRYSTAL_THAW_DELAY_S = CRYSTAL_RELEASE_HOLD_S + CRYSTAL_RISE_S + CRYSTAL_CHARGE_S + CRYSTAL_SKY_OFF_S + CRYSTAL_LASER_DRAW_S + CRYSTAL_LASER_HOLD_S
@@ -187,7 +191,60 @@ export function chargeWeight(d: number): number {
 export function chargeRatePerS(dists: ReadonlyArray<number>): number {
 	let sum = 0
 	for (const d of dists) sum += chargeWeight(d)
+	return chargeRateFromWeight(sum)
+}
+
+/** Charge per second for a summed fire weight (same superlinear curve). */
+export function chargeRateFromWeight(sum: number): number {
 	return sum <= 0 ? 0 : CHARGE_K * Math.pow(sum, CHARGE_COUNT_EXP)
+}
+
+
+// MARK: Chain charging
+/**
+ * Chain charging (floating crystals): lit fires up to CHARGE_CHAIN_MAX_HOPS
+ * network hops from an unreleased monument charge it. Hop 1 = a fire with
+ * a live charge link (distance falloff, chargeWeight); hop h >= 2 = relay
+ * fire, weight CHARGE_CHAIN_BASE_WEIGHT * CHARGE_HOP_FACTOR[h-1] (no
+ * distance term: relays sit anywhere along the network). Each fire counts
+ * once per monument at its shortest hop (loops add nothing). A fire may
+ * charge several monuments (each monument counts it independently).
+ */
+export const CHARGE_CHAIN_ENABLED = true
+export const CHARGE_CHAIN_MAX_HOPS = 3
+/** Weight factor per hop (index 0 = hop 1). Hops past the list get 0. */
+export const CHARGE_HOP_FACTOR: readonly number[] = [1, 0.6, 0.35]
+/** Relay base weight: a hop-1 fire at the reference distance (0.75 at 20 m). */
+export const CHARGE_CHAIN_BASE_WEIGHT = CHARGE_REF_WEIGHT
+/** Charging drain multiplier applies to hop-1 fires only (relays already burn at the linked rate). */
+export const CHARGE_CHAIN_DRAIN_HOP1_ONLY = true
+
+/** Weight of a charging fire at hop (hop 1 uses distance d). */
+export function chargeHopWeight(hop: number, d: number): number {
+	if (hop <= 1) return chargeWeight(d)
+	if (!CHARGE_CHAIN_ENABLED || hop > CHARGE_CHAIN_MAX_HOPS) return 0
+	return CHARGE_CHAIN_BASE_WEIGHT * (CHARGE_HOP_FACTOR[hop - 1] ?? 0)
+}
+
+/**
+ * Shortest hop per fire id from hop-1 seeds over undirected fire edges
+ * (BFS, capped at CHARGE_CHAIN_MAX_HOPS). ok(id) filters relays (lit).
+ */
+export function chainHops(seeds: Iterable<number>, edges: ReadonlyArray<readonly [number, number]>, ok: (id: number) => boolean = () => true): Map<number, number> {
+	const hop = new Map<number, number>()
+	const q: number[] = []
+	for (const s of seeds) if (!hop.has(s)) { hop.set(s, 1); q.push(s) }
+	const max = CHARGE_CHAIN_ENABLED ? CHARGE_CHAIN_MAX_HOPS : 1
+	for (let qi = 0; qi < q.length; qi++) {
+		const c = q[qi], h = hop.get(c)!
+		if (h >= max) continue
+		for (const [a, b] of edges) {
+			const o = a === c ? b : b === c ? a : -1
+			if (o < 0 || hop.has(o) || isMonumentNodeId(o) || !ok(o)) continue
+			hop.set(o, h + 1); q.push(o)
+		}
+	}
+	return hop
 }
 
 

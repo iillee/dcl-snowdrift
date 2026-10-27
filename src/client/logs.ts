@@ -27,7 +27,7 @@
 import { Transform, engine, Entity } from '@dcl/sdk/ecs'
 import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
-import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
+import { inPickupReach } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
@@ -137,12 +137,11 @@ function proximityPollSystem(dt: number): void {
 	const player = Transform.getOrNull(engine.PlayerEntity)
 	if (!player) return
 	const px = player.position.x
+	const py = player.position.y
 	const pz = player.position.z
 
 	for (const [id, rec] of piles) {
-		const dx = px - rec.x
-		const dz = pz - rec.z
-		const inRange = dx * dx + dz * dz <= LOGS_PICKUP_RADIUS_SQ
+		const inRange = inPickupReach(px, py, pz, rec.x, activeGroundYAt(rec.x, rec.z), rec.z)
 
 		if (!rec.armed) {
 			if (!inRange) rec.armed = true
@@ -156,7 +155,7 @@ function proximityPollSystem(dt: number): void {
 		// over the head at once.
 		despawnPileEntity(id)
 		pickupLogs(rec.kind)
-		room.send('logPickupRequest', { id })
+		room.send('logPickupRequest', { id, py })
 		console.log(`logs: proximityPollSystem: sent logPickupRequest #${id} kind=${rec.kind}`)
 		// Only one pickup per poll - break so we don't try to grab
 		// multiple piles on the same tick.
@@ -176,12 +175,11 @@ function armPilesOutOfRange(): void {
 	const player = Transform.getOrNull(engine.PlayerEntity)
 	if (!player) return
 	const px = player.position.x
+	const py = player.position.y
 	const pz = player.position.z
 	for (const rec of piles.values()) {
 		if (rec.armed) continue
-		const dx = px - rec.x
-		const dz = pz - rec.z
-		if (dx * dx + dz * dz > LOGS_PICKUP_RADIUS_SQ) rec.armed = true
+		if (!inPickupReach(px, py, pz, rec.x, activeGroundYAt(rec.x, rec.z), rec.z)) rec.armed = true
 	}
 }
 

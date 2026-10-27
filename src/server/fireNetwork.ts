@@ -27,6 +27,7 @@ import {
 	NETWORK_LINK_RANGE_M,
 	NETWORK_TOPOLOGY,
 	NetCand,
+	linkFullyVisibleS,
 	linkKey,
 	pickLinkPairs,
 	pruneNetwork,
@@ -40,7 +41,7 @@ import { onCycleRoll } from 'src/server/cycle'
 import { getMainFireFuel } from 'src/server/hearthFuel'
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
 import { meltPathCell, releasePathCell } from 'src/server/snowState'
-import { setLinkedEdges, setLinkedFireIds } from 'src/server/fireNetworkLinks'
+import { setLinkedEdges, setLinkedFireIds, setVisibleEdges } from 'src/server/fireNetworkLinks'
 import { getChargePairs, setMonumentLinks } from 'src/server/chargeLinks'
 import { isMonumentNodeId } from 'src/shared/ruleset'
 
@@ -95,9 +96,16 @@ function publishLinkedIds(): void {
 	const pairs: [number, number][] = []
 	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id)) pairs.push([l.a.id, l.b.id])
 	setLinkedEdges(pairs)
+	// Charging only counts links whose trail is fully drawn on clients
+	// (connectedAt = startMs + linkFullyVisibleS): monument links + chain edges.
+	const now = Date.now()
+	const shown = (l: Link) => now - l.startMs >= linkFullyVisibleS(isMonumentNodeId(l.b.id)) * 1000
+	const vis: [number, number][] = []
+	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id) && shown(l)) vis.push([l.a.id, l.b.id])
+	setVisibleEdges(vis)
 	const mon = new Map<number, Set<number>>()
 	for (const l of links.values()) {
-		if (l.brokeMs !== 0 || !isMonumentNodeId(l.b.id)) continue
+		if (l.brokeMs !== 0 || !isMonumentNodeId(l.b.id) || !shown(l)) continue
 		let s = mon.get(l.b.id)
 		if (!s) { s = new Set(); mon.set(l.b.id, s) }
 		s.add(l.a.id - 1)

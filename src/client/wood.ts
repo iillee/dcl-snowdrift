@@ -30,7 +30,8 @@ import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
 import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
-import { LOGS_PICKUP_RADIUS_SQ } from 'src/shared/logs'
+import { inPickupReach } from 'src/shared/logs'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
 import {
@@ -352,12 +353,11 @@ function proximityPollSystem(dt: number): void {
 	const player = Transform.getOrNull(engine.PlayerEntity)
 	if (!player) return
 	const px = player.position.x
+	const py = player.position.y
 	const pz = player.position.z
 
 	for (const [idx, rec] of chunkEntities) {
-		const dx = px - rec.x
-		const dz = pz - rec.z
-		const inRange = dx * dx + dz * dz <= LOGS_PICKUP_RADIUS_SQ
+		const inRange = inPickupReach(px, py, pz, rec.x, activeGroundYAt(rec.x, rec.z), rec.z)
 
 		if (!rec.armed) {
 			if (!inRange) rec.armed = true
@@ -369,7 +369,7 @@ function proximityPollSystem(dt: number): void {
 		// the head pop). Confirm arrives as woodChunkRemoved.
 		claimPickup(idx)
 		pickupLogs(rec.kind)
-		room.send('woodPickupRequest', { seed: currentSeed, idx })
+		room.send('woodPickupRequest', { seed: currentSeed, idx, py })
 		console.log(`wood: pickup request sent idx=${idx} kind=${rec.kind}`)
 		break // one pickup per poll
 	}
@@ -430,7 +430,7 @@ export function tryChopWood(): void {
 	activeIdx.delete(chunk.idx)
 	syncTreeWoodScale()
 	pickupLogs(chunk.kind)
-	room.send('woodPickupRequest', { seed: currentSeed, idx: chunk.idx })
+	room.send('woodPickupRequest', { seed: currentSeed, idx: chunk.idx, py: Transform.getOrNull(engine.PlayerEntity)?.position.y ?? Number.NaN })
 	console.log(
 		`wood: tryChopWood: tree ${chunk.treeIndex} idx=${chunk.idx} ` +
 		`at (${chunk.worldX.toFixed(1)}, ${chunk.worldZ.toFixed(1)})`
@@ -443,12 +443,11 @@ function armChunksOutOfRange(): void {
 	const player = Transform.getOrNull(engine.PlayerEntity)
 	if (!player) return
 	const px = player.position.x
+	const py = player.position.y
 	const pz = player.position.z
 	for (const rec of chunkEntities.values()) {
 		if (rec.armed) continue
-		const dx = px - rec.x
-		const dz = pz - rec.z
-		if (dx * dx + dz * dz > LOGS_PICKUP_RADIUS_SQ) rec.armed = true
+		if (!inPickupReach(px, py, pz, rec.x, activeGroundYAt(rec.x, rec.z), rec.z)) rec.armed = true
 	}
 }
 

@@ -48,6 +48,12 @@ export function chargeTargetsOf(slot: number): number[] {
 	return out
 }
 
+/** Chain charging: slot -> shortest hop to any unreleased monument (1 = direct). */
+let chainHop = new Map<number, number>()
+export function setChainHops(m: Map<number, number>): void { chainHop = m }
+/** Shortest charge hop of hidden slot i (0 = not in a charging chain). */
+export function chainHopOf(i: number): number { return chainHop.get(i) ?? 0 }
+
 export function setChargingSlots(ids: Iterable<number>): void {
 	charging.clear()
 	for (const i of ids) charging.add(i)
@@ -69,4 +75,5 @@ export function clearSlotTouches(): void {
 	lastTouch.clear()
 	charging.clear()
 	pairs = []
+	chainHop = new Map()
 }

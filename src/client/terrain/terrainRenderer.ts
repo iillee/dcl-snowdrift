@@ -44,6 +44,7 @@ import {
 	MONUMENT_PIT_DEPTH_M,
 	MONUMENT_PIT_SIZE_M,
 	MONUMENT_SOCKET_DEPTH_M,
+	monumentSocketDepth,
 	MONUMENT_SOCKET_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
@@ -275,7 +276,8 @@ function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number;
 	if (addRect(x0 + pit / 2 + band / 2, z0, band, pit, top, true, focus)) caps++
 
 	const socket  = MONUMENT_SOCKET_SIZE_M
-	const socketY = top - MONUMENT_SOCKET_DEPTH_M
+	const depth   = monumentSocketDepth(top)
+	const socketY = top - depth
 	// Black perimeter band, flush with the ground (matte, no reflectivity).
 	for (const e of spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)) paintMonumentMatte(e)
 	// Plain socket: black bottom, walls are the band's inner faces.
@@ -286,8 +288,8 @@ function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number;
 	const plug = engine.addEntity()
 	terrainEntities.push(plug)
 	Transform.create(plug, {
-		position: Vector3.create(x0, socketY + MONUMENT_SOCKET_DEPTH_M / 2, z0),
-		scale   : Vector3.create(socket, MONUMENT_SOCKET_DEPTH_M, socket),
+		position: Vector3.create(x0, socketY + depth / 2, z0),
+		scale   : Vector3.create(socket, Math.max(0.01, depth), socket),
 	})
 	MeshCollider.setBox(plug, ColliderLayer.CL_PHYSICS)
 	return caps

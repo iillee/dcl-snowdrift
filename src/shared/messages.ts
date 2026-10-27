@@ -188,7 +188,7 @@ export const Messages = {
 	// id succeeds; subsequent requests are silently dropped. In a race
 	// two clients can both believe they picked up the pile — acceptable
 	// for the cozy tone; anti-cheat / strict serialisation is deferred.
-	logPickupRequest: Schemas.Map({ id: Schemas.Int }),
+	logPickupRequest: Schemas.Map({ id: Schemas.Int, py: Schemas.Float }),
 
 	// Client → Server: I dropped my carried wood at world position
 	// (x, z). `kind` is WOOD_KIND_BRANCH or WOOD_KIND_LOG so the pile
@@ -228,7 +228,7 @@ export const Messages = {
 	// Client -> Server: I walked onto chunk `idx` and want to pick it up.
 	// `seed` is echoed so the server can reject a stale pickup that arrived
 	// after a cycle roll invalidated the client's scatter.
-	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int }),
+	woodPickupRequest: Schemas.Map({ seed: Schemas.Int, idx: Schemas.Int, py: Schemas.Float }),
 
 	// Client -> Server: player fed a carried piece to a fire. `target`
 	// selects which fire: -1 == main hearth, 0..HIDDEN_CAMPFIRE_COUNT-1

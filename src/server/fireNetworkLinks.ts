@@ -1,4 +1,4 @@
-﻿/**
+/**
  * fireNetworkLinks.ts — dependency-free "is this fire linked" registry.
  *
  * hiddenCampfire.ts / hearthFuel.ts read it for NETWORK_BURN_MUL;
@@ -6,7 +6,8 @@
  * fireNetwork.ts (which imports them) — no server import cycle.
  */
 
-import { NETWORK_SHARED_FUEL_ENABLED, NETWORK_SHARE_HOPS, NETWORK_SHARE_KEEP, splitFuelKeepShare } from 'src/shared/fireNetwork'
+import { NETWORK_SHARED_FUEL_ENABLED, NETWORK_SHARE_HOPS, NETWORK_SHARE_KEEP, splitFuelChainFirst, splitFuelKeepShare } from 'src/shared/fireNetwork'
+import { chainHopOf } from 'src/server/chargeLinks'
 import { FUEL_MAX } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
 
@@ -33,6 +34,11 @@ export function setLinkedEdges(pairs: [number, number][]): void {
 	edges.length = 0
 	for (const p of pairs) edges.push(p)
 }
+
+/** Fire-fire edges whose trail is fully drawn (fireNetwork), for chain charging. */
+let visEdges: [number, number][] = []
+export function setVisibleEdges(p: [number, number][]): void { visEdges = p }
+export function getVisibleEdges(): ReadonlyArray<readonly [number, number]> { return visEdges }
 
 export function registerFireFuel(id: number, get: () => number, add: (n: number) => void): void {
 	fuelOf.set(id, { get, add })
@@ -66,7 +72,13 @@ export function tryShareFeed(id: number, add: number, from: string): 'none' | 's
 	if (!fed) return 'none'
 	const ids = nearby(id, NETWORK_SHARE_HOPS).filter((i) => fuelOf.has(i))
 	if (ids.length < 1) return 'none'
-	const r = splitFuelKeepShare(fed.get(), ids.map((i) => fuelOf.get(i)!.get()), FUEL_MAX, add, NETWORK_SHARE_KEEP)
+	// Fuel follows heat: a fed chain fire sends its shared part first to the
+	// chain fires closer to the monument (lower hop), then the normal rule.
+	const fedHop = id > 0 ? chainHopOf(id - 1) : 0
+	const hops = ids.map((i) => { const h = i > 0 ? chainHopOf(i - 1) : 0; return fedHop > 0 && h > 0 && h < fedHop ? h : 0 })
+	const r = hops.some((h) => h > 0)
+		? splitFuelChainFirst(fed.get(), ids.map((i) => fuelOf.get(i)!.get()), hops, FUEL_MAX, add, NETWORK_SHARE_KEEP)
+		: splitFuelKeepShare(fed.get(), ids.map((i) => fuelOf.get(i)!.get()), FUEL_MAX, add, NETWORK_SHARE_KEEP)
 	if (!r) return 'full'
 	if (r.fed > 0) fed.add(r.fed)
 	const got: number[] = []

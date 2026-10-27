@@ -138,6 +138,17 @@ export const MONUMENT_SOCKET_SIZE_M = MONUMENT_OBELISK_WIDTH_M + 0.1
  * runs on down through the socket floor.
  */
 export const MONUMENT_SOCKET_DEPTH_M = 1.5
+/**
+ * Lowest Y a socket floor may reach. DCL draws its default ground plane at
+ * y = 0 over anything below it, so a socket on the Low terrace (ground
+ * 0.25 m) dug 1.5 m deep showed that pale plane as a flush 'hole' (the
+ * spawn socket sits higher, so it looked fine). Clamp above it.
+ */
+export const MONUMENT_SOCKET_MIN_FLOOR_Y = 0.03
+/** Socket depth (m) for a monument whose ground top is 	op (clamped above y = 0). */
+export function monumentSocketDepth(top: number): number {
+	return Math.max(0, Math.min(MONUMENT_SOCKET_DEPTH_M, top - MONUMENT_SOCKET_MIN_FLOOR_Y))
+}
 /** Clutter margin (m) kept clear around the ice edge (room to walk round and melt it). */
 export const MONUMENT_PIT_RIM_CLEAR_M = 2
 /**

@@ -7,7 +7,7 @@
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import {
 	BUILT_FIRE_MIN_SPACING_M, CHARGE_RING_M, CHARGE_TARGET_S, CRYSTAL_HEAT_RADIUS_M,
-	RULESET, chargeRatePerS, validateBuiltFireSpot,
+	RULESET, chargeRatePerS, validateBuiltFireSpot, chargeHopWeight, chargeRateFromWeight,
 } from 'src/shared/ruleset'
 import { WORLD_PROFILE, isInsidePlayfield } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
@@ -37,6 +37,13 @@ if (!g0.__crystalTable) {
 		['3 fires @ 15/25/38 m', [15, 25, 38]], ['4 fires @ 20 m', [20, 20, 20, 20]], ['5 fires @ 25 m', [25, 25, 25, 25, 25]],
 	]
 	for (const [n, d] of rows) say(`  ${n.padEnd(24)} full charge in ${fmt(d)}`)
+	// Chain mixes: [hop, dist] per fire (dist only matters at hop 1).
+	const chain: [string, [number, number][]][] = [
+		['chain 1+h2+h3 (line)', [[1, 20], [2, 0], [3, 0]]], ['chain 1+h2+h2 (fork)', [[1, 20], [2, 0], [2, 0]]],
+		['2 direct + 1 h2', [[1, 20], [1, 20], [2, 0]]], ['3 direct + 2 h2', [[1, 20], [1, 20], [1, 20], [2, 0], [2, 0]]],
+		['1 direct + 3 h2', [[1, 20], [2, 0], [2, 0], [2, 0]]], ['1 direct + h2 + 2 h3', [[1, 20], [2, 0], [3, 0], [3, 0]]],
+	]
+	for (const [n, fs] of chain) { const r = chargeRateFromWeight(fs.reduce((s, [h, d]) => s + chargeHopWeight(h, d), 0)); say(`  ${n.padEnd(24)} full charge in ${(1 / r).toFixed(0)} s`) }
 }
 
 say(`[${WORLD_PROFILE}] seeds=${SEEDS}`)

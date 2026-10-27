@@ -29,7 +29,10 @@
  *     A malicious client could spawn free piles; tolerated for v1.
  */
 
-import { INITIAL_LOGS_PILE_X, INITIAL_LOGS_PILE_Z } from 'src/shared/logs'
+import { INITIAL_LOGS_PILE_X, INITIAL_LOGS_PILE_Z, pickupDyOk } from 'src/shared/logs'
+import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
+import { worldToCellKey } from 'src/shared/snowGrid'
+import { releaseDimple, seedFireDimple } from 'src/server/snowState'
 import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
@@ -86,6 +89,9 @@ function addPile(
 ): number {
 	const id = nextPileId++
 	piles.set(id, { x, z, kind })
+	// Dropped piece under snow (now or later): same one-cell dimple as
+	// buried frontier wood. Released on pickup; clearAllSnow wipes it on reset.
+	seedFireDimple(x, z)
 	room.send('logPileAdded', { id, x, z, kind })
 	console.log(
 		`[Server] logs: pile #${id} kind=${kind} added at ` +
@@ -102,8 +108,14 @@ function addPile(
  * safely collapse to one removal).
  */
 function removePile(id: number): boolean {
-	if (!piles.has(id)) return false
+	const p = piles.get(id)
+	if (!p) return false
 	piles.delete(id)
+	// Release the dimple unless another pile still lies in the same snow cell.
+	const key = worldToCellKey(p.x, p.z)
+	let shared = false
+	for (const o of piles.values()) if (worldToCellKey(o.x, o.z) === key) { shared = true; break }
+	if (!shared) releaseDimple(p.x, p.z)
 	room.send('logPileRemoved', { id })
 	console.log(`[Server] logs: pile #${id} removed (remaining ${piles.size})`)
 	return true
@@ -174,10 +186,15 @@ export function sendLogPilesTo(userId: string): void {
  * subscription binds to a live cycle clock.
  */
 export function setupLogsServer(): void {
-	room.onMessage('logPickupRequest', ({ id }, context) => {
+	room.onMessage('logPickupRequest', ({ id, py }, context) => {
 		const from = context?.from ?? 'unknown'
-		if (!piles.has(id)) {
+		const pile = piles.get(id)
+		if (!pile) {
 			console.log(`[Server] logs: pickup ${id} from ${from} - pile not found (already taken?)`)
+			return
+		}
+		if (!pickupDyOk(py, activeGroundYAt(pile.x, pile.z))) {
+			console.log(`[Server] logs: pickup ${id} from ${from} rejected - feet Y ${py?.toFixed(1)} too far from the pile`)
 			return
 		}
 		console.log(`[Server] logs: pickup ${id} by ${from}`)

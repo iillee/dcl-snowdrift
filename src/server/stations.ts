@@ -44,11 +44,14 @@ import {
 	CRYSTAL_HEAT_RADIUS_M,
 	CRYSTAL_THAW_SPREAD_S,
 	CRYSTAL_THAW_DELAY_S,
-	chargeRatePerS,
+	chainHops,
+	chargeHopWeight,
+	chargeRateFromWeight,
 	isFloatingCrystals,
 } from 'src/shared/ruleset'
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
-import { ChargePair, monumentLinkedSlots, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
+import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
+import { getVisibleEdges } from 'src/server/fireNetworkLinks'
 import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
 import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
@@ -172,6 +175,9 @@ function clearSnowOverChunk(index: number, chunk: number): void {
  * protectedCells is cleared on cycle wipe (clearAllSnow).
  */
 function releasePitSnow(index: number): void {
+	// Floating crystals: no ice; every socket stays an empty, snow-free
+	// pit for the whole cycle (keepCrystalPitsClear), before and after release.
+	if (isFloatingCrystals()) return
 	const st = activeTerrain()?.stations[index]
 	if (!st) return
 	const c = cellCenterWorld(st.cx, st.cz)
@@ -221,6 +227,7 @@ function advanceThawStage(reason: string): void {
 
 function resetForCycle(seed: number): void {
 	currentSeed = seed
+	pitsCleared = false // re-held on the next charge tick, after clearAllSnow
 	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0 }
 	resetCharges()
 	worldThawed = false
@@ -453,7 +460,7 @@ function syncChargeHeat(i: number, x: number, z: number): void {
 	const r = hearthRadiusFromFuel(chargeHeatFuel(charge[i]))
 	if (r === monHeatR[i]) return
 	if (r > 0) meltDisc(x, z, r)
-	if (r < monHeatR[i]) releaseDiscOutside(x, z, r, monHeatR[i])
+	if (r < monHeatR[i]) { releaseDiscOutside(x, z, r, monHeatR[i]); pitsCleared = false } // re-hold the pit square
 	console.log(`[Server] stations[${i}]: charge heat ring ${monHeatR[i].toFixed(0)} -> ${r.toFixed(0)} m (charge ${(charge[i] * 100).toFixed(0)}%)`)
 	monHeatR[i] = r
 	publishCoverageIfDirty()
@@ -498,7 +505,28 @@ function releaseCrystal(i: number, by: string, force = false): void {
 	broadcastOne(i, true, by)
 }
 
+/** Floating crystals: set once per cycle (after the snow wipe) once every pit is held clear. */
+let pitsCleared = false
+/**
+ * Floating crystals have no monument ice, so nothing ever melted the pit
+ * and snow lay flush over the recess + socket (the 'filled' look on the
+ * non-spawn sockets). Melt + heat-protect every monument pit square, for
+ * all N monuments, like the classic socket after its ice is gone.
+ */
+function keepCrystalPitsClear(): void {
+	const map = activeTerrain()
+	if (!map) return
+	for (let i = 0; i < stationTotal() && i < map.stations.length; i++) {
+		const c = cellCenterWorld(map.stations[i].cx, map.stations[i].cz)
+		meltMonumentIceSquare(c.x, c.z, MONUMENT_PIT_SIZE_M)
+	}
+	publishCoverageIfDirty()
+	pitsCleared = true
+	console.log(`[Server] stations: crystal pits held clear (${stationTotal()} monuments)`)
+}
+
 function chargeSystem(dt: number): void {
+	if (!pitsCleared) keepCrystalPitsClear()
 	chargeAcc += dt
 	if (chargeAcc < CHARGE_TICK_S) return
 	const step = chargeAcc
@@ -509,6 +537,8 @@ function chargeSystem(dt: number): void {
 	const fires = getHiddenFireNodes().filter((f) => f.lit)
 	const chargingIds = new Set<number>()
 	const pairs: ChargePair[] = []
+	const litSlots = new Set(fires.map((f) => f.index))
+	const chainBest = new Map<number, number>()
 	let released = false
 	for (let i = 0; i < stationTotal() && i < map.stations.length; i++) {
 		if (active[i]) continue
@@ -537,9 +567,25 @@ function chargeSystem(dt: number): void {
 			if (d < bestD && slotToucher(f.index)) { bestD = d; best = f.index }
 		}
 		if (best >= 0) chargeBy[i] = slotToucher(best)
+		// Chain charging: relay fires up to CHARGE_CHAIN_MAX_HOPS network hops
+		// out (shortest hop each, network ids = slot + 1; the hearth never relays).
+		let weight = 0
+		for (const d of dists) weight += chargeHopWeight(1, d)
+		if (linked.size > 0) {
+			const seeds = [...linked].filter((s) => litSlots.has(s)).map((s) => s + 1)
+			const hops = chainHops(seeds, getVisibleEdges(), (id) => id > 0 && litSlots.has(id - 1))
+			for (const [id, h] of hops) {
+				if (h <= 1) continue
+				weight += chargeHopWeight(h, 0)
+				const s = id - 1
+				const cur = chainBest.get(s)
+				if (cur === undefined || h < cur) chainBest.set(s, h)
+			}
+			for (const s of seeds) chainBest.set(s - 1, 1)
+		}
 		syncChargeHeat(i, c.x, c.z)
 		const prev = charge[i]
-		if (dists.length > 0) charge[i] = Math.min(1, charge[i] + chargeRatePerS(dists) * step)
+		if (weight > 0) charge[i] = Math.min(1, charge[i] + chargeRateFromWeight(weight) * step)
 		else if (CHARGE_DECAY_ENABLED) charge[i] = Math.max(0, charge[i] - CHARGE_DECAY_PER_S * step)
 		if (charge[i] === prev) continue
 		syncChargeHeat(i, c.x, c.z)
@@ -552,8 +598,9 @@ function chargeSystem(dt: number): void {
 		recedeIce(i)
 		if (Math.abs(charge[i] - sentCharge[i]) >= CHARGE_SEND_STEP) sendCharge(i)
 	}
-	setChargingSlots(chargingIds)
+	setChargingSlots(chargingIds) // hop 1 only (CHARGE_CHAIN_DRAIN_HOP1_ONLY)
 	setChargePairs(pairs)
+	setChainHops(chainBest)
 	if (released && getActiveStationCount() >= stationTotal()) {
 		// Victory: all three released -> finale beams (client) + thaw wave.
 		advanceThawStage('3 crystals released')
