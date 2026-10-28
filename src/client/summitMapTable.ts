@@ -62,6 +62,8 @@ const stationPaintedLit: boolean[] = []
 
 const entities: Entity[] = []
 let clickTargets: Entity[] = []
+/** Where the table's map face is (world), null when there is none this world. */
+let tableSpot: { x: number; y: number; z: number } | null = null
 let lastSeed = -1
 let installed = false
 
@@ -220,6 +222,7 @@ function clearTable(): void {
 		try { pointerEventsSystem.removeOnPointerDown(e) } catch { /* gone */ }
 	}
 	clickTargets = []
+	tableSpot = null
 	stationBars.length = 0
 	stationPaintedLit.length = 0
 	for (const e of entities) {
@@ -254,6 +257,8 @@ function buildTable(map: TerrainMap): void {
 		console.log('summitMapTable: no seat for this terrain')
 		return
 	}
+
+	tableSpot = { x: seat.x, y: seat.y + PILLAR_H_M + SLAB_H_M, z: seat.z }
 
 	// Root at ground. Identity rotation → map local +X/+Z = scene +X/+Z.
 	const root = engine.addEntity()
@@ -322,6 +327,17 @@ function syncToTerrain(): void {
 	if (map.usedSeed === lastSeed && entities.length > 0) return
 	lastSeed = map.usedSeed
 	buildTable(map)
+}
+
+
+// MARK: isNearSummitTable
+/**
+ * True when (px, py, pz) is within the table's pointer reach (CLICK_MAX_DIST_M, the same distance the pointer hover uses). Mobile has no
+ * native pointer (hand) button, so layer.topDownZoom shows a VIEW MAP button here instead.
+ */
+export function isNearSummitTable(px: number, py: number, pz: number): boolean {
+	if (tableSpot === null) return false
+	return Math.hypot(px - tableSpot.x, py + 1.6 - tableSpot.y, pz - tableSpot.z) <= CLICK_MAX_DIST_M
 }
 
 

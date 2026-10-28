@@ -164,7 +164,9 @@ class LeaderboardLayer extends Layer {
 		const me      = getLocalAddress()
 
 		const rows   = getLeaderboardRows(kind).slice(0, LEADERBOARD_SHOW)
-		const titleH = LEADERBOARD_HEADING ? TITLE_H + GAP : 0
+		// Mobile: the heading is always just "Leaderboard" (also replaces the playtest board's long heading); desktop keeps LEADERBOARD_HEADING.
+		const heading = mobile ? 'Leaderboard' : LEADERBOARD_HEADING
+		const titleH = heading ? TITLE_H + GAP : 0
 		const panelH =
 			PANEL_PAD * 2 + PANEL_BORDER * 2 + titleH +
 			TAB_H + GAP + HEAD_H + rows.length * ROW_H
@@ -192,10 +194,10 @@ class LeaderboardLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
-				{LEADERBOARD_HEADING !== '' && (
+				{heading !== '' && (
 					<Label
 						key         = "ui_Leaderboard_heading"
-						value       = {LEADERBOARD_HEADING}
+						value       = {heading}
 						fontSize    = {mobile ? 14 : 15}
 						color       = {GOLD}
 						textAlign   = "middle-center"

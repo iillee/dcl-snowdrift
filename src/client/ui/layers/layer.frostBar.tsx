@@ -34,6 +34,7 @@ import { FROST_MAX } from 'src/shared/frost/tuning'
 import { isFloatingCrystals } from 'src/shared/ruleset'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, LeaderboardButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
 import { UI_THEME } from 'src/client/ui/theme/settings'
+import { MOBILE_TOP_ROW_INSET } from 'src/client/ui/mobileHud'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
 // while the timer lives in the HelpPanel. Flip to `true` to restore the
@@ -328,7 +329,8 @@ class FrostBarLayer extends Layer {
 		// Desktop bar sits inline with neighbouring buttons on either
 		// side, so it needs matching left+right margin. Mobile has no
 		// inline neighbours — zero side margin so it centres cleanly.
-		const sideMargin = mobile ? 0                : 8
+		// Mobile now hosts mute / star / ? inline too (round buttons, left of the bar), so it gets the same 8 px side margin.
+		const sideMargin = 8
 
 		const innerW = SEGMENT_COUNT * segSize + (SEGMENT_COUNT - 1) * segGap + framePad * 2
 		const innerH = segSize + framePad * 2
@@ -465,7 +467,7 @@ class FrostBarLayer extends Layer {
 				key         = "ui_FrostBar_wrap"
 				uiTransform = {{
 					flexDirection : 'row',
-					justifyContent: 'center',
+					justifyContent: mobile ? 'flex-start' : 'center',
 					alignItems    : 'center',
 					flexShrink    : 0,
 					// Desktop: nudge the whole top-centre HUD cluster (clock, eye,
@@ -473,7 +475,10 @@ class FrostBarLayer extends Layer {
 					// countdown popover that pops out to the LEFT of the clock.
 					// Mobile keeps the row centred — the desktop-only buttons
 					// (and their popovers) don't render there.
-					margin        : { top, left: mobile ? 0 : 160 },
+					// Mobile: the row starts at the left, right of DCL's avatar + chat icons (padding = MOBILE_TOP_ROW_INSET), not centred.
+					...(mobile
+						? { width: '100%', padding: { left: MOBILE_TOP_ROW_INSET }, margin: { top } }
+						: { margin: { top, left: 160 } }),
 					pointerFilter : 'none',
 				}}
 			>
@@ -488,9 +493,10 @@ class FrostBarLayer extends Layer {
 				   flipping SHOW_CLOCK_BUTTON to true. */}
 				{!mobile && SHOW_CLOCK_BUTTON && <ClockButton />}
 				{!mobile && <SpectatorButton />}
-				{!mobile && <MuteButton />}
-				{!mobile && isFloatingCrystals() && <LeaderboardButton />}
-				{!mobile && <HelpButton />}
+				{/* Mute, star, ? are on-screen buttons on mobile too (round, left of the bar); the native action slots 2 / 3 / 4 are hidden (touchControls.ts). */}
+				<MuteButton />
+				{isFloatingCrystals() && <LeaderboardButton />}
+				<HelpButton />
 				{!mobile && SHOW_DEV_ROLL_BUTTON && <DevRollButton />}
 				{!mobile && SHOW_DEV_ADVANCE_PHASE && <DevAdvancePhaseButton />}
 				{!mobile && SHOW_DEV_SNUFF_BUTTON && <DevSnuffButton />}

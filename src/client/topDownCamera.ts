@@ -66,12 +66,12 @@ export const ISO_FOV_DEG   = 24
 // the same on-screen height as the old 60°-FOV camera at A metres altitude;
 // the actual camera distance is A * ISO_DIST_PER_SCALE.
 //
-// Zoom steps copied from pixelwars overviewCamera.ts (2026-10-26): three
-// fixed steps per platform instead of the old 12..75 / step-6 ladder.
+// Zoom steps from pixelwars overviewCamera.ts (2026-10-26): fixed steps per platform
+// instead of the old 12..75 / step-6 ladder. Mobile has four, evenly spaced from the closest 5 to the farthest 25 (5 / 11.67 / 18.33 / 25).
 // Mobile opens at its closest step every time; desktop opens at
 // DESKTOP_ZOOM_DEFAULT the first time and then keeps its step. The table is
 // latched on open because isMobile() resolves async.
-export const MOBILE_ZOOM_SCALES   = [5, 15, 25]
+export const MOBILE_ZOOM_SCALES   = [5, 11.67, 18.33, 25]
 /** Desktop-only extra zoom-out step, as a multiple of the previous max (60). */
 export const DESKTOP_ZOOM_FAR_MULT = 1.4
 export const DESKTOP_ZOOM_SCALES  = [7, 29, 60, Math.round(60 * DESKTOP_ZOOM_FAR_MULT), Math.round(60 * DESKTOP_ZOOM_FAR_MULT * DESKTOP_ZOOM_FAR_MULT)]
@@ -211,7 +211,7 @@ export function setupTopDownCamera(): void {
 	})
 
 	// Hotkeys:
-	//   1 (IA_ACTION_3) = toggle spectator / isometric view (also the mobile eye slot)
+	//   1 (IA_ACTION_3) = toggle spectator / isometric view (mobile: the round eye button in layer.topDownZoom)
 	//   (2 mute: audio.ts, 3 leaderboard: layer.leaderboard.tsx, 4 help: layer.helpPanel.tsx.
 	//   Rotate has no hotkey, button only.)
 	// E (IA_PRIMARY) is claimed by torchInput.ts and must NOT be consumed here.

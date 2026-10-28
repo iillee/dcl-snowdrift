@@ -1,106 +1,44 @@
 /**
- * touchControls.ts — mobile on-screen gamepad configuration.
+ * touchControls.ts - mobile on-screen gamepad configuration.
  *
- * The DCL native mobile HUD always renders a fixed cluster of
- * on-screen buttons. We reshape that cluster to match the scene's
- * affordances:
+ * The DCL native mobile HUD renders a fixed cluster of on-screen buttons around the jump button. We hide every native action button (joystick + jump stay) and replace them with scene UI:
  *
- *   \u2022 IA_PRIMARY   (`E`) \u2014 hidden. The scene's own relight-hand button
- *                            (see layer.mobileActions) is the mobile
- *                            surface for the desktop E-press.
- *   \u2022 IA_SECONDARY (`F`) \u2014 hidden. Reserved / unused in Cryocene.
- *   \u2022 IA_ACTION_3  (`1`) \u2014 eye glyph; topDownCamera toggles the view.
- *   \u2022 IA_ACTION_4  (`2`) \u2014 icon swapped to the mute/unmute glyph.
- *   \u2022 IA_ACTION_5  (`3`) \u2014 star glyph: leaderboard (floating crystals;
- *                            hidden in other rulesets).
- *   \u2022 IA_ACTION_6  (`4`) \u2014 help glyph. Rotate has no hotkey / native
- *                            slot (the overview has its own on-screen button).
+ *   - IA_PRIMARY   (`E`) - hidden. The scene's own Torch hotbar button is the mobile surface for the desktop E-press.
+ *   - IA_SECONDARY (`F`) - hidden. Reserved / unused in Cryocene.
+ *   - IA_ACTION_3  (`1`) - hidden on touch: the eye (view change) is our own round UI button directly above jump (layer.topDownZoom), which
+ *                          calls the same toggleTopDownCamera() as key 1 on desktop and turns yellow while the overview is on.
+ *   - IA_ACTION_4 / 5 / 6 (`2` `3` `4`) - hidden on touch: mute, star (leaderboard) and ? (help) are on-screen round buttons at the top-left of
+ *                          the HUD row instead (layer.brushSize MuteButton / LeaderboardButton / HelpButton, hosted by layer.frostBar).
+ *                          Desktop keeps keys 1 / 2 / 3 / 4.
+ *   - IA_POINTER   (the native hand) - hidden on touch. Its two users have on-screen paths: the monument cinematic ends on the SKIP label in the
+ *                          bottom bar (layer.cinematic) or the jump button (monumentCinematic), and the summit map table gets a VIEW MAP button
+ *                          while the player stands within reach (layer.topDownZoom, summitMapTable.isNearSummitTable).
  *
- * TouchScreenControls only affects native on-screen buttons, so all of
- * this is a no-op on desktop.
+ * TouchScreenControls only affects native on-screen buttons, so all of this is a no-op on desktop. There is no mobile input dispatch in this file:
+ * the hidden slots are replaced by plain UI buttons.
  */
 
-import {
-	InputAction,
-	PointerEventType,
-	TouchScreenControls,
-	engine,
-	inputSystem,
-} from '@dcl/sdk/ecs'
-// (Transform is re-imported below alongside the torch helpers so the
-// mobile-only pointer→relight guard can read the player position without
-// duplicating the campfire radius check that lives in torchInput.ts.)
+import { InputAction, TouchScreenControls, engine } from '@dcl/sdk/ecs'
 import { isMobile } from '@dcl/sdk/platform'
-
-import { isMusicMuted, toggleMusic }             from 'src/client/audio'
-import { toggleHelpPanel }                       from 'src/client/ui/layers/layer.helpPanel'
-import { toggleLeaderboardPanel }                from 'src/client/ui/layers/layer.leaderboard'
-import { isFloatingCrystals }                    from 'src/shared/ruleset'
-import { CAMPFIRE_RELIGHT_RADIUS_SQ_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
-import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit, relightTorch }  from 'src/client/torchEquip'
-import { Transform }                             from '@dcl/sdk/ecs'
 
 
 // MARK: Module state
 let installed = false
 
-// Icon sources for the two repurposed action buttons.
-const EYE_ICON_SRC    = 'assets/images/eye3.png'
-// Padded copies (transparent border) so the glyph reads at a similar
-// visual size to the eye icon when the DCL native button stretches it
-// to fill its square footprint. Source PNGs are 455 x 408 with almost
-// no padding; padded copies are 700 x 700 (glyph occupies ~65 % of
-// each axis). Regenerate with `pad-icons.js` if the source art changes.
-const MUTED_ICON_SRC  = 'assets/images/muted_padded.png'
-const UNMUTE_ICON_SRC = 'assets/images/unmute_padded.png'
-// 700x700 white "?" glyph on transparent bg. Matches the eye + mute icon
-// footprint so all three buttons read as one visual family.
-const HELP_ICON_SRC   = 'assets/images/help-v3.png'
-// 700x700 white star on transparent bg (scripts/make-star-icon.js): leaderboard.
-const STAR_ICON_SRC   = 'assets/images/leaderboard_star_padded.png'
-
-
 // MARK: applyLayout
-/**
- * (Re)write the TouchScreenControls component with the current mute
- * icon. Called once at boot and again after every toggleMusic() so the
- * on-screen glyph reflects the audio state without needing per-frame
- * writes.
- */
+/** Write the TouchScreenControls component once at boot: every native action button hidden (joystick + jump stay). */
 function applyLayout(): void {
-	const muteSrc = isMusicMuted() ? MUTED_ICON_SRC : UNMUTE_ICON_SRC
-
 	TouchScreenControls.createOrReplace(engine.RootEntity, {
 		touchInputs: [
-			// Hide the two default keyboard-affordance buttons \u2014 the scene
-			// has its own mobile UI for the underlying actions.
+			// Hide the two default keyboard-affordance buttons - the scene has its own mobile UI for the underlying actions.
 			{ inputAction: InputAction.IA_PRIMARY,   hide: true },
 			{ inputAction: InputAction.IA_SECONDARY, hide: true },
-			// Slots: 1 eye (view), 2 mute, 3 star (leaderboard, floating crystals
-			// only), 4 help. Same order as the desktop keys. Toggles are polled below.
-			{
-				inputAction: InputAction.IA_ACTION_3,
-				hide       : false,
-				icon       : { tex: { $case: 'texture', texture: { src: EYE_ICON_SRC } } },
-			},
-			{
-				inputAction: InputAction.IA_ACTION_4,
-				hide       : false,
-				icon       : { tex: { $case: 'texture', texture: { src: muteSrc } } },
-			},
-			isFloatingCrystals()
-				? {
-					inputAction: InputAction.IA_ACTION_5,
-					hide       : false,
-					icon       : { tex: { $case: 'texture' as const, texture: { src: STAR_ICON_SRC } } },
-				}
-				: { inputAction: InputAction.IA_ACTION_5, hide: true },
-			{
-				inputAction: InputAction.IA_ACTION_6,
-				hide       : false,
-				icon       : { tex: { $case: 'texture', texture: { src: HELP_ICON_SRC } } },
-			},
+			// Slots 1 / 2 / 3 / 4 (eye, mute, star, help) and the pointer hand: on-screen UI buttons instead (see the header).
+			{ inputAction: InputAction.IA_ACTION_3, hide: true },
+			{ inputAction: InputAction.IA_ACTION_4, hide: true },
+			{ inputAction: InputAction.IA_ACTION_5, hide: true },
+			{ inputAction: InputAction.IA_ACTION_6, hide: true },
+			{ inputAction: InputAction.IA_POINTER,  hide: true },
 		],
 		hideJoystick : false,
 		hideCrosshair: false,
@@ -109,11 +47,7 @@ function applyLayout(): void {
 
 
 // MARK: setupTouchControls
-/**
- * Configure the native mobile button cluster and register the input
- * dispatch system. Idempotent \u2014 safe to call once from bootstrap.
- * No-op on desktop.
- */
+/** Configure the native mobile button cluster. Idempotent - safe to call once from bootstrap. No-op on desktop. */
 export function setupTouchControls(): void {
 	if (installed) {
 		console.log('touchControls: setupTouchControls: already installed, skipping')
@@ -127,38 +61,5 @@ export function setupTouchControls(): void {
 	}
 
 	applyLayout()
-
-	// Rising-edge dispatch. inputSystem.isTriggered(...PET_DOWN) already
-	// gives us rising-edge semantics, so no manual `prev` bookkeeping.
-	//
-	// NOTE: IA_ACTION_3 (view) is NOT handled here - topDownCamera.ts already
-	// owns that input action and calls toggleTopDownCamera() on it. If
-	// we also toggled here, mobile taps would flip the camera twice per
-	// press (net: no visible change). Keep the eye dispatch there.
-	// Likewise audio.ts / layer.leaderboard.tsx / layer.helpPanel.tsx skip
-	// their desktop key handlers on mobile; this system is the only mobile
-	// dispatcher for 2 (mute), 3 (leaderboard) and 4 (help).
-	engine.addSystem(() => {
-		// ACTION_6 (4) opens the HelpPanel. Glyph is state-less - no re-apply.
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) { // 4: help
-			toggleHelpPanel()
-		}
-		// ACTION_5 (3, star slot, floating crystals only) opens the leaderboard.
-		if (isFloatingCrystals() && inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) { // 3: leaderboard
-			toggleLeaderboardPanel()
-		}
-		// ACTION_4 (2, mute) - flip music state and re-apply so the glyph tracks it.
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) { // 2: mute
-			toggleMusic()
-			applyLayout()
-		}
-
-		// Note: the old IA_POINTER → relight handler was removed. It fired
-		// on ANY UI tap on mobile, which meant tapping the Logs (F) hotbar
-		// button also relit the torch when the player was in the fire ring.
-		// The dedicated Torch hotbar button (layer.brushSize > TorchButton)
-		// now owns mobile relight via its onMouseDown → tryRelightAtFire().
-	})
-
-	console.log('touchControls: setupTouchControls: mobile layout applied (E/F hidden; 1 eye, 2 mute, 3 star, 4 help)')
+	console.log('touchControls: setupTouchControls: mobile layout applied (all native action buttons hidden; eye / mute / star / help are UI buttons)')
 }

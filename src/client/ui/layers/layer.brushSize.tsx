@@ -97,6 +97,21 @@ const STAR_ICON_PX  = 38
 const EYE_ICON_H   = 32
 
 
+// MARK: hud look
+/**
+ * Look of the round-able top buttons (mute / star / ?). Desktop: the usual dark rounded square with the thin border (unchanged). Mobile:
+ * rounded-edge squares in the frost bar's frame style (layer.frostBar: radius 18, 4 px white border at 0.75, black 0.8 fill), same 72 px footprint.
+ */
+const MOBILE_SQ_RADIUS   = 18
+const MOBILE_SQ_BORDER_W = 4
+const MOBILE_SQ_BORDER   = Color4.create(1, 1, 1, 0.75)
+const MOBILE_SQ_BG       = Color4.create(0, 0, 0, 0.80)
+function hudRadius(): number       { return isMobile() ? MOBILE_SQ_RADIUS : borderRadius.md }
+function hudBorderW(): number      { return isMobile() ? MOBILE_SQ_BORDER_W : TORCH_BORDER_W }
+function hudBorderColor(): Color4  { return isMobile() ? MOBILE_SQ_BORDER : TORCH_BORDER_OFF }
+function hudBg(): Color4           { return isMobile() ? MOBILE_SQ_BG : PANEL_BG }
+
+
 // MARK: BrushButton
 /**
  * A single square icon button. `enabled = false` renders it dimmed and
@@ -322,11 +337,11 @@ export function HelpButton() {
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
-				borderRadius  : borderRadius.md,
-				borderWidth   : TORCH_BORDER_W,
-				borderColor   : TORCH_BORDER_OFF,
+				borderRadius  : hudRadius(),
+				borderWidth   : hudBorderW(),
+				borderColor   : hudBorderColor(),
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: hudBg() }}
 			onMouseDown  = {() => { playUiClick(); toggleHelpPanel() }}
 		>
 			<Label
@@ -362,11 +377,11 @@ export function LeaderboardButton() {
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
-				borderRadius  : borderRadius.md,
-				borderWidth   : TORCH_BORDER_W,
-				borderColor   : TORCH_BORDER_OFF,
+				borderRadius  : hudRadius(),
+				borderWidth   : hudBorderW(),
+				borderColor   : hudBorderColor(),
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: hudBg() }}
 			onMouseDown  = {() => { playUiClick(); toggleLeaderboardPanel() }}
 		>
 			<UiEntity
@@ -752,11 +767,11 @@ export function MuteButton() {
 				margin        : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
 				justifyContent: 'center',
 				alignItems    : 'center',
-				borderRadius  : borderRadius.md,
-				borderWidth   : TORCH_BORDER_W,
-				borderColor   : TORCH_BORDER_OFF,
+				borderRadius  : hudRadius(),
+				borderWidth   : hudBorderW(),
+				borderColor   : hudBorderColor(),
 			}}
-			uiBackground = {{ color: PANEL_BG }}
+			uiBackground = {{ color: hudBg() }}
 			onMouseDown  = {toggleMusic}
 		>
 			{/* Key varies with mute state: react-ecs otherwise diffs the
