@@ -168,6 +168,13 @@ function noteFireContributor(a: string, fireId: number, built: boolean): void {
 }
 
 
+// MARK: forgetFireContributors
+/** A fire was removed (spent + timed out): its builder / feeder credit goes with it (the slot is reused). */
+export function forgetFireContributors(fireId: number): void {
+	if (fireContributors.delete(fireId)) firenetDirty = true
+}
+
+
 // MARK: recordFireNetworks
 /**
  * Called every network tick with the burning fire ids and the fully drawn

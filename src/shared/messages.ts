@@ -107,6 +107,19 @@ export const Messages = {
 		seed : Schemas.Int,
 		index: Schemas.Int,
 	}),
+	// Spent fires (src/server/hiddenCampfire.ts): a fire that ran out of fuel is cold ash,
+	// never relightable, and removed SPENT_FIRE_REMOVE_S after it went out.
+	// Server -> Client: slot `index` is spent; ageMs = how long ago it went out (joiners).
+	fireSpent: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+		ageMs: Schemas.Int,
+	}),
+	// Server -> Client: slot `index` no longer holds any fire (spent timeout, or ash cleared by a new build).
+	fireRemoved: Schemas.Map({
+		seed : Schemas.Int,
+		index: Schemas.Int,
+	}),
 	// Server -> Client (sender only): lighting refused; carried=1 means
 	// give the log back. `reason` is a ruleset BuildFireVerdict.
 	builtFireRejected: Schemas.Map({
@@ -464,6 +477,9 @@ export const Messages = {
 	// Client -> Server: TEMPORARY debug - light the next unlit monument
 	// (volcano thaw stage +1). Same DEBUG_THAW_BUTTON gate.
 	debugVolcanoStage: Schemas.Map({ seed: Schemas.Int }),
+	// Client -> Server (floating crystals): fire the ending ("Level Thaws") without 6 activations: every unreleased
+	// monument is released silently, the finale starts FINALE_DEBUG_DELAY_S later. Ignored unless DEBUG_FINALE_BUTTON.
+	debugFinale: Schemas.Map({ seed: Schemas.Int }),
 
 	// Server -> Client: fire-network link (src/server/fireNetwork.ts). Ids:
 	// 0 = hearth, i + 1 = hidden fire i. Clients route the same path from
@@ -557,6 +573,19 @@ export const Messages = {
 		toM      : Schemas.Number,
 		waveAgeMs: Schemas.Int,
 		waveDurMs: Schemas.Int,
+	}),
+
+	// Server -> Client (floating crystals): the ending after the last monument is released (src/shared/finale.ts).
+	// running 0 = not started (cycle reset). first = monument index the ring (and the first beam) starts at (the last
+	// one released). ageMs = ms since the finale START (server clock at send time), NEGATIVE while it is still to
+	// begin; clients place beams / title by age, late joiners land on the finished state. fresh 1 = live broadcast.
+	// The ring topology is NOT sent: both sides derive it from the monument layout (finaleEdges).
+	crystalFinaleState: Schemas.Map({
+		seed   : Schemas.Int,
+		running: Schemas.Int,
+		first  : Schemas.Int,
+		ageMs  : Schemas.Int,
+		fresh  : Schemas.Int,
 	}),
 
 	// Client -> Server: the sender's display name, for the leaderboard's

@@ -184,6 +184,43 @@ export function greedyRects(mask: Uint8Array, nx: number, nz: number): Array<{ i
 }
 
 
+// MARK: mergeGrassRects
+
+/** One merged grass rectangle: centre (x, z), size, the shared floor Y of every cell it covers, and the shade. */
+export interface GrassRect { x: number; z: number; sx: number; sz: number; y: number; shade: number }
+
+/**
+ * Greedy-merge the grass cells into rectangles, one pass PER floor Y: cells on different terraces / wall blocks (different
+ * `y`) are never merged, so a rectangle sits at the exact floor height of every cell it covers (a single Y for a mixed
+ * rectangle put grass up in the air above the lower terrace). Cells must share the 4 m grid (OASIS_CELL_M).
+ */
+export function mergeGrassRects(cells: readonly VegCell[]): GrassRect[] {
+	const byY = new Map<number, VegCell[]>()
+	for (const c of cells) {
+		if (c.shade === 0) continue
+		const k = Math.round(c.y * 1000)
+		let a = byY.get(k)
+		if (!a) { a = []; byY.set(k, a) }
+		a.push(c)
+	}
+	const out: GrassRect[] = []
+	for (const list of byY.values()) {
+		let minIx = Infinity, minIz = Infinity, maxIx = -Infinity, maxIz = -Infinity
+		for (const c of list) { minIx = Math.min(minIx, c.ix); maxIx = Math.max(maxIx, c.ix); minIz = Math.min(minIz, c.iz); maxIz = Math.max(maxIz, c.iz) }
+		const nx = maxIx - minIx + 1, nz = maxIz - minIz + 1
+		const mask = new Uint8Array(nx * nz)
+		for (const c of list) mask[(c.iz - minIz) * nx + c.ix - minIx] = c.shade
+		const first = list[0]
+		for (const r of greedyRects(mask, nx, nz)) {
+			const x0 = first.x + (minIx + r.ix - first.ix) * OASIS_CELL_M - OASIS_CELL_M / 2
+			const z0 = first.z + (minIz + r.iz - first.iz) * OASIS_CELL_M - OASIS_CELL_M / 2
+			out.push({ x: x0 + (r.w * OASIS_CELL_M) / 2, z: z0 + (r.h * OASIS_CELL_M) / 2, sx: r.w * OASIS_CELL_M, sz: r.h * OASIS_CELL_M, y: first.y, shade: r.v })
+		}
+	}
+	return out
+}
+
+
 // MARK: buildVegCells
 
 /**

@@ -28,9 +28,8 @@ import { playCampfireEmote, stopCampfireEmote } from 'src/client/campfireEmote'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
 	getCurrentHiddenSeed,
-	getPlacedFireCount,
-	getPlacedFirePositions,
-	getRecycleNextPos,
+	getLiveFireCount,
+	getLiveFirePositions,
 	isInHiddenRelightRange,
 	isReadyToIgniteHidden,
 } from 'src/client/hiddenCampfire'
@@ -85,14 +84,11 @@ function evaluate(): void {
 	const spot  = builtFireFrontSpot(playerX, playerZ, playerYaw)
 	carriedX    = spot.x
 	carriedZ    = spot.z
-	// Mirror the server: at the cap the oldest dead built fire is
-	// recycled (no dead one = unavailable); it never blocks spacing.
-	const count = getPlacedFireCount()
-	const full  = count >= Math.min(BUILT_FIRE_MAX, HIDDEN_CAMPFIRE_COUNT)
-	const rec   = full ? getRecycleNextPos() : null
-	if (full && !rec) return
-	const fires = rec ? getPlacedFirePositions().filter((p) => p.x !== rec.x || p.z !== rec.z) : getPlacedFirePositions()
-	verdict = validateBuiltFireSpot(map, carriedX, carriedZ, fires, stageAt, rec ? count - 1 : count)
+	// Mirror the server: only BURNING fires count for the cap and for spacing. Ash (spent
+	// fires) never blocks a new fire; the server clears ash under the new fire at once.
+	const count = getLiveFireCount()
+	if (count >= Math.min(BUILT_FIRE_MAX, HIDDEN_CAMPFIRE_COUNT)) return
+	verdict = validateBuiltFireSpot(map, carriedX, carriedZ, getLiveFirePositions(), stageAt, count)
 	// Ember fail gate as on the server, then positives only.
 	if (verdict === 'ok' && isEmberFailing()) verdict = null
 	if (verdict !== 'ok') verdict = null

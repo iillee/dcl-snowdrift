@@ -38,8 +38,7 @@ const MONUMENT_SRC = 'assets/sounds/monument.mp3'
 const BEAM_SRC     = 'assets/sounds/beam.wav'
 // First 1.0 s of release.wav + 70 ms fade-out (scripts/trim-release-burst.js).
 const RELEASE_BURST_SRC = 'assets/sounds/release_burst.wav'
-// First 1.5 s of charge.wav + 70 ms fade-out (scripts/trim-release-burst.js charge.wav charge_start.wav 1.5).
-const CHARGE_START_SRC = 'assets/sounds/charge_start.wav'
+// charge_start.wav (first 1.5 s of charge.wav) is no longer used: the beam-hit moment starts the looping crystal.mp3 (stationMarkers startHum).
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -59,7 +58,6 @@ let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
 let monumentSfxEnt: Entity = 0 as Entity
 let releaseBurstSfxEnt: Entity = 0 as Entity
-let chargeStartSfxEnt: Entity = 0 as Entity
 let beamSfxEnt:     Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
 let frostSfxEnt: Entity = 0 as Entity
@@ -162,7 +160,6 @@ export function initAudio(): void {
 	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
 	beamSfxEnt     = makeCameraSfx(BEAM_SRC, 0.8)
 	releaseBurstSfxEnt = makeCameraSfx(RELEASE_BURST_SRC, 0.9)
-	chargeStartSfxEnt  = makeCameraSfx(CHARGE_START_SRC, 1.0)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
 	frostSfxEnt   = makeCameraSfx(FROST_SRC, FROST_SFX_VOLUME)
 	healSfxEnt    = makeCameraSfx(HEAL_SRC, 0.2)
@@ -491,17 +488,6 @@ export function playMonumentSfxAt(position: Vector3): void {
 	engine.addSystem(cleanup)
 }
 
-
-// MARK: playChargeStartSfxAt
-/**
- * Monument charge cue (first 1.5 s of charge.wav) when the sky beam lands in
- * the crystal's top tip. GLOBAL (camera-attached, non-positional) on every client, so it stays loud from the cinematic's far
- * virtual camera; the position arg is kept for call-site symmetry. charge_start.wav is normalised to -1 dBFS. Not silenced by the mute toggle (music only).
- */
-export function playChargeStartSfxAt(_position: Vector3): void {
-	// Global (camera-attached, non-positional): audible at full level from the cinematic's far camera.
-	playOneShot(chargeStartSfxEnt, CHARGE_START_SRC, 1.0)
-}
 
 // MARK: playReleaseBurstSfxAt
 /**

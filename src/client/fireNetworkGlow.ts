@@ -55,6 +55,7 @@ import {
 	NETWORK_PATH_WARM_ENABLED,
 	NETWORK_PATH_WARM_RADIUS_M,
 	NETWORK_TILE_FIRE_CLEAR_M,
+	NETWORK_TILE_MONUMENT_CLEAR_M,
 	NETWORK_TILE_SCALE_S,
 	NETWORK_TILE_INSET_M,
 	NETWORK_TILE_LIFT_M,
@@ -209,9 +210,8 @@ function addBox(pos: Vector3, yaw: number, sx: number, sy: number, sz: number, t
  * already split at ladders, and cubes whose spot is off the run's level
  * (cliff face / lip) are skipped, so nothing sits on the climb.
  */
-function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], ends: { x: number; z: number }[]): Piece[] {
+function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], ends: { x: number; z: number; r: number }[]): Piece[] {
 	const out: Piece[] = []
-	const clear2 = NETWORK_TILE_FIRE_CLEAR_M * NETWORK_TILE_FIRE_CLEAR_M
 	const step = Math.max(0.25, NETWORK_CUBE_SPACING_M)
 	const s = NETWORK_CUBE_SIZE_M
 	let t0 = 0
@@ -226,7 +226,7 @@ function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], 
 				const u = L > 0 ? (next - runT) / L : 0
 				const x = p.x + (q.x - p.x) * u, z = p.z + (q.z - p.z) * u
 				next += step
-				if (ends.some((e) => (x - e.x) ** 2 + (z - e.z) ** 2 < clear2)) continue
+				if (ends.some((e) => (x - e.x) ** 2 + (z - e.z) ** 2 < e.r * e.r)) continue
 				if (levelAtWorld(map, x, z) !== r.level) continue
 				const y = walkableYAtWorld(map, x, z) + NETWORK_CUBE_FLOAT_M
 				const sph = NETWORK_CUBE_SHAPE === 'sphere'
@@ -244,14 +244,13 @@ function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], 
  * grouped into row runs of up to NETWORK_TILE_MERGE_MAX cells (one box
  * each, inset so the grid gaps read). Each box animates on its smallest t.
  */
-function buildTiles(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], ends: { x: number; z: number }[]): Piece[] {
+function buildTiles(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], ends: { x: number; z: number; r: number }[]): Piece[] {
 	const cells = rasterizeRuns(map, runs, NETWORK_TILE_BAND_M)
 	const byKey = new Map<number, number>()
-	const clear2 = NETWORK_TILE_FIRE_CLEAR_M * NETWORK_TILE_FIRE_CLEAR_M
 	for (const c of cells) {
 		// Keep the pit / log pile clear: the path starts just outside the fire.
 		const w = snowCellCenter(c.key)
-		if (ends.some((e) => (w.x - e.x) ** 2 + (w.z - e.z) ** 2 < clear2)) continue
+		if (ends.some((e) => (w.x - e.x) ** 2 + (w.z - e.z) ** 2 < e.r * e.r)) continue
 		byKey.set(c.key, c.t)
 	}
 	const done = new Set<number>()
@@ -295,18 +294,26 @@ function removeLink(k: string): void {
 }
 
 
+/** Pieces stay clear of each end: a fire's log pile, but only a hair around a monument end (the trail runs up to the obelisk). */
+function glowEnds(ax: number, az: number, a: number, bx: number, bz: number, b: number): { x: number; z: number; r: number }[] {
+	return [
+		{ x: ax, z: az, r: isMonumentNodeId(a) ? NETWORK_TILE_MONUMENT_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
+		{ x: bx, z: bz, r: isMonumentNodeId(b) ? NETWORK_TILE_MONUMENT_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
+	]
+}
+
 function buildPieces(ax: number, az: number, bx: number, bz: number, a: number, b: number): { L: number; pieces: Piece[]; warm: Map<number, number> } | null {
 	const map = activeTerrain()
 	if (!map) return null
 	const r = routeFireLink(map, { id: a, x: ax, z: az }, { id: b, x: bx, z: bz })
 	if (!r) return null
 	if (NETWORK_GLOW_STYLE === 'cubes') {
-		const pieces = buildCubes(map, r.runs, [{ x: ax, z: az }, { x: bx, z: bz }])
+		const pieces = buildCubes(map, r.runs, glowEnds(ax, az, a, bx, bz, b))
 		if (FIRE_NETWORK_DEBUG) console.log(`fireNetworkGlow: ${linkKey(a, b)} ${pieces.length} cubes`)
 		return { L: Math.max(1, r.lengthM), pieces, warm: bandCells(map, r.runs) }
 	}
 	if (NETWORK_GLOW_STYLE === 'tiles') {
-		const pieces = buildTiles(map, r.runs, [{ x: ax, z: az }, { x: bx, z: bz }])
+		const pieces = buildTiles(map, r.runs, glowEnds(ax, az, a, bx, bz, b))
 		if (FIRE_NETWORK_DEBUG) console.log(`fireNetworkGlow: ${linkKey(a, b)} ${pieces.length} tile boxes`)
 		return { L: Math.max(1, r.lengthM), pieces, warm: bandCells(map, r.runs) }
 	}

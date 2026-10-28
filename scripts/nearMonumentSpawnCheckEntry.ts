@@ -2,7 +2,7 @@
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, SPAWN_LOOK_COMPASS_DEG } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import {
-	BUILT_FIRE_MIN_SPACING_M, CHARGE_LINK_EDGE_PAD_M, CRYSTAL_NEAR_MONUMENT_MAX_M, CRYSTAL_NEAR_MONUMENT_MIN_M, MONUMENT_LINK_RANGE_M, MONUMENT_NODE_ID_BASE, validateBuiltFireSpot,
+	BUILT_FIRE_MIN_SPACING_M, CHARGE_LINK_END_HALF_M, CRYSTAL_NEAR_MONUMENT_MAX_M, CRYSTAL_NEAR_MONUMENT_MIN_M, MONUMENT_LINK_RANGE_M, MONUMENT_NODE_ID_BASE, validateBuiltFireSpot,
 } from 'src/shared/ruleset'
 import { routeFireLink } from 'src/shared/fireNetwork'
 import { OASIS_DROP_M, OASIS_REACH_M, oasisClear, oasisLoweredAt, oasisNoteRelease, oasisRelease, walkableYAtWorld } from 'src/shared/terrain/oasis'
@@ -66,7 +66,7 @@ for (let i = 0; i < args.seeds; i++) {
 			if (link && a % 6 === 0) {
 				// Same charge-link end the server routes to: the pit edge facing the fire (+ pad).
 				const dd = Math.hypot(x - c.x, z - c.z), ux = (x - c.x) / dd, uz = (z - c.z) / dd
-				const e = Math.min((MONUMENT_PIT_SIZE_M / 2) / Math.max(Math.abs(ux), Math.abs(uz)) + CHARGE_LINK_EDGE_PAD_M, Math.max(0, dd - 1))
+				const e = Math.min(CHARGE_LINK_END_HALF_M / Math.max(Math.abs(ux), Math.abs(uz)), Math.max(0, dd - 1))
 				const r = routeFireLink(map, { id: 1, x, z }, { id: MONUMENT_NODE_ID_BASE, x: c.x + ux * e, z: c.z + uz * e })
 				if (r) routed++; else unrouted++
 			}

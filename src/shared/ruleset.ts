@@ -103,7 +103,13 @@ export function isMonumentNodeId(id: number): boolean {
 	return id >= MONUMENT_NODE_ID_BASE
 }
 /** Charge links end this far (m) outside the monument pit edge. */
-export const CHARGE_LINK_EDGE_PAD_M = 0.75 // no monument ice in this mode: trail ends ~0.75 m off the base edge
+export const CHARGE_LINK_EDGE_PAD_M = 0.75 // legacy: ends used to sit this far outside the 6 m pit edge (kept for reference, no longer used)
+/**
+ * Charge links end this far (m, Chebyshev: square around the monument centre) from the monument centre, i.e. 0.3 m off the 3.1 m
+ * socket edge / ~0.3 m off the obelisk face, over the flat black pit band (was 3.75 m: the trail stopped short of the pit edge and
+ * the glow clear radius ate another ~1.35 m). Server routes to it; the client clears glow pieces only 0.5 m around it.
+ */
+export const CHARGE_LINK_END_HALF_M = 1.8
 /** Fires contributing to a charge burn this much faster. */
 export const CHARGE_FIRE_DRAIN_MUL = 1.5
 /** Charge decay when no fire contributes (off for the prototype). */
@@ -358,6 +364,16 @@ export const BUILT_FIRE_PERMANENT = false
 export const BUILT_FIRE_MIN_SPACING_M = 18
 /** Max built fires per world (server enforced). Clamped to the slot count. */
 export const BUILT_FIRE_MAX = 40
+/**
+ * Spent fires: a fire that runs out of fuel becomes cold ash (no relight, no feed),
+ * and is removed entirely this many seconds later (server state + client entities).
+ * The hearth and monuments are exempt. Ash never counts for build spacing or the fire cap.
+ */
+export const SPENT_FIRE_REMOVE_S = 60
+/** A new fire built within this distance (m) of ash clears that ash at once (pit footprint overlap). */
+export const SPENT_FIRE_CLEAR_M = 2.5
+/** Seconds a faint smoke wisp rises from fresh ash (client only). */
+export const SPENT_FIRE_WISP_S = 8
 /** Slope check: sample ring radius (m) around the spot. */
 export const BUILT_FIRE_SLOPE_SAMPLE_M = 1.5
 /** Slope check: max ground height difference (m) across the sample ring. */

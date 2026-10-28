@@ -22,7 +22,7 @@ import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { OASIS_CELL_M, oasisEntries, oasisVersion } from 'src/shared/terrain/oasis'
 import {
 	VEG_BUSH, VEG_GRASS_TOP_M, VEG_ROCK, VEG_TREE, VEG_TREE_TIER_H_M, VegCell, VegItem,
-	buildVegCells, greedyRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
+	buildVegCells, mergeGrassRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
 } from 'src/shared/terrain/oasisVeg'
 import { getPlacedFirePositions } from 'src/client/hiddenCampfire'
 import { forEachGlowPoint } from 'src/client/fireNetworkGlow'
@@ -381,27 +381,10 @@ function mergeDueGroups(now: number): void {
 		let due = true
 		for (const lc of g.cells) if (lc.c.shade !== 0 && now < lc.c.grassMs) { due = false; break }
 		if (!due) continue
-		let minIx = Infinity, minIz = Infinity, maxIx = -Infinity, maxIz = -Infinity
-		for (const lc of g.cells) {
-			if (lc.c.shade === 0) continue
-			minIx = Math.min(minIx, lc.c.ix); maxIx = Math.max(maxIx, lc.c.ix)
-			minIz = Math.min(minIz, lc.c.iz); maxIz = Math.max(maxIz, lc.c.iz)
-		}
 		const merged: Entity[] = []
-		if (maxIx >= minIx) {
-			const nx = maxIx - minIx + 1
-			const nz = maxIz - minIz + 1
-			const mask = new Uint8Array(nx * nz)
-			for (const lc of g.cells) if (lc.c.shade !== 0) mask[(lc.c.iz - minIz) * nx + lc.c.ix - minIx] = lc.c.shade
-			const first = g.cells.find((lc) => lc.c.shade !== 0)!
-			const rects = greedyRects(mask, nx, nz)
-			for (const r of rects) {
-				const x0 = first.c.x + (minIx + r.ix - first.c.ix) * OASIS_CELL_M - OASIS_CELL_M / 2
-				const z0 = first.c.z + (minIz + r.iz - first.c.iz) * OASIS_CELL_M - OASIS_CELL_M / 2
-				const sx = r.w * OASIS_CELL_M
-				const sz = r.h * OASIS_CELL_M
-				merged.push(newBox(x0 + sx / 2, first.c.y + (VEG_GRASS_TOP_M - 0.01) / 2, z0 + sz / 2, sx, VEG_GRASS_TOP_M + 0.01, sz, GRASS_COLORS[r.v - 1]))
-			}
+		for (const r of mergeGrassRects(g.cells.map((lc) => lc.c))) {
+			// Each rectangle covers cells of ONE floor Y only (mergeGrassRects), so it sits at its own terrace height.
+			merged.push(newBox(r.x, r.y + (VEG_GRASS_TOP_M - 0.01) / 2, r.z, r.sx, VEG_GRASS_TOP_M + 0.01, r.sz, GRASS_COLORS[r.shade - 1]))
 		}
 		// New rectangles are up; the per-cell slabs go a couple of frames later (no frame without grass).
 		for (const lc of g.cells) { if (lc.e !== null) { retireEntity(lc.e); lc.e = null } lc.shown = true }

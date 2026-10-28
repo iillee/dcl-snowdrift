@@ -6,6 +6,9 @@
  * network (pruneNetwork): links, total path length, components, 2-hop
  * share reach. Bundled by scripts/topologyCheck.mjs.
  *
+ * Monument clusters: every charging (direct) fire also links to its nearest other charging fires of the same monument (>= 1,
+ * ideally 2) when a route exists; cycles near monuments are therefore allowed now, relays still have exactly one parent.
+ *
  * Monument trees: every layout is pruned twice, before (flat RNG + old
  * fire-link rule) and after (default: forest under each monument). Asserts
  * after: no fire-fire link between two direct fires, exactly one parent per
@@ -20,7 +23,7 @@ import {
 	FireLinkRoute, FireNode, NETWORK_FIRE_LINK_RULE_ENABLED, NETWORK_LINK_RANGE_M, NETWORK_MONUMENT_TREE_ENABLED, NETWORK_SHARE_HOPS, NETWORK_TOPOLOGY, NETWORK_TREE_FIRE_HOPS, NetCand,
 	countRouteCrossings, linkKey, pickLinkPairs, pruneNetwork, routeFireLink,
 } from 'src/shared/fireNetwork'
-import { CHARGE_CHAIN_MAX_HOPS, CHARGE_LINK_EDGE_PAD_M, CHARGE_RING_M, MONUMENT_NODE_ID_BASE, chainHops, chargeHopWeight, chargeRatePerS, validateBuiltFireSpot } from 'src/shared/ruleset'
+import { CHARGE_CHAIN_MAX_HOPS, CHARGE_LINK_END_HALF_M, CHARGE_RING_M, MONUMENT_NODE_ID_BASE, chainHops, chargeHopWeight, chargeRatePerS, validateBuiltFireSpot } from 'src/shared/ruleset'
 import { MONUMENT_PIT_SIZE_M } from 'src/shared/terrain/terrainMap'
 import { WORLD_PROFILE } from 'src/shared/settings'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
@@ -35,6 +38,7 @@ console.log = () => {}
 let chIn = 0, chRouted = 0, chKept = 0, chSlower = 0
 const chTimes: number[] = []
 let treeFail = 0
+let clusterFires = 0, clusterOne = 0, clusterTwo = 0, clusterSolo = 0
 const tot = { linksB: 0, linksA: 0, crossB: 0, crossA: 0, ddB: 0, ddA: 0, cycB: 0, cycA: 0, wB: 0, wA: 0, layouts: 0, crossBR: 0, crossAR: 0, wBR: 0, wAR: 0 }
 let ends = 0, overshoot = 0, passThrough = 0, keptTotal = 0, ruleViol = 0, ruleSolo = 0
 function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296 } }
@@ -84,7 +88,7 @@ for (const [N, RING, CLUSTER, REAL] of [[10, 3, false, true], [25, 3, false, fal
 	const mon: FireNode = { id: MONUMENT_NODE_ID_BASE, x: m.x, z: m.z }
 	for (const f of fires) if (Math.hypot(f.x - m.x, f.z - m.z) <= CHARGE_RING_M) {
 		const d = Math.hypot(f.x - m.x, f.z - m.z), ux = (f.x - m.x) / d, uz = (f.z - m.z) / d
-		const e = Math.min((MONUMENT_PIT_SIZE_M / 2) / Math.max(Math.abs(ux), Math.abs(uz)) + CHARGE_LINK_EDGE_PAD_M, Math.max(0, d - 1))
+		const e = Math.min(CHARGE_LINK_END_HALF_M / Math.max(Math.abs(ux), Math.abs(uz)), Math.max(0, d - 1))
 		cands.push({ a: f, b: { id: mon.id, x: m.x + ((f.x - m.x) / d) * e, z: m.z + ((f.z - m.z) / d) * e }, key: linkKey(f.id, mon.id) })
 	}
 	const ids = [...fires.map((f) => f.id), ...(cands.some((c) => c.b.id === mon.id) ? [mon.id] : [])]
@@ -125,8 +129,21 @@ for (const [N, RING, CLUSTER, REAL] of [[10, 3, false, true], [25, 3, false, fal
 		const cx = { b: countRouteCrossings(keptBefore), a: countRouteCrossings(keptAfter) }
 		const fail = (msg: string) => { treeFail++; say(`    FAIL N=${N} seed ${seed}: ${msg}`) }
 		if (NETWORK_MONUMENT_TREE_ENABLED) {
-			if (A.dd) fail(`${A.dd} fire-fire links between two direct fires`)
-			if (A.cyc) fail(`${A.cyc} link(s) near the monument sit on a cycle`)
+			// Monument clusters (NETWORK_CLUSTER_LINKS_*): every direct fire links >= 1 other direct fire whenever a routable one exists, ideally 2.
+			const ddOf = new Map<number, number>()
+			for (const k of keptAfter) if (A.seeds.has(k.cand.a.id) && A.seeds.has(k.cand.b.id) && !isMonId(k.cand.a.id) && !isMonId(k.cand.b.id)) { ddOf.set(k.cand.a.id, (ddOf.get(k.cand.a.id) ?? 0) + 1); ddOf.set(k.cand.b.id, (ddOf.get(k.cand.b.id) ?? 0) + 1) }
+			for (const id of A.seeds) {
+				const n = ddOf.get(id) ?? 0
+				clusterFires++; if (n >= 2) clusterTwo++; else if (n === 1) clusterOne++
+				if (n === 0 && cands.some((c) => (c.a.id === id || c.b.id === id) && !isMonId(c.a.id) && !isMonId(c.b.id) && A.seeds.has(c.a.id) && A.seeds.has(c.b.id) && routeOf(c))) fail(`direct fire ${id} has no link to another direct fire although a routable one exists`)
+				if (n === 0) clusterSolo++
+			}
+			// Cluster links only join direct fires: chain hops (and so charging) are exactly what they would be without them.
+			{
+				const noDD = keptAfter.filter((k) => !(A.seeds.has(k.cand.a.id) && A.seeds.has(k.cand.b.id) && !isMonId(k.cand.a.id) && !isMonId(k.cand.b.id)))
+				const h2 = info(noDD).hops
+				if (h2.size !== A.hops.size || [...A.hops].some(([id, h]) => h2.get(id) !== h)) fail('cluster links changed chain hops')
+			}
 			const fe = edgesOf(keptAfter).filter(([a, b]) => !isMonId(a) && !isMonId(b))
 			for (const [id, h] of A.hops) {
 				if (h < 2) continue
@@ -206,7 +223,8 @@ ruleViol = ruleSolo = 0
 say(`  MONUMENT TREES over ${tot.layouts} layouts: links ${tot.linksB} -> ${tot.linksA} | crossing link pairs ${tot.crossB} -> ${tot.crossA} | direct-direct fire links ${tot.ddB} -> ${tot.ddA} | links on a cycle near a monument ${tot.cycB} -> ${tot.cycA} | summed chain weight ${tot.wB.toFixed(1)} -> ${tot.wA.toFixed(1)}`)
 say(`  crossing link pairs, realistic layouts (N=10 with 3 ring fires, N=12 with 5 ring fires): ${tot.crossBR} -> ${tot.crossAR}, summed chain weight ${tot.wBR.toFixed(1)} -> ${tot.wAR.toFixed(1)}; stress layouts (25-40 fires within 150 m of one monument) only reported above`)
 // Parents are chosen greedily (nearest closer fire, crossing-free if one is among the first few), so one stray crossing is tolerated.
-if (NETWORK_MONUMENT_TREE_ENABLED && tot.crossAR > tot.crossBR + 1) { treeFail++; say('  FAIL crossings went up on realistic layouts') }
+// Cluster links are protected from the cross drop on purpose (at most ~2 per charging fire, crossing-free routes preferred); report only.
+say(`  monument clusters: ${clusterFires} charging fires: ${clusterTwo} with 2+ links to other charging fires, ${clusterOne} with 1, ${clusterSolo} with none (only when no routable partner exists)`)
 say(`  monument tree assertions: ${NETWORK_MONUMENT_TREE_ENABLED ? (treeFail === 0 ? 'PASS' : 'FAIL') : '(trees off)'}`)
 if (treeFail) process.exitCode = 1
 Object.assign(tot, { linksB: 0, linksA: 0, crossB: 0, crossA: 0, ddB: 0, ddA: 0, cycB: 0, cycA: 0, wB: 0, wA: 0, layouts: 0, crossBR: 0, crossAR: 0, wBR: 0, wAR: 0 }); treeFail = 0

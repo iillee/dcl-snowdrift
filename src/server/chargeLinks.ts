@@ -67,6 +67,10 @@ export function noteSlotTouched(i: number, userId: string): void {
 	if (userId && userId !== 'unknown') lastTouch.set(i, userId)
 }
 
+export function clearSlotTouch(i: number): void {
+	lastTouch.delete(i)
+}
+
 export function slotToucher(i: number): string {
 	return lastTouch.get(i) ?? ''
 }

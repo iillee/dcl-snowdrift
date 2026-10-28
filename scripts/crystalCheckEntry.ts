@@ -13,11 +13,12 @@ import { WORLD_PROFILE, isInsidePlayfield } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
 import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { computeWoodScatter, WOOD_BAND_ICED_CLUSTER } from 'src/shared/woodScatter'
-import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
-import { MONUMENT_PIT_SIZE_M } from 'src/shared/terrain/terrainMap'
+import { CHARGE_LINK_END_HALF_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
+import { MONUMENT_OBELISK_WIDTH_M, MONUMENT_PIT_SIZE_M } from 'src/shared/terrain/terrainMap'
 import { NETWORK_CUBE_SPACING_M, routeFireLink } from 'src/shared/fireNetwork'
 import { levelAtWorld } from 'src/shared/terrain/terrainMap'
 const noRouteWhy: Record<string, number> = {}
+let faceMax = -Infinity, faceSum = 0
 let linksOk = 0, linksNone = 0, orbsTotal = 0, orbsMaxRing = 0, gapMax = -Infinity, gapSum = 0, intoMax = 0
 
 const SEEDS = Number(process.argv[2] ?? 10)
@@ -73,8 +74,8 @@ for (let s = 0; s < SEEDS; s++) {
 		fires.forEach((f, fi) => {
 			const d = Math.hypot(f.x - m.x, f.z - m.z)
 			const ux = (f.x - m.x) / d, uz = (f.z - m.z) / d
-			const e = Math.min((MONUMENT_PIT_SIZE_M / 2) / Math.max(Math.abs(ux), Math.abs(uz)) + CHARGE_LINK_EDGE_PAD_M, Math.max(0, d - 1))
-			const side = MONUMENT_PIT_SIZE_M / 2 + CHARGE_LINK_EDGE_PAD_M
+			const e = Math.min(CHARGE_LINK_END_HALF_M / Math.max(Math.abs(ux), Math.abs(uz)), Math.max(0, d - 1))
+			const side = CHARGE_LINK_END_HALF_M
 			const ends = [{ x: m.x + ux * e, z: m.z + uz * e }, ...[[side, 0], [-side, 0], [0, side], [0, -side]].map(([dx, dz]) => ({ x: m.x + dx, z: m.z + dz }))
 				.sort((p, q) => Math.hypot(p.x - f.x, p.z - f.z) - Math.hypot(q.x - f.x, q.z - f.z))]
 			let r = null as ReturnType<typeof routeFireLink>
@@ -94,6 +95,9 @@ for (let s = 0; s < SEEDS; s++) {
 			const last = pts[pts.length - 1]
 			const gap = Math.max(Math.abs(last.x - m.x), Math.abs(last.z - m.z)) - MONUMENT_PIT_SIZE_M / 2
 			gapMax = Math.max(gapMax, gap); gapSum += gap; intoMax = Math.max(intoMax, into)
+			const faceGap = Math.max(Math.abs(last.x - m.x), Math.abs(last.z - m.z)) - MONUMENT_OBELISK_WIDTH_M / 2
+			faceMax = Math.max(faceMax, faceGap); faceSum += faceGap
+			if (faceGap > 0.6) fail(`monument end ${faceGap.toFixed(2)} m from the obelisk face (want <= 0.6)`)
 			ringOrbs += Math.round(r.lengthM / NETWORK_CUBE_SPACING_M)
 		})
 		orbsTotal += ringOrbs
@@ -114,6 +118,7 @@ for (let s = 0; s < SEEDS; s++) {
 }
 say(`  min buildable spots in any ring: ${minSpots}`)
 say(`  charge links (every spot lit): routed=${linksOk} no-route=${linksNone} orbs total=${orbsTotal} max per ring=${orbsMaxRing} avg per link=${(orbsTotal / Math.max(1, linksOk)).toFixed(1)}`)
+say(`  monument end gap to obelisk face: avg ${(faceSum / Math.max(1, linksOk)).toFixed(2)} m max ${faceMax.toFixed(2)} m`)
 say(`  monument end gap to base edge: avg ${(gapSum / Math.max(1, linksOk)).toFixed(2)} m max ${gapMax.toFixed(2)} m | deepest route point inside base ${intoMax.toFixed(2)} m`)
 say(`  no-route reasons: ${JSON.stringify(noRouteWhy)}`)
 linksOk = linksNone = orbsTotal = orbsMaxRing = 0; gapMax = -Infinity; gapSum = 0; intoMax = 0

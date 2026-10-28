@@ -124,6 +124,8 @@ export const NETWORK_TILE_THICK_M      = 0.04
 export const NETWORK_TILE_MERGE_MAX    = 1
 /** Tiles: no glow tiles within this radius (m) of either endpoint fire's centre (log pile / pit footprint ~2 m). */
 export const NETWORK_TILE_FIRE_CLEAR_M = 1.35 // Fireplace_base.glb: �0.79 � �0.86 m (0.01 node scale) ? 0.86 m half-extent + 0.5 m tile half
+/** Glow pieces: clear radius (m) around a monument end of a charge link (the trail runs right up to the obelisk). */
+export const NETWORK_TILE_MONUMENT_CLEAR_M = 0.5
 /** Tiles: per-tile scale-in / scale-out time (s), ease-out, from the tile centre. */
 export const NETWORK_TILE_SCALE_S      = 0.35
 /** Heat path: standing on a shown path cell warms like a small (Low tier) campfire. */
@@ -943,6 +945,17 @@ export const NETWORK_TREE_FIRE_HOPS = 2
 export const NETWORK_TREE_PARENT_TRIES = 6
 /** Crossings this close (m) to a node both routes end at are not counted (routes always meet at fires). */
 export const NETWORK_CROSS_END_SKIP_M = 5
+/**
+ * Monument clusters (Luke: the fires that feed a monument must visibly support one another). Every fire with a charge link
+ * (hop 1, within MONUMENT_LINK_RANGE_M of its monument) also links to its nearest OTHER fires of the same monument: at least 1
+ * and up to NETWORK_CLUSTER_LINKS_WANT, whenever a valid route exists at all. These links skip the dense-topology near-duplicate
+ * prune, the parallel drop and the cross drop (a crossing-free route is only preferred), but still use routeFireLink (walls, lava,
+ * ladders, detour budget). They only join hop-1 fires, so chain hops (and charging) never change. false = trees only.
+ */
+export const NETWORK_CLUSTER_LINKS_ENABLED = true
+export const NETWORK_CLUSTER_LINKS_WANT = 2
+/** Neighbours routed (nearest first, held links first) per fire while looking for crossing-free cluster links. */
+export const NETWORK_CLUSTER_TRIES = 6
 
 function segCross(p1: { x: number; z: number }, p2: { x: number; z: number }, p3: { x: number; z: number }, p4: { x: number; z: number }): { x: number; z: number } | null {
 	const d1x = p2.x - p1.x, d1z = p2.z - p1.z, d2x = p4.x - p3.x, d2z = p4.z - p3.z
@@ -1102,6 +1115,49 @@ function pruneMonumentTrees(
 			unite(c.a.id, c.b.id)
 		}
 	}
+	// 4. Monument clusters: every hop-1 fire links its nearest other hop-1 fires of the same monument (>= 1, ideally 2).
+	// Protected (never dropped by the forest / parallel / cross rules). Held links first so lighting a fire never re-links a working pair.
+	if (NETWORK_CLUSTER_LINKS_ENABLED) {
+		const groups = new Map<number, FireNode[]>()
+		const fireLinks = new Map<number, number>()
+		for (const k of kept) {
+			const am = isMon(k.cand.a.id), bm = isMon(k.cand.b.id)
+			if (am || bm) {
+				const m = am ? k.cand.a : k.cand.b, f = am ? k.cand.b : k.cand.a
+				const l = groups.get(m.id); if (l) l.push(f); else groups.set(m.id, [f])
+			} else if (hop.get(k.cand.a.id) === 1 && hop.get(k.cand.b.id) === 1) {
+				// only links between two charging fires count (a relay child does not make a ring)
+				fireLinks.set(k.cand.a.id, (fireLinks.get(k.cand.a.id) ?? 0) + 1)
+				fireLinks.set(k.cand.b.id, (fireLinks.get(k.cand.b.id) ?? 0) + 1)
+			}
+		}
+		const bump = (c: NetCand) => { fireLinks.set(c.a.id, (fireLinks.get(c.a.id) ?? 0) + 1); fireLinks.set(c.b.id, (fireLinks.get(c.b.id) ?? 0) + 1) }
+		for (const [mid, fires] of [...groups].sort((p, q) => p[0] - q[0])) {
+			const inGroup = new Set(fires.map((f) => f.id))
+			const mc = centre.get(mid)
+			const dm = (f: FireNode) => (mc ? Math.hypot(f.x - mc.x / mc.n, f.z - mc.z / mc.n) : 0)
+			for (const f of [...fires].sort((p, q) => dm(p) - dm(q) || p.id - q.id)) {
+				let need = NETWORK_CLUSTER_LINKS_WANT - (fireLinks.get(f.id) ?? 0)
+				if (need <= 0) continue
+				const ps = (nbr.get(f.id) ?? [])
+					.filter((e) => inGroup.has(e.o.id) && !keptKeys.has(e.c.key))
+					.sort((p, q) => isHeld(q) - isHeld(p) || d2(p.c) - d2(q.c) || (p.c.key < q.c.key ? -1 : 1))
+				let tried = 0
+				let fallback: { c: NetCand; r: FireLinkRoute } | null = null
+				for (const e of ps) {
+					if (need <= 0 || tried >= NETWORK_CLUSTER_TRIES) break
+					const r = route(e.c)
+					if (!r) continue
+					tried++
+					if (crossesKept(e.c, r)) { if (!fallback) fallback = { c: e.c, r }; continue }
+					add(e.c, r, true); bump(e.c); need--
+				}
+				// At least one fire-fire link: accept a crossing route when nothing crossing-free was found.
+				if ((fireLinks.get(f.id) ?? 0) === 0 && fallback) { add(fallback.c, fallback.r, true); bump(fallback.c) }
+			}
+		}
+	}
+
 	// Any component that holds a monument or a tree fire is made a forest: its non-tree links
 	// (RNG / reconnect, shortest first) only stay if they join two separate pieces, so a relay
 	// that also sits in a loop of outside links never closes a cycle near a monument.

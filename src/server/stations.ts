@@ -9,7 +9,10 @@
  * Reset on cycle roll. Late joiners hydrate stations + thaw stage/wave.
  */
 
-import { DEBUG_THAW_BUTTON } from 'src/client/devFlags'
+import { DEBUG_FINALE_BUTTON, DEBUG_THAW_BUTTON } from 'src/client/devFlags'
+import {
+	FINALE_DEBUG_DELAY_S, FINALE_START_DELAY_S, finaleAvoidZone, finaleEdgeLengths, finaleEdges, finalePoints, finaleTimes,
+} from 'src/shared/finale'
 import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
@@ -57,8 +60,8 @@ import { noteContributor, recordRunProgress } from 'src/server/leaderboard'
 import { markRunTainted } from 'src/server/runIntegrity'
 import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
 import { getVisibleEdges } from 'src/server/fireNetworkLinks'
-import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
-import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
+import { CHARGE_LINK_END_HALF_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
+import { heatZoneCellCount, meltDisc, releaseDiscOutside, startCorridorFront, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
 import { oasisClear, oasisNoteRelease, oasisRelease, oasisTick } from 'src/shared/terrain/oasis'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { chargeHeatFuel } from 'src/shared/ruleset'
@@ -101,6 +104,10 @@ let thawStage = 0
 let thawSeg: ThawSegment | null = null
 /** Date.now() when the first lava appears (stage 1 wave start = beam landing); 0 = none. */
 let lavaLitAtMs = 0
+/** Ending (src/shared/finale.ts): Date.now() of its start (0 = not scheduled this cycle), the monument its ring starts at, the last one released. */
+let finaleStartMs = 0
+let finaleFirst = 0
+let lastReleased = 0
 
 
 // MARK: isVolcanoLavaLit
@@ -203,6 +210,45 @@ function broadcastThaw(): void {
 }
 
 
+// MARK: Ending (finale)
+/** crystalFinaleState payload: ageMs is NEGATIVE until the ending starts. */
+function finalePayload(fresh: boolean): { seed: number; running: number; first: number; ageMs: number; fresh: number } {
+	return {
+		seed   : currentSeed,
+		running: finaleStartMs > 0 ? 1 : 0,
+		first  : finaleFirst,
+		ageMs  : finaleStartMs > 0 ? clampInt32(Date.now() - finaleStartMs) : 0,
+		fresh  : fresh ? 1 : 0,
+	}
+}
+
+/**
+ * The last monument was released: schedule the ending `delayS` from now (its release cinematic finishes first). Beams
+ * link the monument tips (client, from the shared ring), and the snow under each beam thaws along a corridor
+ * (snowState.startCorridorFront). Idempotent per cycle. The game goes on afterwards (no world thaw / cycle roll).
+ */
+function startFinale(first: number, delayS: number, reason: string): void {
+	if (!isFloatingCrystals() || finaleStartMs > 0) return
+	const map = activeTerrain()
+	if (!map) return
+	const pts = finalePoints(map).slice(0, stationTotal())
+	const edges = finaleEdges(pts, finaleAvoidZone(map), first)
+	if (edges.length === 0) return
+	finaleStartMs = Date.now() + delayS * 1000
+	finaleFirst = first
+	const times = finaleTimes(finaleEdgeLengths(pts, edges))
+	for (let k = 0; k < edges.length; k++) {
+		const [a, b] = edges[k]
+		startCorridorFront(pts[a].x, pts[a].z, pts[b].x, pts[b].z, k, finaleStartMs + times.thawStartS[k] * 1000, times.thawDurS[k] * 1000)
+	}
+	console.log(
+		`[Server] stations: FINALE scheduled (${reason}) in ${delayS.toFixed(1)} s, ring ${times.total.toFixed(0)} m from monument ${first}: ` +
+		edges.map(([a, b]) => `${a}>${b}`).join(' ') + ` beams ${times.beamsDoneS.toFixed(1)} s, thaw ${times.thawBeginS.toFixed(1)}-${times.thawEndS.toFixed(1)} s`,
+	)
+	room.send('crystalFinaleState', finalePayload(true))
+}
+
+
 /**
  * Raise the thaw stage to the active count: plan the next melt-wave step
  * (starts when the volcano beam lands), queue its tiles, and at stage 3
@@ -253,10 +299,14 @@ function resetForCycle(seed: number): void {
 	thawStage = 0
 	thawSeg = null
 	lavaLitAtMs = 0
+	finaleStartMs = 0
+	finaleFirst = 0
+	lastReleased = 0
 	clearWeatherThawLock()
 	console.log(`[Server] stations: reset for cycle seed=${currentSeed}`)
 	for (let i = 0; i < STATION_CAP; i++) { broadcastOne(i); broadcastIce(i) }
 	broadcastThaw()
+	if (isFloatingCrystals()) room.send('crystalFinaleState', finalePayload(false))
 }
 
 
@@ -285,6 +335,7 @@ export function sendStationStateTo(userId: string): void {
 		}
 	}
 	room.send('worldThawState', thawPayload(), { to: [userId] })
+	if (isFloatingCrystals()) room.send('crystalFinaleState', finalePayload(false), { to: [userId] })
 }
 
 
@@ -295,6 +346,9 @@ export function setupStationsServer(): void {
 	thawStage = 0
 	thawSeg = null
 	lavaLitAtMs = 0
+	finaleStartMs = 0
+	finaleFirst = 0
+	lastReleased = 0
 	resetCharges()
 	console.log(`[Server] stations: setup seed=${currentSeed}`)
 	if (isFloatingCrystals()) {
@@ -408,7 +462,32 @@ export function setupStationsServer(): void {
 			if (isFloatingCrystals()) releaseCrystal(i, '', true)
 			else broadcastOne(i, true)
 		}
+		if (isFloatingCrystals()) startFinale(lastReleased, FINALE_START_DELAY_S, `debug thaw button by ${from}`)
 		advanceThawStage(`debug button by ${from}`)
+	})
+
+	// TEMPORARY debug (DEBUG_FINALE_BUTTON): every unreleased monument is released SILENTLY (clients snap to the finished
+	// crystal, no six cinematics), then the ending starts FINALE_DEBUG_DELAY_S later. Taints the run.
+	room.onMessage('debugFinale', ({ seed }, context) => {
+		const from = context?.from ?? 'unknown'
+		if (!DEBUG_FINALE_BUTTON) {
+			console.log(`[Server] stations: debugFinale from ${from} ignored (flag off)`)
+			return
+		}
+		if (!isFloatingCrystals() || !cycleSeedsEqual(seed, currentSeed)) return
+		if (finaleStartMs > 0) { console.log('[Server] stations: debugFinale ignored - the ending already ran this cycle'); return }
+		markRunTainted('debugFinale')
+		console.log(`[Server] stations: DEBUG finale requested by ${from}`)
+		for (let i = 0; i < stationTotal(); i++) {
+			if (active[i]) continue
+			releasePitSnow(i)
+			if (!iceFullyMelted(iceMask[i])) {
+				iceMask[i] = MONUMENT_ICE_FULL_MASK
+				broadcastIce(i)
+			}
+			releaseCrystal(i, '', true, true)
+		}
+		startFinale(lastReleased, FINALE_DEBUG_DELAY_S, `debug finale by ${from}`)
 	})
 
 	// TEMPORARY debug: light the next unlit monument through the same path
@@ -432,7 +511,10 @@ export function setupStationsServer(): void {
 		}
 		if (isFloatingCrystals()) {
 			releaseCrystal(i, '', true)
-			if (getActiveStationCount() >= stationTotal()) advanceThawStage(`debug +1 by ${from}`)
+			if (getActiveStationCount() >= stationTotal()) {
+				startFinale(i, FINALE_START_DELAY_S, `debug +1 by ${from}`)
+				advanceThawStage(`debug +1 by ${from}`)
+			}
 			return
 		}
 		broadcastOne(i, true)
@@ -509,9 +591,10 @@ function recedeIce(i: number): void {
  * Full charge: release the crystal. Same fresh stationState path as an
  * activation (cinematic + rise + gold name), plus a permanent heat zone.
  */
-function releaseCrystal(i: number, by: string, force = false): void {
+function releaseCrystal(i: number, by: string, force = false, silent = false): void {
 	if (active[i] && !force) return
 	active[i] = true
+	lastReleased = i
 	charge[i] = 1
 	noteContributor(by) // releasing a crystal counts toward the leaderboard
 	sendCharge(i)
@@ -522,12 +605,14 @@ function releaseCrystal(i: number, by: string, force = false): void {
 		releasedAtMs[i] = Date.now()
 		oasisNoteRelease(c.x, c.z, releasedAtMs[i])
 		oasisRelease(activeTerrain()!, c.x, c.z, 0) // inner cap melts with the front (snowState.tickHeatFronts), the rest on the oasisTick clock
-		startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S, CRYSTAL_LASER_ENABLED ? 0 : crystalFloatAboveGround(activeTerrain(), groundYAtWorld(activeTerrain()!, c.x, c.z)))
+		// silent (debug finale): the heat zone is instant and clients snap to the finished crystal (fresh = 0).
+		if (silent) startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, 0, 0, 0)
+		else startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S, CRYSTAL_LASER_ENABLED ? 0 : crystalFloatAboveGround(activeTerrain(), groundYAtWorld(activeTerrain()!, c.x, c.z)))
 		console.log(`[Server] stations[${i}]: crystal heat front started (held so far ${heatZoneCellCount()})`)
 	}
 	publishCoverageIfDirty()
 	console.log(`[Server] stations[${i}]: CRYSTAL RELEASED by ${by || '?'} (${getActiveStationCount()}/${stationTotal()})`)
-	broadcastOne(i, true, by)
+	broadcastOne(i, !silent, by)
 	// Personal-best leaderboard: every contributor gets this run's new count.
 	recordRunProgress(getActiveStationCount(), stationTotal())
 }
@@ -558,11 +643,11 @@ function chargeSystem(dt: number): void {
 		for (const f of fires) {
 			const d = Math.hypot(f.x - c.x, f.z - c.z)
 			if (d > MONUMENT_LINK_RANGE_M) continue
-			// Link end on the pit square's edge facing the fire (+ pad).
+			// Link end right beside the obelisk socket, on the side facing the fire (CHARGE_LINK_END_HALF_M).
 			const ux = (f.x - c.x) / Math.max(0.01, d), uz = (f.z - c.z) / Math.max(0.01, d)
-			const toEdge = (MONUMENT_PIT_SIZE_M / 2) / Math.max(0.01, Math.abs(ux), Math.abs(uz)) + CHARGE_LINK_EDGE_PAD_M
+			const toEdge = CHARGE_LINK_END_HALF_M / Math.max(0.01, Math.abs(ux), Math.abs(uz))
 			const e = Math.min(toEdge, Math.max(0, d - 1))
-			const side = MONUMENT_PIT_SIZE_M / 2 + CHARGE_LINK_EDGE_PAD_M
+			const side = CHARGE_LINK_END_HALF_M
 			const mids = [[side, 0], [-side, 0], [0, side], [0, -side]]
 				.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))
 				.sort((p, q) => Math.hypot(p.x - f.x, p.z - f.z) - Math.hypot(q.x - f.x, q.z - f.z))
@@ -608,7 +693,8 @@ function chargeSystem(dt: number): void {
 	setChargePairs(pairs)
 	setChainHops(chainBest)
 	if (released && getActiveStationCount() >= stationTotal()) {
-		// Victory: all three released -> finale beams (client) + thaw wave.
-		advanceThawStage('3 crystals released')
+		// The last monument is up: the ending (beams link the tips, the snow under them thaws, "Level Thaws").
+		startFinale(lastReleased, FINALE_START_DELAY_S, 'last crystal released')
+		advanceThawStage('all crystals released') // floating crystals: no-op (no volcano thaw / cycle roll)
 	}
 }

@@ -21,9 +21,10 @@ import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
+import { DEBUG_FINALE_BUTTON, DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
 import { getCurrentCycleSeed } from 'src/client/cycle'
 import { getThawStage, isWorldThawed } from 'src/client/worldThaw'
+import { isFinaleRunning } from 'src/client/crystalFinale'
 import { room } from 'src/shared/messages'
 import { getFrostLocal, getWarmthLocal } from 'src/client/frost/accumulation'
 import { isGiveUpVisible, isItemInputBlocked, requestGiveUp } from 'src/client/frost/frozenState'
@@ -249,6 +250,34 @@ function DebugThawButton() {
 			}}
 		>
 			<Label value={done ? 'THAWED' : 'THAW'} fontSize={14} color={Color4.White()} textAlign="middle-center" />
+		</UiEntity>
+	)
+}
+
+
+// MARK: DebugFinaleButton
+/** TEMPORARY: fires the floating-crystals ending (releases every monument silently, ending ~3 s later). Gated by DEBUG_FINALE_BUTTON. */
+function DebugFinaleButton() {
+	const pressed = isFinaleRunning()
+	return (
+		<UiEntity
+			key          = "ui_FrostBar_debugFinale"
+			uiTransform  = {{
+				width: 72, height: 44, flexShrink: 0,
+				margin: { left: 8 },
+				justifyContent: 'center', alignItems: 'center',
+				borderRadius: 12, borderWidth: 3,
+				borderColor: Color4.create(1, 1, 1, 0.75),
+				pointerFilter: 'block',
+			}}
+			uiBackground = {{ color: pressed ? Color4.create(0.2, 0.2, 0.2, 0.6) : Color4.create(0.2, 0.5, 0.9, 0.9) }}
+			onMouseDown  = {() => {
+				if (isFinaleRunning()) return
+				console.log('frostBar: DEBUG finale button pressed')
+				room.send('debugFinale', { seed: getCurrentCycleSeed() })
+			}}
+		>
+			<Label value={pressed ? 'END...' : 'END'} fontSize={14} color={Color4.White()} textAlign="middle-center" />
 		</UiEntity>
 	)
 }
@@ -511,6 +540,7 @@ class FrostBarLayer extends Layer {
 				</UiEntity>
 				{DEBUG_THAW_BUTTON && <DebugStageButton />}
 				{DEBUG_THAW_BUTTON && <DebugThawButton />}
+				{DEBUG_FINALE_BUTTON && <DebugFinaleButton />}
 				{/* Torch + Logs slots live in layer.inventoryHotbar
 				   (bottom-center); this layer owns the heat bar. */}
 			</UiEntity>

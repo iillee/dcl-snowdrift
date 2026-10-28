@@ -8,7 +8,7 @@
  * rock slab) is one walkable step. Inside an oasis the cap is removed and the
  * earth under it shows, OASIS_DROP_M lower. The oasis is a blocky circle of
  * OASIS_CELL_M cells on EVERY walkable terrace within reach (each cell keeps its own terrace height; cliff walls are
- * untouched; melt timing is by horizontal distance), never on lava or mountain, never on the
+ * untouched; melt timing is by horizontal distance), never on lava or the volcano crown (mountain wall blocks inside the circle melt like terraces), never on the
  * monument's own pit square. The hearth is not special: its cell melts like any other and the hearth objects re-seat
  * (client/hearthSeat.ts).
  *
@@ -23,16 +23,42 @@
  * is a constant step, so there is nothing to add up).
  */
 
-import { isMountainLevel } from 'src/shared/settings'
+import { isCrownLevel, isMountainLevel } from 'src/shared/settings'
 import { CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_DELAY_S, CRYSTAL_THAW_SPREAD_S } from 'src/shared/ruleset'
 import {
 	MONUMENT_PIT_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
+	cellCenterWorld,
 	groundYAtWorld,
 	isLavaAtWorld,
 	levelAtWorld,
 } from 'src/shared/terrain/terrainMap'
+
+/**
+ * Levels an oasis never touches: the volcano crown (and lava, checked per cell). The impassable mountain band / peak blocks
+ * (levels MOUNTAIN..MOUNTAIN_MAX) DO melt: they are walls with a flat top inside the circle, so they get a cap and an earth floor like a terrace.
+ */
+export function oasisExcludedLevel(level: number): boolean {
+	return isMountainLevel(level) && isCrownLevel(level)
+}
+
+/**
+ * True when the terrain renderer gives this rect a melt cap: every walkable terrace, plus mountain wall blocks an oasis can reach (never the
+ * crown). A mountain rect WITHOUT a cap cannot melt, so it would stay bare blue rock inside the oasis circle (oasisCheck asserts no lowered
+ * cell ever sits in an uncapped rect). Shared so the renderer and the check use one rule.
+ */
+export function oasisRectHasCap(map: TerrainMap, level: number, cx: number, cz: number, sx: number, sz: number): boolean {
+	if (!isMountainLevel(level)) return true
+	if (oasisExcludedLevel(level)) return false
+	const reach = OASIS_REACH_M + OASIS_CELL_M
+	for (const st of map.stations) {
+		const p = cellCenterWorld(st.cx, st.cz)
+		const dx = Math.max(Math.abs(p.x - cx) - sx / 2, 0), dz = Math.max(Math.abs(p.z - cz) - sz / 2, 0)
+		if (dx * dx + dz * dz <= reach * reach) return true
+	}
+	return false
+}
 
 /** Edge of one oasis cell (m). Divides the 16 m terrain cell; 4 m = ~490 cells per oasis (blocky, mobile-cheap). */
 export const OASIS_CELL_M = 4
@@ -244,7 +270,7 @@ function cellOf(e: OasisEntry, map: TerrainMap | null, x: number, z: number): nu
 	const d = Math.sqrt(dx * dx + dz * dz)
 	if (d > OASIS_REACH_M) return Number.POSITIVE_INFINITY
 	const m = map ?? mapRef
-	if (m && (isMountainLevel(levelAtWorld(m, cx, cz)) || isLavaAtWorld(m, cx, cz))) return Number.POSITIVE_INFINITY
+	if (m && (oasisExcludedLevel(levelAtWorld(m, cx, cz)) || isLavaAtWorld(m, cx, cz))) return Number.POSITIVE_INFINITY
 	const need = cellNeed(e, ix, iz, d)
 	return need > OASIS_RADIUS_M ? Number.POSITIVE_INFINITY : need
 }

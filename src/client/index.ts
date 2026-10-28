@@ -58,6 +58,7 @@ import { setupVolcanoSmoke } from 'src/client/volcanoSmoke'
 import { setupVolcanoCrown } from 'src/client/volcanoCrown'
 import { setupStationMarkers } from 'src/client/stationMarkers'
 import { setupWorldThaw } from 'src/client/worldThaw'
+import { setupCrystalFinale } from 'src/client/crystalFinale'
 import { setupSummitMapTable } from 'src/client/summitMapTable'
 import { setupPerimeterWall } from 'src/client/perimeterWall'
 import { setupLogsClient } from 'src/client/logs'
@@ -177,6 +178,7 @@ export async function setupClient(): Promise<void> {
 	setupStationMarkers()
 	setupFireNetworkGlow()
 	setupWorldThaw()
+	setupCrystalFinale()
 	setupSummitMapTable()
 	setupPerimeterWall()
 

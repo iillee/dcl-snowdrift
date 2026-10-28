@@ -9,7 +9,8 @@
  *   level_i = fade(charging_i, hold) * distanceGain(d_i)
  *   volume  = CHARGE_HUM_VOLUME * max_i(level_i)
  *
- * d_i is the horizontal distance from monument i to the NEARER of the
+ * d_i is the horizontal distance from monument i (and only the monument: fire
+ * positions never enter) to the NEARER of the
  * player avatar and the overview camera's focus point (the ground point
  * it centres on). Taking the max over monuments (not the sum) keeps
  * several charging monuments from stacking loudness. Like all SFX it
@@ -29,11 +30,11 @@ import { getTopDownFocus } from 'src/client/topDownCamera'
 // MARK: Tuning
 const HUM_SRC = 'assets/sounds/hum.mp3'
 /** Voice volume at full level. */
-export const CHARGE_HUM_VOLUME = 0.4
-/** Full volume within this distance (m) of the nearer of avatar / overview focus... */
-export const CHARGE_HUM_FULL_M = 40
-/** ...fading smoothly to silence by this distance (m). */
-export const CHARGE_HUM_SILENT_M = 180
+export const CHARGE_HUM_VOLUME = 0.25
+/** Full volume within this distance (m) of the monument (listener = nearer of avatar / overview focus)... */
+export const CHARGE_HUM_FULL_M = 6
+/** ...falling off (squared) to silence by this distance (m). ~0.6 at 40 m (where the linked fires stand), ~0.27 at 80 m. */
+export const CHARGE_HUM_SILENT_M = 160
 /** Fade times (s) for a monument's level to rise / fall. */
 export const CHARGE_HUM_FADE_IN_S  = 1.0
 export const CHARGE_HUM_FADE_OUT_S = 0.6
@@ -53,12 +54,12 @@ function mon(i: number): Mon {
 	return m
 }
 
-/** 1 within FULL_M, smoothstep down to 0 at SILENT_M. */
-function distanceGain(d: number): number {
+/** 1 within FULL_M, then (1 - u)^2 down to 0 at SILENT_M: the hum is clearly loudest at the monument, not at the fires around it. */
+export function distanceGain(d: number): number {
 	if (d <= CHARGE_HUM_FULL_M) return 1
 	if (d >= CHARGE_HUM_SILENT_M) return 0
 	const u = (d - CHARGE_HUM_FULL_M) / (CHARGE_HUM_SILENT_M - CHARGE_HUM_FULL_M)
-	return 1 - u * u * (3 - 2 * u)
+	return (1 - u) * (1 - u)
 }
 
 /** Horizontal distance from (x, z) to the nearer of the avatar and the overview focus. */

@@ -25,6 +25,49 @@ export function pickRecycleSlot(
 	return best
 }
 
+/**
+ * Spent (out) fires: pure helpers shared by the server, the client and scripts/spentFireCheck.
+ * Ash never blocks anything: it is excluded from build spacing and from the fire cap.
+ */
+/** Fires that count for build spacing: every placed slot that is NOT spent. */
+export function spacingFires(
+	placed: ReadonlyArray<boolean>,
+	spent: ReadonlyArray<boolean>,
+	xs: ReadonlyArray<number>,
+	zs: ReadonlyArray<number>,
+): { x: number; z: number }[] {
+	const out: { x: number; z: number }[] = []
+	for (let i = 0; i < placed.length; i++) if (placed[i] && !spent[i]) out.push({ x: xs[i], z: zs[i] })
+	return out
+}
+/** Placed, non-spent fires (the fire cap counts these only). */
+export function liveFireCount(placed: ReadonlyArray<boolean>, spent: ReadonlyArray<boolean>): number {
+	let n = 0
+	for (let i = 0; i < placed.length; i++) if (placed[i] && !spent[i]) n++
+	return n
+}
+/** Spent slots whose ash is within radiusM of (x, z): cleared the moment a new fire is built there. */
+export function spentSlotsNear(
+	spent: ReadonlyArray<boolean>,
+	xs: ReadonlyArray<number>,
+	zs: ReadonlyArray<number>,
+	x: number,
+	z: number,
+	radiusM: number,
+): number[] {
+	const out: number[] = []
+	for (let i = 0; i < spent.length; i++) {
+		if (spent[i] && (xs[i] - x) ** 2 + (zs[i] - z) ** 2 <= radiusM * radiusM) out.push(i)
+	}
+	return out
+}
+/** Spent slots whose age (s) reached limitS: due for removal. */
+export function spentDue(spent: ReadonlyArray<boolean>, ageS: ReadonlyArray<number>, limitS: number): number[] {
+	const out: number[] = []
+	for (let i = 0; i < spent.length; i++) if (spent[i] && ageS[i] >= limitS) out.push(i)
+	return out
+}
+
 export class FireSlotTable {
 	readonly placed: boolean[]
 	readonly x     : number[]

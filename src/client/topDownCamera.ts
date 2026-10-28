@@ -81,7 +81,7 @@ export const ISO_FOV_DEG   = 24
 export const MOBILE_ZOOM_SCALES   = [5, 15, 25]
 /** Desktop-only extra zoom-out step, as a multiple of the previous max (60). */
 export const DESKTOP_ZOOM_FAR_MULT = 1.4
-export const DESKTOP_ZOOM_SCALES  = [7, 29, 60, Math.round(60 * DESKTOP_ZOOM_FAR_MULT)]
+export const DESKTOP_ZOOM_SCALES  = [7, 29, 60, Math.round(60 * DESKTOP_ZOOM_FAR_MULT), Math.round(60 * DESKTOP_ZOOM_FAR_MULT * DESKTOP_ZOOM_FAR_MULT)]
 export const DESKTOP_ZOOM_DEFAULT = 29
 /** Past the bounds/ceiling clamp, widen the lens up to this to keep the framing (pixelwars). */
 const ISO_FOV_MAX_DEG = 80

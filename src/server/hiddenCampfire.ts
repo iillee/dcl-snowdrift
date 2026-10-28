@@ -47,7 +47,7 @@ import { room } from 'src/shared/messages'
 import { clampWoodKind } from 'src/shared/woodKind'
 
 import { getCurrentCycleSeed, onCycleRoll } from 'src/server/cycle'
-import { noteContributor } from 'src/server/leaderboard'
+import { forgetFireContributors, noteContributor } from 'src/server/leaderboard'
 import { isEmberFailing } from 'src/server/emberFail'
 import { getPhaseDrainMul } from 'src/server/phase'
 import { rosterSize } from 'src/server/roster'
@@ -62,13 +62,15 @@ import {
 	isBuildYourOwnFire,
 	builtFireFrontSpot,
 	validateBuiltFireSpot,
+	SPENT_FIRE_CLEAR_M,
+	SPENT_FIRE_REMOVE_S,
 } from 'src/shared/ruleset'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { activeTerrain, getTerrain } from 'src/shared/terrain/terrainCache'
 import { getStageAtWorld } from 'src/server/snowState'
 import { CHARGE_FIRE_DRAIN_MUL } from 'src/shared/ruleset'
-import { pickRecycleSlot } from 'src/shared/fireSlots'
-import { chargeTargetsOf, clearSlotTouches, isSlotCharging, noteSlotTouched } from 'src/server/chargeLinks'
+import { liveFireCount, pickRecycleSlot, spacingFires, spentDue, spentSlotsNear } from 'src/shared/fireSlots'
+import { chargeTargetsOf, clearSlotTouch, clearSlotTouches, isSlotCharging, noteSlotTouched } from 'src/server/chargeLinks'
 
 
 // MARK: Melt-growth tuning
@@ -96,6 +98,22 @@ const heartbeatClock    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 const built             : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
 /** Built fires: Date.now() when it went out (0 = burning / never). */
 const extinguishedAt    : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/**
+ * Spent fire: ran out of fuel. Cold ash, cannot be relit or fed, removed after
+ * SPENT_FIRE_REMOVE_S (spentAge counts seconds since it went out).
+ */
+const spent             : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+const spentAge          : number[]  = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
+/** Seed-placed (non-built) pit that burnt out and was removed: one-time, gone for this cycle. */
+const gone              : boolean[] = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+/** Slot holds a fire (or ash) right now: a position, and not a removed seed pit. */
+function isPlacedSlot(i: number): boolean {
+	return !gone[i] && (worldX[i] !== 0 || worldZ[i] !== 0)
+}
+/** Burning built fires (ash does not count toward the cap). */
+function liveBuiltCount(): number {
+	return liveFireCount(built.map((b, i) => b && isPlacedSlot(i)), spent)
+}
 /** Last recycle candidate broadcast (-2 = never sent). */
 let lastRecycleSent = -2
 function recycleCandidate(): number { return pickRecycleSlot(built, lit, extinguishedAt) }
@@ -192,6 +210,9 @@ function resetForCycle(newSeed: number): void {
 		heartbeatClock[i]     = 0
 		built[i]              = false
 		extinguishedAt[i]     = 0
+		spent[i]              = false
+		spentAge[i]           = 0
+		gone[i]               = false
 	}
 	lastRecycleSent = -2
 	clearSlotTouches()
@@ -271,6 +292,62 @@ function snuffFire(index: number): void {
 	releaseDiscOutside(worldX[index], worldZ[index], 0, hearthRadiusFromFuel(FUEL_MAX))
 	broadcastOne(index)
 	broadcastRecycle()
+	markSpent(index)
+}
+
+
+// MARK: broadcastSpent
+function broadcastSpent(index: number, userId?: string): void {
+	room.send(
+		'fireSpent',
+		{ seed: currentSeed, index, ageMs: Math.min(2_000_000_000, Math.floor(spentAge[index] * 1000)) },
+		userId ? { to: [userId] } : undefined,
+	)
+}
+
+
+// MARK: markSpent
+/**
+ * The fire is out for good: ash, no relight, no feed. Removed after SPENT_FIRE_REMOVE_S
+ * (system below), or at once if a new fire is built over it. The fire network already
+ * dropped it (not lit); the world-flame / frost checks only count lit fires.
+ */
+function markSpent(index: number): void {
+	spent[index]    = true
+	spentAge[index] = 0
+	console.log(`[Server] hiddenCampfire[${index}]: SPENT (ash, removed in ${SPENT_FIRE_REMOVE_S}s)`)
+	broadcastSpent(index)
+}
+
+
+// MARK: removeFire
+/**
+ * Remove a spent fire entirely. A built slot is freed (position cleared, rebuildable
+ * at once); a seed-placed pit is gone for the rest of the cycle (no respawn).
+ */
+function removeFire(index: number, why: string): void {
+	console.log(`[Server] hiddenCampfire[${index}]: REMOVED (${why})`)
+	const wasBuilt = built[index]
+	spent[index]              = false
+	spentAge[index]           = 0
+	lit[index]                = false
+	fuel[index]               = 0
+	secondsSinceIgnite[index] = 0
+	extinguishedAt[index]     = 0
+	lastBroadcastFuel[index]  = -999
+	lastBroadcastTier[index]  = -1
+	heartbeatClock[index]     = 0
+	if (wasBuilt) {
+		built[index]  = false
+		worldX[index] = 0
+		worldZ[index] = 0
+	} else {
+		gone[index] = true
+	}
+	clearSlotTouch(index)
+	forgetFireContributors(index + 1)
+	room.send('fireRemoved', { seed: currentSeed, index })
+	broadcastRecycle()
 }
 
 
@@ -279,7 +356,7 @@ function snuffFire(index: number): void {
 export function getHiddenFireNodes(): { index: number; x: number; z: number; lit: boolean }[] {
 	const out: { index: number; x: number; z: number; lit: boolean }[] = []
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		if (worldX[i] === 0 && worldZ[i] === 0) continue
+		if (!isPlacedSlot(i)) continue
 		out.push({ index: i, x: worldX[i], z: worldZ[i], lit: lit[i] && fuel[i] > 0 })
 	}
 	return out
@@ -325,6 +402,9 @@ export function sendHiddenCampfireStateTo(userId: string): void {
 			{ seed: currentSeed, index: i, lit: lit[i] ? 1 : 0 },
 			{ to: [userId] },
 		)
+		// Late joiners: spent fires show as ash; removed seed pits are gone.
+		if (spent[i]) broadcastSpent(i, userId)
+		else if (gone[i]) room.send('fireRemoved', { seed: currentSeed, index: i }, { to: [userId] })
 	}
 	broadcastRecycle(userId)
 }
@@ -367,6 +447,12 @@ export function setupHiddenCampfireServer(): void {
 			)
 			return
 		}
+		// One-time fires: a spent (out) or removed fire can never be relit, a built fire
+		// only ever lights by being built, and an unused slot has nothing to light.
+		if (spent[index] || gone[index] || built[index] || (worldX[index] === 0 && worldZ[index] === 0)) {
+			console.log(`[Server] hiddenCampfire[${index}]: ignite from ${from} refused (spent=${spent[index]} gone=${gone[index]} built=${built[index]})`)
+			return
+		}
 		if (lit[index]) {
 			console.log(`[Server] hiddenCampfire[${index}]: ignite from ${from} ignored — already lit`)
 			return
@@ -398,6 +484,10 @@ export function setupHiddenCampfireServer(): void {
 		const players   = rosterSize()
 		const drainRate = hearthDecayRate(players) * getPhaseDrainMul()
 		let anyLit      = false
+
+		// Spent fires: age the ash, remove it once SPENT_FIRE_REMOVE_S has passed.
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) if (spent[i]) spentAge[i] += dt
+		for (const i of spentDue(spent, spentAge, SPENT_FIRE_REMOVE_S)) removeFire(i, `ash timed out after ${SPENT_FIRE_REMOVE_S}s`)
 
 		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 			if (!lit[i]) continue
@@ -546,30 +636,25 @@ function setupBuiltFireHandler(): void {
 	const tryBuildAt = (x: number, z: number, from: string, startFuel: number = BUILT_FIRE_START_FUEL): string => {
 		if (isEmberFailing()) return 'ember'
 		if (!Number.isFinite(x) || !Number.isFinite(z)) return 'bounds'
-		const count = builtFireCount()
-		let free = -1
-		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-			if (!built[i] && !lit[i] && worldX[i] === 0 && worldZ[i] === 0) { free = i; break }
-		}
-		// Full: recycle the built fire extinguished the longest (never a burning one).
-		const recycle = (count >= BUILT_CAP || free < 0) ? recycleCandidate() : -1
-		if ((count >= BUILT_CAP || free < 0) && recycle < 0) return 'cap'
+		// Ash (spent fires) never counts toward the cap and never blocks spacing.
+		const count = liveBuiltCount()
+		if (count >= BUILT_CAP) return 'cap'
 		const map = activeTerrain() ?? getTerrain(cycleMazeSeed(currentSeed))
-		const fires: { x: number; z: number }[] = []
-		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-			if (i === recycle) continue // the recycled fire never blocks spacing
-			if (worldX[i] === 0 && worldZ[i] === 0) continue
-			fires.push({ x: worldX[i], z: worldZ[i] })
-		}
-		const verdict = validateBuiltFireSpot(map, x, z, fires, getStageAtWorld, recycle >= 0 ? count - 1 : count)
+		const fires = spacingFires(worldX.map((_, i) => isPlacedSlot(i)), spent, worldX, worldZ)
+		const verdict = validateBuiltFireSpot(map, x, z, fires, getStageAtWorld, count)
 		if (verdict !== 'ok') return verdict
-		const slot = recycle >= 0 ? recycle : free
-		if (recycle >= 0) {
-			console.log(`[Server] builtFire[${slot}]: recycled (out ${((Date.now() - extinguishedAt[slot]) / 1000).toFixed(0)}s) at (${worldX[slot].toFixed(1)}, ${worldZ[slot].toFixed(1)})`)
-			releaseDiscOutside(worldX[slot], worldZ[slot], 0, hearthRadiusFromFuel(FUEL_MAX))
-			lastBroadcastFuel[slot] = -999
-			lastBroadcastTier[slot] = -1
-			heartbeatClock[slot]    = 0
+		// Building on / through ash: that ash is removed at once.
+		for (const i of spentSlotsNear(spent, worldX, worldZ, x, z, SPENT_FIRE_CLEAR_M)) removeFire(i, 'cleared by a new fire')
+		let slot = -1
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+			if (!built[i] && !lit[i] && worldX[i] === 0 && worldZ[i] === 0 && !gone[i]) { slot = i; break }
+		}
+		if (slot < 0) {
+			// Every slot is taken by ash: clear the oldest ash for this build.
+			const oldest = recycleCandidate()
+			if (oldest < 0) return 'cap'
+			removeFire(oldest, 'slot needed for a new fire')
+			slot = oldest
 		}
 		extinguishedAt[slot]     = 0
 		built[slot]              = true

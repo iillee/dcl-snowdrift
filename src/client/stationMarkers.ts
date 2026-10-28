@@ -65,7 +65,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playBeamSfx, playIceMeltSfxAt, playChargeStartSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
+import { playBeamSfx, playIceMeltSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
@@ -256,6 +256,8 @@ export const HOVER_EASE_IN_S = 4
 export const BEAM_SFX_VOLUME = 0.45
 /** beam.wav fades in from silence over this long (s), so the attack is not piercing. */
 export const BEAM_SFX_FADE_IN_S = 0.8
+/** The orb burst / pulse cue (playBeamSfx at fireBurst): was BEAM_SFX_VOLUME 0.45, now about half. */
+export const BURST_SFX_VOLUME = 0.22
 const ICE_MELT_SFX_SRC = 'assets/sounds/icemelt.mp3'
 const ICE_MELT_SFX_VOLUME = 0.3
 /** Volume of the one-shot icemelt hit others hear per melted chunk (was 0.8). */
@@ -1007,7 +1009,7 @@ function ensureBeams(slot: Slot, map: TerrainMap | null): void {
 
 // MARK: Crystal hum
 /**
- * Start the looping 3D crystal hum on a risen obelisk. An invisible
+ * Start the looping 3D crystal hum (crystal.mp3) when the sky beam lands in the risen obelisk's tip (start of the charge), or at once on a late-join snap (snapDone). An invisible
  * entity at the socket, CRYSTAL_HUM_HEIGHT_M above the ground, NOT
  * parented to the obelisk (from 50 m up it was inaudible). Created once;
  * never touched per frame (touching AudioSource restarts the loop).
@@ -1058,7 +1060,6 @@ function snapDone(slot: Slot): void {
 function startRise(slot: Slot): void {
 	removeAllIce(slot)
 	slot.active = true
-	startHum(slot)
 	// Seated obelisk is solid; a collider rising through players would shove them.
 	setObeliskSolid(slot, false)
 	slot.yaw = 0
@@ -1118,7 +1119,7 @@ function requestActivate(index: number): void {
 
 // MARK: canWatchCinematic
 /** Remote viewers skip the cinematic while frozen/dying, covered (loading / rebuild) or in ember-fail. */
-function canWatchCinematic(): boolean {
+export function canWatchCinematic(): boolean {
 	return !isWorldCovered() && !isEmberFailing() && !isFrostDying() && !isItemInputBlocked()
 }
 
@@ -1387,7 +1388,7 @@ function gazingAtActiveObelisk(): boolean {
 	const cosCone = Math.cos(GAZE_CONE_DEG * Math.PI / 180)
 	let best = -2
 	for (const slot of slots) {
-		if (!slot || !slot.active) continue
+		if (!slot || !slot.active || !slot.hum) continue // slot.hum = the beam has landed (crystal.mp3 started)
 		const rig = Transform.getOrNull(slot.rig)
 		const cx = slot.x
 		const cz = slot.z
@@ -1623,8 +1624,8 @@ function animSystem(dt: number): void {
 				setObeliskSolid(slot, true)
 				// Cinematic: the sky beam has just landed in the top tip.
 				if (slot.cine && !isFloatingCrystals()) startGem(slot)
-				// Floating crystals: the sky beam just landed in the top tip = start of the charge (once: the phase moves on).
-				if (isFloatingCrystals() && !CRYSTAL_LASER_ENABLED) playChargeStartSfxAt(Vector3.create(slot.x, slot.groundY + hoverTipH(slot), slot.z))
+				// The sky beam just landed in the top tip = start of the charge (once: the phase moves on): the looping crystal.mp3 starts now.
+				startHum(slot)
 				setPhase(slot, 'settle')
 			}
 			continue
@@ -1910,6 +1911,28 @@ export function monumentChargeHeatAt(x: number, z: number): number {
 	return best
 }
 
+// MARK: Finale hooks (crystalFinale.ts)
+/**
+ * Every monument's top-tip beam joint (the sky beam's origin, mean hover height) and socket ground point, station
+ * order; null until every slot exists (map / layout not built yet).
+ */
+export function finaleAnchors(): Array<{ tip: Vector3; ground: Vector3 }> | null {
+	const map = activeTerrain()
+	if (!map || map.stations.length === 0) return null
+	const out: Array<{ tip: Vector3; ground: Vector3 }> = []
+	for (let i = 0; i < map.stations.length; i++) {
+		const s = slots[i]
+		if (!s) return null
+		out.push({ tip: topBeamJoint(s), ground: Vector3.create(s.x, s.groundY, s.z) })
+	}
+	return out
+}
+
+/** The monument beam look (same glow colour / emissive) on a finale beam entity. */
+export function paintFinaleBeam(e: Entity): void {
+	paintGlow(e, COLOR_BEAM, BEAM_EMISSIVE, BEAM_EMISSIVE_INTENSITY)
+}
+
 // MARK: crystalHeatAt
 /**
  * Warmth factor 0..1 at (x, z) from released crystals (floating-crystals
@@ -2082,7 +2105,7 @@ function startBurst(slot: Slot, i: number): void {
 	// The oasis exists from the burst; its terrain cap melts away ring by ring behind the front (burstSystem).
 	const oMap = activeTerrain()
 	if (oMap) oasisRelease(oMap, slot.x, slot.z, 0)
-	playBeamSfx(BEAM_SFX_VOLUME, 0.05)
+	playBeamSfx(BURST_SFX_VOLUME, 0.05)
 }
 /* Burst radius 0 -> hypot(R + 3 m band, this crystal's float height above ground) over CRYSTAL_BURST_S (per burst endR); alpha 1 -> 0. */
 /** Synced idle pulse on every released crystal's sky beam (shared epoch clock). */

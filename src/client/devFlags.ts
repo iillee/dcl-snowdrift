@@ -52,6 +52,14 @@ export const DEV_KEEP_TORCH_LIT = false
 export const DEBUG_THAW_BUTTON = false
 
 /**
+ * TEMPORARY 'END' button right of the frost bar (desktop + mobile), floating-crystals ruleset: fires the ENDING
+ * ("Level Thaws": beams link the monument tips, the snow under them thaws, the title shows) without activating all
+ * six monuments. Releases every unreleased monument silently, then the ending starts ~3 s later. Taints the run (no
+ * leaderboard). The server handler is gated on this same flag. SET false BEFORE DEPLOY.
+ */
+export const DEBUG_FINALE_BUTTON = false
+
+/**
  * Local preview of the volcano lava + smoke stage (0..3); -1 = off (use
  * landed monuments). Visual only: thaw radius / heat stay server-driven.
  * For server-side staging use DEBUG_THAW_BUTTON ('+1' lights the next

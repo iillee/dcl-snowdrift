@@ -36,6 +36,7 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	TERRAIN_CELL_M,
 	groundYForLevel,
+	isCrownLevel,
 	isMountainLevel,
 } from 'src/shared/settings'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
@@ -55,6 +56,7 @@ import {
 	OASIS_DROP_M,
 	OASIS_REACH_M,
 	oasisEntries,
+	oasisRectHasCap,
 	oasisLoweredAt,
 	oasisQuantReveal,
 	oasisTick,
@@ -214,7 +216,9 @@ export function setupTerrain(): void {
 		const top     = groundYForLevel(r.level)
 		const centerX = TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * TERRAIN_CELL_M
 		const centerZ = TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * TERRAIN_CELL_M
-		if (addRect(centerX, centerZ, r.w * TERRAIN_CELL_M, r.h * TERRAIN_CELL_M, top, !isMountainLevel(r.level), focus)) caps++
+		// Mountain wall blocks only get a cap where an oasis can reach them (so it can melt there); every other wall stays bare rock.
+		const wantsCap = oasisRectHasCap(map, r.level, centerX, centerZ, r.w * TERRAIN_CELL_M, r.h * TERRAIN_CELL_M)
+		if (addRect(centerX, centerZ, r.w * TERRAIN_CELL_M, r.h * TERRAIN_CELL_M, top, wantsCap, focus)) caps++
 	}
 	let pits = 0
 	for (const st of map.stations) {
@@ -413,7 +417,7 @@ function capLodSystem(): void {
 /**
  * Oasis (released monument) terrain: inside the revealed circle the cap is gone and brown
  * earth shows one step lower (shared/terrain/oasis.ts owns the cells and the reveal ring).
- * Every (non-mountain) rect, on any terrace, that the patch reaches is touched; cliff walls stay as they are. Each is rebuilt
+ * Every rect (any terrace, plus mountain wall blocks; not the volcano crown), that the patch reaches is touched; cliff walls stay as they are. Each is rebuilt
  * when its cell mask changes (a few ring steps per burst): new pieces first, old ones
  * retired a couple of frames later so no frame shows a hole. Work is capped per frame.
  */

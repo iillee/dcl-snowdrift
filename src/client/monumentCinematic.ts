@@ -190,8 +190,12 @@ function restorePrevCam(): void {
 	prevCam = undefined
 	prevCamSaved = false
 }
-/** Date.now() at start; drives the CINE_SURVIVAL_PAUSE_MAX_S cap. */
+/** Date.now() at start; drives the survival-pause cap (capS). */
 let startedMs = 0
+/** Cap (s, wall clock) for this run: CINE_SURVIVAL_PAUSE_MAX_S, longer for the ending. */
+let capS = CINE_SURVIVAL_PAUSE_MAX_S
+/** Finale shot: camera + look straight from this function of the shot time (null = the keyed shots). */
+let liveCam: ((t: number) => { pos: Vector3; look: Vector3 }) | null = null
 /** Baked crane path (terrain-safe world positions) and its end time (s). */
 let crane: Vector3[] = []
 let craneEndT = 0
@@ -229,7 +233,7 @@ export function getCinematicBarFrac(): number {
  */
 export function isSurvivalPausedByCinematic(): boolean {
 	if (!active) return false
-	return Date.now() - startedMs < CINE_SURVIVAL_PAUSE_MAX_S * 1000
+	return Date.now() - startedMs < capS * 1000
 }
 
 /** True while the SKIP label should show. */
@@ -264,21 +268,65 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 	releasing = false
 	t         = 0
 	startedMs = Date.now()
+	capS      = CINE_SURVIVAL_PAUSE_MAX_S
+	liveCam   = null
 	craneHandoffT = Infinity
 	buildKeys(tgt)
+	launchCamera(crane[0], craneLook(0), CINE_CRYSTAL_FOV_DEG, CINE_BLEND_IN_S)
+	console.log('monumentCinematic: start')
+}
 
-	lookP = craneLook(0)
+/** Finale (ending) shot: a live camera function of the shot time; same camera / letterbox / skip / survival-pause machinery. */
+export type FinaleCine = {
+	/** Camera position + look-at point (world) at shot time t (s since the shot started); the look is exact (no spring). Position is clamped inside the scene / above terrain / under the ceiling. */
+	cam    : (t: number) => { pos: Vector3; look: Vector3 }
+	/** Shot length (s) from the start; the cinematic hands back after it. */
+	durS   : number
+	/** Safety cap (s) on the survival pause / the shot itself (the normal 30 s is too short for the ending). */
+	capS   : number
+	fovDeg : number
+	blendInS: number
+	onEnd  : () => void
+}
+
+/** Start the ending cinematic (the camera follows the beam head round the monument ring). Skippable like the monument shots. */
+export function startFinaleCinematic(f: FinaleCine): void {
+	install()
+	if (active) finish(true)
+	const c0 = f.cam(0)
+	target = { x: c0.look.x, z: c0.look.z, groundY: c0.look.y, hoverCentreY: c0.look.y, rigPos: () => c0.look, halfLen: 0, aim: c0.look, riseS: 0, onEnd: f.onEnd }
+	active = true
+	releasing = false
+	t = 0
+	startedMs = Date.now()
+	capS = f.capS
+	craneHandoffT = Infinity
+	craneT0 = 0
+	craneEndT = -1 // no crane
+	craneExactLook = false
+	linearKeys = true
+	endT = f.durS
+	craneLook = () => c0.look
+	keys = []
+	liveCam = f.cam
+	launchCamera(safe(c0.pos), c0.look, f.fovDeg, f.blendInS)
+	console.log('monumentCinematic: start (finale)')
+}
+
+/** Create the virtual camera + look target at `firstPos`, take MainCamera and lock input. Shared by every shot. */
+function launchCamera(firstPos: Vector3, firstLook: Vector3, fovDeg: number, blendInS: number): void {
+	lookP = firstLook
 	lookV = Vector3.Zero()
 	lookEnt = engine.addEntity()
 	Transform.create(lookEnt, { position: lookP })
 	cam = engine.addEntity()
-	Transform.create(cam, { position: crane[0] })
+	Transform.create(cam, { position: firstPos })
 	VirtualCamera.create(cam, {
 		lookAtEntity     : lookEnt,
 		// Explicit: omitting it leaves the FOV to the Explorer's default / the previously active camera (e.g. the 24 deg
 		// overview camera), which zoomed the framed shot in. The end pose is solved for exactly this vertical FOV.
-		fov              : CINE_CRYSTAL_FOV_DEG,
-		defaultTransition: { transitionMode: VirtualCamera.Transition.Time(CINE_BLEND_IN_S) },
+		fov              : fovDeg,
+		defaultTransition: { transitionMode: VirtualCamera.Transition.Time(blendInS) },
 	})
 	// Remember the camera the player was on (e.g. the overview VirtualCamera)
 	// so release/finish hand it back instead of dropping to third person.
@@ -295,7 +343,6 @@ export function startMonumentCinematic(tgt: CineTarget): void {
 			mode: InputModifier.Mode.Standard({ disableAll: true }),
 		})
 	}
-	console.log('monumentCinematic: start')
 }
 
 
@@ -676,6 +723,7 @@ function finish(hard: boolean, aborted = false): void {
 	lookEnt = null
 	active = false
 	releasing = false
+	liveCam = null
 	if (wasActive && closeListener) closeListener(aborted)
 }
 
@@ -686,8 +734,8 @@ function cineSystem(dt: number): void {
 	if (!active) return
 
 	// Safety net: never let the cinematic (and the survival pause) outlive the cap.
-	if (Date.now() - startedMs >= CINE_SURVIVAL_PAUSE_MAX_S * 1000) {
-		console.log('monumentCinematic: cineSystem: timeout after ' + CINE_SURVIVAL_PAUSE_MAX_S + ' s, forcing end')
+	if (Date.now() - startedMs >= capS * 1000) {
+		console.log('monumentCinematic: cineSystem: timeout after ' + capS + ' s, forcing end')
 		finish(true)
 		return
 	}
@@ -711,7 +759,13 @@ function cineSystem(dt: number): void {
 	let pos: Vector3
 	let want: Vector3
 	const onCrane = t >= craneT0 && t <= Math.min(craneEndT, craneHandoffT)
-	if (onCrane) {
+	if (liveCam) {
+		const s = liveCam(t)
+		pos  = safe(s.pos)
+		want = s.look
+		lookP = want
+		lookV = Vector3.Zero()
+	} else if (onCrane) {
 		pos  = cranePos(t)
 		want = craneLook(t)
 		if (craneExactLook) { lookP = want; lookV = Vector3.Zero() }
@@ -720,7 +774,7 @@ function cineSystem(dt: number): void {
 		pos  = safe(s.pos)
 		want = s.look
 	}
-	if (!(craneExactLook && onCrane)) springLook(want, dt)
+	if (!liveCam && !(craneExactLook && onCrane)) springLook(want, dt)
 	if (cam) Transform.getMutable(cam).position = pos
 	if (lookEnt) Transform.getMutable(lookEnt).position = lookP
 }

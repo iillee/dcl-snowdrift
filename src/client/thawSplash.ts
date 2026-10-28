@@ -26,6 +26,7 @@ let phase      = Phase.IDLE
 let phaseTimer = 0
 let opacity    = 0
 let installed  = false
+let title      = TITLE
 
 
 export function getThawSplashOpacity(): number {
@@ -34,11 +35,11 @@ export function getThawSplashOpacity(): number {
 
 export function getThawSplashText(): string {
 	if (phase === Phase.IDLE) return ''
-	return TITLE
+	return title
 }
 
-/** Play the victory card. Idempotent while already showing. */
-export function beginThawSplash(): void {
+/** Play the title card (`text`, default the world-thaw title; the floating-crystals ending passes its own). Idempotent while already showing. */
+export function beginThawSplash(text: string = TITLE): void {
 	if (isEmberFailing()) {
 		console.log('thawSplash: beginThawSplash: skip, ember-fail owns the screen')
 		return
@@ -50,7 +51,8 @@ export function beginThawSplash(): void {
 	phase      = Phase.FADE_IN
 	phaseTimer = 0
 	opacity    = 0
-	console.log('thawSplash: beginThawSplash: WORLD THAWED')
+	title      = text
+	console.log(`thawSplash: beginThawSplash: ${text}`)
 }
 
 export function setupThawSplash(): void {

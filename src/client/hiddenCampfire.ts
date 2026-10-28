@@ -31,6 +31,7 @@ import {
 	BillboardMode,
 	Entity,
 	GltfContainer,
+	GltfNodeModifiers,
 	Material,
 	MaterialTransparencyMode,
 	MeshRenderer,
@@ -80,7 +81,8 @@ import {
 	HIDDEN_IGNITE_RADIUS_SQ_M,
 } from 'src/shared/hiddenCampfire'
 import { room } from 'src/shared/messages'
-import { FireSlotTable } from 'src/shared/fireSlots'
+import { FireSlotTable, liveFireCount, spacingFires } from 'src/shared/fireSlots'
+import { SPENT_FIRE_WISP_S } from 'src/shared/ruleset'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
 import type { TerrainMap } from 'src/shared/terrain/terrainMap'
 
@@ -144,6 +146,15 @@ const litLocal          : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).f
 const ignitionRequested : boolean[]         = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
 /** Slots that hold a real pit this cycle (seed spot or built fire). */
 const slots = new FireSlotTable(HIDDEN_CAMPFIRE_COUNT)
+/**
+ * Spent fires: out for good. Charred stones + a grey ash disc (+ a short smoke wisp), never
+ * ignitable, never counted for build spacing or the cap. The server removes them later
+ * (fireRemoved) and a new build over the ash clears it at once.
+ */
+const spentLocal : boolean[]            = new Array(HIDDEN_CAMPFIRE_COUNT).fill(false)
+const ashEntity  : (Entity | null)[]    = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
+const wispEntity : (Entity | null)[]    = new Array(HIDDEN_CAMPFIRE_COUNT).fill(null)
+const wispLeft   : number[]             = new Array(HIDDEN_CAMPFIRE_COUNT).fill(0)
 let   beaconPulseTime                       = 0
 let   currentSeed                           = 0
 
@@ -428,6 +439,8 @@ function getReadyIgniteIndex(): number {
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		if (litLocal[i]) continue
 		if (ignitionRequested[i]) continue
+		// Spent fire (ash): never relightable, by torch or anything else.
+		if (spentLocal[i]) continue
 		// Unused slot (no pit this cycle): nothing to ignite.
 		if (firePitEntity[i] === null) continue
 		const dx = t.position.x - worldX[i]
@@ -604,6 +617,120 @@ function clearSlot(index: number): void {
 }
 
 
+// MARK: Spent fires
+const ASH_COLOR      = Color4.create(0.42, 0.42, 0.44, 1)
+const ASH_DIAMETER_M = 1.1
+const ASH_THICK_M    = 0.05
+const ASH_Y_M        = 0.1
+/** Charred stones: dark flat PBR over the whole pit GLB (GltfNodeModifiers). */
+const CHAR_PBR = { albedoColor: Color4.create(0.14, 0.13, 0.12, 1), metallic: 0, roughness: 1 }
+
+
+// MARK: removeWisp
+function removeWisp(index: number): void {
+	const w = wispEntity[index]
+	if (w !== null) { engine.removeEntity(w); wispEntity[index] = null }
+	wispLeft[index] = 0
+}
+
+
+// MARK: applySpentVisuals
+/** Fire `index` went out for good: tear the fire down, show charred stones + ash (+ a brief wisp when fresh). */
+function applySpentVisuals(index: number, ageS: number): void {
+	if (!slots.isPlaced(index) || spentLocal[index]) return
+	applyUnlitVisuals(index)
+	if (firePitEntity[index] === null) spawnUnlitPit(index)
+	const pit = firePitEntity[index]
+	if (pit === null) return
+	spentLocal[index] = true
+	if (AudioSource.has(pit)) AudioSource.deleteFrom(pit)
+	GltfNodeModifiers.createOrReplace(pit, {
+		modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...CHAR_PBR } } } }],
+	})
+	const ash = engine.addEntity()
+	ashEntity[index] = ash
+	Transform.create(ash, {
+		position: Vector3.create(0, ASH_Y_M, 0),
+		scale   : Vector3.create(ASH_DIAMETER_M, ASH_THICK_M, ASH_DIAMETER_M),
+		parent  : pit,
+	})
+	MeshRenderer.setCylinder(ash, 0.5, 0.5)
+	Material.setPbrMaterial(ash, { albedoColor: ASH_COLOR, metallic: 0, roughness: 1, castShadows: false })
+	if (ageS < SPENT_FIRE_WISP_S) {
+		const w = engine.addEntity()
+		wispEntity[index] = w
+		wispLeft[index]   = SPENT_FIRE_WISP_S - ageS
+		Transform.create(w, { position: Vector3.create(0, 0.3, 0), parent: pit })
+		ParticleSystem.create(w, {
+			shape                : ParticleSystem.Shape.Cone({ angle: 10, radius: 0.12 }),
+			rate                 : 3,
+			maxParticles         : 16,
+			lifetime             : 3.5,
+			gravity              : -0.1,
+			initialVelocitySpeed : { start: 0.3, end: 0.6 },
+			additionalForce      : Vector3.create(0.1, 0, 0.03),
+			initialSize          : { start: 0.25, end: 0.4 },
+			sizeOverTime         : { start: 1.4, end: 2.2 },
+			initialColor         : { start: Color4.create(0.55, 0.55, 0.55, 0.35), end: Color4.create(0.6, 0.6, 0.6, 0.3) },
+			colorOverTime        : { start: Color4.create(0.7, 0.7, 0.7, 0.3), end: Color4.create(0.8, 0.8, 0.8, 0) },
+			blendMode            : PBParticleSystem_BlendMode.PSB_ALPHA,
+			billboard            : true,
+			loop                 : true,
+			prewarm              : false,
+		})
+	}
+	console.log(`hiddenCampfire[${index}]: spent (ash), age ${ageS.toFixed(0)}s`)
+}
+
+
+// MARK: clearSpentLocal
+/** Drop the ash / wisp / charred tint at once (slot relit, cycle roll). */
+function clearSpentLocal(index: number): void {
+	removeWisp(index)
+	const ash = ashEntity[index]
+	if (ash !== null) { engine.removeEntity(ash); ashEntity[index] = null }
+	if (!spentLocal[index]) return
+	spentLocal[index] = false
+	const pit = firePitEntity[index]
+	if (pit !== null && GltfNodeModifiers.has(pit)) GltfNodeModifiers.deleteFrom(pit)
+}
+
+
+// MARK: removeFireLocal
+/** Server removed the fire: the pit and its ash sink out, the slot becomes free. */
+function removeFireLocal(index: number): void {
+	const pit = firePitEntity[index]
+	const ash = ashEntity[index]
+	ashEntity[index] = null
+	removeWisp(index)
+	spentLocal[index] = false
+	applyUnlitVisuals(index)
+	removeLocatorBeacon(index)
+	if (pit !== null) {
+		firePitEntity[index] = null
+		if (AudioSource.has(pit)) AudioSource.deleteFrom(pit)
+		sinking.push({ e: pit, t: 0, y0: Transform.getOrNull(pit)?.position.y ?? worldY[index], kids: ash !== null ? [ash] : undefined })
+	} else if (ash !== null) {
+		engine.removeEntity(ash)
+	}
+	worldX[index] = 0
+	worldY[index] = 0
+	worldZ[index] = 0
+	slots.clear(index)
+	console.log(`hiddenCampfire[${index}]: removed (spent fire gone)`)
+}
+
+
+// MARK: spentSystem
+function spentSystem(dt: number): void {
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		if (wispEntity[i] === null) continue
+		wispLeft[i] -= dt
+		if (wispLeft[i] <= 0) removeWisp(i)
+	}
+}
+
+
 // MARK: getPlacedFirePositions
 /**
  * Every pit placed this cycle (hidden or player-built, lit or dead).
@@ -627,7 +754,7 @@ export function getRecycleNextPos(): { x: number; z: number } | null {
 }
 
 /** Recycled pits sinking out at their old spot (cheap fade). */
-const sinking: { e: Entity; t: number; y0: number }[] = []
+const sinking: { e: Entity; t: number; y0: number; kids?: Entity[] }[] = []
 const SINK_S = 1.2
 const SINK_M = 0.6
 function sinkSystem(dt: number): void {
@@ -637,7 +764,11 @@ function sinkSystem(dt: number): void {
 		const u = Math.min(1, s.t / SINK_S)
 		const tr = Transform.getMutableOrNull(s.e)
 		if (tr) tr.position = Vector3.create(tr.position.x, s.y0 - SINK_M * u * u, tr.position.z)
-		if (u >= 1) { engine.removeEntity(s.e); sinking.splice(k, 1) }
+		if (u >= 1) {
+			if (s.kids) for (const c of s.kids) engine.removeEntity(c)
+			engine.removeEntity(s.e)
+			sinking.splice(k, 1)
+		}
 	}
 }
 
@@ -646,6 +777,18 @@ function sinkSystem(dt: number): void {
 /** How many slots hold a pit this cycle (all built, in Build Your Own Fire). */
 export function getPlacedFireCount(): number {
 	return slots.count()
+}
+
+// MARK: getLiveFirePositions / getLiveFireCount
+/**
+ * Build placement: fires that count for spacing and the cap = placed and NOT spent. Ash
+ * (and removed fires) never block a new fire; building over ash clears it.
+ */
+export function getLiveFirePositions(): { x: number; z: number }[] {
+	return spacingFires(slots.placed, spentLocal, slots.x, slots.z)
+}
+export function getLiveFireCount(): number {
+	return liveFireCount(slots.placed, spentLocal)
 }
 
 
@@ -688,6 +831,7 @@ function handleCycleSeedChange(newSeed: number): void {
 		`resetting ${HIDDEN_CAMPFIRE_COUNT} pits`,
 	)
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
+		clearSpentLocal(i)
 		const spot = positions[i]
 		if (!spot) {
 			// Build Your Own Fire: player-built pits from the old cycle
@@ -835,6 +979,7 @@ export function setupHiddenCampfire(): void {
 			// A lit state for a slot we never placed (missed builtFirePlaced)
 			// has nowhere to draw; skip rather than light a pit at 0,0.
 			if (!slots.isPlaced(index)) return
+			clearSpentLocal(index)
 			applyLitVisuals(index)
 		} else {
 			// lit=0 = snuff (fuel exhausted). Tear down flame + smoke +
@@ -856,6 +1001,7 @@ export function setupHiddenCampfire(): void {
 	room.onMessage('builtFirePlaced', ({ seed, index, x, z }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
 		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		if (spentLocal[index]) removeFireLocal(index)
 		if (firePitEntity[index] !== null && worldX[index] === x && worldZ[index] === z) return
 		if (litLocal[index]) applyUnlitVisuals(index)
 		// Recycled (cap reached): the old dead pit sinks away at its old spot.
@@ -873,6 +1019,18 @@ export function setupHiddenCampfire(): void {
 		console.log(`hiddenCampfire[${index}]: built fire placed at (${x.toFixed(1)}, ${z.toFixed(1)})`)
 	})
 
+	// Spent fires: ash state, and the server's removal (timeout / built over).
+	room.onMessage('fireSpent', ({ seed, index, ageMs }) => {
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		applySpentVisuals(index, ageMs / 1000)
+	})
+	room.onMessage('fireRemoved', ({ seed, index }) => {
+		if (!cycleSeedsEqual(seed, currentSeed)) return
+		if (index < 0 || index >= HIDDEN_CAMPFIRE_COUNT) return
+		removeFireLocal(index)
+	})
+
 	// Cycle rollover. Fires on hydration (first cycleState arrival)
 	// AND on every subsequent midnight-UTC roll. Handler resets lit
 	// state, moves pits, respawns beacons — the server's
@@ -887,6 +1045,7 @@ export function setupHiddenCampfire(): void {
 		recycleNext = index
 	})
 	engine.addSystem(sinkSystem)
+	engine.addSystem(spentSystem)
 
 	// Keep every pit on the terrain that is actually drawn (see
 	// reseatPitsOnTerrain).
