@@ -1,5 +1,8 @@
 # Session 2026-10-18 — Monuments rework, ignition cinematic, isometric overview
 
+> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 monuments, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (6 monuments charged by player-built fires, oasis, World Thaws ending); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins.
+
+
 Source of truth for the monument pass (on `main` as `7cfaf4b`) and the `cinematic` branch work on top of it. Supersedes the **Ignition monuments** section of [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md) (the loop itself is unchanged: ignite 3 monuments in any order → the 3rd triggers the thaw). Review handoff: [`review-2026-10-18-monuments-cinematic.md`](./review-2026-10-18-monuments-cinematic.md).
 
 Nothing here has been verified in a live preview yet; the check scripts, `npx tsc --noEmit -p .` and `npm run build` pass.

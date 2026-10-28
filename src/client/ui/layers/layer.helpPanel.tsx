@@ -25,6 +25,11 @@ import { getDayNumber, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { getLitMonumentCount, getMonumentTotal } from 'src/client/stationMarkers'
 import { closeLeaderboard } from 'src/client/leaderboard'
+import {
+	cancelNewExpedition, canBeginNewExpedition, hasExpeditionHelpSection, isNewExpeditionCounting, isNewExpeditionMine,
+	newExpeditionSecondsLeft, requestNewExpedition,
+} from 'src/client/expedition'
+import { formatExpeditionClock } from 'src/shared/expedition'
 
 
 const { colors, borderRadius, spacing, fontSizes } = UI_THEME
@@ -56,12 +61,83 @@ const PANEL_BORDER = 4
 
 // Wide enough for "Don't let the fire die" at TAG_FONT, plus the pad.
 const PANEL_W = 280
-const PANEL_H =
+const PANEL_H_BASE =
 	PANEL_PAD * 2 +
 	PANEL_BORDER * 2 +
 	DAY_LINE_H + LINE_GAP * 2 +
 	TAG_LINE_H + LINE_GAP +
 	TAG_LINE_H
+
+// New-expedition section (only after the ending, see src/client/expedition.ts): a status line while a countdown runs,
+// and one button (BEGIN, or CANCEL for the player who started it).
+const EXP_FONT      = 18
+const EXP_STATUS_H  = EXP_FONT + 8
+const EXP_BTN_H     = 40
+const EXP_GAP       = 8
+const EXP_BTN_BG    = Color4.create(0.2, 0.55, 0.9, 0.95)
+const EXP_CANCEL_BG = Color4.create(0.55, 0.2, 0.2, 0.95)
+
+/** Panel height: the base card plus the expedition rows that are showing right now. */
+function panelHeight(): number {
+	if (!hasExpeditionHelpSection()) return PANEL_H_BASE
+	const counting = isNewExpeditionCounting()
+	const button   = canBeginNewExpedition() || isNewExpeditionMine()
+	return PANEL_H_BASE + EXP_GAP + (counting ? EXP_STATUS_H : 0) + (button ? EXP_BTN_H + (counting ? EXP_GAP / 2 : 0) : 0)
+}
+
+// MARK: ExpeditionSection
+/** BEGIN NEW EXPEDITION / countdown status / CANCEL NEW EXPEDITION (server-validated; nothing here decides anything). */
+function ExpeditionSection() {
+	if (!hasExpeditionHelpSection()) return null
+	const counting = isNewExpeditionCounting()
+	const begin    = canBeginNewExpedition()
+	const cancel   = isNewExpeditionMine()
+	return (
+		<UiEntity
+			key         = "ui_HelpPanel_expedition"
+			uiTransform = {{ width: '100%', margin: { top: EXP_GAP }, flexDirection: 'column', alignItems: 'stretch' }}
+		>
+			{counting && (
+				<Label
+					value       = {`NEW EXPEDITION IN ${formatExpeditionClock(newExpeditionSecondsLeft())}`}
+					fontSize    = {EXP_FONT}
+					color       = {GOLD}
+					font        = "monospace"
+					textAlign   = "middle-center"
+					uiTransform = {{ width: '100%', height: EXP_STATUS_H }}
+				/>
+			)}
+			{(begin || cancel) && (
+				<UiEntity
+					key          = {begin ? 'ui_HelpPanel_expBegin' : 'ui_HelpPanel_expCancel'}
+					uiTransform  = {{
+						width         : '100%',
+						height        : EXP_BTN_H,
+						margin        : { top: counting ? EXP_GAP / 2 : 0 },
+						borderRadius  : borderRadius.sm,
+						justifyContent: 'center',
+						alignItems    : 'center',
+					}}
+					uiBackground = {{ color: begin ? EXP_BTN_BG : EXP_CANCEL_BG }}
+					onMouseDown  = {() => {
+						playUiClick()
+						if (begin) requestNewExpedition()
+						else       cancelNewExpedition()
+					}}
+				>
+					<Label
+						value       = {begin ? 'BEGIN NEW EXPEDITION' : 'CANCEL NEW EXPEDITION'}
+						fontSize    = {EXP_FONT}
+						color       = {WHITE}
+						font        = "sans-serif"
+						textAlign   = "middle-center"
+						uiTransform = {{ width: '100%', height: EXP_BTN_H }}
+					/>
+				</UiEntity>
+			)}
+		</UiEntity>
+	)
+}
 
 
 // MARK: HelpPanelLayer
@@ -89,7 +165,7 @@ class HelpPanelLayer extends Layer {
 				key         = "ui_HelpPanel_root"
 				uiTransform = {{
 					width         : PANEL_W,
-					height        : PANEL_H,
+					height        : panelHeight(),
 					margin        : { top },
 					padding       : PANEL_PAD,
 					borderRadius  : borderRadius.md,
@@ -132,6 +208,7 @@ class HelpPanelLayer extends Layer {
 					textAlign= "middle-center"
 					uiTransform = {{ width: '100%', height: TAG_LINE_H }}
 				/>
+				<ExpeditionSection />
 			</UiEntity>
 		)
 	}

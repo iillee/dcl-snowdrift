@@ -4,7 +4,7 @@
  *
  * Four boards over one stored record per player:
  *   longest   - most days survived in one run the player contributed to
- *   fastest   - best 6/6 completion: fewest days, then shortest real time
+ *   fastest   - best completion (all monuments): fewest days, then shortest real time
  *   monuments - lifetime monuments released in runs they contributed to
  *   firenet   - biggest single connected fire network (campfires) they helped build / feed
  *
@@ -17,7 +17,18 @@
  * Scene-storage key (src/server/leaderboard.ts). Bump the suffix on an incompatible format change.
  * Adding the optional n field is compatible: rows stored without it read as 0, so the key stays v2.
  */
-export const LEADERBOARD_STORAGE_KEY = 'cryocene.leaderboard.v2'
+import { WORLD_BOARD_SUFFIX, WORLD_IS_COMPACT, WORLD_PROFILE_SPEC, WorldProfile } from 'src/shared/settings'
+
+/** Standard-board storage key. Bump the suffix on an incompatible format change (the profile suffix is added after it). */
+export const LEADERBOARD_BASE_KEY = 'cryocene.leaderboard.v2'
+/** Storage key of a world profile's board: the standard profiles share the base key unchanged; every other profile has its own key. */
+export function leaderboardKeyFor(profile: WorldProfile): string {
+	return LEADERBOARD_BASE_KEY + WORLD_PROFILE_SPEC[profile].boardSuffix
+}
+/** ACTIVE profile's key: 'cryocene.leaderboard.v2' (standard, unchanged) or 'cryocene.leaderboard.v2.compact3' (3-monument playtest), so records never mix. */
+export const LEADERBOARD_STORAGE_KEY = LEADERBOARD_BASE_KEY + WORLD_BOARD_SUFFIX
+/** Panel heading for a non-standard board ('' = standard board, no heading). */
+export const LEADERBOARD_HEADING = WORLD_IS_COMPACT ? 'PLAYTEST BOARD - 3 MONUMENTS' : ''
 /** Players kept in storage. */
 export const LEADERBOARD_STORE_MAX = 300
 /** Rows per board sent to clients and shown in the panel. */
@@ -226,8 +237,19 @@ export function parseStoredBoard(raw: unknown): LeaderboardPlayer[] {
 
 
 // MARK: serializeBoard
-export function serializeBoard(list: LeaderboardPlayer[]): string {
-	return JSON.stringify({ v: 2, players: list })
+/** Standard board writes the bytes it always did; a profile board also carries its tag (b) so a wrong-board blob is recognised on load. */
+export function serializeBoard(list: LeaderboardPlayer[], boardSuffix: string = WORLD_BOARD_SUFFIX): string {
+	return JSON.stringify(boardSuffix ? { v: 2, b: boardSuffix, players: list } : { v: 2, players: list })
+}
+
+/** Board tag of a stored blob ('' = standard / untagged). Used on load to refuse a blob that belongs to another profile's board. */
+export function storedBoardTag(raw: unknown): string {
+	let data: unknown = raw
+	if (typeof raw === 'string') {
+		try { data = JSON.parse(raw) } catch { return '' }
+	}
+	const b = data && typeof data === 'object' ? (data as { b?: unknown }).b : undefined
+	return typeof b === 'string' ? b : ''
 }
 
 

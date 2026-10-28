@@ -41,6 +41,7 @@ import {
 	sendStationStateTo,
 	setupStationsServer,
 } from 'src/server/stations'
+import { sendExpeditionStateTo, setupExpeditionServer } from 'src/server/expedition'
 import { sendLeaderboardTo, setupLeaderboardServer } from 'src/server/leaderboard'
 import { sendLogPilesTo, setupLogsServer } from 'src/server/logs'
 import { armPhaseClock, isPhaseClockArmed, sendPhaseStateTo, setupPhaseServer } from 'src/server/phase'
@@ -130,6 +131,7 @@ export async function setupServer(): Promise<void> {
 	setupStationsServer()
 	// Fastest-completion leaderboard (floating crystals): loads from Storage.
 	setupLeaderboardServer()
+	setupExpeditionServer()
 	setupLogsServer()
 	setupWoodServer()
 	setupTorchServer()
@@ -273,6 +275,7 @@ export async function setupServer(): Promise<void> {
 		// stationState was dropped and late joiners saw unlit monuments.
 		sendStationStateTo(from)
 		sendLeaderboardTo(from)
+		sendExpeditionStateTo(from)
 		sendFireNetworkStateTo(from)
 		// Hydrate held-torch lit states for everyone already in the room so
 		// the joiner sees flames instead of dark sticks until each remote

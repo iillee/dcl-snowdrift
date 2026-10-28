@@ -53,6 +53,7 @@ import { setupFireNetworkGlow } from 'src/client/fireNetworkGlow'
 import { setupEmberFailClient } from 'src/client/emberFail'
 import { setupPhaseClient } from 'src/client/phase'
 import { setupLeaderboardClient } from 'src/client/leaderboard'
+import { setupExpeditionClient } from 'src/client/expedition'
 import { setupCampfireSmoke } from 'src/client/campfireSmoke'
 import { setupVolcanoSmoke } from 'src/client/volcanoSmoke'
 import { setupVolcanoCrown } from 'src/client/volcanoCrown'
@@ -88,7 +89,6 @@ import { setupRelightPromptVisibility } from 'src/client/ui/layers/layer.relight
 import { setupChopPromptVisibility }     from 'src/client/ui/layers/layer.chopPrompt'
 import { setupFeedPromptVisibility }    from 'src/client/ui/layers/layer.feedPrompt'
 import { setupTopDownCamera } from 'src/client/topDownCamera'
-import { dragPollSystem } from 'src/client/ui/layers/layer.topDownPan'
 
 // ─── Stress-test toggle (Squareoff design §8.1) ─────────────────────
 // Set to 0 for normal maze. Non-zero = spawn N planes at spawn, skip maze.
@@ -241,6 +241,8 @@ export async function setupClient(): Promise<void> {
 	setupEmberFailClient()
 	// Leaderboard board + name sender - before initClientHandler for the join hydration.
 	setupLeaderboardClient()
+// NEW EXPEDITION reset state (button / countdown) - same reason: before initClientHandler for the join hydration.
+setupExpeditionClient()
 	// Remote-torch + chain-light subscribers MUST register before
 	// initClientHandler for the same reason as the hydration paths
 	// above: the server's sendTorchStatesTo(joiner) inside joinRoster
@@ -272,10 +274,6 @@ export async function setupClient(): Promise<void> {
 	// button toggles it on). Safe to call before setupUi — the button just
 	// needs the camera entity to exist when it's first clicked.
 	setupTopDownCamera()
-	// Desktop drag pan poll — reads PrimaryPointerInfo.screenDelta each
-	// frame while a drag is live and forwards to the camera. Cheap no-op
-	// when top-down is inactive.
-	engine.addSystem(dragPollSystem)
 
 	setupLogsInput()
 	// Second, buried campfire the player has to find + light with a

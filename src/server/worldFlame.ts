@@ -33,7 +33,7 @@ import { beginExtinction, isEmberFailing } from 'src/server/emberFail'
 import { isPlayerFrozen, livingPlayerIds, presentPlayerIds } from 'src/server/frostLife'
 import { getMainFireFuel } from 'src/server/hearthFuel'
 import { isAnyHiddenFireLit } from 'src/server/hiddenCampfire'
-import { isWorldThawed } from 'src/server/stations'
+import { isExpeditionWon, isWorldThawed } from 'src/server/stations'
 import { isUserTorchLit } from 'src/server/torch'
 
 
@@ -69,7 +69,8 @@ function describeFlame(): string {
 function checkWorldFlame(): void {
 	if (isEmberFailing()) { darkSinceMs = 0; return }
 	// Victory / post-win days: the new winter comes from the post-win roll.
-	if (isWorldThawed()) {
+	// The ending was reached: the restored world is never ended by its fires going out (only a player's NEW EXPEDITION resets it).
+	if (isWorldThawed() || isExpeditionWon()) {
 		if (darkSinceMs !== 0) console.log('[Server] worldFlame: world end off — world thaw reached')
 		darkSinceMs = 0
 		return

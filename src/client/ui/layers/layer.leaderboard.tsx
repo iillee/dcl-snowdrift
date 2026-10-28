@@ -7,12 +7,13 @@
  *
  * Four small tabs, one table each (top LEADERBOARD_SHOW players, local
  * player's name in gold):
- *   Fastest Run - Player, Days, Time (best 6/6 completion)   [default]
+ *   Fastest Run - Player, Days, Time (best completion of all monuments)   [default]
  *   Longest Run - Player, Days (most days survived in one run)
  *   Monuments   - Player, Monuments (lifetime released)
  *   Biggest Firenet - Player, Fires (most campfires in one linked network)
  *
- * Read-only: records are written by the server only.
+ * The board shown is the ACTIVE world profile's (the server only ever sends its own): the standard game shows no heading,
+ * the 3-monument playtest shows LEADERBOARD_HEADING above the tabs. Read-only: records are written by the server only.
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
@@ -34,7 +35,7 @@ import {
 } from 'src/client/leaderboard'
 import { helpPanelLayer, isHelpPanelVisible } from 'src/client/ui/layers/layer.helpPanel'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { BoardKind, clipName, formatElapsed, LEADERBOARD_SHOW } from 'src/shared/leaderboard'
+import { BoardKind, clipName, formatElapsed, LEADERBOARD_HEADING, LEADERBOARD_SHOW } from 'src/shared/leaderboard'
 import { isFloatingCrystals } from 'src/shared/ruleset'
 
 
@@ -56,6 +57,7 @@ const ROW_FONT     = 17
 const HEAD_FONT    = 14
 const TAB_FONT     = 16
 const TAB_H        = 32
+const TITLE_H      = 22
 const HEAD_H       = HEAD_FONT + 10
 const ROW_H        = 30
 const GAP          = 8
@@ -162,8 +164,9 @@ class LeaderboardLayer extends Layer {
 		const me      = getLocalAddress()
 
 		const rows   = getLeaderboardRows(kind).slice(0, LEADERBOARD_SHOW)
+		const titleH = LEADERBOARD_HEADING ? TITLE_H + GAP : 0
 		const panelH =
-			PANEL_PAD * 2 + PANEL_BORDER * 2 +
+			PANEL_PAD * 2 + PANEL_BORDER * 2 + titleH +
 			TAB_H + GAP + HEAD_H + rows.length * ROW_H
 
 		const values = (r: { v: number; ts: number }): string[] => {
@@ -189,6 +192,17 @@ class LeaderboardLayer extends Layer {
 				}}
 				uiBackground = {{ color: colors.statsBg }}
 			>
+				{LEADERBOARD_HEADING !== '' && (
+					<Label
+						key         = "ui_Leaderboard_heading"
+						value       = {LEADERBOARD_HEADING}
+						fontSize    = {mobile ? 14 : 15}
+						color       = {GOLD}
+						textAlign   = "middle-center"
+						uiTransform = {{ width: '100%', height: TITLE_H, margin: { bottom: GAP } }}
+					/>
+				)}
+
 				{/* Tabs */}
 				<UiEntity
 					key         = "ui_Leaderboard_tabs"

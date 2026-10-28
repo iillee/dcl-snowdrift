@@ -6,6 +6,22 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-27 / 10-28 session - floating crystals (branch `floating-crystals`, fffbc4f .. f22ee9e)
+
+Shipped state and constants: [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Entries below this one from 2026-10-07 to 2026-10-26 describe the classic volcano ruleset unless they say otherwise (`RULESET = 'floating-crystals'` is now active).
+
+- **2026-10-27 - Fires are built from logs only; sticks/branches removed.** Logs (120 s) are the only wood; `branch.glb` / `branch.png` deleted. Why: one wood, one cost to read.
+- **2026-10-27 - Building a fire is an emote.** Squat + strike clip (2.57 s), movement locked while it plays; the fire spawns 1.2 m in front of the player (validated server side from position + yaw). The torch-light emote idea was dropped.
+- **2026-10-27 - Dense fire links + cluster links.** Every pair within 140 m links except near-duplicates; the fires feeding a monument also link 1-2 of their nearest neighbours so the cluster visibly supports itself. Monument link ends sit ~0.3 m off the obelisk face (were ~5 m out; the link-end change was owner-directed).
+- **2026-10-27 - Monument release rework.** 2 s charge with no colour change, FOV 60 cinematic. `monument.mp3` plays once when the monument starts to rise, the looping `crystal.mp3` starts when the sky beam lands, burst/pulse cue cut to 0.22 (was 0.45). `release_burst` clip dropped.
+- **2026-10-27 - Charging hum comes from the monument, quietly - owner-directed.** `hum.mp3` at 0.25 (was 0.4), distance measured from the monument only (it used to be loudest at the linked fires, 40 m out), silent by 160 m.
+- **2026-10-27 - Oasis instead of a flat thaw disc.** Inner 12 m melts at once, the rest over 60 s to a ragged ~32 m clearing (was a 47 m disc, then smaller after playtest). Spans every terrace and wall top in reach; bare earth first, grass / bushes / rocks / pines regrow; pine trunks and rocks get colliders; grass merges only per floor height (fixed grass floating at the top level's height). Terrain base raised 0.1 m (0.35) so the earth stays above the ground plane.
+- **2026-10-27 - Near-spawn monument ~41 m from the hearth** (a 25 m first try in this ruleset was too close to spawn; the classic ruleset used ~120 m).
+- **2026-10-28 - Spent fires are one-use - owner-directed.** Free relighting undercut the wood loop. A fire that runs out turns to ash (no logs, no relight, no feed), vanishes after 60 s, drops its links. Ash never counts for the 18 m spacing or the 40-fire cap; building on/next to ash clears it. The hearth is exempt.
+- **2026-10-28 - Ending: World Thaws - owner-directed.** On the sixth release, beams link the monument tips in a ring, a ~10 m snow corridor under each beam thaws (snow only, no grass, to keep entity count down), a high cinematic follows, the title "WORLD THAWS" shows, play continues. Replaces the classic 3/3 volcano thaw + "WORLD THAWED" + "Winter Approaches" flow for this ruleset.
+- **2026-10-28 - Desktop gets one more zoom-out step** (118; steps 7 / 29 / 60 / 84 / 118).
+- **Leaderboard tabs:** Longest, Fastest, Monuments, Biggest Firenet (storage key v2). Dev-shortcut runs are tainted.
+- **Open:** automatic new winter after World Thaws (not built; the run only resets when all flame is out). Entity-count readout before adding plants under the finale beams. Ladders ~0.27 m off on oasis-lowered terraces.
 ## 2026-10-26 session - fire network (branch `fire-network`, 2e202ec / 67f6758 / 3d5e7ea + uncommitted)
 
 - **Links:** NETWORK_LINK_RANGE_M 140, NETWORK_MAX_ROUTE_M 260; A* routes may use ladders (NETWORK_LADDER_COST 3), path ends at ladder base and lip. Server holds links; clients re-route with shared code for identical paths.

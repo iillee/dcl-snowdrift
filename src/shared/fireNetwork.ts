@@ -19,7 +19,7 @@
  */
 
 import { TERRAIN_GRID_H, TERRAIN_GRID_W, isMountainLevel } from 'src/shared/settings'
-import { CLIFF_HALF_TAPER_M, LADDER_FOOT_M, LADDER_LAND_M } from 'src/shared/terrain/terrainMap'
+import { CLIFF_HALF_TAPER_M, LADDER_FOOT_M, LADDER_LAND_M, STATION_CLEAR_M } from 'src/shared/terrain/terrainMap'
 import { cellCenterWorld as snowCellCenter, forEachCellInDisc } from 'src/shared/snowGrid'
 import {
 	LANDFORM_LAVA,
@@ -286,6 +286,107 @@ function walkable(map: TerrainMap, i: number): boolean {
 	return !isMountainLevel(map.levels[i]) && map.landforms[i] !== LANDFORM_LAVA
 }
 
+// MARK: monument avoidance
+/**
+ * Fire-to-fire links never cross a monument. A leg that would pass within NETWORK_MONUMENT_TRIGGER_M of a monument centre
+ * (pit corner 4.2 m + a little) is rerouted along an arc of radius NETWORK_MONUMENT_ARC_M around it (tangent in, tangent out,
+ * the shorter side that stays on the level). The link to a monument itself (its own node) is exempt and still ends at the
+ * charge-link end; every OTHER monument is avoided.
+ */
+export const NETWORK_MONUMENT_ARC_M     = 6.8 // inside the monument's own 16 m cell (inscribed radius 8 m), so the arc stays on its level
+/** A leg whose interior comes closer than this to a monument centre is rerouted. */
+export const NETWORK_MONUMENT_TRIGGER_M = 5.5
+/** Final centrelines (excluding the first/last NETWORK_MONUMENT_END_SKIP_M of a run) never come closer than this to a monument centre. */
+export const NETWORK_MONUMENT_HARD_M    = 4.6
+export const NETWORK_MONUMENT_END_SKIP_M = 3
+
+type Pt = { x: number; z: number }
+
+/** false = the old behaviour (links may run through monuments); kept as a switch for A/B checks. */
+export const NETWORK_MONUMENT_AVOID_ENABLED = true
+
+function monumentCentres(map: TerrainMap, a: FireNode, b: FireNode): Pt[] {
+	if (!NETWORK_MONUMENT_AVOID_ENABLED) return []
+	const skip = new Set<number>()
+	if (a.id >= NETWORK_MONUMENT_ID_MIN) skip.add(a.id - NETWORK_MONUMENT_ID_MIN)
+	if (b.id >= NETWORK_MONUMENT_ID_MIN) skip.add(b.id - NETWORK_MONUMENT_ID_MIN)
+	const out: Pt[] = []
+	map.stations.forEach((s, i) => { if (!skip.has(i)) out.push(cellCenterWorld(s.cx, s.cz)) })
+	return out
+}
+
+/** Smallest distance from `pts` (sampled every 0.5 m) to `c`, ignoring the first / last `skipM` of the polyline. */
+export function minDistToCentre(pts: Pt[], c: Pt, skipM: number): number {
+	let total = 0
+	for (let k = 1; k < pts.length; k++) total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z)
+	let best = Infinity, run = 0
+	for (let k = 1; k < pts.length; k++) {
+		const p = pts[k - 1], q = pts[k]
+		const L = Math.hypot(q.x - p.x, q.z - p.z)
+		const n = Math.max(1, Math.ceil(L / 0.5))
+		for (let s = 0; s <= n; s++) {
+			const at = run + (L * s) / n
+			if (at < skipM || at > total - skipM) continue
+			best = Math.min(best, Math.hypot(p.x + ((q.x - p.x) * s) / n - c.x, p.z + ((q.z - p.z) * s) / n - c.z))
+		}
+		run += L
+	}
+	return best
+}
+
+function monumentsClear(pts: Pt[], centres: Pt[]): boolean {
+	for (const c of centres) if (minDistToCentre(pts, c, NETWORK_MONUMENT_END_SKIP_M) < NETWORK_MONUMENT_HARD_M - 1e-6) return false
+	return true
+}
+
+function arcDetour(map: TerrainMap, level: number, p: Pt, q: Pt, c: Pt): Pt[] | null {
+	const R = NETWORK_MONUMENT_ARC_M
+	const dP = Math.hypot(p.x - c.x, p.z - c.z), dQ = Math.hypot(q.x - c.x, q.z - c.z)
+	const thP = Math.atan2(p.z - c.z, p.x - c.x), thQ = Math.atan2(q.z - c.z, q.x - c.x)
+	const eP = dP > R ? Math.acos(R / dP) : 0, eQ = dQ > R ? Math.acos(R / dQ) : 0
+	const TAU = Math.PI * 2
+	let best: Pt[] | null = null, bestL = Infinity
+	for (const dir of [1, -1]) {
+		const a1 = thP + dir * eP, a2 = thQ - dir * eQ
+		let sweep = (dir * (a2 - a1)) % TAU
+		if (sweep < 0) sweep += TAU
+		if (sweep > Math.PI + 0.35) continue
+		const out: Pt[] = [p]
+		const n = Math.max(1, Math.ceil((sweep * R) / 3))
+		for (let k = 0; k <= n; k++) {
+			const a = a1 + dir * (sweep * k) / n
+			out.push({ x: c.x + Math.cos(a) * R, z: c.z + Math.sin(a) * R })
+		}
+		out.push(q)
+		let ok = true, L = 0
+		for (let k = 1; k < out.length && ok; k++) { ok = straightOnLevel(map, level, out[k - 1], out[k]); L += Math.hypot(out[k].x - out[k - 1].x, out[k].z - out[k - 1].z) }
+		if (ok && L < bestL) { best = out; bestL = L }
+	}
+	return best
+}
+
+/** Reroute every leg of `pts` that comes too close to a monument; null when a detour can't stay on the level. */
+function detourMonuments(map: TerrainMap, level: number, pts: Pt[], centres: Pt[]): Pt[] | null {
+	let cur = pts
+	for (const c of centres) {
+		// The A* chain runs through 16 m cell centres, and a monument sits on one: drop interior vertices inside the trigger radius.
+		const last = cur.length - 1
+		cur = cur.filter((p, k) => k === 0 || k === last || Math.hypot(p.x - c.x, p.z - c.z) >= NETWORK_MONUMENT_TRIGGER_M)
+		for (let guard = 0; guard < 8; guard++) {
+			let hit = -1
+			for (let k = 1; k < cur.length && hit < 0; k++) {
+				if (minDistToCentre([cur[k - 1], cur[k]], c, 0.75) < NETWORK_MONUMENT_TRIGGER_M) hit = k
+			}
+			if (hit < 0) break
+			const d = arcDetour(map, level, cur[hit - 1], cur[hit], c)
+			if (!d) return null
+			cur = [...cur.slice(0, hit - 1), ...d, ...cur.slice(hit + 1)]
+		}
+	}
+	return cur
+}
+
+
 /** A* + string-pull + rasterise. Null when no route fits the budget. */
 export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLinkRoute | null {
 	const ca = cellOfWorld(a.x, a.z), cb = cellOfWorld(b.x, b.z)
@@ -384,6 +485,16 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	// comes straight in (only if that leg stays on clear walkable ground).
 	trimEnd(map, runs[0], true, a)
 	trimEnd(map, runs[runs.length - 1], false, b)
+	// Never through a monument: arc around every monument that is not an end of this link (before smoothing).
+	const centres = monumentCentres(map, a, b)
+	if (centres.length > 0) {
+		for (const r of runs) {
+			const d = detourMonuments(map, r.level, r.pts, centres)
+			if (!d) return null
+			r.pts = d
+		}
+	}
+	const rawPts = runs.map((r) => r.pts)
 
 	const runsLen = (rs: LinkRun[]) => { let L = 0; for (const r of rs) for (let k = 1; k < r.pts.length; k++) L += Math.hypot(r.pts[k].x - r.pts[k - 1].x, r.pts[k].z - r.pts[k - 1].z); return L }
 	if (runsLen(runs) > budget) return null
@@ -398,6 +509,8 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	} else {
 		runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) })
 	}
+	// Smoothing / meander / fillets may cut a corner back toward a monument: such a run falls back to the plain detour.
+	if (centres.length > 0) runs.forEach((r, i) => { if (!monumentsClear(r.pts, centres)) r.pts = rawPts[i] })
 	const lengthM = runsLen(runs)
 
 	return { runs, lengthM, cells: pathCells(map, runs) }

@@ -1,10 +1,8 @@
 /**
- * topDownCamera.ts — spectator-style angled isometric camera with follow + pan.
+ * topDownCamera.ts — spectator-style angled isometric camera that follows the player.
  *
- * Two modes:
- *   FOLLOW  — the focus point lerps toward the player each frame (default).
- *   FREE    — the focus point is driven by pan input (mouse drag on desktop,
- *             d-pad hold on mobile). Follow re-engages on recenter().
+ * The focus point lerps toward the player each frame. There is no manual pan / drag (removed
+ * on purpose, desktop and mobile): the view only zooms, turns by button and auto-rotates off cliffs.
  *
  * Camera pose (axonometric approximation):
  *   DCL has no orthographic camera, so the VirtualCamera sits FAR from the
@@ -17,8 +15,7 @@
  *   screen-up    on the ground = F = ( sin ψ, cos ψ)   camera forward, flattened
  *   screen-right on the ground = R = ( cos ψ, -sin ψ)
  *   With ψ = 45°: screen-up = north-east, screen-right = south-east.
- *   All pan input (drag + d-pad) is mapped through F / R, so panning always
- *   follows the rotated view (F / R track the live, possibly blending, yaw).
+ *   F / R track the live, possibly blending, yaw.
  *
  * Auto-rotation (occlusion): every ISO_OCCLUDE_SAMPLE_S the ray from the
  * camera to the player's chest is sampled against the 16 m terrain cell
@@ -33,11 +30,7 @@
  *   setupTopDownCamera()   — create entities + register systems (call once).
  *   toggleTopDownCamera()  — flip in/out of top-down mode.
  *   isTopDownActive()      — for UI reactivity.
- *   applyPanDelta(dx, dy)  — desktop drag input, screen pixels.
- *   beginPan(vx, vz)       — mobile d-pad, start panning (see beginPan for the axis convention).
- *   endPan()               — mobile d-pad, stop.
- *   recenter()             — snap back to FOLLOW mode.
- *   getAvatarOffscreenHint() — edge face-bubble cue when the avatar left the view.
+ *   zoomIn / zoomOut / rotateView — zoom steps and the 90° turn.
  */
 
 import { engine, Entity, InputAction, MainCamera, PointerEventType, Transform, VirtualCamera, inputSystem } from '@dcl/sdk/ecs'
@@ -136,18 +129,7 @@ const FOLLOW_RATE = 5.0
 const FOLLOW_SNAP_EPSILON = 0.05
 
 // How far outside the scene bounds the focus point may sit, scaled with zoom.
-const PAN_BOUNDS_MARGIN_BASE = 4
-
-// Mobile d-pad pan speed (world m/s at view scale 30), scaled with zoom.
-const DPAD_PAN_SPEED_BASE = 22
-
-// Desktop drag: minimum cumulative pixel movement before a click starts panning.
-const DRAG_START_THRESHOLD_PX = 3
-
-// Desktop pixel-drag → world metres at view scale 30 (scaled with zoom).
-// Screen-vertical drags are divided by sin(pitch) because the ground is
-// foreshortened along the view direction.
-const DRAG_M_PER_PX_BASE = 0.05
+const FOCUS_BOUNDS_MARGIN_BASE = 4
 
 
 // MARK: Derived pose
@@ -183,22 +165,11 @@ let zoomMobile                    = false
 let zoomInit                      = false
 let fovApplied                    = -1
 
-const enum Mode { FOLLOW, FREE }
-let mode: Mode = Mode.FOLLOW
-
 // Focus point (world XZ) and its smoothed ground height.
 const targetPos = { x: CENTER_X, z: CENTER_Z }
 let focusY      = 0
 /** Smoothed effective camera distance (m) after clamps. */
 let camDist     = CAM_ALTITUDE_DEFAULT * ISO_DIST_PER_SCALE
-
-// Current pan velocity from mobile d-pad (world m/s on X / Z axes).
-const panVel = { x: 0, z: 0 }
-
-// Desktop drag bookkeeping.
-let dragActive         = false
-let dragPanning        = false
-let dragAccumPx        = 0
 
 // Yaw / auto-rotation state.
 /** Target yaw slot (0..3 → 45 + 90k°). */
@@ -250,12 +221,6 @@ export function setupTopDownCamera(): void {
 			toggleTopDownCamera()
 		}
 
-		if (inputSystem.isTriggered(InputAction.IA_POINTER, PointerEventType.PET_UP)) {
-			dragActive  = false
-			dragPanning = false
-			dragAccumPx = 0
-		}
-
 		if (active) updateCamera(dt)
 	})
 }
@@ -269,7 +234,7 @@ export function setupTopDownCamera(): void {
  */
 function updateCamera(dt: number): void {
 	updateYaw(dt)
-	if (mode === Mode.FOLLOW) {
+	{
 		const p = Transform.getOrNull(engine.PlayerEntity)?.position
 		if (p) {
 			const t = 1 - Math.exp(-FOLLOW_RATE * dt)
@@ -282,18 +247,6 @@ function updateCamera(dt: number): void {
 				targetPos.x += dx * t
 				targetPos.z += dz * t
 			}
-		}
-	} else {
-		if (
-			inputSystem.isPressed(InputAction.IA_FORWARD)  ||
-			inputSystem.isPressed(InputAction.IA_BACKWARD) ||
-			inputSystem.isPressed(InputAction.IA_LEFT)     ||
-			inputSystem.isPressed(InputAction.IA_RIGHT)
-		) {
-			recenter()
-		} else {
-			targetPos.x += panVel.x * dt
-			targetPos.z += panVel.z * dt
 		}
 	}
 
@@ -429,13 +382,6 @@ export function rotateView(steps: number): void {
 	yawBlendT  = 0
 	sinceTurnS = 0
 	blockedS   = 0
-	// Re-aim an active d-pad pan at the new frame as it turns.
-	if (panVel.x !== 0 || panVel.z !== 0) {
-		const sp = Math.hypot(panVel.x, panVel.z)
-		const ang = Math.atan2(panVel.x, panVel.z) + (yawToDeg - yawFromDeg) * DEG
-		panVel.x = Math.sin(ang) * sp
-		panVel.z = Math.cos(ang) * sp
-	}
 }
 
 
@@ -471,9 +417,9 @@ function maxDistance(): number {
 
 
 // MARK: clampToBounds
-/** Keep the focus point inside the scene, with a small overpan margin. */
+/** Keep the focus point inside the scene, with a small margin. */
 function clampToBounds(): void {
-	const margin = PAN_BOUNDS_MARGIN_BASE * (currentAltitude / 30)
+	const margin = FOCUS_BOUNDS_MARGIN_BASE * (currentAltitude / 30)
 	const minX = -margin
 	const maxX = SCENE_WORLD_SIZE_X_METERS + margin
 	const minZ = -margin
@@ -497,9 +443,6 @@ export function toggleTopDownCamera(): void {
 			targetPos.x = p.x
 			targetPos.z = p.z
 		}
-		mode = Mode.FOLLOW
-		panVel.x = 0
-		panVel.z = 0
 		// Pixelwars zoom: latch the platform table; mobile snaps to closest each open.
 		const mobile = isMobile()
 		useZoomTable(mobile, !zoomInit || mobile)
@@ -520,104 +463,6 @@ export function toggleTopDownCamera(): void {
 /** True while the isometric VirtualCamera is the active camera. */
 export function isTopDownActive(): boolean {
 	return active
-}
-
-
-// MARK: recenter
-/** Snap back to FOLLOW mode (camera glides back to the player). */
-export function recenter(): void {
-	mode     = Mode.FOLLOW
-	panVel.x = 0
-	panVel.z = 0
-}
-
-
-// MARK: applyPanDelta
-/**
- * Desktop drag input: pan by a screen-pixel delta, grab-and-pull-the-world
- * (Google Maps). Mapped through the rotated screen frame:
- *   drag up    → focus moves along -FWD (world slides up the screen)
- *   drag right → focus moves along -RIGHT
- * The pointer delta's y grows toward the BOTTOM of the screen, so the
- * vertical term uses +dy (the old -dy panned inverted in playtest).
- * Desktop only: the mobile d-pad goes through beginPan, untouched.
- */
-export function applyPanDelta(dxPx: number, dyPx: number): void {
-	if (!active) return
-	if (!dragActive) return
-
-	dragAccumPx += Math.abs(dxPx) + Math.abs(dyPx)
-	if (!dragPanning) {
-		if (dragAccumPx < DRAG_START_THRESHOLD_PX) return
-		dragPanning = true
-	}
-
-	mode = Mode.FREE
-
-	// Pointer delta: positive y = cursor moved DOWN the screen (see header).
-	const mPerPx = DRAG_M_PER_PX_BASE * (currentAltitude / 30)
-	const up     = dyPx * mPerPx / SIN_P
-	const right  = -dxPx * mPerPx
-	targetPos.x += FWD.x * up + RIGHT.x * right
-	targetPos.z += FWD.z * up + RIGHT.z * right
-}
-
-
-// MARK: beginDrag
-/** Desktop: called by the UI overlay on pointer press. */
-export function beginDrag(): void {
-	if (!active) return
-	dragActive  = true
-	dragPanning = false
-	dragAccumPx = 0
-}
-
-
-// MARK: endDrag
-/** Desktop: called by the UI overlay on pointer release. */
-export function endDrag(): void {
-	dragActive  = false
-	dragPanning = false
-	dragAccumPx = 0
-}
-
-
-// MARK: isDragging
-/** True while a desktop pan drag is in progress (post-threshold). */
-export function isDragging(): boolean {
-	return dragPanning
-}
-
-
-// MARK: beginPan
-/**
- * Mobile d-pad: start panning. The d-pad still passes the legacy overhead
- * axis convention (screen-up = vx -1, screen-right = vz +1), which is
- * converted here to the rotated iso frame so "up" pans along the camera's
- * forward ground direction. Switches to FREE mode.
- */
-export function beginPan(vx: number, vz: number): void {
-	if (!active) return
-	mode = Mode.FREE
-	const up    = -vx
-	const right =  vz
-	panVel.x = FWD.x * up + RIGHT.x * right
-	panVel.z = FWD.z * up + RIGHT.z * right
-}
-
-
-// MARK: endPan
-/** Mobile d-pad: stop panning. Camera holds its current position. */
-export function endPan(): void {
-	panVel.x = 0
-	panVel.z = 0
-}
-
-
-// MARK: getDpadSpeed
-/** D-pad speed (m/s), scaled with zoom so on-screen pan feel stays constant. */
-export function getDpadSpeed(): number {
-	return DPAD_PAN_SPEED_BASE * (currentAltitude / 30)
 }
 
 
@@ -676,49 +521,8 @@ export function canZoomIn(): boolean { return active && zoomIndex > 0 }
 export function canZoomOut(): boolean { return active && zoomIndex < zoomTable().length - 1 }
 
 
-// MARK: AvatarOffscreenHint
-export interface AvatarOffscreenHint {
-	/** Direction toward the avatar on screen. 0 = top, 90 = right, 180 = bottom, 270 = left. */
-	angleDeg: number
-}
-
-
 // MARK: getTopDownFocus
 /** Ground point (x, z) the overview camera is centred on, or null while the overview is off. */
 export function getTopDownFocus(): { x: number; z: number } | null {
 	return active ? { x: targetPos.x, z: targetPos.z } : null
-}
-
-
-// MARK: getAvatarOffscreenHint
-/**
- * When free-panned far enough that the local avatar is outside the
- * viewport, returns the screen angle toward them. Null while following,
- * inactive, or while the avatar is still on screen.
- */
-export function getAvatarOffscreenHint(): AvatarOffscreenHint | null {
-	if (!active) return null
-	if (mode === Mode.FOLLOW) return null
-
-	const p = Transform.getOrNull(engine.PlayerEntity)?.position
-	if (!p) return null
-
-	// Screen-space metres (at the focus plane) from focus → avatar.
-	const dx = p.x - targetPos.x
-	const dz = p.z - targetPos.z
-	const screenRight = dx * RIGHT.x + dz * RIGHT.z
-	const screenUp    = (dx * FWD.x + dz * FWD.z) * SIN_P + (p.y - focusY) * COS_P
-
-	// Half-viewport at the focus from the actual throw + FOV.
-	const halfH = camDist * Math.tan(ISO_FOV_DEG * DEG / 2)
-	const halfW = halfH * (isMobile() ? 0.85 : 1.65)
-	const margin = 0.82
-	const onScreen =
-		Math.abs(screenRight) <= halfW * margin &&
-		Math.abs(screenUp)    <= halfH * margin
-	if (onScreen) return null
-
-	let angleDeg = Math.atan2(screenRight, screenUp) * (180 / Math.PI)
-	if (angleDeg < 0) angleDeg += 360
-	return { angleDeg }
 }

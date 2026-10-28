@@ -1,5 +1,7 @@
 /**
- * layer.thawSplash.tsx — "WORLD THAWED" victory title.
+ * layer.thawSplash.tsx — "WORLD THAWED" victory title / the ending's title card ("THE WORLD BEGINS TO THAW").
+ * A long title stays on one line when it fits the canvas, else breaks into two lines and shrinks to fit (shared/titleFit.ts,
+ * so it also fits a mobile portrait screen).
  */
 
 import { Color4 } from '@dcl/sdk/math'
@@ -9,6 +11,8 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { getThawSplashOpacity, getThawSplashText } from 'src/client/thawSplash'
 import { UI_THEME } from 'src/client/ui/theme/settings'
+import { readCanvasDimensions } from 'src/client/ui/utils/sizing'
+import { titleFit } from 'src/shared/titleFit'
 
 
 const { fontSizes } = UI_THEME
@@ -30,6 +34,7 @@ class ThawSplashLayer extends Layer {
 			return <UiEntity key="ui_ThawSplash_hidden" uiTransform={{ display: 'none' }} />
 		}
 
+		const fit = titleFit(line, readCanvasDimensions().width, fontSizes.hero)
 		return (
 			<UiEntity
 				key         = "ui_ThawSplash_root"
@@ -46,7 +51,7 @@ class ThawSplashLayer extends Layer {
 					key         = "ui_ThawSplash_lineWrap"
 					uiTransform = {{
 						width         : '90%',
-						height        : 140,
+						height        : Math.max(140, fit.heightPx),
 						alignItems    : 'center',
 						justifyContent: 'center',
 						margin        : { bottom: '14%' },
@@ -54,12 +59,13 @@ class ThawSplashLayer extends Layer {
 					}}
 				>
 					<Label
-						value     = {line}
-						fontSize  = {fontSizes.hero}
+						value     = {fit.lines.join('\n')}
+						fontSize  = {fit.fontPx}
+						textWrap  = "nowrap"
 						color     = {GOLD}
 						font      = "sans-serif"
 						textAlign = "middle-center"
-						uiTransform = {{ width: '100%', height: 140 }}
+						uiTransform = {{ width: '100%', height: Math.max(140, fit.heightPx) }}
 					/>
 				</UiEntity>
 			</UiEntity>

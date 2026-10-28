@@ -9,9 +9,9 @@
  * Reset on cycle roll. Late joiners hydrate stations + thaw stage/wave.
  */
 
-import { DEBUG_FINALE_BUTTON, DEBUG_THAW_BUTTON } from 'src/client/devFlags'
+import { debugFinaleAllowed, DEBUG_THAW_BUTTON } from 'src/client/devFlags'
 import {
-	FINALE_DEBUG_DELAY_S, FINALE_START_DELAY_S, finaleAvoidZone, finaleEdgeLengths, finaleEdges, finalePoints, finaleTimes,
+	FINALE_DEBUG_DELAY_S, FINALE_PULSE_S, FINALE_SNOW_RADIUS_M, FINALE_START_DELAY_S, finaleAvoidZone, finaleEdges, finalePoints, finaleTimes,
 } from 'src/shared/finale'
 import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
@@ -61,8 +61,8 @@ import { markRunTainted } from 'src/server/runIntegrity'
 import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
 import { getVisibleEdges } from 'src/server/fireNetworkLinks'
 import { CHARGE_LINK_END_HALF_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
-import { heatZoneCellCount, meltDisc, releaseDiscOutside, startCorridorFront, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
-import { oasisClear, oasisNoteRelease, oasisRelease, oasisTick } from 'src/shared/terrain/oasis'
+import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
+import { oasisClear, oasisNoteRelease, oasisRelease, oasisSetFinalePulse, oasisTick } from 'src/shared/terrain/oasis'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { chargeHeatFuel } from 'src/shared/ruleset'
 
@@ -223,9 +223,10 @@ function finalePayload(fresh: boolean): { seed: number; running: number; first: 
 }
 
 /**
- * The last monument was released: schedule the ending `delayS` from now (its release cinematic finishes first). Beams
- * link the monument tips (client, from the shared ring), and the snow under each beam thaws along a corridor
- * (snowState.startCorridorFront). Idempotent per cycle. The game goes on afterwards (no world thaw / cycle roll).
+ * The last monument was released: schedule the ending `delayS` from now (its release cinematic finishes first). Beams link the
+ * monument tips (client, from the shared ring) all at once, then every monument releases the same pulse: the oasis registry grows every
+ * oasis to the larger finale radius (oasisSetFinalePulse, same clock on every client) and the snow in that area melts with it
+ * (one held heat front per monument, FINALE_PULSE_S). No thaw corridors. Idempotent per cycle. The game goes on afterwards.
  */
 function startFinale(first: number, delayS: number, reason: string): void {
 	if (!isFloatingCrystals() || finaleStartMs > 0) return
@@ -236,14 +237,12 @@ function startFinale(first: number, delayS: number, reason: string): void {
 	if (edges.length === 0) return
 	finaleStartMs = Date.now() + delayS * 1000
 	finaleFirst = first
-	const times = finaleTimes(finaleEdgeLengths(pts, edges))
-	for (let k = 0; k < edges.length; k++) {
-		const [a, b] = edges[k]
-		startCorridorFront(pts[a].x, pts[a].z, pts[b].x, pts[b].z, k, finaleStartMs + times.thawStartS[k] * 1000, times.thawDurS[k] * 1000)
-	}
+	const times = finaleTimes()
+	oasisSetFinalePulse(finaleStartMs + times.pulseAtS * 1000)
+	for (const p of pts) startHeatZoneFront(p.x, p.z, FINALE_SNOW_RADIUS_M, FINALE_PULSE_S, delayS + times.pulseAtS, 0)
 	console.log(
-		`[Server] stations: FINALE scheduled (${reason}) in ${delayS.toFixed(1)} s, ring ${times.total.toFixed(0)} m from monument ${first}: ` +
-		edges.map(([a, b]) => `${a}>${b}`).join(' ') + ` beams ${times.beamsDoneS.toFixed(1)} s, thaw ${times.thawBeginS.toFixed(1)}-${times.thawEndS.toFixed(1)} s`,
+		`[Server] stations: FINALE scheduled (${reason}) in ${delayS.toFixed(1)} s, ${pts.length} monuments, ring from monument ${first}: ` +
+		edges.map(([a, b]) => `${a}>${b}`).join(' ') + ` beams ${times.beamStartS.toFixed(1)}-${times.beamsDoneS.toFixed(1)} s, pulse ${times.pulseAtS.toFixed(1)}-${times.pulseEndS.toFixed(1)} s (r ${FINALE_SNOW_RADIUS_M} m)`,
 	)
 	room.send('crystalFinaleState', finalePayload(true))
 }
@@ -292,6 +291,7 @@ function advanceThawStage(reason: string): void {
 function resetForCycle(seed: number): void {
 	currentSeed = seed
 	oasisClear()
+	oasisSetFinalePulse(Number.POSITIVE_INFINITY)
 	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0; releasedAtMs[i] = 0 }
 	resetCharges()
 	worldThawed = false
@@ -319,6 +319,16 @@ export function getActiveStationCount(): number {
 
 export function isWorldThawed(): boolean {
 	return worldThawed
+}
+
+/** Server epoch ms the ending started at (0 = it has not been scheduled this world). */
+export function getFinaleStartMs(): number {
+	return finaleStartMs
+}
+
+/** The expedition is won: the ending was scheduled (floating crystals). From then on nothing brings winter back by itself. */
+export function isExpeditionWon(): boolean {
+	return isFloatingCrystals() && finaleStartMs > 0
 }
 
 
@@ -466,12 +476,13 @@ export function setupStationsServer(): void {
 		advanceThawStage(`debug button by ${from}`)
 	})
 
-	// TEMPORARY debug (DEBUG_FINALE_BUTTON): every unreleased monument is released SILENTLY (clients snap to the finished
-	// crystal, no six cinematics), then the ending starts FINALE_DEBUG_DELAY_S later. Taints the run.
+	// TEMPORARY debug (DEBUG_FINALE_BUTTON, optionally limited to DEBUG_FINALE_HOSTS): every unreleased monument is released
+	// SILENTLY (clients snap to the finished crystal, no per-monument cinematics), then the ending starts FINALE_DEBUG_DELAY_S later.
+	// Taints the run (markRunTainted) so no leaderboard record is written.
 	room.onMessage('debugFinale', ({ seed }, context) => {
 		const from = context?.from ?? 'unknown'
-		if (!DEBUG_FINALE_BUTTON) {
-			console.log(`[Server] stations: debugFinale from ${from} ignored (flag off)`)
+		if (!debugFinaleAllowed(from)) {
+			console.log(`[Server] stations: debugFinale from ${from} ignored (flag off / not a listed host)`)
 			return
 		}
 		if (!isFloatingCrystals() || !cycleSeedsEqual(seed, currentSeed)) return
@@ -526,6 +537,7 @@ export function setupStationsServer(): void {
 	// Post-win: after POST_THAW_DAYS full days, winter returns via the
 	// normal cycle roll (fresh seed, snow, stations, thaw flag, phase).
 	onPhaseChange(() => {
+		if (isFloatingCrystals()) return // the restored world stays: only a player's NEW EXPEDITION (server/expedition.ts) starts a new winter
 		if (!worldThawed) return
 		const day = getDayNumber()
 		if (day < thawDay + POST_THAW_DAYS + 1) return
@@ -693,7 +705,7 @@ function chargeSystem(dt: number): void {
 	setChargePairs(pairs)
 	setChainHops(chainBest)
 	if (released && getActiveStationCount() >= stationTotal()) {
-		// The last monument is up: the ending (beams link the tips, the snow under them thaws, "Level Thaws").
+		// The last monument is up: the ending (beams link the tips, then the synchronized pulse melts a large area around every monument).
 		startFinale(lastReleased, FINALE_START_DELAY_S, 'last crystal released')
 		advanceThawStage('all crystals released') // floating crystals: no-op (no volcano thaw / cycle roll)
 	}

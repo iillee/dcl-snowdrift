@@ -1,5 +1,8 @@
 # Session 2026-10-26 - staged volcano, world end, overview, first-load fix
 
+> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 monuments, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (6 monuments charged by player-built fires, oasis, World Thaws ending); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins.
+
+
 Branch `cinematic`, on top of e608161.
 
 - **Cinematic camera:** one continuous crane move with precomputed terrain clearance (CINE_CRANE_SAMPLES 160, CINE_CRANE_LIFT_WIN 10) and a spring-smoothed look target that ignores the obelisk bob (CINE_LOOK_OMEGA 5, CINE_LOOK_SKY_LIFT_M / CINE_LOOK_LAND_LIFT_M). beam.wav softened: BEAM_SFX_VOLUME 0.45, BEAM_SFX_FADE_IN_S 0.8.

@@ -17,7 +17,7 @@
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { LOG_FUEL_SECONDS, TIER_FUEL } from 'src/shared/hearthFuel'
-import { isInsidePlayfield, TERRAIN_LEVEL_MOUNTAIN } from 'src/shared/settings'
+import { isInsidePlayfield, TERRAIN_LEVEL_MOUNTAIN, WORLD_IS_COMPACT, WORLD_MONUMENT_COUNT } from 'src/shared/settings'
 import { SnowStage } from 'src/shared/snowGrid'
 import { volcanoCraterHeatCenter, CRATER_HEAT_RADIUS_M } from 'src/shared/terrain/volcanoCraterHeat'
 import {
@@ -65,18 +65,23 @@ export function isFloatingCrystals(): boolean {
  */
 export const MONUMENT_EDGE_PREF_M  = 30
 export const MONUMENT_EDGE_MIN_MUL = 0.5
-/** Monuments per world in floating-crystals mode (classic / build-your-own-fire keep 3). Max 8. */
-export const MONUMENT_COUNT = 6
+/**
+ * Monuments per world in floating-crystals mode (classic / build-your-own-fire keep 3). Max 8.
+ * Derived from the active WORLD_PROFILE (settings.ts): 6 standard, 3 for the compact 15-player playtest.
+ */
+export const MONUMENT_COUNT = WORLD_MONUMENT_COUNT
 /**
  * Distance bands (fraction of the farthest reachable route from the
  * hearth) world gen fills first, one monument each, after the near
  * monument; the rest fill by the usual score. Some near, some far.
+ * Compact 3-monument profile: A = the near monument (preset, ~40 m, Introduction), B = mid band (Exploration, needs a
+ * network extension), C = far band (Expedition, the most remote; still inside the small map).
  */
-export const MONUMENT_DISTANCE_BANDS: ReadonlyArray<readonly [number, number]> = [
-	[0.15, 0.3], [0.3, 0.5], [0.5, 0.7], [0.7, 0.85], [0.85, 1.0],
-]
+export const MONUMENT_DISTANCE_BANDS: ReadonlyArray<readonly [number, number]> = WORLD_IS_COMPACT
+	? [[0.25, 0.42], [0.5, 0.72]]
+	: [[0.15, 0.3], [0.3, 0.5], [0.5, 0.7], [0.7, 0.85], [0.85, 1.0]]
 /** Min angle (deg) between monuments as seen from the hearth (classic: 45). */
-export const MONUMENT_MIN_ANGLE_DEG = 35
+export const MONUMENT_MIN_ANGLE_DEG = WORLD_IS_COMPACT ? 55 : 35
 /** Last-resort spacing (fraction of the classic monument spacing) if all N don't fit. */
 export const MONUMENT_RELAX_SEP_FRAC = 0.6
 /** Monument link range (m): a lit fire this close with a live (routed, kept) link to the monument charges it. */

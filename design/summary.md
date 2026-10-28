@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-05.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-28 (floating-crystals ruleset; see [`../docs/HANDOFF.md`](../docs/HANDOFF.md)). Sections written before 2026-10-27 describe earlier rulesets where marked.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -25,7 +25,7 @@ The pitch:
 ## How a session actually plays
 
 - **First 30 seconds (playtest build).** Black screen: "A new hearth is kindled." / "Don't let the fire die." You wake by the hearth. Day 1 if you started the world; otherwise the world's current day. Light the torch at the fire.
-- **First few minutes (playtest build).** Melt snow to reveal a branch (60 s) or a log (120 s). Wood sits out to the far trees, and never on a cliff. Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The flame shrinks as the fuel does, and the warmth shrinks with it. Teaching pits sit around home; groves carry their own small fire sets; more pits grow outward in generations. Lit fires within 140 m link into a network: a curved, melted, Low-warmth path lit by floating orbs, and wood fed to one fire is shared (half stays, half goes to the hungriest fire within 2 hops). A full frost bar freezes you in the ice. Another player's lit torch can thaw you (ice melt SFX per thaw step).
+- **First few minutes (playtest build).** Melt snow to reveal a log (120 s; branches were removed 2026-10-27). Wood sits out to the far trees, and never on a cliff. Or walk to a tree and chop: four logs, the tree shrinks, then it is gone. One thing in the F slot. Feed the fire. The flame shrinks as the fuel does, and the warmth shrinks with it. You build your own fires: carry a log, light it with your torch (a squat-and-strike emote) and the fire appears just ahead of you. A fire that runs out turns to ash and disappears, so a new fire always costs a log. Lit fires within 140 m link into a network: a curved, melted, Low-warmth path lit by floating orbs, and wood fed to one fire is shared (half stays, half goes to the hungriest fire within 2 hops). A full frost bar freezes you in the ice. Another player's lit torch can thaw you (ice melt SFX per thaw step).
 - **v1 target, not in this build.** Kindling everywhere, deadwood and pine around groves, fell a tree by holding torch heat, charcoal at a kiln.
 - **Session shape.** Gather → tend → hold territory → decide which fires matter → make it to the next solstice.
 
@@ -35,7 +35,7 @@ Cryocene runs on three interlocking cycles, each with its own pressure and payof
 
 - **Day / night cycle (micro, minutes). Shipped.** Dawn, day, dusk, night. Day is for gathering. Dusk is the regroup. Night is when fires drain fastest and the cold bites. Players gather at the fires. Warmth comes from a lit torch or a campfire, not from standing near each other.
 - **Seasonal / yearly cycle (meso). Planned, not in this build.** Autumn → early winter → deep winter → solstice approach → winter solstice → thaw → spring.
-- **The run (macro). The end condition is shipped. The empty-server half is not.** One shared run per world. It ends when every player still connected is frozen and no fire is left. A fresh seed follows. Persistence across an empty server, and a "while you were gone" screen, are still planned.
+- **The run (macro). The end condition is shipped. The empty-server half is not.** One shared run per world. It ends when no campfire and no torch has been lit for a few seconds. A fresh seed follows. Persistence across an empty server, and a "while you were gone" screen, are still planned.
 
 Same verb at three scales: tend the torch through the night, tend the network through the winter, tend the run across many winters. The winter and the many-winter scales are the v1 target.
 
@@ -45,7 +45,7 @@ Same verb at three scales: tend the torch through the night, tend the network th
 
 - **One shared run.** Every player in the scene is in the same winter.
 - **A live server keeps that winter.** Leave and come back to the same seed, the same day, the same fires. A new server start draws a fresh seed. So does every regen. That is not the UTC-day layout, and it is not the unbuilt empty-server save.
-- **Freeze is personal. Extinction is the run.** You freeze in the ice where you stand. A lit torch can thaw you. A lit fire wakes the frozen. No fire, and no one left standing, and the run ends. Someone still moving can relight a dark fire and recover the group.
+- **Freeze is personal. Extinction is the run.** You freeze in the ice where you stand. A lit torch can thaw you. A lit fire wakes the frozen. No flame left anywhere (no campfire, no lit torch), and the run ends. Someone still moving can relight a dark fire and recover the group.
 - **The fire you see is the fire you get.** Fuel sets the flame size, the melt ring, and the warmth rate together. The smallest flame still heats. From dusk it loses to the cold. Wood is what makes it safe.
 - **Wood is finite inside a run.** Nothing grows back until the world regenerates.
 
@@ -53,11 +53,11 @@ Same verb at three scales: tend the torch through the night, tend the network th
 
 - **World state survives an empty server.** Log off Day 17, come back to a later day. A personal "while you were gone" summary. Offline advance at full rate.
 - **Oldest surviving fire becomes the new home** if the hearth falls and another fire is still lit. That migration is not built. What is built is simpler: any lit fire is a way back for the frozen.
-- **A new seed rerolls the long-term geography** (biomes, discoveries, hazards). The playtest already rerolls trees, buried wood, and the six hidden fires.
+- **A new seed rerolls the long-term geography** (biomes, discoveries, hazards). The playtest already rerolls trees, buried wood and the six monument sites (hidden fires were removed).
 
 ## Geography is the tech tree
 
-*Planned v1 layout. The playtest world is the 100 × 100 envelope in [Where the build is](#where-the-build-is-2026-10-05) (mobile still blocked on H1-07).*
+*Planned v1 layout. The earlier playtest world was the 100 x 100 envelope in [Where the build is](#where-the-build-was-2026-10-05) (mobile still blocked on H1-07).*
 
 The v1 world contains, arranged procedurally per seed:
 
@@ -79,7 +79,7 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 ## What's *not* in the game
 
 - No combat, no mobs, no NPCs.
-- No leaderboards, no personal power progression, no gear tiers.
+- No personal power progression, no gear tiers. (There is a per-player leaderboard: Longest, Fastest, Monuments, Biggest Firenet.)
 - No inventory beyond torch + one carry slot.
 - No world map, no minimap, no crafting menu, no unlock notifications.
 - No hunger/thirst/cooking. Cold is the only survival axis.
@@ -92,7 +92,19 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-10-07) — V1 MVP loop
+## Where the build is (2026-10-28) - floating crystals
+
+Ruleset `floating-crystals` (`src/shared/ruleset.ts`), branch `floating-crystals`, commit `f22ee9e`, profile `playtest_52` (52 x 52 parcels). Full detail, constants, tests and known issues: [`../docs/HANDOFF.md`](../docs/HANDOFF.md).
+
+The loop: wake at the permanent hearth, light a torch, gather logs (the only wood), **build your own fires** (carry a log, lit torch, E; the fire appears 1.2 m ahead, at least 18 m from any burning fire), and link them. Fires within 140 m form a network (dense topology, orb trails, shared fuel). Fires within 40 m of one of the **6 monuments** charge it; a full charge releases it: it rises, a sky beam lands in its tip, 2 s charge, burst. The release melts a 50 m heat zone and an **oasis**: the centre 12 m melts at once, then a ragged ~32 m clearing opens outward over 60 s across every terrace and wall top in reach, bare earth first, then grass, bushes, rocks and pines grow back. Releasing the sixth monument starts the **World Thaws** ending: beams link the monument tips in a ring, the snow under each beam thaws, a high cinematic follows, the title shows, and play carries on.
+
+**Fires die for good.** A fire that runs out becomes cold ash, cannot be relit, and disappears after 60 s. The hearth is exempt. Ash never blocks building or counts toward the 40-fire cap.
+
+Also: Biggest Firenet leaderboard tab, per-fire flame variety, sounds per monument (`monument.mp3` at rise, looping `crystal.mp3` from the beam hit, a quiet charging hum that fades with distance from the monument), desktop zoom steps 7 / 29 / 60 / 84 / 118.
+
+**Not built:** automatic new winter after World Thaws (the run resets only when all flame is out, or by the dev roll), seasons, solstice, empty-server persistence, return screens, kiln. **Untested:** mobile entity counts, the ash visual, the finale on small screens.
+
+## Where the build was (2026-10-07, classic volcano loop - superseded) — V1 MVP loop
 
 Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 monuments** in any order (E / **IGNITE MONUMENT** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s melt wave from the volcano over a ring covering ~55% of the map (ground snow, cliff ice caps, scatter wood) → eruption plume, lava, **WORLD THAWED**, no night cold inside the ring → 1 day of **Winter Approaches in 1 Day** → new winter. Lit monuments are eternal Warm fires (grey stone + flame; their tablet X turns red). The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
 

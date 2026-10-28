@@ -53,11 +53,24 @@ export const DEBUG_THAW_BUTTON = false
 
 /**
  * TEMPORARY 'END' button right of the frost bar (desktop + mobile), floating-crystals ruleset: fires the ENDING
- * ("Level Thaws": beams link the monument tips, the snow under them thaws, the title shows) without activating all
- * six monuments. Releases every unreleased monument silently, then the ending starts ~3 s later. Taints the run (no
- * leaderboard). The server handler is gated on this same flag. SET false BEFORE DEPLOY.
+ * ("The world begins to thaw": beams link the monument tips, every monument pulses and melts a large area, the title shows) without activating all
+ * monuments (3 in the compact_3 playtest profile, 6 in the standard one). Releases every unreleased monument silently,
+ * then the ending starts ~3 s later. Taints the run (no leaderboard record is ever written for that run). The server
+ * handler is gated on this same flag. SET false BEFORE DEPLOY.
+ *
+ * PLAYTEST HOST ONLY: leave DEBUG_FINALE_BUTTON false for everyone else's build; to keep a fallback in a playtest, set it
+ * true AND list the host's wallet in DEBUG_FINALE_HOSTS - then only that wallet sees the button and the server ignores
+ * 'debugFinale' from anyone else.
  */
 export const DEBUG_FINALE_BUTTON = false
+
+/** Lower-case wallet addresses allowed to use DEBUG_FINALE_BUTTON. Empty = no restriction (when the flag is on, everyone). */
+export const DEBUG_FINALE_HOSTS: string[] = []
+
+/** True when this wallet may see / use the debug finale button (the flag is on and, if a host list is set, the wallet is on it). Used by the client button and the server handler. */
+export function debugFinaleAllowed(address: string): boolean {
+	return DEBUG_FINALE_BUTTON && (DEBUG_FINALE_HOSTS.length === 0 || DEBUG_FINALE_HOSTS.includes(address.toLowerCase()))
+}
 
 /**
  * Local preview of the volcano lava + smoke stage (0..3); -1 = off (use

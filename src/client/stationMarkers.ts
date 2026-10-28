@@ -70,7 +70,8 @@ import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
 import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
-import { oasisClear, oasisNoteRelease, oasisRelease, oasisSetBurstReveal } from 'src/shared/terrain/oasis'
+import { FINALE_BEAM_XZ_M, finaleWarmRadiusM } from 'src/shared/finale'
+import { oasisClear, oasisFinalePulseMs, oasisNoteRelease, oasisRelease, oasisSetBurstReveal } from 'src/shared/terrain/oasis'
 import { setSnowCellOffsets } from 'src/client/snow/snowRenderer'
 import {
 	CINE_SETTLE_S,
@@ -283,7 +284,8 @@ const SKY_BEAM_CEILING_MARGIN_M = 4
  */
 const BEAM_JOINT_INSIDE_TIP_M = 0.4
 const BEAM_XZ_M = 0.5
-const SKY_BEAM_XZ_M = 0.42
+/** The vertical (sky) monument beam; the finale ring beams use the very same thickness (shared FINALE_BEAM_XZ_M). */
+const SKY_BEAM_XZ_M = FINALE_BEAM_XZ_M
 const BEAM_SEGMENTS = 10
 const SKY_BEAM_SEGMENTS = 10
 /** Volcano beam: fade begins at this fraction (dissolves into the plume). */
@@ -1185,6 +1187,7 @@ export function getMonumentTotal(): number {
 function clearAll(): void {
 	abortMonumentCinematic()
 	oasisClear()
+	clearFinalePulses()
 	clearMonumentChargeHums()
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots[i]
@@ -1719,7 +1722,7 @@ export function setupStationMarkers(): void {
 	engine.addSystem(gemSystem)
 	engine.addSystem(syncSnowOffsets)
 	engine.addSystem(gazeSystem)
-	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem); engine.addSystem(burstSystem); engine.addSystem(skyIdlePulseSystem) }
+	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem); engine.addSystem(burstSystem); engine.addSystem(finalePulseSystem); engine.addSystem(skyIdlePulseSystem) }
 
 	room.onMessage('monumentCharge', ({ seed, index, charge }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
@@ -1937,13 +1940,15 @@ export function paintFinaleBeam(e: Entity): void {
 /**
  * Warmth factor 0..1 at (x, z) from released crystals (floating-crystals
  * ruleset): 1 at a crystal, CRYSTAL_WARMTH_EDGE_FRAC at
- * CRYSTAL_HEAT_RADIUS_M, 0 outside. Uses the server active flag
+ * the warm radius, 0 outside. The warm radius is CRYSTAL_HEAT_RADIUS_M and grows with the finale pulse (finaleWarmRadiusM)
+ * to cover the enlarged melted area. Uses the server active flag
  * (pendingActive) so warmth starts at release, not after the rise.
  */
 export function crystalHeatAt(x: number, z: number): number {
 	if (!isFloatingCrystals()) return 0
 	let best = 0
-	const r2 = CRYSTAL_HEAT_RADIUS_M * CRYSTAL_HEAT_RADIUS_M
+	const warmR = finaleWarmRadiusM(oasisFinalePulseMs(), Date.now())
+	const r2 = warmR * warmR
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots[i]
 		if (!s || !pendingActive[i]) continue
@@ -1951,7 +1956,7 @@ export function crystalHeatAt(x: number, z: number): number {
 		const dz = z - s.z
 		const d2 = dx * dx + dz * dz
 		if (d2 > r2) continue
-		const t = Math.sqrt(d2) / CRYSTAL_HEAT_RADIUS_M
+		const t = Math.sqrt(d2) / warmR
 		const h = 1 - (1 - CRYSTAL_WARMTH_EDGE_FRAC) * t
 		if (h > best) best = h
 	}
@@ -2150,6 +2155,42 @@ function burstSystem(dt: number): void {
 		if (u >= 1) { oasisSetBurstReveal(b.cx, b.cz, Number.POSITIVE_INFINITY); engine.removeEntity(b.e); bursts[i] = null }
 	}
 }
+// MARK: Finale pulse
+/**
+ * The ending's synchronized pulse: every monument releases the same larger energy flash at once (the release burst's look: a bright
+ * translucent sphere that grows from the crystal and fades, existing burst sound). The ground / snow / vegetation follow the same radial
+ * front through the oasis (shared/terrain/oasis.ts finale pulse) and the server heat front; this is only the visual.
+ */
+const finalePulses: Array<{ e: Entity; t: number; durS: number; endD: number }> = []
+export function startFinalePulse(durS: number, radiusM: number): void {
+	const map = activeTerrain()
+	for (const slot of slots) {
+		if (!slot) continue
+		const h = crystalFloatAboveGround(map, slot.groundY)
+		const e = engine.addEntity()
+		Transform.create(e, { position: sphereCentre(slot), scale: Vector3.create(CRYSTAL_SPHERE_MAX_M, CRYSTAL_SPHERE_MAX_M, CRYSTAL_SPHERE_MAX_M) })
+		MeshRenderer.setSphere(e)
+		paintEnergy(e, 1, 5)
+		finalePulses.push({ e, t: 0, durS: Math.max(1, durS), endD: 2 * Math.hypot(radiusM + HEAT_FRONT_BAND_M, h) })
+	}
+	playBeamSfx(BURST_SFX_VOLUME, 0.05)
+}
+function finalePulseSystem(dt: number): void {
+	for (let i = finalePulses.length - 1; i >= 0; i--) {
+		const p = finalePulses[i]
+		p.t += dt
+		const u = Math.min(1, p.t / p.durS)
+		const d = Math.max(CRYSTAL_SPHERE_MAX_M, p.endD * u)
+		Transform.getMutable(p.e).scale = Vector3.create(d, d, d)
+		paintEnergy(p.e, Math.pow(1 - u, 1.5), 5)
+		if (u >= 1) { engine.removeEntity(p.e); finalePulses.splice(i, 1) }
+	}
+}
+function clearFinalePulses(): void {
+	for (const p of finalePulses) engine.removeEntity(p.e)
+	finalePulses.length = 0
+}
+
 function clearSphere(i: number): void {
 	const b = bursts[i]
 	if (b) { engine.removeEntity(b.e); if (b.doneR < CRYSTAL_HEAT_RADIUS_M) releaseHeatFrontPrediction() }

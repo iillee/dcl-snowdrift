@@ -6,7 +6,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-for (const profile of ['playtest_52', 'full_100']) {
+for (const profile of ['playtest_52', 'full_100', 'compact_3']) {
 	const out = join(here, 'out', `cineFrameCheck.${profile}.bundle.mjs`)
 	await build({
 		entryPoints: [join(here, 'cineFrameCheckEntry.ts')],

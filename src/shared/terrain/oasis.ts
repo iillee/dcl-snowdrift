@@ -18,6 +18,11 @@
  *     OASIS_MELT_S, ring by ring (OASIS_BAND_M rings) with a per-cell irregular edge
  *     (OASIS_JITTER_M), until the ragged OASIS_RADIUS_M (+/- OASIS_JITTER_M) patch is open; the caps beyond stay frozen for good.
  * Released oases are never removed until oasisClear (cycle reset / new map).
+ *  3. FINALE PULSE (optional, one time per cycle): once the ending schedules its pulse (oasisSetFinalePulse) every oasis
+ *     keeps opening OUTWARD from where it is (the first patch, or for a still-melting oasis its current radius) to the larger
+ *     ragged OASIS_FINALE_RADIUS_M (+/- OASIS_JITTER_M) patch, GRADUALLY over OASIS_FINALE_MELT_S (~60 s, like the first oasis),
+ *     with the same jitter / cell / ring rules (cells beyond OASIS_RADIUS_M simply have a later melt time). The SNOW melts much
+ *     faster than this (finale.ts FINALE_PULSE_S); only the permafrost cap / earth / plants follow the slow clock.
  *
  * Overlaps are a plain union: a cell is lowered if ANY entry lowers it (the drop
  * is a constant step, so there is nothing to add up).
@@ -51,7 +56,7 @@ export function oasisExcludedLevel(level: number): boolean {
 export function oasisRectHasCap(map: TerrainMap, level: number, cx: number, cz: number, sx: number, sz: number): boolean {
 	if (!isMountainLevel(level)) return true
 	if (oasisExcludedLevel(level)) return false
-	const reach = OASIS_REACH_M + OASIS_CELL_M
+	const reach = OASIS_FINALE_REACH_M + OASIS_CELL_M
 	for (const st of map.stations) {
 		const p = cellCenterWorld(st.cx, st.cz)
 		const dx = Math.max(Math.abs(p.x - cx) - sx / 2, 0), dz = Math.max(Math.abs(p.z - cz) - sz / 2, 0)
@@ -79,8 +84,17 @@ export const OASIS_INNER_M = 12
 export const OASIS_MELT_S = 60
 /** Per-cell irregularity (m, +/-) of the outward melt edge; it also ragged-ises the final edge (a cell is in when d - jitter <= radius). */
 export const OASIS_JITTER_M = 4
-/** Farthest cell centre (m) that can ever melt. */
+/** Farthest cell centre (m) that can ever melt BEFORE the finale pulse. */
 export const OASIS_REACH_M = OASIS_RADIUS_M + OASIS_JITTER_M
+/**
+ * FINALE pulse: nominal radius (m) every oasis grows to (tunable, multiple of OASIS_BAND_M; ~60-70 m), and the seconds the
+ * gradual outward opening of the permafrost cap takes (~60 s, same as the first oasis). Linear in time from the radius the
+ * oasis had when the pulse started (see oasisEntryPulseReveal).
+ */
+export const OASIS_FINALE_RADIUS_M = 64
+export const OASIS_FINALE_MELT_S = 60
+/** Farthest cell centre (m) that can ever melt once the finale pulse exists (terrain caps are built for it ahead of time). */
+export const OASIS_FINALE_REACH_M = OASIS_FINALE_RADIUS_M + OASIS_JITTER_M
 /** Ms after the server release at which the burst is over and the outward melt starts. */
 export const OASIS_MELT_DELAY_MS = (CRYSTAL_THAW_DELAY_S + CRYSTAL_THAW_SPREAD_S) * 1000
 
@@ -88,7 +102,7 @@ export interface OasisEntry {
 	x     : number
 	z     : number
 	level : number
-	/** Radius (m) reached so far (burst, then timed melt); Infinity = fully open. */
+	/** Radius (m) reached so far (burst, timed melt, then the finale pulse); never above OASIS_FINALE_RADIUS_M. */
 	reveal: number
 	/** Local epoch ms when the outward melt starts. -Infinity = already complete. */
 	meltStartMs: number
@@ -102,6 +116,8 @@ type Listener = (wasLowered: (x: number, z: number) => boolean) => void
 const listeners: Listener[] = []
 /** Server release times (local epoch ms) noted per monument position before the oasis registers. */
 let notes: Array<{ x: number; z: number; ms: number }> = []
+/** Local epoch ms the finale pulse starts at (Infinity = none scheduled this cycle). Survives oasisClear (the finale owns it). */
+let pulseMs = Number.POSITIVE_INFINITY
 
 
 // MARK: hash
@@ -142,8 +158,53 @@ function findAt<T extends { x: number; z: number }>(list: readonly T[], x: numbe
 /** Reveal radius quantised to rings: the only value that changes what is lowered. */
 export function oasisQuantReveal(r: number): number {
 	if (!(r > 0)) return 0
-	if (r >= OASIS_RADIUS_M) return OASIS_RADIUS_M
+	if (r >= OASIS_FINALE_RADIUS_M) return OASIS_FINALE_RADIUS_M
 	return Math.floor(r / OASIS_BAND_M) * OASIS_BAND_M
+}
+
+/** Largest radius (m) any cell can need right now: the finale radius once the pulse is scheduled, else OASIS_RADIUS_M. */
+export function oasisCapR(): number {
+	return pulseMs === Number.POSITIVE_INFINITY ? OASIS_RADIUS_M : OASIS_FINALE_RADIUS_M
+}
+
+/** Farthest cell centre (m) that can melt right now. */
+export function oasisReachM(): number {
+	return oasisCapR() + OASIS_JITTER_M
+}
+
+/** Local epoch ms the finale pulse starts (Infinity = none). */
+export function oasisFinalePulseMs(): number {
+	return pulseMs
+}
+
+/**
+ * Schedule (or, with Infinity, cancel) the finale pulse: from local epoch `ms` every oasis grows to OASIS_FINALE_RADIUS_M over
+ * OASIS_FINALE_MELT_S. Idempotent; the server and every client derive the same `ms` from the finale start, so a late joiner
+ * (even after the pulse) sees the finished state.
+ */
+export function oasisSetFinalePulse(ms: number): void {
+	if (ms === pulseMs) return
+	const prev = snapshot()
+	pulseMs = ms
+	notify(prev)
+}
+
+/** Radius (m) an oasis had when the finale pulse started: its timed melt so far (at least the burst), never above OASIS_RADIUS_M. */
+function pulseStartRadius(meltStartMs: number): number {
+	return Math.max(OASIS_INNER_M, Math.min(OASIS_RADIUS_M, oasisTimedReveal(meltStartMs, pulseMs)))
+}
+
+/**
+ * Radius (m) the finale pulse has opened oasis `e` to at local epoch `nowMs` (0 before the pulse starts, OASIS_FINALE_RADIUS_M
+ * once done). Linear over OASIS_FINALE_MELT_S from the radius the oasis had at the pulse start, so an oasis that was still
+ * melting continues without a jump. Depends only on the release note and the pulse time, so every client agrees.
+ */
+export function oasisEntryPulseReveal(meltStartMs: number, nowMs: number): number {
+	const t = (nowMs - pulseMs) / 1000
+	if (!(t > 0)) return 0
+	if (t >= OASIS_FINALE_MELT_S) return OASIS_FINALE_RADIUS_M
+	const s = pulseStartRadius(meltStartMs)
+	return s + ((OASIS_FINALE_RADIUS_M - s) * t) / OASIS_FINALE_MELT_S
 }
 
 function notify(prev: OasisEntry[]): void {
@@ -155,11 +216,11 @@ function notify(prev: OasisEntry[]): void {
 
 function snapshot(): OasisEntry[] { return entries.map((e) => ({ ...e })) }
 
-/** Radius (m) the timed outward melt has reached at local epoch `nowMs` (0 before it starts, Infinity once done). */
+/** Radius (m) the timed outward melt has reached at local epoch `nowMs` (0 before it starts, OASIS_RADIUS_M once done). */
 export function oasisTimedReveal(meltStartMs: number, nowMs: number): number {
 	const t = (nowMs - meltStartMs) / 1000
 	if (!(t > 0)) return 0
-	if (t >= OASIS_MELT_S) return Number.POSITIVE_INFINITY
+	if (t >= OASIS_MELT_S) return OASIS_RADIUS_M
 	return OASIS_INNER_M + (OASIS_RADIUS_M - OASIS_INNER_M) * (t / OASIS_MELT_S)
 }
 
@@ -187,7 +248,7 @@ export function oasisRelease(map: TerrainMap, x: number, z: number, burst: numbe
 		e = { x, z, level: levelAtWorld(map, x, z), reveal: 0, meltStartMs }
 		entries.push(e)
 	}
-	const timed = oasisTimedReveal(e.meltStartMs, nowMs)
+	const timed = Math.max(oasisTimedReveal(e.meltStartMs, nowMs), oasisEntryPulseReveal(e.meltStartMs, nowMs))
 	const target = Math.max(b, timed)
 	if (oasisQuantReveal(target) <= oasisQuantReveal(e.reveal) && entries.length === prev.length) { e.reveal = Math.max(e.reveal, target); return }
 	e.reveal = Math.max(e.reveal, target)
@@ -210,8 +271,8 @@ export function oasisSetBurstReveal(x: number, z: number, reveal: number): void 
 /** Advance every oasis's timed outward melt to local epoch `nowMs`. Cheap when nothing changes; call every frame / tick. */
 export function oasisTick(nowMs: number): void {
 	for (const e of entries) {
-		if (e.reveal === Number.POSITIVE_INFINITY) continue
-		const r = oasisTimedReveal(e.meltStartMs, nowMs)
+		if (e.reveal >= OASIS_FINALE_RADIUS_M) continue
+		const r = Math.max(oasisTimedReveal(e.meltStartMs, nowMs), oasisEntryPulseReveal(e.meltStartMs, nowMs))
 		if (r > 0) growTo(e, r)
 	}
 }
@@ -252,7 +313,7 @@ function cellCentre(v: number): number {
 function cellNeed(e: OasisEntry, ix: number, iz: number, d: number): number {
 	if (d <= OASIS_INNER_M) return d
 	const jit = (oasisHash01(ix, iz, Math.round(e.x * 4), Math.round(e.z * 4)) - 0.5) * 2 * OASIS_JITTER_M
-	// > OASIS_RADIUS_M: this cell stays frozen for good (ragged final edge).
+	// Beyond the cap (OASIS_RADIUS_M, or the finale radius once the pulse exists) the cell stays frozen for good (ragged final edge).
 	return Math.max(OASIS_INNER_M + 0.01, d - jit)
 }
 
@@ -268,11 +329,11 @@ function cellOf(e: OasisEntry, map: TerrainMap | null, x: number, z: number): nu
 	const dx = cx - e.x
 	const dz = cz - e.z
 	const d = Math.sqrt(dx * dx + dz * dz)
-	if (d > OASIS_REACH_M) return Number.POSITIVE_INFINITY
+	if (d > oasisReachM()) return Number.POSITIVE_INFINITY
 	const m = map ?? mapRef
 	if (m && (oasisExcludedLevel(levelAtWorld(m, cx, cz)) || isLavaAtWorld(m, cx, cz))) return Number.POSITIVE_INFINITY
 	const need = cellNeed(e, ix, iz, d)
-	return need > OASIS_RADIUS_M ? Number.POSITIVE_INFINITY : need
+	return need > oasisCapR() ? Number.POSITIVE_INFINITY : need
 }
 
 function loweredWith(list: readonly OasisEntry[], map: TerrainMap | null, x: number, z: number): boolean {
@@ -302,28 +363,40 @@ export function oasisCellExposeMs(map: TerrainMap, x: number, z: number): number
 }
 
 /** Which entry (the first to melt the cell) owns the cell holding (x, z), when it melts, and its centre distance to that entry. */
-export function oasisCellInfo(map: TerrainMap, x: number, z: number): { ms: number; entry: OasisEntry | null; d: number } {
+export function oasisCellInfo(map: TerrainMap, x: number, z: number): { ms: number; entry: OasisEntry | null; d: number; fin: boolean } {
 	let best = Number.POSITIVE_INFINITY
 	let owner: OasisEntry | null = null
 	let ownerD = 0
-	if (entries.length === 0) return { ms: best, entry: null, d: 0 }
+	let ownerFin = false
+	if (entries.length === 0) return { ms: best, entry: null, d: 0, fin: false }
 	const cx = cellCentre(x)
 	const cz = cellCentre(z)
 	for (const e of entries) {
 		const need = cellOf(e, map, x, z)
 		if (need === Number.POSITIVE_INFINITY) continue
-		let ms: number
-		if (e.meltStartMs === Number.NEGATIVE_INFINITY) ms = Number.NEGATIVE_INFINITY
+		let ms: number = Number.POSITIVE_INFINITY
+		if (need > OASIS_RADIUS_M) { /* only the finale pulse can open this cell */ }
+		else if (e.meltStartMs === Number.NEGATIVE_INFINITY) ms = Number.NEGATIVE_INFINITY
 		else if (need <= OASIS_INNER_M) ms = e.meltStartMs
 		else {
 			const reqR = Math.min(OASIS_RADIUS_M, Math.ceil(need / OASIS_BAND_M) * OASIS_BAND_M)
 			ms = e.meltStartMs + ((reqR - OASIS_INNER_M) / (OASIS_RADIUS_M - OASIS_INNER_M)) * OASIS_MELT_S * 1000
 		}
+		// Finale pulse: the front passes ring reqP at pulseMs + (reqP - s) / (BIG - s) * OASIS_FINALE_MELT_S (s = radius at the pulse start).
+		let msP = Number.POSITIVE_INFINITY
+		if (pulseMs !== Number.POSITIVE_INFINITY) {
+			const reqP = Math.min(OASIS_FINALE_RADIUS_M, Math.ceil(need / OASIS_BAND_M) * OASIS_BAND_M)
+			const s = pulseStartRadius(e.meltStartMs)
+			msP = pulseMs + (Math.max(0, reqP - s) / (OASIS_FINALE_RADIUS_M - s)) * OASIS_FINALE_MELT_S * 1000
+		}
+		if (msP < ms) ms = msP
+		// Only the ring beyond the first patch is a "finale" cell (own vegetation group); inner cells keep their group.
+		const fin = need > OASIS_RADIUS_M
 		// Earliest melt wins; ties (e.g. both already open) go to the nearer monument, then the earlier entry.
 		const d = Math.hypot(cx - e.x, cz - e.z)
-		if (owner === null || ms < best || (ms === best && d < ownerD)) { best = ms; owner = e; ownerD = d }
+		if (owner === null || ms < best || (ms === best && d < ownerD)) { best = ms; owner = e; ownerD = d; ownerFin = fin }
 	}
-	return { ms: best, entry: owner, d: ownerD }
+	return { ms: best, entry: owner, d: ownerD, fin: ownerFin }
 }
 
 /** Metres the floor at (x, z) sits below the cap top: OASIS_DROP_M inside an oasis, else 0. */

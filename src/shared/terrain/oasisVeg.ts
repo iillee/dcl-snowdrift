@@ -25,8 +25,8 @@ import {
 	OASIS_CELL_M,
 	OASIS_DROP_M,
 	OASIS_RADIUS_M,
-	OASIS_REACH_M,
 	OasisEntry,
+	oasisReachM,
 	oasisCellCentre,
 	oasisCellIndex,
 	oasisCellInfo,
@@ -61,6 +61,12 @@ export const VEG_PROFILE_R_M = 47.17
 /** Patch area relative to the original 47.2 m oasis (scales the per-oasis caps). */
 export const VEG_AREA_SCALE = (OASIS_RADIUS_M * OASIS_RADIUS_M) / (VEG_PROFILE_R_M * VEG_PROFILE_R_M)
 export const VEG_MAX_TREES = Math.ceil(32 * VEG_AREA_SCALE)
+/**
+ * Finale pulse: cells opened ONLY by the pulse (the ring between OASIS_RADIUS_M and OASIS_FINALE_RADIUS_M) form their own group per oasis
+ * ("<x,z>#f") with the caps scaled by (cells / VEG_BASE_CELLS), i.e. the same density as the first patch (never fewer than the base caps).
+ */
+export const VEG_BASE_CELLS = Math.round((Math.PI * OASIS_RADIUS_M * OASIS_RADIUS_M) / (OASIS_CELL_M * OASIS_CELL_M))
+export const VEG_FIN_SUFFIX = '#f'
 /** Pines keep their canopies apart: centre distance >= this x (radius a + radius b), so tall ones never clump. */
 export const VEG_TREE_SPACING_K = 0.9
 /** Two pines this tall or taller (m) stay at least VEG_TREE_TALL_SPACING_M apart (no clumps of giants). */
@@ -233,7 +239,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 
 	// Pass 1: the cells.
 	for (const e of entries) {
-		const reach = OASIS_REACH_M + OASIS_CELL_M
+		const reach = oasisReachM() + OASIS_CELL_M
 		const ix0 = oasisCellIndex(e.x - reach)
 		const ix1 = oasisCellIndex(e.x + reach)
 		const iz0 = oasisCellIndex(e.z - reach)
@@ -253,7 +259,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 				const shade = bare ? 0 : n < 0.36 ? 1 : n < 0.68 ? 2 : 3
 				const grassMs = bare ? Number.POSITIVE_INFINITY : info.ms + (VEG_GRASS_MIN_S + oasisHash01(salt, ix, iz, 4) * VEG_GRASS_SPREAD_S) * 1000
 				cells.set(key, {
-					key, ix, iz, x, z, ownerKey: vegOwnerKey(info.entry), exposeMs: info.ms, shade, grassMs,
+					key, ix, iz, x, z, ownerKey: vegOwnerKey(info.entry) + (info.fin ? VEG_FIN_SUFFIX : ''), exposeMs: info.ms, shade, grassMs,
 					y: groundYAtWorld(map, x, z) - OASIS_DROP_M, items: [], owner: info.entry, d: info.d,
 				})
 			}
@@ -298,9 +304,13 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 		if (!lists) { lists = [[], [], []]; byOwner.set(c.ownerKey, lists) }
 		for (const it of c.items) lists[it.kind].push(it)
 	}
-	const caps = [VEG_MAX_TREES, VEG_MAX_BUSHES, VEG_MAX_ROCKS]
+	const baseCaps = [VEG_MAX_TREES, VEG_MAX_BUSHES, VEG_MAX_ROCKS]
+	const groupCells = new Map<string, number>()
+	for (const c of cells.values()) groupCells.set(c.ownerKey, (groupCells.get(c.ownerKey) ?? 0) + 1)
 	const drop = new Set<VegItem>()
 	for (const [ownerKey, lists] of byOwner) {
+		const sc = ownerKey.endsWith(VEG_FIN_SUFFIX) ? Math.max(1, (groupCells.get(ownerKey) ?? 0) / VEG_BASE_CELLS) : 1
+		const caps = baseCaps.map((v) => Math.ceil(v * sc))
 		for (let k = 0; k < 3; k++) {
 			if (k === VEG_TREE) {
 				// Greedy by priority: a pine is kept only if its canopy clears every kept pine (radius sum) and the monument / hearth.

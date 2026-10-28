@@ -29,7 +29,6 @@ import {
 	worldToCellKey,
 } from 'src/shared/snowGrid'
 import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
-import { CorridorFront, corridorStep } from 'src/shared/finale'
 import { oasisClear, oasisSetBurstReveal } from 'src/shared/terrain/oasis'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
@@ -481,7 +480,6 @@ function lowerCellTo(key: number, want: 0 | 1 | 2): void {
 
 /** Advance every heat front; returns true while any is still running. */
 export function tickHeatFronts(nowMs: number): boolean {
-	tickCorridorFronts(nowMs)
 	for (let i = heatFronts.length - 1; i >= 0; i--) {
 		const f = heatFronts[i]
 		if (nowMs < f.startMs) continue // delayed start (crystal still rising)
@@ -503,33 +501,7 @@ export function tickHeatFronts(nowMs: number): boolean {
 			heatFronts.splice(i, 1)
 		}
 	}
-	return heatFronts.length > 0 || corridorFronts.length > 0
-}
-
-// MARK: corridor melt front (finale)
-/**
- * Ending ("Level Thaws"): the snow under one finale beam thaws along its ground projection. A front runs from tip A to
- * tip B (a -> b) over durMs; behind it the snow steps 2 -> 1 -> 0 over the trailing FINALE_THAW_BAND_M and the cell then
- * joins the permanent heat zone (never regrows, like a released crystal's zone). Snow only: no terrain / vegetation
- * change, no new entities. Ticked with the heat fronts, per slice, so a tick only touches cells the front newly reached.
- */
-const corridorFronts: CorridorFront[] = []
-
-export function startCorridorFront(ax: number, az: number, bx: number, bz: number, edge: number, startMs: number, durMs: number): void {
-	const len = Math.hypot(bx - ax, bz - az)
-	if (len < 1) return
-	corridorFronts.push({ ax, az, bx, bz, edge, len, startMs, durMs: Math.max(1, durMs), doneS: 0 })
-	console.log(`[Server] snowState: corridor front ${edge} ${len.toFixed(0)} m over ${(durMs / 1000).toFixed(1)} s`)
-}
-
-function tickCorridorFronts(nowMs: number): void {
-	for (let i = corridorFronts.length - 1; i >= 0; i--) {
-		const done = corridorStep(corridorFronts[i], nowMs, (x, z, stage) => {
-			const key = worldToCellKey(x, z)
-			if (key !== null) lowerCellTo(key, stage)
-		})
-		if (done) corridorFronts.splice(i, 1) // the final sweep held the whole corridor clear
-	}
+	return heatFronts.length > 0
 }
 
 /** Cells held by permanent heat zones (crystals). */
@@ -619,7 +591,6 @@ export function clearAllSnow(): void {
 	scarredCells.clear()
 	heatZoneCells.clear()
 	heatFronts.length = 0
-	corridorFronts.length = 0
 	oasisClear()
 	zeroAllSnowTiles()
 	noteComponentChange(cleared)

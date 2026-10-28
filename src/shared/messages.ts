@@ -477,7 +477,7 @@ export const Messages = {
 	// Client -> Server: TEMPORARY debug - light the next unlit monument
 	// (volcano thaw stage +1). Same DEBUG_THAW_BUTTON gate.
 	debugVolcanoStage: Schemas.Map({ seed: Schemas.Int }),
-	// Client -> Server (floating crystals): fire the ending ("Level Thaws") without 6 activations: every unreleased
+	// Client -> Server (floating crystals): fire the ending ("The world begins to thaw") without 6 activations: every unreleased
 	// monument is released silently, the finale starts FINALE_DEBUG_DELAY_S later. Ignored unless DEBUG_FINALE_BUTTON.
 	debugFinale: Schemas.Map({ seed: Schemas.Int }),
 
@@ -600,6 +600,21 @@ export const Messages = {
 	// LEADERBOARD_SHOW rows, ranked best-first. Sent to joiners and
 	// broadcast whenever it changes. Only the server writes records.
 	leaderboardState: Schemas.Map({ json: Schemas.String }),
+
+	// NEW EXPEDITION reset (src/shared/expedition.ts, src/server/expedition.ts). Client -> Server: ask for / cancel the shared
+	// countdown (the server validates the sender and that the expedition is complete; `seed` must be the live world). Server ->
+	// Client: the countdown state, broadcast on every change and hydrated to joiners. ready = the BEGIN button may show;
+	// active = a countdown runs, remainingMs = its time left at send time (the client derives a local deadline from it);
+	// initiator = lowercase wallet that started it ('' when none).
+	newExpeditionRequest: Schemas.Map({ seed: Schemas.Int }),
+	newExpeditionCancel : Schemas.Map({ seed: Schemas.Int }),
+	newExpeditionState  : Schemas.Map({
+		seed       : Schemas.Int,
+		ready      : Schemas.Int,
+		active     : Schemas.Int,
+		remainingMs: Schemas.Int,
+		initiator  : Schemas.String,
+	}),
 }
 
 export const room = registerMessages(Messages)

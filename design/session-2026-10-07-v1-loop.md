@@ -1,5 +1,8 @@
 # Session 2026-10-07 — V1 MVP loop (monuments → thaw → new winter)
 
+> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 monuments, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (6 monuments charged by player-built fires, oasis, World Thaws ending); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins.
+
+
 Source of truth for what the playtest build does after the 10/06–10/07 pass. Supersedes the "next build" scope in [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) for this playtest.
 
 ## Locked V1 MVP loop

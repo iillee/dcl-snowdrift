@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 globalThis.__HF_SEEDS = Number(process.argv[2] ?? 40)
-for (const profile of ['playtest_52', 'full_100']) {
+for (const profile of ['playtest_52', 'full_100', 'compact_3']) {
 	const out = join(here, 'out', `hiddenFireGroundCheck.${profile}.bundle.mjs`)
 	await build({
 		entryPoints: [join(here, 'hiddenFireGroundCheckEntry.ts')],

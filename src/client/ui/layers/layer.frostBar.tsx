@@ -21,7 +21,8 @@ import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { DEBUG_FINALE_BUTTON, DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
+import { debugFinaleAllowed, DEBUG_THAW_BUTTON, SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON } from 'src/client/devFlags'
+import { getLocalAddress } from 'src/client/leaderboard'
 import { getCurrentCycleSeed } from 'src/client/cycle'
 import { getThawStage, isWorldThawed } from 'src/client/worldThaw'
 import { isFinaleRunning } from 'src/client/crystalFinale'
@@ -540,7 +541,7 @@ class FrostBarLayer extends Layer {
 				</UiEntity>
 				{DEBUG_THAW_BUTTON && <DebugStageButton />}
 				{DEBUG_THAW_BUTTON && <DebugThawButton />}
-				{DEBUG_FINALE_BUTTON && <DebugFinaleButton />}
+				{debugFinaleAllowed(getLocalAddress()) && <DebugFinaleButton />}
 				{/* Torch + Logs slots live in layer.inventoryHotbar
 				   (bottom-center); this layer owns the heat bar. */}
 			</UiEntity>

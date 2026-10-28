@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const seeds = Number(process.argv[2] ?? 200)
-for (const profile of ['playtest_52', 'full_100']) {
+for (const profile of ['playtest_52', 'full_100', 'compact_3']) {
 	for (const baseline of [false, true]) {
 		const out = join(here, 'out', `nearMonumentCheck.${profile}.${baseline ? 'base' : 'near'}.bundle.mjs`)
 		await build({

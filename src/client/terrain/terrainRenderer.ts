@@ -54,7 +54,7 @@ import {
 import {
 	OASIS_CELL_M,
 	OASIS_DROP_M,
-	OASIS_REACH_M,
+	oasisReachM,
 	oasisEntries,
 	oasisRectHasCap,
 	oasisLoweredAt,
@@ -451,7 +451,7 @@ function oasisSystem(): void {
 // MARK: oasisTouches
 /** True when a revealed oasis reaches this rect (any terrace). */
 function oasisTouches(g: RectGeom): boolean {
-	const reach = OASIS_REACH_M + OASIS_CELL_M
+	const reach = oasisReachM() + OASIS_CELL_M
 	for (const e of oasisEntries()) {
 		if (oasisQuantReveal(e.reveal) <= 0) continue
 		if (distSqToRect(e.x, e.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) <= reach * reach) return true

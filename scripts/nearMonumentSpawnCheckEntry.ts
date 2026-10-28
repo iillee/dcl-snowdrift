@@ -2,7 +2,7 @@
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, SPAWN_LOOK_COMPASS_DEG } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import {
-	BUILT_FIRE_MIN_SPACING_M, CHARGE_LINK_END_HALF_M, CRYSTAL_NEAR_MONUMENT_MAX_M, CRYSTAL_NEAR_MONUMENT_MIN_M, MONUMENT_LINK_RANGE_M, MONUMENT_NODE_ID_BASE, validateBuiltFireSpot,
+	BUILT_FIRE_MIN_SPACING_M, CHARGE_LINK_END_HALF_M, CRYSTAL_NEAR_MONUMENT_MAX_M, CRYSTAL_NEAR_MONUMENT_MIN_M, MONUMENT_COUNT, MONUMENT_LINK_RANGE_M, MONUMENT_NODE_ID_BASE, validateBuiltFireSpot,
 } from 'src/shared/ruleset'
 import { routeFireLink } from 'src/shared/fireNetwork'
 import { OASIS_DROP_M, OASIS_REACH_M, oasisClear, oasisLoweredAt, oasisNoteRelease, oasisRelease, walkableYAtWorld } from 'src/shared/terrain/oasis'
@@ -35,7 +35,7 @@ for (let i = 0; i < args.seeds; i++) {
 	dists.push(d)
 	if (d > CRYSTAL_NEAR_MONUMENT_MAX_M) fails.push(`seed ${seed}: near monument ${d.toFixed(0)} m from the hearth (> ${CRYSTAL_NEAR_MONUMENT_MAX_M})`)
 	if (st.level !== map.levels[map.hearthCz * map.w + map.hearthCx]) fails.push(`seed ${seed}: near monument not on the hearth level`)
-	if (map.stations.length < 6) fails.push(`seed ${seed}: only ${map.stations.length} monuments`)
+	if (map.stations.length < MONUMENT_COUNT) fails.push(`seed ${seed}: only ${map.stations.length} monuments`)
 	// Clear of the spawn pad and the hearth: pit + rim clearance.
 	if (Math.hypot(c.x - padX, c.z - padZ) < STATION_CLEAR_M + 4) fails.push(`seed ${seed}: near monument crowds the spawn pad`)
 	if (d < STATION_CLEAR_M + 8) fails.push(`seed ${seed}: near monument crowds the hearth`)

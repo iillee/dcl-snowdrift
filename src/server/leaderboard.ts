@@ -1,7 +1,7 @@
 /**
  * leaderboard.ts (server) - per-player leaderboard, four boards:
  *   longest   - most days survived in one run the player contributed to
- *   fastest   - best 6/6 completion (fewest days, then shortest real time)
+ *   fastest   - best completion of ALL monuments (fewest days, then shortest real time)
  *   monuments - lifetime monuments released in runs they contributed to
  *   firenet   - most campfires in one connected fire network they contributed to
  *
@@ -22,8 +22,9 @@
  *    change, at most every FIRENET_MIN_S seconds.
  * A run that used a dev shortcut (runIntegrity) is excluded from all four.
  *
- * Persistence: scene Storage (`Storage` from @dcl/sdk/server), one key,
- * one record per player (capped). Survives the ~2 min empty-server
+ * Persistence: scene Storage (`Storage` from @dcl/sdk/server), one key PER WORLD PROFILE
+ * (LEADERBOARD_STORAGE_KEY: the standard game keeps 'cryocene.leaderboard.v2', the 3-monument
+ * playtest uses '...v2.compact3', so their records never mix), one record per player (capped). Survives the ~2 min empty-server
  * shutdown and redeploys. Writes are batched through a retry loop because
  * Storage.set resolves false rather than throwing. Clients never write:
  * they only receive `leaderboardState`.
@@ -38,6 +39,7 @@ import { isRunTainted, resetRunTaint } from 'src/server/runIntegrity'
 import {
 	LEADERBOARD_STORAGE_KEY,
 	LEADERBOARD_STORE_MAX,
+	storedBoardTag,
 	LeaderboardPlayer,
 	cleanName,
 	encodeBoardWire,
@@ -49,6 +51,7 @@ import {
 	trimPlayers,
 } from 'src/shared/leaderboard'
 import { isFloatingCrystals } from 'src/shared/ruleset'
+import { WORLD_BOARD_SUFFIX } from 'src/shared/settings'
 import { room } from 'src/shared/messages'
 
 
@@ -277,6 +280,16 @@ async function loadBoard(): Promise<void> {
 	loadAttempts++
 	try {
 		const raw = await Storage.get<unknown>(LEADERBOARD_STORAGE_KEY, { fresh: true })
+		// Belt and braces: a blob tagged for another profile's board is never loaded or overwritten.
+		const tag = storedBoardTag(raw)
+		if (raw && tag !== WORLD_BOARD_SUFFIX && (tag !== '' || parseStoredBoard(raw).length > 0)) {
+			gaveUp = true
+			console.log(`[Server] leaderboard: stored board tag '${tag}' != active '${WORLD_BOARD_SUFFIX}' - not loading, saves disabled`)
+			const ops = pendingOps
+			pendingOps = []
+			for (const op of ops) op()
+			return
+		}
 		for (const p of parseStoredBoard(raw)) players.set(p.a, p)
 		loaded = true
 		console.log(`[Server] leaderboard: loaded ${players.size} players from storage`)

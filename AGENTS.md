@@ -54,3 +54,8 @@
   - Recover and continue when recovery is safe.
   - Do not throw errors for recoverable runtime failures, because an uncaught error may stop the game.
   - Throw only when continuing would leave the application in an invalid or unsafe state.
+
+## Docs
+
+- When a change alters behaviour or a tuning constant, update `docs/HANDOFF.md` (and `design/decisions.md` for a design decision) in the same pass. Current code beats older design notes; mark stale statements instead of leaving them.
+- Keep dated `design/session-*.md` files as snapshots; do not rewrite history in them.

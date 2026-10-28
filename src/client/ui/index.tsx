@@ -3,7 +3,7 @@
  *
  * Registers every HUD layer through @stom66/dcl-ui-component-kit. Each
  * layer owns its own Zone (bottom-right chip, top-center action bar,
- * bottom-left debug panel, full-screen top-down pan controls). The kit
+ * bottom-left debug panel, mobile top-down zoom / rotate cluster). The kit
  * handles safe-area insets, layer visibility plumbing, and the render
  * loop \u2014 our layers only need to implement `body()`.
  *
@@ -31,6 +31,7 @@ import { hotbarBridgeLayer }          from 'src/client/ui/layers/layer.hotbarBri
 import { inventoryHotbarLayer }       from 'src/client/ui/layers/layer.inventoryHotbar'
 import { helpPanelLayer }             from 'src/client/ui/layers/layer.helpPanel'
 import { leaderboardLayer }           from 'src/client/ui/layers/layer.leaderboard'
+import { expeditionCountdownLayer }   from 'src/client/ui/layers/layer.expeditionCountdown'
 import { hiddenCampfirePromptLayer }  from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
 // hotbarLayer retired — the torch button now lives inside the top
 // action bar (see layer.brushSize.tsx > TorchButton). The layer file
@@ -42,7 +43,7 @@ import { chopPromptLayer }    from 'src/client/ui/layers/layer.chopPrompt'
 import { feedPromptLayer }    from 'src/client/ui/layers/layer.feedPrompt'
 import { relightPromptLayer } from 'src/client/ui/layers/layer.relightPrompt'
 import { serverStatsLayer }   from 'src/client/ui/layers/layer.serverStats'
-import { topDownPanLayer }    from 'src/client/ui/layers/layer.topDownPan'
+import { topDownZoomLayer }   from 'src/client/ui/layers/layer.topDownZoom'
 // versionLayer is retired — the version chip now lives inside the
 // help panel footer (see layer.helpPanel > ui_HelpPanel_version).
 
@@ -82,8 +83,8 @@ function hideDuringCinematic(layers: Layer[]): Layer[] {
 // MARK: setupUi
 /**
  * Register every HUD layer with the UI Component Kit. Zone order in the
- * array is z-order (later = drawn above), so the pan overlay's drag
- * catcher sits above corner chrome but below the action bar's buttons.
+ * array is z-order (later = drawn above), so the zoom overlay
+ * sits above corner chrome but below the action bar's buttons.
  */
 export function setupUi() {
 	// Dev-only layers are prepended when their flag is on. Order matters:
@@ -98,7 +99,7 @@ export function setupUi() {
 			// at scene boot rather than the first frame each icon renders.
 			// Invisible, off-screen; no z-order or interaction impact.
 			preloadLayer,
-			...hideDuringCinematic([topDownPanLayer]),
+			...hideDuringCinematic([topDownZoomLayer]),
 			// Frost segment-gain flash renders BELOW HUD chrome so the bar,
 			// buttons, and prompts stay legible while the blue tint bleeds
 			// across the world. ZoneType.FullScreen but sits early in the
@@ -126,6 +127,8 @@ export function setupUi() {
 			...hideDuringCinematic([helpPanelLayer]),
 			// Fastest-completion leaderboard (star button): same slot + look as the help panel.
 			...hideDuringCinematic([leaderboardLayer]),
+			// "NEW EXPEDITION IN m:ss" chip under the top row while the shared reset countdown runs.
+			...hideDuringCinematic([expeditionCountdownLayer]),
 			// Monument cinematic letterbox: above HUD chrome, below splashes.
 			cinematicLayer,
 			// Sunrise "Day X" sits above HUD chrome, below death / ember /

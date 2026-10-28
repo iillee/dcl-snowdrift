@@ -63,7 +63,16 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 // One generator, two envelopes. Flip WORLD_PROFILE to restore the
 // full Live World footprint without forking terrainGen.
 
-export type WorldProfile = 'playtest_52' | 'full_100'
+/**
+ * THE ONE SWITCH (WORLD_PROFILE below): map size, monument count, volcano, finale ring and leaderboard storage key all
+ * derive from the active profile.
+ * - playtest_52 : standard game, 6 monuments + volcano, 52x52 parcels, no padding.
+ * - full_100    : standard game, 6 monuments + volcano, 100x100 parcels.
+ * - compact_3   : 15-player ~30 min playtest. Scene stays 52x52 parcels (scene.json unchanged); the playfield is the
+ *   centred 34x34 parcels (544 m, 65% of 52) with 144 m padding/side behind the impassable mountain band. 3 monuments,
+ *   NO volcano, its own leaderboard (key suffix .compact3).
+ */
+export type WorldProfile = 'playtest_52' | 'full_100' | 'compact_3'
 
 /**
  * Active world envelope.
@@ -72,18 +81,37 @@ export type WorldProfile = 'playtest_52' | 'full_100'
  *   terrain-grid rim itself.
  * - full_100: 100×100 parcels (1600 m) with 16 m padding/side → 98×98 cells.
  */
-export const WORLD_PROFILE: WorldProfile = 'playtest_52'
+export const WORLD_PROFILE: WorldProfile = 'compact_3'
 
-const WORLD_PROFILE_SPEC: Record<WorldProfile, {
+export interface WorldProfileSpec {
+	/** Scene size in parcels (must match scene.json). */
 	parcels: number
 	/** Meters of empty padding on each side between playfield and scene edge. */
 	paddingMeters: number
-}> = {
-	playtest_52: { parcels: 52, paddingMeters: 0 },
-	full_100:    { parcels: 100, paddingMeters: 16 },
+	/** Monuments per world (floating-crystals ruleset). */
+	monuments: number
+	/** false = no volcano landmark (no mountain / crater / lava / smoke / ladders / summit tablet). */
+	volcano: boolean
+	/** Leaderboard storage-key suffix ('' = the standard board, key unchanged). */
+	boardSuffix: string
+}
+
+export const WORLD_PROFILE_SPEC: Record<WorldProfile, WorldProfileSpec> = {
+	playtest_52: { parcels: 52,  paddingMeters: 0,   monuments: 6, volcano: true,  boardSuffix: '' },
+	full_100:    { parcels: 100, paddingMeters: 16,  monuments: 6, volcano: true,  boardSuffix: '' },
+	compact_3:   { parcels: 52,  paddingMeters: 144, monuments: 3, volcano: false, boardSuffix: '.compact3' },
 }
 
 const _world = WORLD_PROFILE_SPEC[WORLD_PROFILE]
+
+/** Monuments per world for the active profile (ruleset.MONUMENT_COUNT). */
+export const WORLD_MONUMENT_COUNT: number = _world.monuments
+/** True when the active profile has the volcano landmark. */
+export const WORLD_HAS_VOLCANO: boolean = _world.volcano
+/** True for the compact 15-player playtest profile. */
+export const WORLD_IS_COMPACT: boolean = (WORLD_PROFILE as WorldProfile) === 'compact_3'
+/** Leaderboard storage-key suffix of the active profile ('' = standard board). */
+export const WORLD_BOARD_SUFFIX: string = _world.boardSuffix
 
 /** Parcel edge length in meters (one unscaled maze tile). */
 const PARCEL_METERS = 16

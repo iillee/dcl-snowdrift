@@ -1,29 +1,47 @@
 /**
- * finaleCheck - the floating-crystals ending ("Level Thaws", src/shared/finale.ts) per seed:
+ * finaleCheck - the floating-crystals ending ("The world begins to thaw", src/shared/finale.ts) per seed, for the ACTIVE profile
+ * (3 monuments in compact_3, 6 in the standard one; scripts/finaleCheck.mjs runs every profile):
  *  - ring topology: deterministic (same layout -> same ring, also from a copied point list and for every start monument),
  *    one closed counter-clockwise cycle through every monument, no crossing beams, edges through the volcano disc counted;
- *  - corridor: the server's stepper (corridorStep) run on a 125 ms tick with the real per-edge timeline covers every cell
- *    inside the corridors, nothing outside them, never gets ahead of its front, ends fully melted, and the sliced ticks
- *    equal one full sweep (no gaps); snow tiles touched (and how many are new vs the 50 m crystal discs) are counted;
- *  - timeline: beams one after another, thaw only after every beam is connected (and in the same order), title after the
- *    thaw, a late joiner (age past the end) sees every beam complete, the whole shot fits its cap;
- *  - hydration: server (corridors) and client (beams) derive the same ring from the same layout + first monument;
- *  - camera: the chase / pull-out camera stays under the ceiling, is continuous (per-frame jump bounded) and the end pose
- *    stays under the ceiling.
+ *  - timeline: ALL beams in step (same start / progress), connected before the pulse, pulse then title, a late joiner sees every
+ *    beam complete, the whole shot fits its cap; beam thickness = the vertical monument beam; no thaw corridors left in the module;
+ *  - pulse (shared oasis clock): the enlarged oasis of EVERY monument grows GRADUALLY (OASIS_FINALE_MELT_S, much slower than the
+ *    FINALE_PULSE_S snow melt, no jump for an oasis still melting at the pulse start) from the first oasis to
+ *    OASIS_FINALE_RADIUS_M (cells only ever open, never ahead of the front, final set = the ragged disc rule, pit / lava / crown
+ *    untouched, every opened mountain cell has a cap), is hydrated identically for a late joiner, never changes the pre-pulse state,
+ *    and the vegetation plan for the new ring is deterministic, never touches planned cells and stays under the scaled caps;
+ *    entity / piece / snow-cell costs are reported;
+ *  - warmth: every released monument's warm radius grows with the pulse's snow front to FINALE_WARM_RADIUS_M (covers the enlarged
+ *    melted area at all times, pure function of the pulse time = late-join deterministic, crystalHeatAt uses it);
+ *  - camera: the static framing pose stays under the ceiling and the shot is finite.
  * Bundled by scripts/finaleCheck.mjs.
  */
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { crystalFloatBottomY } from 'src/shared/crystalFloat'
 import {
-	CorridorFront, FINALE_CORRIDOR_HALF_W_M, FINALE_CORRIDOR_WOBBLE_M, FINALE_START_DELAY_S,
-	corridorFrontS, corridorStep, finaleAvoidZone, finaleBeamProgress, finaleCameraAt, finaleCameraPose, finaleCycleCost, finaleEdgeLengths,
-	finaleEdges, finaleOrder, finalePoints, finaleRingPoint, finaleTimes, finaleTravelS,
+	FINALE_BEAM_XZ_M, FINALE_PULSE_RADIUS_M, FINALE_PULSE_S, FINALE_SNOW_RADIUS_M, FINALE_START_DELAY_S, FINALE_TITLE, FINALE_BAR_FRAC,
+	finaleAvoidZone, finaleBeamProgress, finaleCameraAt, finaleCameraPose, finalePoseOpts, finaleCycleCost,
+	FINALE_WARM_RADIUS_M, finaleEdges, finaleOrder, finalePoints, finalePulseRadiusM, finaleTimes, finaleWarmRadiusM,
 } from 'src/shared/finale'
+import * as finaleModule from 'src/shared/finale'
+import {
+	OASIS_BAND_M, OASIS_CELL_M, OASIS_FINALE_MELT_S, OASIS_FINALE_RADIUS_M, OASIS_INNER_M, OASIS_JITTER_M, OASIS_RADIUS_M,
+	oasisCellExposeMs, oasisClear, oasisHash01, oasisCellIndex, oasisEntries, oasisExcludedLevel, oasisFinalePulseMs, oasisLoweredAt, oasisNoteRelease, oasisRectHasCap,
+	oasisRelease, oasisSetFinalePulse, oasisTick,
+} from 'src/shared/terrain/oasis'
+import {
+	VEG_BASE_CELLS, VEG_BUSH, VEG_FIN_SUFFIX, VEG_MAX_BUSHES, VEG_MAX_ROCKS, VEG_MAX_TREES, VEG_ROCK, VEG_TREE, VEG_TREE_TIER_H_M,
+	buildVegCells, greedyRects, mergeGrassRects, vegTreeHeightM, VegCell,
+} from 'src/shared/terrain/oasisVeg'
 import { CRYSTAL_HEAT_RADIUS_M } from 'src/shared/ruleset'
-import { SNOW_CELL_M, SNOW_TILE_M, SNOW_ORIGIN_M, tileKeyOfCell, worldToCellKey } from 'src/shared/snowGrid'
+import { OASIS_FINALE_REACH_M } from 'src/shared/terrain/oasis'
 import { WORLD_PROFILE, sceneHeightLimitM } from 'src/shared/settings'
+import { SNOW_CELL_M } from 'src/shared/snowGrid'
+import { titleFit } from 'src/shared/titleFit'
+import { readFileSync } from 'node:fs'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
-import { groundYAtWorld } from 'src/shared/terrain/terrainMap'
+import { mergeLevelRects } from 'src/shared/terrain/terrainGen'
+import { MONUMENT_PIT_SIZE_M, TERRAIN_ORIGIN_M, TerrainMap, groundYAtWorld, isLavaAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
 
 const SEEDS = Number(process.argv[2] ?? 12)
 const g0 = globalThis as { __realLog?: typeof console.log }
@@ -36,6 +54,13 @@ const fail = (m: string): void => { bad++; if (bad <= 40) say('FAIL ' + m) }
 const OB_TOTAL_M = 22 // obelisk length (stationMarkers OB_SHAFT_M 14 + 2 * OB_TIP_M 4)
 const CAM_CAP_S = 60 // crystalFinale CINE_CAP_S
 
+function snapC(v: number): number { return TERRAIN_ORIGIN_M + Math.floor((v - TERRAIN_ORIGIN_M) / OASIS_CELL_M) * OASIS_CELL_M + OASIS_CELL_M / 2 }
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+	if (a.size !== b.size) return false
+	for (const k of a) if (!b.has(k)) return false
+	return true
+}
+
 function segDistS(px: number, pz: number, ax: number, az: number, bx: number, bz: number): { d: number; s: number; len: number } {
 	const dx = bx - ax, dz = bz - az
 	const len = Math.hypot(dx, dz)
@@ -46,7 +71,10 @@ function segDistS(px: number, pz: number, ax: number, az: number, bx: number, bz
 
 let rings = 0, volcanoHits = 0, volcanoHitsUnavoidable = 0, ringLenSum = 0, edgeMax = 0, edgeMin = Infinity
 let cellsSum = 0, tilesSum = 0, tilesMax = 0, newTilesSum = 0, newTilesMax = 0
-let beamS = 0, thawS = 0, cineS = 0, camSpeedMax = 0, camJumpMax = 0, lookSpeedMax = 0, endFits = 0, endPoses = 0
+let beamS = 0, cineS = 0, endFits = 0, endPoses = 0
+let packs = 0, lowBefore = 0, lowAfter = 0, piecesBefore = 0, piecesAfter = 0, vegCellsBefore = 0, vegCellsAfter = 0
+let entBefore = 0, entAfter = 0, entAfterMax = 0, grassRectsBefore = 0, grassRectsAfter = 0, treesBefore = 0, treesAfter = 0, bushesBefore = 0, bushesAfter = 0, rocksBefore = 0, rocksAfter = 0
+let collBefore = 0, collAfter = 0, snowNewSum = 0, snowNewMax = 0, snowPerTickMax = 0, oasisEvents = 0, oasisEventsMax = 0
 const maxH = sceneHeightLimitM() - 3
 for (let s = 0; s < SEEDS; s++) {
 	const seed = ((s + 1) * 2654435761) >>> 0
@@ -93,147 +121,324 @@ for (let s = 0; s < SEEDS; s++) {
 	}
 
 	// --- timeline ---
-	const lengths = finaleEdgeLengths(pts, e0)
-	const times = finaleTimes(lengths)
-	beamS += times.beamsDoneS; thawS += times.thawEndS - times.thawBeginS; cineS += times.cineEndS
-	for (let k = 0; k < n; k++) {
-		if (k > 0 && Math.abs(times.beamStartS[k] - (times.beamStartS[k - 1] + times.beamDurS[k - 1])) > 1e-6) fail('beams do not run one after another')
-		if (k > 0 && Math.abs(times.thawStartS[k] - (times.thawStartS[k - 1] + lengths[k - 1] / times.thawSpeed)) > 1e-6) fail('thaw fronts are not in beam order')
-		if (!(times.thawStartS[k] >= times.beamsDoneS)) fail('thaw starts before every beam is connected')
-		if (finaleBeamProgress(times, k, times.cineEndS + 600) !== 1) fail('late joiner does not see beam ' + k + ' complete')
-		if (finaleBeamProgress(times, k, -1) !== 0) fail('beam drawn before the start')
-		let prev = 0
-		for (let a = 0; a < times.beamsDoneS + 2; a += 0.25) { const p = finaleBeamProgress(times, k, a); if (p < prev) fail('beam progress not monotonic'); prev = p }
-	}
-	if (!(times.textAtS >= times.thawEndS)) fail('title shows before the thaw ends')
+	const times = finaleTimes()
+	beamS += times.beamsDoneS; cineS += times.cineEndS
+	if (!(times.beamStartS > 0)) fail('no short beat before the beams')
+	if (!(times.pulseAtS > times.beamsDoneS)) fail('pulse does not start after the ring is closed')
+	if (!(times.textAtS > times.pulseAtS && times.textAtS < times.pulseEndS + 1e-9)) fail('title is not shown while the pulse spreads')
 	if (!(times.cineEndS < CAM_CAP_S)) fail(`shot ${times.cineEndS.toFixed(1)} s over the ${CAM_CAP_S} s cap`)
-	if (Math.abs(finaleTravelS(times, times.beamsDoneS) - times.total) > 1e-6) fail('beam traveller does not end at the ring length')
-	if (Math.abs(finaleTravelS(times, times.thawEndS) - times.total) > 1e-6) fail('thaw traveller does not end at the ring length')
+	if (finaleBeamProgress(times, -1) !== 0 || finaleBeamProgress(times, times.beamStartS) !== 0) fail('beams drawn before their start')
+	if (finaleBeamProgress(times, times.beamsDoneS) !== 1 || finaleBeamProgress(times, times.cineEndS + 600) !== 1) fail('late joiner does not see the ring complete')
+	{ let prev = 0; for (let a = 0; a < times.beamsDoneS + 2; a += 0.05) { const p = finaleBeamProgress(times, a); if (p < prev) fail('beam progress not monotonic'); prev = p } }
+	// ALL beams connect simultaneously: one shared progress, the ring is closed (n edges) the moment it reaches 1
+	for (let a = 0; a < times.beamsDoneS + 1; a += 0.37) for (let k = 0; k < n; k++) if (finaleBeamProgress(times, a) !== finaleBeamProgress(times, a)) fail('beam progress differs between beams')
+	if (finalePulseRadiusM(times, times.pulseAtS - 1) !== 0 || Math.abs(finalePulseRadiusM(times, times.pulseEndS) - FINALE_PULSE_RADIUS_M) > 1e-9) fail('pulse radius endpoints')
 
-	// --- corridor: tick like the server (125 ms) over the whole thaw, per-edge timeline ---
-	const T0 = 1_000_000_000_000
-	const fronts: CorridorFront[] = e0.map(([a, b], k) => ({
-		ax: pts[a].x, az: pts[a].z, bx: pts[b].x, bz: pts[b].z, edge: k, len: lengths[k],
-		startMs: T0 + times.thawStartS[k] * 1000, durMs: times.thawDurS[k] * 1000, doneS: 0,
-	}))
-	const stage = new Map<number, number>()
-	let ahead = 0
-	const live = new Set(fronts.map((_, i) => i))
-	for (let t = T0; t <= T0 + times.thawEndS * 1000 + 500 && live.size > 0; t += 125) {
-		for (const i of [...live]) {
-			const f = fronts[i]
-			const sfNow = corridorFrontS(f.len, Math.max(0, Math.min(1, (t - f.startMs) / f.durMs)))
-			const done = corridorStep(f, t, (x, z, st) => {
-				const key = worldToCellKey(x, z)
-				if (key === null) return
-				const prev = stage.get(key)
-				if (prev === undefined || st < prev) stage.set(key, st)
-				if (t < f.startMs + f.durMs && segDistS(x, z, f.ax, f.az, f.bx, f.bz).s > sfNow + 1e-6) ahead++
-			})
-			if (done) live.delete(i)
+	// --- pulse: the shared oasis registry (the same clock on the server and every client) ---
+	if (s < 14) {
+		const T0 = 1_000_000_000_000
+		const pulseT = T0 + 200_000
+		oasisClear(); oasisSetFinalePulse(Number.POSITIVE_INFINITY)
+		const centres = pts
+		const lowered = (): Set<string> => {
+			const out = new Set<string>()
+			for (const c of centres) for (let z = c.z - 76; z <= c.z + 76; z += OASIS_CELL_M) for (let x = c.x - 76; x <= c.x + 76; x += OASIS_CELL_M) {
+				const px = snapC(x), pz = snapC(z)
+				if (oasisLoweredAt(map, px, pz)) out.add(px + ',' + pz)
+			}
+			return out
 		}
-	}
-	if (live.size > 0) fail(`seed ${s}: ${live.size} corridor fronts never finished`)
-	if (ahead > 0) fail(`seed ${s}: ${ahead} cells melted ahead of the front`)
-	let notZero = 0
-	for (const v of stage.values()) if (v !== 0) notZero++
-	if (notZero > 0) fail(`seed ${s}: ${notZero} corridor cells did not end fully melted`)
-	let missing = 0, inside = 0, stray = 0
-	const innerHW = FINALE_CORRIDOR_HALF_W_M - FINALE_CORRIDOR_WOBBLE_M - SNOW_CELL_M * Math.SQRT1_2
-	for (const f of fronts) {
-		const x0 = Math.min(f.ax, f.bx) - 8, x1 = Math.max(f.ax, f.bx) + 8, z0 = Math.min(f.az, f.bz) - 8, z1 = Math.max(f.az, f.bz) + 8
-		for (let z = Math.floor(z0); z <= z1; z += SNOW_CELL_M) for (let x = Math.floor(x0); x <= x1; x += SNOW_CELL_M) {
-			const cx = x + SNOW_CELL_M / 2, cz = z + SNOW_CELL_M / 2
-			const key = worldToCellKey(cx, cz)
-			if (key === null) continue
-			const q = segDistS(cx, cz, f.ax, f.az, f.bx, f.bz)
-			if (q.s >= 0 && q.s <= q.len && q.d <= innerHW) { inside++; if (stage.get(key) !== 0) missing++ }
+		for (const c of centres) { oasisNoteRelease(c.x, c.z, T0); oasisRelease(map, c.x, c.z, 0, T0) }
+		oasisTick(pulseT - 1000)
+		const S0 = lowered()
+		const rects = mergeLevelRects(map)
+		const pieces = (): number => {
+			let nPieces = 0
+			for (const r of rects) {
+				const x0 = TERRAIN_ORIGIN_M + r.cx * 16, x1 = x0 + r.w * 16, z0 = TERRAIN_ORIGIN_M + r.cz * 16, z1 = z0 + r.h * 16
+				if (oasisExcludedLevel(levelAtWorld(map, x0 + 1, z0 + 1))) continue
+				let near = false
+				for (const c of centres) { const dx = Math.max(x0 - c.x, 0, c.x - x1), dz = Math.max(z0 - c.z, 0, c.z - z1); if (Math.hypot(dx, dz) <= OASIS_FINALE_RADIUS_M + OASIS_JITTER_M + OASIS_CELL_M) { near = true; break } }
+				if (!near) continue
+				const nx = Math.round((x1 - x0) / OASIS_CELL_M), nz = Math.round((z1 - z0) / OASIS_CELL_M)
+				const mask = new Uint8Array(nx * nz)
+				let any = false
+				for (let iz = 0; iz < nz; iz++) for (let ix = 0; ix < nx; ix++) { const low = oasisLoweredAt(map, x0 + (ix + 0.5) * OASIS_CELL_M, z0 + (iz + 0.5) * OASIS_CELL_M); mask[iz * nx + ix] = low ? 2 : 1; if (low) any = true }
+				if (any) nPieces += greedyRects(mask, nx, nz).length
+			}
+			return nPieces
 		}
+		piecesBefore += pieces(); lowBefore += S0.size
+		// vegetation of the first oases (no pulse scheduled yet)
+		const base = buildVegCells(map, oasisEntries(), new Set<number>())
+		const known = new Set(base.map((c) => c.key))
+		const count = (cells: VegCell[]): { rects: number; trees: number; bushes: number; rocks: number; ent: number; coll: number } => {
+			const groups = new Map<string, VegCell[]>()
+			for (const c of cells) { let a = groups.get(c.ownerKey); if (!a) { a = []; groups.set(c.ownerKey, a) } a.push(c) }
+			let rectsN = 0, trees = 0, bushes = 0, rocks = 0, ent = 0
+			for (const g of groups.values()) rectsN += mergeGrassRects(g).length
+			for (const c of cells) for (const it of c.items) {
+				if (it.kind === VEG_TREE) { trees++; ent += vegTreeHeightM(it) >= VEG_TREE_TIER_H_M ? 3 : 2 } else if (it.kind === VEG_BUSH) { bushes++; ent++ } else { rocks++; ent++ }
+			}
+			return { rects: rectsN, trees, bushes, rocks, ent: ent + rectsN, coll: trees + rocks }
+		}
+		const cb = count(base)
+		vegCellsBefore += base.length; grassRectsBefore += cb.rects; treesBefore += cb.trees; bushesBefore += cb.bushes; rocksBefore += cb.rocks; entBefore += cb.ent; collBefore += cb.coll
+
+		// schedule the pulse: nothing changes until it starts
+		oasisSetFinalePulse(pulseT)
+		if (oasisFinalePulseMs() !== pulseT) fail('pulse time not stored')
+		if (!sameSet(lowered(), S0)) fail(`seed ${s}: scheduling the pulse changed the ground before it starts`)
+		const stepsAt = new Map<number, Set<string>>()
+		let prev = S0, events = 0
+		// all oases finished their first melt long before the pulse (released at T0): the front runs OASIS_RADIUS_M -> OASIS_FINALE_RADIUS_M over OASIS_FINALE_MELT_S
+		const rq = (tt: number): number => Math.min(OASIS_FINALE_RADIUS_M, Math.floor((OASIS_RADIUS_M + ((OASIS_FINALE_RADIUS_M - OASIS_RADIUS_M) * tt) / OASIS_FINALE_MELT_S) / OASIS_BAND_M) * OASIS_BAND_M)
+		const lowCount: Array<[number, number]> = []
+		for (let tt = 0; tt <= OASIS_FINALE_MELT_S + 1; tt += 0.5) {
+			oasisTick(pulseT + tt * 1000 + 1)
+			const now = lowered()
+			if (now.size !== prev.size) events++
+			for (const k of prev) if (!now.has(k)) { fail(`seed ${s}: cell ${k} un-lowered at pulse t=${tt}`); break }
+			const front = rq(tt)
+			for (const k of now) {
+				if (prev.has(k) || S0.has(k)) continue
+				const [px, pz] = k.split(',').map(Number)
+				let dmin = Infinity
+				for (const c of centres) dmin = Math.min(dmin, Math.hypot(px - c.x, pz - c.z))
+				if (dmin > front + OASIS_JITTER_M + 1e-6) { fail(`seed ${s}: cell ${k} d=${dmin.toFixed(1)} opened ahead of the pulse front ${front} at t=${tt}`); break }
+			}
+			if (Math.abs(tt - Math.round(tt / 10) * 10) < 1e-9 || tt >= OASIS_FINALE_MELT_S) stepsAt.set(tt, now)
+			lowCount.push([tt, now.size - S0.size])
+			// warmth covers the ground that is already open (cell centre inside the monument's warm radius)
+			const warmR = finaleWarmRadiusM(pulseT, pulseT + tt * 1000 + 1)
+			for (const k of now) {
+				if (S0.has(k)) continue
+				const [px, pz] = k.split(',').map(Number)
+				let dmin = Infinity
+				for (const c of centres) dmin = Math.min(dmin, Math.hypot(px - c.x, pz - c.z))
+				if (dmin > warmR + 1e-6) { fail(`seed ${s}: opened cell ${k} d=${dmin.toFixed(1)} outside the warm radius ${warmR.toFixed(1)} at t=${tt}`); break }
+			}
+			prev = now
+		}
+		// GRADUAL: when the 12 s snow melt is done only a small part of the new ring has opened; the whole ring needs ~OASIS_FINALE_MELT_S
+		{
+			const total = lowCount[lowCount.length - 1][1]
+			const at12 = lowCount.find(([tt]) => tt >= FINALE_PULSE_S)![1]
+			const at30 = lowCount.find(([tt]) => tt >= OASIS_FINALE_MELT_S / 2)![1]
+			const at0 = lowCount[0][1]
+			if (at0 !== 0) fail(`seed ${s}: ${at0} new cells open at the instant the pulse starts`)
+			if (!(total > 0 && at12 < total * 0.35)) fail(`seed ${s}: ground not gradual: ${at12}/${total} new cells open after ${FINALE_PULSE_S} s`)
+			if (!(at30 > total * 0.2 && at30 < total * 0.8)) fail(`seed ${s}: ground not gradual: ${at30}/${total} new cells open at half time`)
+			if (!(OASIS_FINALE_MELT_S >= 40 && OASIS_FINALE_MELT_S >= 3 * FINALE_PULSE_S)) fail('ground (permafrost) melt is not much slower than the snow melt')
+		}
+		oasisEvents += events; oasisEventsMax = Math.max(oasisEventsMax, events)
+		const fin = prev
+		lowAfter += fin.size; piecesAfter += pieces()
+		// final set = the ragged-disc rule, union over the monuments
+		const want = (px: number, pz: number): boolean => {
+			for (const c of centres) {
+				const d = Math.hypot(px - c.x, pz - c.z)
+				if (Math.abs(px - c.x) < MONUMENT_PIT_SIZE_M / 2 && Math.abs(pz - c.z) < MONUMENT_PIT_SIZE_M / 2) continue
+				if (oasisExcludedLevel(levelAtWorld(map, px, pz)) || isLavaAtWorld(map, px, pz)) continue
+				if (d <= OASIS_INNER_M) return true
+				const jit = (oasisHash01(oasisCellIndex(px), oasisCellIndex(pz), Math.round(c.x * 4), Math.round(c.z * 4)) - 0.5) * 2 * OASIS_JITTER_M
+				if (d - jit <= OASIS_FINALE_RADIUS_M) return true
+			}
+			return false
+		}
+		let wrong = 0, beyondOld = 0
+		for (const c of centres) for (let z = c.z - 78; z <= c.z + 78; z += OASIS_CELL_M) for (let x = c.x - 78; x <= c.x + 78; x += OASIS_CELL_M) {
+			const px = snapC(x), pz = snapC(z)
+			if (want(px, pz) !== fin.has(px + ',' + pz)) wrong++
+			if (fin.has(px + ',' + pz) && !S0.has(px + ',' + pz)) beyondOld++
+		}
+		if (wrong > 0) fail(`seed ${s}: ${wrong} cells differ from the ragged finale-disc rule`)
+		if (!(fin.size > S0.size * 2)) fail(`seed ${s}: the pulse barely enlarged the oases (${S0.size} -> ${fin.size} cells)`)
+		for (const r of rects) {
+			if (oasisRectHasCap(map, levelAtWorld(map, TERRAIN_ORIGIN_M + r.cx * 16 + 1, TERRAIN_ORIGIN_M + r.cz * 16 + 1), TERRAIN_ORIGIN_M + (r.cx + r.w / 2) * 16, TERRAIN_ORIGIN_M + (r.cz + r.h / 2) * 16, r.w * 16, r.h * 16)) continue
+			const x0 = TERRAIN_ORIGIN_M + r.cx * 16, z0 = TERRAIN_ORIGIN_M + r.cz * 16
+			for (let z = z0 + 2; z < z0 + r.h * 16; z += OASIS_CELL_M) for (let x = x0 + 2; x < x0 + r.w * 16; x += OASIS_CELL_M) if (fin.has(snapC(x) + ',' + snapC(z))) { fail(`seed ${s}: a lowered cell sits in an uncapped rect`); break }
+		}
+		// exposure clock agrees with the lowered state while the pulse spreads
+		for (const [tt, set] of stepsAt) {
+			const nowMs = pulseT + tt * 1000 + 1
+			let bad1 = 0
+			for (const c of centres) for (let z = c.z - 76; z <= c.z + 76; z += OASIS_CELL_M * 3) for (let x = c.x - 76; x <= c.x + 76; x += OASIS_CELL_M * 3) {
+				const px = snapC(x), pz = snapC(z)
+				const ms = oasisCellExposeMs(map, px, pz)
+				const isLow = set.has(px + ',' + pz)
+				if (ms === Number.POSITIVE_INFINITY ? isLow : (ms <= nowMs) !== isLow) bad1++
+			}
+			if (bad1 > 0) fail(`seed ${s}: ${bad1} cells where the exposure clock disagrees with the lowered state at pulse t=${tt}`)
+		}
+		// late joiner: hydrated at any time during / after the pulse = the live state at that time
+		for (const [tt, set] of stepsAt) {
+			oasisClear()
+			for (const c of centres) { oasisNoteRelease(c.x, c.z, T0); oasisRelease(map, c.x, c.z, Number.POSITIVE_INFINITY, pulseT + tt * 1000 + 1) }
+			if (!sameSet(lowered(), set)) fail(`seed ${s}: late joiner at pulse t=${tt} differs from the live state`)
+		}
+		// vegetation of the new ring (planned once the pulse is scheduled): deterministic, new cells only, scaled caps
+		oasisClear()
+		for (const c of centres) { oasisNoteRelease(c.x, c.z, T0); oasisRelease(map, c.x, c.z, 0, T0) }
+		oasisTick(pulseT - 1000)
+		const ringCells = buildVegCells(map, oasisEntries(), known)
+		const ringCells2 = buildVegCells(map, oasisEntries(), known)
+		if (JSON.stringify(ringCells) !== JSON.stringify(ringCells2)) fail(`seed ${s}: finale vegetation plan not deterministic`)
+		{
+			const maxMs = Math.max(...ringCells.map((c) => c.exposeMs))
+			if (!(maxMs <= pulseT + OASIS_FINALE_MELT_S * 1000 + 1e-6 && maxMs >= pulseT + OASIS_FINALE_MELT_S * 1000 * 0.8)) fail(`seed ${s}: finale vegetation cells open over ${((maxMs - pulseT) / 1000).toFixed(0)} s, not ~${OASIS_FINALE_MELT_S} s`)
+			const early = ringCells.filter((c) => c.exposeMs <= pulseT + FINALE_PULSE_S * 1000).length
+			if (!(early < ringCells.length * 0.3)) fail(`seed ${s}: ${early}/${ringCells.length} finale vegetation cells open within the snow melt time (not gradual)`)
+			const lateGrass = ringCells.filter((c) => Number.isFinite(c.grassMs) && c.grassMs > c.exposeMs).length
+			if (lateGrass === 0) fail(`seed ${s}: no finale grass grows in after its cell opens`)
+		}
+		for (const c of ringCells) {
+			if (known.has(c.key)) fail(`seed ${s}: finale plan re-plans a known cell`)
+			if (!c.ownerKey.endsWith(VEG_FIN_SUFFIX)) fail(`seed ${s}: finale cell not in a #f group`)
+			if (!(c.exposeMs >= pulseT)) fail(`seed ${s}: finale cell exposed before the pulse (${c.exposeMs - pulseT} ms)`)
+			for (const it of c.items) if (!(it.startMs >= c.exposeMs)) fail(`seed ${s}: finale item starts before its cell is exposed`)
+		}
+		const byGroup = new Map<string, { cells: number; k: [number, number, number] }>()
+		for (const c of ringCells) { let g = byGroup.get(c.ownerKey); if (!g) { g = { cells: 0, k: [0, 0, 0] }; byGroup.set(c.ownerKey, g) } g.cells++; for (const it of c.items) g.k[it.kind]++ }
+		for (const [key, g] of byGroup) {
+			const sc = Math.max(1, g.cells / VEG_BASE_CELLS)
+			if (g.k[VEG_TREE] > Math.ceil(VEG_MAX_TREES * sc) || g.k[VEG_BUSH] > Math.ceil(VEG_MAX_BUSHES * sc) || g.k[VEG_ROCK] > Math.ceil(VEG_MAX_ROCKS * sc)) fail(`seed ${s}: ${key} over the scaled caps`)
+		}
+		const ca = count([...base, ...ringCells])
+		vegCellsAfter += base.length + ringCells.length; grassRectsAfter += ca.rects; treesAfter += ca.trees; bushesAfter += ca.bushes; rocksAfter += ca.rocks; entAfter += ca.ent; entAfterMax = Math.max(entAfterMax, ca.ent); collAfter += ca.coll
+		// snow: the 1 m cells the pulse melts (disc FINALE_SNOW_RADIUS_M) that the 50 m crystal discs did not already
+		let snowNew = 0
+		const seen = new Set<number>()
+		for (const c of centres) for (let z = Math.floor(c.z - FINALE_SNOW_RADIUS_M); z <= c.z + FINALE_SNOW_RADIUS_M; z += SNOW_CELL_M) for (let x = Math.floor(c.x - FINALE_SNOW_RADIUS_M); x <= c.x + FINALE_SNOW_RADIUS_M; x += SNOW_CELL_M) {
+			const key = Math.round(x) * 100003 + Math.round(z)
+			if (seen.has(key)) continue
+			let dMin = Infinity
+			for (const q of centres) dMin = Math.min(dMin, Math.hypot(x + 0.5 - q.x, z + 0.5 - q.z))
+			if (dMin <= FINALE_SNOW_RADIUS_M) { seen.add(key); if (dMin > CRYSTAL_HEAT_RADIUS_M) snowNew++ }
+		}
+		snowNewSum += snowNew; snowNewMax = Math.max(snowNewMax, snowNew)
+		snowPerTickMax = Math.max(snowPerTickMax, Math.ceil(snowNew / (FINALE_PULSE_S * 8)))
+		packs++
+		oasisClear()
 	}
-	const full = new Set<number>()
-	const outerHW = FINALE_CORRIDOR_HALF_W_M + FINALE_CORRIDOR_WOBBLE_M
-	for (const f of fronts) {
-		const probe: CorridorFront = { ...f, doneS: 0, startMs: 0, durMs: 1 }
-		corridorStep(probe, 1_000_000, (x, z) => {
-			const q = segDistS(x, z, f.ax, f.az, f.bx, f.bz)
-			if (q.d > outerHW + 1e-6 || q.s < -1e-6 || q.s > q.len + 1e-6) stray++
-			const k = worldToCellKey(x, z)
-			if (k !== null) full.add(k)
-		})
+
+	// --- last monument still melting when the pulse starts: continuous, then gradual; late joiner agrees ---
+	if (s < 14) {
+		const T0 = 1_000_000_000_000
+		const pulseT = T0 + 200_000
+		const T1 = pulseT - 19_000 // the last release, FINALE_START_DELAY_S + beams + gap before the pulse
+		oasisClear(); oasisSetFinalePulse(Number.POSITIVE_INFINITY)
+		const centres = pts
+		const lowered = (): Set<string> => {
+			const out = new Set<string>()
+			for (const c of centres) for (let z = c.z - 76; z <= c.z + 76; z += OASIS_CELL_M) for (let x = c.x - 76; x <= c.x + 76; x += OASIS_CELL_M) { const px = snapC(x), pz = snapC(z); if (oasisLoweredAt(map, px, pz)) out.add(px + ',' + pz) }
+			return out
+		}
+		const rel = (tms: number, last: number): void => { for (let i = 0; i < centres.length; i++) { const t0 = i === centres.length - 1 ? last : T0; oasisNoteRelease(centres[i].x, centres[i].z, t0); oasisRelease(map, centres[i].x, centres[i].z, 0, tms) } }
+		rel(T0, T1)
+		oasisSetFinalePulse(pulseT)
+		oasisTick(pulseT - 1)
+		const before = lowered()
+		oasisTick(pulseT + 1)
+		const justAfter = lowered()
+		let added = 0
+		for (const k of justAfter) if (!before.has(k)) added++
+		for (const k of before) if (!justAfter.has(k)) fail(`seed ${s}: cell un-lowered at the pulse start (still-melting oasis)`)
+		// within 1 ms the front moves by far less than one ring: no jump of a whole ring (a ring is ~2 pi r / 4 m cells per oasis)
+		if (added > n * 6) fail(`seed ${s}: ${added} cells opened in 2 ms at the pulse start (jump for the oasis still melting)`)
+		let prevSet = justAfter
+		const steps = new Map<number, Set<string>>()
+		for (let tt = 0.5; tt <= OASIS_FINALE_MELT_S + 1; tt += 0.5) {
+			oasisTick(pulseT + tt * 1000 + 1)
+			const now = lowered()
+			for (const k of prevSet) if (!now.has(k)) { fail(`seed ${s}: cell un-lowered at pulse t=${tt} (still-melting oasis)`); break }
+			if (Math.abs(tt - Math.round(tt / 10) * 10) < 1e-9 || tt >= OASIS_FINALE_MELT_S) steps.set(tt, now)
+			prevSet = now
+		}
+		for (const [tt, set] of steps) {
+			oasisClear()
+			rel(pulseT + tt * 1000 + 1, T1)
+			if (!sameSet(lowered(), set)) fail(`seed ${s}: late joiner at pulse t=${tt} differs from the live state (still-melting oasis)`)
+		}
+		const lastC = centres[centres.length - 1]
+		let farthest = 0
+		for (const k of prevSet) { const [px, pz] = k.split(',').map(Number); farthest = Math.max(farthest, Math.hypot(px - lastC.x, pz - lastC.z)) }
+		if (!(farthest > OASIS_RADIUS_M + OASIS_BAND_M)) fail(`seed ${s}: the last (still-melting) oasis did not reach the finale radius (farthest ${farthest.toFixed(0)} m)`)
+		oasisClear(); oasisSetFinalePulse(Number.POSITIVE_INFINITY)
 	}
-	if (missing > 0) fail(`seed ${s}: ${missing} / ${inside} cells inside the corridors stayed snowy`)
-	if (stray > 0) fail(`seed ${s}: ${stray} corridor samples outside the corridor width`)
-	let diff = 0
-	for (const k of full) if (!stage.has(k)) diff++
-	for (const k of stage.keys()) if (!full.has(k)) diff++
-	if (diff > 0) fail(`seed ${s}: ticked corridor differs from the full sweep in ${diff} cells`)
-	cellsSum += stage.size
-	const tiles = new Set<number>()
-	for (const key of stage.keys()) tiles.add(tileKeyOfCell(key))
-	tilesSum += tiles.size; tilesMax = Math.max(tilesMax, tiles.size)
-	// tiles NOT already touched by the 50 m crystal discs (those snow tile entities exist anyway): tile centre farther than R + half a diagonal from every monument
-	let fresh = 0
-	// count distinct tiles whose centre is farther than disc reach from all monuments
+
+	// --- warmth: the monuments' warm radius grows with the pulse (pure function of the pulse time) ---
 	{
-		const tx = (x: number): number => Math.floor((x - SNOW_ORIGIN_M) / SNOW_TILE_M)
-		const byTile = new Map<number, [number, number]>()
-		for (const f of fronts) {
-			const probe: CorridorFront = { ...f, doneS: 0, startMs: 0, durMs: 1 }
-			corridorStep(probe, 1_000_000, (x, z) => {
-				const key = tx(x) * 100000 + tx(z)
-				if (!byTile.has(key)) byTile.set(key, [SNOW_ORIGIN_M + (tx(x) + 0.5) * SNOW_TILE_M, SNOW_ORIGIN_M + (tx(z) + 0.5) * SNOW_TILE_M])
-			})
+		const P = 5_000_000
+		if (finaleWarmRadiusM(Number.POSITIVE_INFINITY, P) !== CRYSTAL_HEAT_RADIUS_M) fail('warm radius changes without a pulse')
+		if (finaleWarmRadiusM(P, P - 1000) !== CRYSTAL_HEAT_RADIUS_M || finaleWarmRadiusM(P, P) !== CRYSTAL_HEAT_RADIUS_M) fail('warm radius changes before the pulse starts')
+		let prevR = CRYSTAL_HEAT_RADIUS_M
+		for (let ms = 0; ms <= (FINALE_PULSE_S + 3) * 1000; ms += 250) {
+			const r = finaleWarmRadiusM(P, P + ms)
+			if (r < prevR - 1e-9) fail('warm radius shrinks during the pulse')
+			if (r !== finaleWarmRadiusM(P, P + ms)) fail('warm radius not deterministic')
+			// never behind the snow front that melts with the pulse (0 -> FINALE_SNOW_RADIUS_M over FINALE_PULSE_S is the farthest the front can be)
+			if (r + 1e-9 < Math.min(FINALE_SNOW_RADIUS_M, CRYSTAL_HEAT_RADIUS_M + ((FINALE_SNOW_RADIUS_M - CRYSTAL_HEAT_RADIUS_M) * ms) / (FINALE_PULSE_S * 1000))) fail('warm radius behind the snow front')
+			prevR = r
 		}
-		for (const [cx, cz] of byTile.values()) {
-			let near = false
-			for (const p of pts) if (Math.hypot(cx - p.x, cz - p.z) <= CRYSTAL_HEAT_RADIUS_M - SNOW_TILE_M * Math.SQRT1_2) { near = true; break }
-			if (!near) fresh++
-		}
+		if (Math.abs(finaleWarmRadiusM(P, P + FINALE_PULSE_S * 1000) - FINALE_WARM_RADIUS_M) > 1e-9) fail('warm radius does not reach its final value with the pulse')
+		if (!(FINALE_WARM_RADIUS_M >= OASIS_FINALE_REACH_M && FINALE_WARM_RADIUS_M >= OASIS_FINALE_RADIUS_M)) fail(`final warm radius ${FINALE_WARM_RADIUS_M} m does not cover the enlarged melted area (${OASIS_FINALE_REACH_M} m)`)
+		if (finaleWarmRadiusM(P, P + 10_000_000) !== FINALE_WARM_RADIUS_M) fail('warm radius does not stay at its final value')
 	}
-	newTilesSum += fresh; newTilesMax = Math.max(newTilesMax, fresh)
 
-	// --- camera ---
+	// --- camera (one steady framing pose) ---
 	const floatY = crystalFloatBottomY(map)
 	const tipY = floatY + OB_TOTAL_M - 0.4
 	const tips = pts.map((p) => ({ x: p.x, y: tipY, z: p.z }))
 	const grounds = pts.map((p) => ({ x: p.x, y: groundYAtWorld(map, p.x, p.z), z: p.z }))
 	const look = { x: tips.reduce((a, p) => a + p.x, 0) / n, y: grounds.reduce((a, p) => a + p.y, 0) / n, z: tips.reduce((a, p) => a + p.z, 0) / n }
-	const gy = (x: number, z: number): number => groundYAtWorld(map, x, z)
 	for (const aspect of [1.0, 16 / 9, 2.4]) {
-		const wide = finaleCameraPose([...tips, ...grounds], look, aspect, maxH)
+		const wide = finaleCameraPose([...tips, ...grounds], look, aspect, maxH, finalePoseOpts())
 		endPoses++
 		if (wide.fits) endFits++
-		if (wide.cam.y > maxH + 1e-6) fail(`seed ${s} aspect ${aspect.toFixed(2)}: end camera ${wide.cam.y.toFixed(0)} m above the ceiling ${maxH.toFixed(0)}`)
-		let prev = finaleCameraAt(pts, e0, times, 0, gy, tipY, maxH, wide)
-		const dt = 1 / 60
-		for (let a = dt; a <= times.cineEndS; a += dt) {
-			const c = finaleCameraAt(pts, e0, times, a, gy, tipY, maxH, wide)
+		if (wide.cam.y > maxH + 1e-6) fail(`seed ${s} aspect ${aspect.toFixed(2)}: camera ${wide.cam.y.toFixed(0)} m above the ceiling ${maxH.toFixed(0)}`)
+		for (let a = 0; a <= times.cineEndS; a += 0.5) {
+			const c = finaleCameraAt(times, a, wide)
 			const vals = [c.pos.x, c.pos.y, c.pos.z, c.look.x, c.look.y, c.look.z]
 			if (vals.some((v) => !Number.isFinite(v))) { fail(`seed ${s}: camera not finite at ${a.toFixed(2)} s`); break }
-			if (c.pos.y > maxH + 1e-6) { fail(`seed ${s}: chase camera above the ceiling at ${a.toFixed(2)} s`); break }
-			const jump = Math.hypot(c.pos.x - prev.pos.x, c.pos.y - prev.pos.y, c.pos.z - prev.pos.z)
-			camJumpMax = Math.max(camJumpMax, jump)
-			camSpeedMax = Math.max(camSpeedMax, jump / dt)
-			const ls = Math.hypot(c.look.x - prev.look.x, c.look.y - prev.look.y, c.look.z - prev.look.z) / dt
-			lookSpeedMax = Math.max(lookSpeedMax, ls)
-			prev = c
-		}
-		if (aspect === 16 / 9) {
-			// the head is on the ring and the look is at the head
-			const p = finaleRingPoint(pts, e0, times, finaleTravelS(times, times.beamsDoneS / 2))
-			const c = finaleCameraAt(pts, e0, times, times.beamsDoneS / 2, gy, tipY, maxH, wide)
-			if (Math.hypot(c.look.x - p.x, c.look.z - p.z) > 1e-6) fail('look is not on the traveller head')
+			if (c.pos.y > maxH + 1e-6) { fail(`seed ${s}: camera above the ceiling at ${a.toFixed(2)} s`); break }
 		}
 	}
 }
-if (camJumpMax > 8) fail(`camera moves ${camJumpMax.toFixed(1)} m in one 60 fps frame (> 8 m)`)
-if (lookSpeedMax > 600) fail(`look point moves ${(lookSpeedMax / 60).toFixed(1)} m in one 60 fps frame (> 10 m)`)
 
+// --- module-level facts ---
+if (FINALE_TITLE !== 'THE WORLD BEGINS TO THAW') fail(`FINALE_TITLE is "${FINALE_TITLE}"`)
+for (const k of Object.keys(finaleModule)) if (/orridor|thaw(Begin|End|Start|Dur)|TravelS|RingPoint/i.test(k)) fail(`finale module still exports the old ${k}`)
+{
+	const src = readFileSync('src/client/stationMarkers.ts', 'utf8')
+	if (!/const SKY_BEAM_XZ_M = FINALE_BEAM_XZ_M/.test(src)) fail('the vertical monument beam thickness is not the finale beam thickness')
+	const fsrc = readFileSync('src/client/crystalFinale.ts', 'utf8')
+	if (!/paintFinaleBeam\(e\)/.test(fsrc) || !/FINALE_BEAM_XZ_M/.test(fsrc)) fail('finale beams are not built with the shared thickness + monument beam material')
+	if (!/finaleWarmRadiusM\(oasisFinalePulseMs\(\), Date\.now\(\)\)/.test(src) || !/Math\.sqrt\(d2\) \/ warmR/.test(src)) fail('crystalHeatAt (warmth / frost safety) does not use the pulse-grown warm radius')
+	if (FINALE_BEAM_XZ_M !== 0.42) fail(`finale beam thickness ${FINALE_BEAM_XZ_M} (the sky beam is 0.42)`)
+}
+{
+	const fits: string[] = []
+	for (const w of [360, 390, 430, 540, 720, 1080, 1600, 1920]) {
+		const f = titleFit(FINALE_TITLE, w, 96)
+		const longest = Math.max(...f.lines.map((l) => l.length))
+		if (f.lines.length > 2) fail(`title takes ${f.lines.length} lines at ${w} px`)
+		if (f.lines.join(' ') !== FINALE_TITLE) fail(`title split loses text at ${w} px`)
+		if (longest * 0.7 * f.fontPx > 0.9 * w + 1e-6) fail(`title does not fit ${w} px wide (${f.lines.join(' / ')} @ ${f.fontPx.toFixed(0)} px)`)
+		fits.push(`${w}px:${f.lines.length}L@${f.fontPx.toFixed(0)}`)
+	}
+	say(`  title "${FINALE_TITLE}" fit: ${fits.join(' ')}`)
+}
+
+const per = Math.max(1, packs)
 say(
 	`[${WORLD_PROFILE}] finaleCheck seeds=${SEEDS} rings=${rings} avgRing=${(ringLenSum / Math.max(1, rings)).toFixed(0)} m edges ${edgeMin.toFixed(0)}..${edgeMax.toFixed(0)} m ` +
-	`volcano-disc edge hits ${volcanoHits} (${volcanoHitsUnavoidable} layouts unavoidable) | avg beams ${(beamS / Math.max(1, rings)).toFixed(1)} s thaw ${(thawS / Math.max(1, rings)).toFixed(1)} s shot ${(cineS / Math.max(1, rings)).toFixed(1)} s ` +
-	`(start +${FINALE_START_DELAY_S}s) | corridor cells/seed ${(cellsSum / Math.max(1, rings)).toFixed(0)}, snow tiles/seed avg ${(tilesSum / Math.max(1, rings)).toFixed(0)} max ${tilesMax}, ` +
-	`beyond the 50 m discs avg ${(newTilesSum / Math.max(1, rings)).toFixed(0)} max ${newTilesMax} | camera max ${camSpeedMax.toFixed(0)} m/s (${camJumpMax.toFixed(1)} m/frame), look ${lookSpeedMax.toFixed(0)} m/s, end pose fits ${endFits}/${endPoses}`,
+	`volcano-disc edge hits ${volcanoHits} (${volcanoHitsUnavoidable} layouts unavoidable) | beams all together ${(beamS / Math.max(1, rings)).toFixed(1)} s, pulse ${FINALE_PULSE_S} s to ${FINALE_PULSE_RADIUS_M} m, shot ${(cineS / Math.max(1, rings)).toFixed(1)} s (start +${FINALE_START_DELAY_S}s) | end pose fits ${endFits}/${endPoses}`,
+)
+say(
+	`  enlarged oases (${per} layouts, oasis ${OASIS_RADIUS_M} -> ${OASIS_FINALE_RADIUS_M} m, snow disc ${FINALE_SNOW_RADIUS_M} m): lowered 4 m cells avg ${(lowBefore / per).toFixed(0)} -> ${(lowAfter / per).toFixed(0)} | terrain pieces avg ${(piecesBefore / per).toFixed(0)} -> ${(piecesAfter / per).toFixed(0)} | ground change events avg ${(oasisEvents / per).toFixed(0)} max ${oasisEventsMax} ` +
+	`| veg cells ${(vegCellsBefore / per).toFixed(0)} -> ${(vegCellsAfter / per).toFixed(0)}, merged grass rects ${(grassRectsBefore / per).toFixed(0)} -> ${(grassRectsAfter / per).toFixed(0)}, pines ${(treesBefore / per).toFixed(0)} -> ${(treesAfter / per).toFixed(0)}, bushes ${(bushesBefore / per).toFixed(0)} -> ${(bushesAfter / per).toFixed(0)}, rocks ${(rocksBefore / per).toFixed(0)} -> ${(rocksAfter / per).toFixed(0)} ` +
+	`| vegetation entities (steady) avg ${(entBefore / per).toFixed(0)} -> ${(entAfter / per).toFixed(0)} (max ${entAfterMax}), colliders ${(collBefore / per).toFixed(0)} -> ${(collAfter / per).toFixed(0)} | new snow cells beyond the 50 m discs avg ${(snowNewSum / per).toFixed(0)} max ${snowNewMax}, <= ${snowPerTickMax} per 8 Hz server tick`,
 )
 say(bad === 0 ? 'finaleCheck: OK' : `finaleCheck: ${bad} FAILURES`)
 if (bad) process.exitCode = 1

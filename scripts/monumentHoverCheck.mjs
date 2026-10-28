@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const seeds = Number(process.argv[2] ?? 40)
-const profiles = process.argv.length > 3 ? process.argv.slice(3) : ['playtest_52', 'full_100']
+const profiles = process.argv.length > 3 ? process.argv.slice(3) : ['playtest_52', 'full_100', 'compact_3']
 for (const profile of profiles) {
 	const out = join(here, 'out', `monumentHoverCheck.${profile}.bundle.mjs`)
 	await build({

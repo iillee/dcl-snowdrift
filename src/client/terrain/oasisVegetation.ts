@@ -19,7 +19,7 @@ import { ColliderLayer, Entity, Material, MeshCollider, MeshRenderer, Transform,
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
-import { OASIS_CELL_M, oasisEntries, oasisVersion } from 'src/shared/terrain/oasis'
+import { OASIS_CELL_M, oasisCapR, oasisEntries, oasisVersion } from 'src/shared/terrain/oasis'
 import {
 	VEG_BUSH, VEG_GRASS_TOP_M, VEG_ROCK, VEG_TREE, VEG_TREE_TIER_H_M, VegCell, VegItem,
 	buildVegCells, mergeGrassRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
@@ -82,6 +82,8 @@ const retire: Array<{ e: Entity; frames: number }> = []
 let installed = false
 let seenVersion = -1
 let syncedKeys = new Set<string>()
+/** Oasis cap radius the plan was built for (changes once when the finale pulse is scheduled: the ring beyond the first patch is planned then). */
+let capSeen = 0
 let acc = 0
 let retryFrames = 0
 /** Entities this module has alive (debug / report). */
@@ -109,6 +111,7 @@ export function clearOasisVegetation(): void {
 	items.length = 0
 	retire.length = 0
 	syncedKeys = new Set<string>()
+	capSeen = 0
 	alive = 0
 	seenVersion = -1
 }
@@ -168,8 +171,10 @@ function sync(): void {
 	for (const k of syncedKeys) if (!keys.has(k)) { clearOasisVegetation(); break }
 	let fresh = false
 	for (const k of keys) if (!syncedKeys.has(k)) fresh = true
+	if (oasisCapR() !== capSeen) fresh = true
 	if (!fresh) return
 	syncedKeys = keys
+	capSeen = oasisCapR()
 	const cells = buildVegCells(map, entries, known)
 	for (const c of cells) {
 		const lc: LiveCell = { c, e: null, shown: false }

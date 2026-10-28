@@ -48,6 +48,7 @@ import {
 	TERRAIN_LEVEL_VOLCANO_RIM,
 	TERRAIN_MOUNTAIN_PEAK_STEPS,
 	VOLCANO_EXTRA_TERRACES,
+	WORLD_HAS_VOLCANO,
 	VOLCANO_LAVA_TOP_ABOVE_RIM_M,
 	isCrownLevel,
 	isMountainLevel,
@@ -391,7 +392,8 @@ function buildOnce(
 		routeDist,
 		hearthRegion,
 	)
-	const volcano = pickVolcano(
+	// No volcano profile (compact_3): no landmark, no crown, no summit; stations place without a rim target.
+	const volcano = WORLD_HAS_VOLCANO ? pickVolcano(
 		work,
 		regions,
 		regionLevel,
@@ -399,12 +401,12 @@ function buildOnce(
 		routeDist,
 		hearthRegion,
 		destinations,
-	)
+	) : null
 
 	// Extrude the crater crown: inner-lip rim cells become crown terrain
 	// (5–7 m taller columns). After ladders + volcano so access and the
 	// landmark are settled; the cells leave the walkable graph.
-	for (const i of computeVolcanoCrownCells(work.levels, work.landforms, ladders, W, H)) {
+	for (const i of WORLD_HAS_VOLCANO ? computeVolcanoCrownCells(work.levels, work.landforms, ladders, W, H) : []) {
 		work.levels[i] = crownLevelFor(i, usedSeed)
 		const r = regions[i]
 		if (r >= 0) regionArea[r]--
@@ -710,6 +712,8 @@ function sculptMountainHeights(work: Work): void {
 			if (n > 0.36) boost = 1
 			if (n > 0.66) boost = 2
 			if (boost > TERRAIN_MOUNTAIN_PEAK_STEPS) boost = TERRAIN_MOUNTAIN_PEAK_STEPS
+			// No-volcano profile (compact_3): a uniform rim wall, no raised peak chunks that read as a stepped mountain.
+			if (!WORLD_HAS_VOLCANO) boost = 0
 			work.levels[i] = MOUNTAIN + boost
 			work.locked[i] = 1
 		}
@@ -781,7 +785,8 @@ function stampLandforms(work: Work): void {
 		switch (kinds[k]) {
 			case LANDFORM_CANYON:  stampCanyon(work, angle);  break
 			case LANDFORM_RIDGE:   stampRidge(work, angle);   break
-			case LANDFORM_PLATEAU: stampVolcano(work, angle); break
+			// Profiles without a volcano (compact_3) stamp a plain High plateau in the same quarter instead.
+			case LANDFORM_PLATEAU: if (WORLD_HAS_VOLCANO) stampVolcano(work, angle); else stampPlainPlateau(work, angle); break
 			case LANDFORM_BASIN:   stampBasin(work, angle);   break
 		}
 	}
@@ -1216,6 +1221,20 @@ function stampVolcano(
 	removeDiagonals(work)
 	for (const i of cone) work.locked[i] = 1
 }
+
+// MARK: stampPlainPlateau
+/** Volcano-free profiles: a High shelf (noisy disc, no crater / lava / terraces) where the volcano would stand. */
+function stampPlainPlateau(
+	work:  Work,
+	angle: number,
+): void {
+	const dist   = randInt(work.rng, Math.round(sc(14)), Math.round(sc(20)))
+	const radius = sc(3.2) + work.rng() * sc(2.2)
+	const fx     = HEARTH_FX + Math.cos(angle) * dist
+	const fz     = HEARTH_FZ + Math.sin(angle) * dist
+	stampBlob(work, fx, fz, radius, HIGH, LANDFORM_PLATEAU)
+}
+
 
 // MARK: stampBasin
 /** Low blob ringed by at least Middle ground, so it reads as a bowl. */
@@ -2114,7 +2133,9 @@ function stationBeam(
 	cx    : number,
 	cz    : number,
 	rimPts: RimPoint[],
-): { lift: number; rim: RimPoint; clear: boolean } {
+): { lift: number; rim: RimPoint | null; clear: boolean } {
+	// No volcano: there is no beam target (crystals float at a fixed height); every socket is clear.
+	if (rimPts.length === 0) return { lift: 0, rim: null, clear: true }
 	const byDist = rimPts.slice().sort((a, b) =>
 		Math.hypot(a.fx - cx - 0.5, a.fz - cz - 0.5) - Math.hypot(b.fx - cx - 0.5, b.fz - cz - 0.5)
 		|| a.cx - b.cx || a.cz - b.cz)
@@ -2190,10 +2211,10 @@ function pickNearStation(
 	hearthRegion: number,
 	distScale   : number = 1,
 ): Array<{ station: TerrainStation; log: string }> {
-	if (!volcano) return []
+	if (!volcano && WORLD_HAS_VOLCANO) return []
 	const targetM = NEAR_STATION_TARGET_M * distScale
-	const rimPts  = volcanoRimPoints(work, volcano)
-	const centre  = stationLosTarget(work.landforms, volcano)
+	const rimPts  = volcano ? volcanoRimPoints(work, volcano) : []
+	const centre  = volcano ? stationLosTarget(work.landforms, volcano) : { fx: HEARTH_FX, fz: HEARTH_FZ, endY: 0 }
 	const volcAng = Math.atan2(centre.fz - HEARTH_FZ, centre.fx - HEARTH_FX)
 	// Floating crystals: the near monument is ~25 m from the hearth, so "away
 	// from the volcano" no longer matters; it goes in FRONT of the spawn view
@@ -2287,9 +2308,11 @@ function pickNearStation(
 				station: {
 					cx: c.cx, cz: c.cz, level: work.levels[c.i], region: regions[c.i], route: routeDist[c.i],
 					near: true, beamLiftM: beam.lift,
-					aimX: TERRAIN_ORIGIN_M + beam.rim.fx * TERRAIN_CELL_M,
-					aimY: beam.rim.endY,
-					aimZ: TERRAIN_ORIGIN_M + beam.rim.fz * TERRAIN_CELL_M,
+					...(beam.rim ? {
+						aimX: TERRAIN_ORIGIN_M + beam.rim.fx * TERRAIN_CELL_M,
+						aimY: beam.rim.endY,
+						aimZ: TERRAIN_ORIGIN_M + beam.rim.fz * TERRAIN_CELL_M,
+					} : {}),
 				},
 				log: 'near monument pass=' + p.name + ' cell=(' + c.cx + ',' + c.cz + ') dist=' +
 					c.distM.toFixed(0) + 'm offAway=' + c.offDeg.toFixed(0) + 'deg lift=' + beam.lift +
@@ -2422,8 +2445,8 @@ function pickStations(
 	ladders     : TerrainLadder[],
 	preset      : TerrainStation[] = [],
 ): TerrainStation[] {
-	if (!volcano) return []
-	const rimPts = volcanoRimPoints(work, volcano)
+	if (!volcano && WORLD_HAS_VOLCANO) return []
+	const rimPts = volcano ? volcanoRimPoints(work, volcano) : []
 	const ladderCells = new Set<number>()
 	for (const l of ladders) {
 		ladderCells.add(l.lowCz * W + l.lowCx)
@@ -2447,7 +2470,7 @@ function pickStations(
 		const cz = (i - cx) / W
 		if (cx < 1 || cz < 1 || cx >= W - 1 || cz >= H - 1) continue
 		if (Math.max(Math.abs(cx - HEARTH_CX), Math.abs(cz - HEARTH_CZ)) < STATION_MIN_HEARTH_CELLS) continue
-		if (Math.max(Math.abs(cx - volcano.cx), Math.abs(cz - volcano.cz)) < STATION_MIN_VOLCANO_CELLS) continue
+		if (volcano && Math.max(Math.abs(cx - volcano.cx), Math.abs(cz - volcano.cz)) < STATION_MIN_VOLCANO_CELLS) continue
 		let nearGrove = false
 		for (const g of groves) {
 			if (Math.max(Math.abs(cx - g.cx), Math.abs(cz - g.cz)) < STATION_MIN_GROVE_CELLS) {
@@ -2502,9 +2525,11 @@ function pickStations(
 		out.push({
 			cx: c.cx, cz: c.cz, level: c.level, region: c.region, route: c.route,
 			beamLiftM: b.lift,
-			aimX: TERRAIN_ORIGIN_M + b.rim.fx * TERRAIN_CELL_M,
-			aimY: b.rim.endY,
-			aimZ: TERRAIN_ORIGIN_M + b.rim.fz * TERRAIN_CELL_M,
+			...(b.rim ? {
+				aimX: TERRAIN_ORIGIN_M + b.rim.fx * TERRAIN_CELL_M,
+				aimY: b.rim.endY,
+				aimZ: TERRAIN_ORIGIN_M + b.rim.fz * TERRAIN_CELL_M,
+			} : {}),
 		})
 	}
 
@@ -2595,10 +2620,11 @@ function validate(map: TerrainMap): string {
 		seen.add(d.level)
 	}
 	if (seen.size < DEST_MAX) return 'missing dest elevation'
-	if (map.volcano === null) return 'no volcano'
-	const vi = map.volcano.cz * W + map.volcano.cx
-	if (vi < 0 || vi >= N || map.routeDist[vi] < 0) return 'volcano unreachable'
-	{
+	if (WORLD_HAS_VOLCANO && map.volcano === null) return 'no volcano'
+	if (!WORLD_HAS_VOLCANO && map.volcano !== null) return 'volcano in a volcano-free profile'
+	const vi = map.volcano ? map.volcano.cz * W + map.volcano.cx : 0
+	if (map.volcano && (vi < 0 || vi >= N || map.routeDist[vi] < 0)) return 'volcano unreachable'
+	if (map.volcano) {
 		// The crater lip must be climbable: some rim cell beside the lava
 		// is on the route graph (ladders up the terraces).
 		let summit = false
@@ -2615,7 +2641,7 @@ function validate(map: TerrainMap): string {
 		}
 		if (!summit) return 'summit unreachable'
 	}
-	if (map.volcano.level !== HIGH && map.volcano.level !== RIM) {
+	if (map.volcano && map.volcano.level !== HIGH && map.volcano.level !== RIM) {
 		return `volcano level ${map.volcano.level}`
 	}
 	if (map.stations.length < STATION_MIN_VALID) {
