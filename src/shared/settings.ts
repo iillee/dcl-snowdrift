@@ -196,8 +196,13 @@ export const TERRAIN_GRID_H = MAZE_GRID_HEIGHT
 /** Vertical distance between terrain levels. Too tall to jump. */
 export const TERRAIN_LEVEL_STEP_M = 16
 
-/** Walkable surface height of level 0, matching the old flat ground. */
-export const TERRAIN_BASE_SURFACE_Y = 0.25
+/**
+ * Walkable surface height of level 0 (every other level, the hearth, spawn, volcano, ladders, monuments, wood and trees derive from it
+ * through groundYForLevel). DCL draws its default ground plane at y = 0 over anything below it, and an oasis floor sits one cap
+ * (OASIS_DROP_M 0.27) lower: at the old 0.25 the lowest terrace's earth top was -0.02 m, hidden under the plane (pale white-blue
+ * instead of earth). 0.35 keeps that earth top at 0.08 m (oasisCheck asserts >= 0.05).
+ */
+export const TERRAIN_BASE_SURFACE_Y = 0.35
 
 /** Lowest walkable level (basins, canyons). */
 export const TERRAIN_LEVEL_LOW      = 0

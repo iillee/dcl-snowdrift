@@ -25,6 +25,7 @@ import {
 	OASIS_CELL_M,
 	OASIS_DROP_M,
 	OASIS_RADIUS_M,
+	OASIS_REACH_M,
 	OasisEntry,
 	oasisCellCentre,
 	oasisCellIndex,
@@ -52,7 +53,14 @@ export const VEG_TREE_SPREAD_S = 35
 export const VEG_TREE_GROW_MIN_S = 45
 export const VEG_TREE_GROW_SPREAD_S = 35
 /** Per-oasis entity caps (per kind items; a pine is 2-3 entities). */
-export const VEG_MAX_TREES = 32
+/**
+ * Density / bare-patch profile radius (m): the ORIGINAL 47.2 m oasis radius. The smaller melted patch keeps the same look, density and
+ * spacing at every distance from the monument (nothing is thinned for the radius change); only the caps scale with the patch area.
+ */
+export const VEG_PROFILE_R_M = 47.17
+/** Patch area relative to the original 47.2 m oasis (scales the per-oasis caps). */
+export const VEG_AREA_SCALE = (OASIS_RADIUS_M * OASIS_RADIUS_M) / (VEG_PROFILE_R_M * VEG_PROFILE_R_M)
+export const VEG_MAX_TREES = Math.ceil(32 * VEG_AREA_SCALE)
 /** Pines keep their canopies apart: centre distance >= this x (radius a + radius b), so tall ones never clump. */
 export const VEG_TREE_SPACING_K = 0.9
 /** Two pines this tall or taller (m) stay at least VEG_TREE_TALL_SPACING_M apart (no clumps of giants). */
@@ -61,8 +69,8 @@ export const VEG_TREE_TALL_SPACING_M = 13
 /** Canopy radius as a fraction of pine height (lower cone, see client placeItem: 0.18 two cones, 0.16 one). */
 export const VEG_TREE_CANOPY_FRAC = 0.18
 export const VEG_TREE_CANOPY_FRAC_SMALL = 0.16
-export const VEG_MAX_BUSHES = 70
-export const VEG_MAX_ROCKS = 20
+export const VEG_MAX_BUSHES = Math.ceil(70 * VEG_AREA_SCALE)
+export const VEG_MAX_ROCKS = Math.ceil(20 * VEG_AREA_SCALE)
 /** Thickness of a grass slab (m): sits just above the earth floor, under the walking step. */
 export const VEG_GRASS_TOP_M = 0.03
 /** Keep decorations this far (m, Chebyshev) from the monument centre: its 6 m plinth + margin. */
@@ -188,7 +196,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 
 	// Pass 1: the cells.
 	for (const e of entries) {
-		const reach = OASIS_RADIUS_M + OASIS_CELL_M
+		const reach = OASIS_REACH_M + OASIS_CELL_M
 		const ix0 = oasisCellIndex(e.x - reach)
 		const ix1 = oasisCellIndex(e.x + reach)
 		const iz0 = oasisCellIndex(e.z - reach)
@@ -201,7 +209,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 				const z = oasisCellCentre(iz)
 				const info = oasisCellInfo(map, x, z)
 				if (info.entry === null || info.ms === Number.POSITIVE_INFINITY) continue
-				const f = Math.min(1, info.d / OASIS_RADIUS_M)
+				const f = Math.min(1, info.d / VEG_PROFILE_R_M)
 				const hBare = oasisHash01(salt, ix, iz, 2)
 				const bare = hBare < VEG_BARE_RIM + (VEG_BARE_CENTRE - VEG_BARE_RIM) * (1 - f)
 				const n = valueNoise(salt, x, z, 14) + (oasisHash01(salt, ix, iz, 3) - 0.5) * 0.12
@@ -218,7 +226,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 	// Pass 2: decorations (trees need all four neighbour cells melted too, so none overhang the rim).
 	const has = (ix: number, iz: number): boolean => known.has(vegCellKey(ix, iz)) || cells.has(vegCellKey(ix, iz))
 	for (const c of cells.values()) {
-		const f = Math.min(1, c.d / OASIS_RADIUS_M)
+		const f = Math.min(1, c.d / VEG_PROFILE_R_M)
 		const interior = has(c.ix - 1, c.iz) && has(c.ix + 1, c.iz) && has(c.ix, c.iz - 1) && has(c.ix, c.iz + 1)
 		const t = (s: number): number => oasisHash01(salt, c.ix, c.iz, s)
 		const place = (kind: VegKind, slot: number, startS: number, spreadS: number, durMs: number): void => {
@@ -267,6 +275,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 					let ok = kept.length < caps[k]
 					if (ok && own && Math.hypot(it.x - own.x, it.z - own.z) < 3 + r) ok = false
 					if (ok && Math.hypot(it.x - CAMPFIRE_WORLD_X, it.z - CAMPFIRE_WORLD_Z) < 2 + r) ok = false
+					if (ok && !vegCanopyClear(map, it.x, it.z, r)) ok = false // no canopy over a cliff drop / into a taller wall
 					for (let j = 0; ok && j < kept.length; j++) {
 						const dd = Math.hypot(it.x - kept[j].x, it.z - kept[j].z)
 						if (dd < VEG_TREE_SPACING_K * (r + vegTreeRadiusM(kept[j]))) ok = false
@@ -291,6 +300,20 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 }
 
 
+// MARK: vegCanopyClear
+
+/** True when the terrace under (x, z) continues (same level, no lava) for 0.7 x the canopy radius all round: pines never overhang a cliff. */
+export function vegCanopyClear(map: TerrainMap, x: number, z: number, r: number): boolean {
+	const lv = levelAtWorld(map, x, z)
+	const k = 0.7 * r
+	const q = k * Math.SQRT1_2
+	for (const [ox, oz] of [[k, 0], [-k, 0], [0, k], [0, -k], [q, q], [-q, q], [q, -q], [-q, -q]]) {
+		if (levelAtWorld(map, x + ox, z + oz) !== lv || isLavaAtWorld(map, x + ox, z + oz)) return false
+	}
+	return true
+}
+
+
 // MARK: vegPosOk
 
 /** Static keep-outs for a decoration at (x, z): monument plinth, hearth, ladders, cliff edges, lava. */
@@ -308,8 +331,9 @@ export function vegPosOk(map: TerrainMap, owner: OasisEntry, x: number, z: numbe
 		if (Math.hypot(x - l.top.x, z - l.top.z) < VEG_LADDER_CLEAR_M) return false
 	}
 	const m = VEG_CLIFF_CLEAR_M
+	const own = levelAtWorld(map, x, z) // the item's own terrace (oases span every terrace in reach)
 	for (const [ox, oz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {
-		if (levelAtWorld(map, x + ox, z + oz) !== owner.level || isLavaAtWorld(map, x + ox, z + oz)) return false
+		if (levelAtWorld(map, x + ox, z + oz) !== own || isLavaAtWorld(map, x + ox, z + oz)) return false
 	}
 	return true
 }

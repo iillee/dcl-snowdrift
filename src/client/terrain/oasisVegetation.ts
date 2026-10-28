@@ -6,14 +6,16 @@
  * joiner lands mid-growth. This module only turns the plan into entities:
  *   - grass: thin 4 m slabs (3 greens) popping in cell by cell after the cap melted; once every grass cell of an
  *     oasis is due they are replaced by greedy-merged rectangles (one entity per same-shade rectangle);
- *   - rocks / bushes pop and scale in, pines grow (2-3 primitive entities each). No colliders anywhere: walking is
- *     never blocked and no resource / chop logic is touched (decorative only, own arrays).
+ *   - rocks / bushes pop and scale in, pines grow (2-3 primitive entities each). Colliders (physics layer only, never
+ *     pointer / chop logic): a pine's TRUNK (the canopy stays walk-through) once it is > 30% grown, a rock as soon as it is
+ *     drawn; bushes have none. A collider is never switched on while the player stands in its footprint (it waits until they
+ *     step out), so nobody is trapped. Decorative otherwise: no resource logic is touched.
  * Items near fire-network path cubes and fires are skipped only when they are about to spawn; once drawn, an item (and the merged
  * grass, which ignores paths altogether) stays, so lighting a new fire later never makes grown vegetation vanish.
  * All spawning is batched (VEG_BUDGET_PER_TICK entities per 0.2 s tick). Everything clears with the oases (cycle reset).
  */
 
-import { Entity, Material, MeshRenderer, Transform, engine } from '@dcl/sdk/ecs'
+import { ColliderLayer, Entity, Material, MeshCollider, MeshRenderer, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -36,6 +38,12 @@ const VEG_BUDGET_PER_TICK = 60
 const VEG_PATH_CLEAR_M = 2
 const VEG_FIRE_CLEAR_M = 3.5
 const RETIRE_FRAMES = 2
+/** A pine trunk collider is enabled once the (eased) growth passes this. */
+const TRUNK_COLLIDER_MIN_GROWTH = 0.3
+/** Trunk visual / collider minimum width (m). */
+const TRUNK_MIN_W_M = 0.4
+/** Avatar radius + margin (m): a collider is not enabled while the player is this close to its footprint edge. */
+const PLAYER_CLEAR_M = 0.45
 
 const GRASS_COLORS = [
 	Color4.create(0.27, 0.46, 0.20, 1),
@@ -63,7 +71,7 @@ const ROCK_COLORS = [
 // MARK: State
 
 interface LiveCell { c: VegCell; e: Entity | null; shown: boolean }
-interface LiveItem { it: VegItem; parts: Entity[]; spawned: boolean; done: boolean; blocked: boolean; shownScale: number }
+interface LiveItem { it: VegItem; parts: Entity[]; spawned: boolean; done: boolean; blocked: boolean; shownScale: number; coll: boolean }
 interface Group { key: string; cells: LiveCell[]; merged: Entity[] | null }
 
 const cellsByKey = new Map<number, LiveCell>()
@@ -170,7 +178,7 @@ function sync(): void {
 		let g = groups.get(c.ownerKey)
 		if (!g) { g = { key: c.ownerKey, cells: [], merged: null }; groups.set(c.ownerKey, g) }
 		g.cells.push(lc)
-		for (const it of c.items) items.push({ it, parts: [], spawned: false, done: false, blocked: false, shownScale: -1 })
+		for (const it of c.items) items.push({ it, parts: [], spawned: false, done: false, blocked: false, shownScale: -1, coll: false })
 	}
 }
 
@@ -241,7 +249,8 @@ function placeItem(li: LiveItem, g: number): void {
 	const gg = Math.max(0.03, g)
 	if (it.kind === VEG_TREE) {
 		const H = vegTreeHeightM(it) * gg
-		setPart(li.parts[0], it.x, base + 0.11 * H, it.z, 0.05 * H, 0.22 * H, 0.05 * H)
+		const tw = Math.max(0.05 * H, TRUNK_MIN_W_M * gg)
+		setPart(li.parts[0], it.x, base + 0.11 * H, it.z, tw, 0.22 * H, tw)
 		if (li.parts.length === 3) {
 			setPart(li.parts[1], it.x, base + 0.14 * H + 0.26 * H, it.z, 0.36 * H, 0.52 * H, 0.36 * H)
 			setPart(li.parts[2], it.x, base + 0.40 * H + 0.30 * H, it.z, 0.24 * H, 0.60 * H, 0.24 * H)
@@ -265,6 +274,33 @@ function placeItem(li: LiveItem, g: number): void {
 	}
 }
 
+
+
+// MARK: colliders
+
+/** Footprint radius (m) of the item's collider at full size (circle round the trunk / rock). */
+function colliderRadiusM(it: VegItem): number {
+	if (it.kind === VEG_TREE) return Math.max(0.05 * vegTreeHeightM(it), TRUNK_MIN_W_M) / 2
+	const a = 0.6 + 1.0 * it.s0
+	const c = 0.5 + 0.9 * it.s2
+	return Math.hypot(a, c) / 2
+}
+
+/** Turn on the item's physics collider (pine trunk / rock) once grown enough and nobody stands in the spot. */
+function tryEnableCollider(li: LiveItem, eased: number): void {
+	const it = li.it
+	if (it.kind === VEG_TREE && eased < TRUNK_COLLIDER_MIN_GROWTH) return
+	const p = Transform.getOrNull(engine.PlayerEntity)
+	if (p !== null) {
+		const r = colliderRadiusM(it) + PLAYER_CLEAR_M
+		const dy = p.position.y - it.y
+		if (dy > -1 && dy < 4 && Math.hypot(p.position.x - it.x, p.position.z - it.z) < r) return // retry next tick
+	}
+	const e = li.parts[0]
+	if (it.kind === VEG_TREE) MeshCollider.setCylinder(e, 0.5, 0.5, ColliderLayer.CL_PHYSICS)
+	else MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
+	li.coll = true
+}
 
 
 // MARK: vegSystem
@@ -308,8 +344,10 @@ function vegSystem(dt: number): void {
 			spawnParts(li)
 			budget -= li.parts.length
 		}
-		if (!li.spawned || li.done) continue
+		if (!li.spawned) continue
 		const eased = g * g * (3 - 2 * g)
+		if (!li.coll && li.it.kind !== VEG_BUSH) tryEnableCollider(li, eased)
+		if (li.done) continue
 		if (Math.abs(eased - li.shownScale) < 0.01 && g < 1) continue
 		li.shownScale = eased
 		placeItem(li, eased)

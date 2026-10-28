@@ -53,7 +53,7 @@ import {
 import {
 	OASIS_CELL_M,
 	OASIS_DROP_M,
-	OASIS_RADIUS_M,
+	OASIS_REACH_M,
 	oasisEntries,
 	oasisLoweredAt,
 	oasisQuantReveal,
@@ -413,7 +413,7 @@ function capLodSystem(): void {
 /**
  * Oasis (released monument) terrain: inside the revealed circle the cap is gone and brown
  * earth shows one step lower (shared/terrain/oasis.ts owns the cells and the reveal ring).
- * Only rects on the monument's level that the circle reaches are touched. Each is rebuilt
+ * Every (non-mountain) rect, on any terrace, that the patch reaches is touched; cliff walls stay as they are. Each is rebuilt
  * when its cell mask changes (a few ring steps per burst): new pieces first, old ones
  * retired a couple of frames later so no frame shows a hole. Work is capped per frame.
  */
@@ -445,11 +445,11 @@ function oasisSystem(): void {
 
 
 // MARK: oasisTouches
-/** True when a revealed oasis on this rect's level reaches it. */
+/** True when a revealed oasis reaches this rect (any terrace). */
 function oasisTouches(g: RectGeom): boolean {
-	const reach = OASIS_RADIUS_M + OASIS_CELL_M
+	const reach = OASIS_REACH_M + OASIS_CELL_M
 	for (const e of oasisEntries()) {
-		if (e.level !== g.level || oasisQuantReveal(e.reveal) <= 0) continue
+		if (oasisQuantReveal(e.reveal) <= 0) continue
 		if (distSqToRect(e.x, e.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) <= reach * reach) return true
 	}
 	return false

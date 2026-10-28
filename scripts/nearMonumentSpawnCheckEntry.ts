@@ -5,7 +5,7 @@ import {
 	BUILT_FIRE_MIN_SPACING_M, CHARGE_LINK_EDGE_PAD_M, CRYSTAL_NEAR_MONUMENT_MAX_M, CRYSTAL_NEAR_MONUMENT_MIN_M, MONUMENT_LINK_RANGE_M, MONUMENT_NODE_ID_BASE, validateBuiltFireSpot,
 } from 'src/shared/ruleset'
 import { routeFireLink } from 'src/shared/fireNetwork'
-import { OASIS_DROP_M, OASIS_RADIUS_M, oasisClear, oasisLoweredAt, oasisNoteRelease, oasisRelease, walkableYAtWorld } from 'src/shared/terrain/oasis'
+import { OASIS_DROP_M, OASIS_REACH_M, oasisClear, oasisLoweredAt, oasisNoteRelease, oasisRelease, walkableYAtWorld } from 'src/shared/terrain/oasis'
 
 import { generateTerrain } from 'src/shared/terrain/terrainGen'
 import { MONUMENT_PIT_SIZE_M, STATION_CLEAR_M, cellCenterWorld, groundYAtWorld } from 'src/shared/terrain/terrainMap'
@@ -42,12 +42,14 @@ for (let i = 0; i < args.seeds; i++) {
 	let off = Math.abs(Math.atan2(c.z - CAMPFIRE_WORLD_Z, c.x - CAMPFIRE_WORLD_X) - Math.atan2(Math.cos(lookRad), Math.sin(lookRad))) % (Math.PI * 2)
 	if (off > Math.PI) off = Math.PI * 2 - off
 	lookOff.push(off * 180 / Math.PI)
-	// Oasis: the near monument's melt reaches the hearth and spawn pad (no plinth). Both melt like any cell and the floor there is exactly
+	// Oasis: the near monument's melt reaches the hearth and spawn pad (no plinth). The hearth is ~41 m out, normally outside the 28..36 m patch: it then stays at base height. A cell inside is lowered by exactly
 	// one drop lower, so the re-seated hearth / spawn (activeGroundYAt) never leaves the player or the fire floating or underground.
 	oasisClear(); oasisNoteRelease(c.x, c.z, -1e9); oasisRelease(map, c.x, c.z, Number.POSITIVE_INFINITY, 0)
 	for (const [px, pz] of [[CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z], [padX, padZ]]) {
 		const low = oasisLoweredAt(map, px, pz), dy = groundYAtWorld(map, px, pz) - walkableYAtWorld(map, px, pz)
-		if (Math.hypot(px - c.x, pz - c.z) < OASIS_RADIUS_M - 4 && (!low || Math.abs(dy - OASIS_DROP_M) > 1e-9)) fails.push(`seed ${seed}: hearth/spawn ${px.toFixed(1)},${pz.toFixed(1)} not lowered by one drop after the near monument melt (dy ${dy})`)
+		const far = Math.hypot(px - c.x, pz - c.z) > OASIS_REACH_M + 3
+		if (far && (low || dy !== 0)) fails.push(`seed ${seed}: hearth/spawn ${px.toFixed(1)},${pz.toFixed(1)} outside the melt patch but lowered (dy ${dy})`)
+		if (Math.abs(dy - (low ? OASIS_DROP_M : 0)) > 1e-9) fails.push(`seed ${seed}: hearth/spawn ${px.toFixed(1)},${pz.toFixed(1)} floor drop ${dy} does not match lowered=${low}`)
 	}
 	oasisClear()
 	// Lazy first fire: every legal spot 18..30 m from the hearth, 5 degree steps.

@@ -7,7 +7,8 @@
  * The terrain cap (terrainRenderer CAP_M thick, melt-blue, on top of every
  * rock slab) is one walkable step. Inside an oasis the cap is removed and the
  * earth under it shows, OASIS_DROP_M lower. The oasis is a blocky circle of
- * OASIS_CELL_M cells, only on the monument's own terrain level, never on the
+ * OASIS_CELL_M cells on EVERY walkable terrace within reach (each cell keeps its own terrace height; cliff walls are
+ * untouched; melt timing is by horizontal distance), never on lava or mountain, never on the
  * monument's own pit square. The hearth is not special: its cell melts like any other and the hearth objects re-seat
  * (client/hearthSeat.ts).
  *
@@ -15,13 +16,14 @@
  *  1. The release burst (heat front) melts only the middle OASIS_INNER_M instantly.
  *  2. From the end of the burst (`meltStartMs`) the remaining caps melt outward over
  *     OASIS_MELT_S, ring by ring (OASIS_BAND_M rings) with a per-cell irregular edge
- *     (OASIS_JITTER_M), until the full OASIS_RADIUS_M circle is open.
+ *     (OASIS_JITTER_M), until the ragged OASIS_RADIUS_M (+/- OASIS_JITTER_M) patch is open; the caps beyond stay frozen for good.
  * Released oases are never removed until oasisClear (cycle reset / new map).
  *
  * Overlaps are a plain union: a cell is lowered if ANY entry lowers it (the drop
  * is a constant step, so there is nothing to add up).
  */
 
+import { isMountainLevel } from 'src/shared/settings'
 import { CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_DELAY_S, CRYSTAL_THAW_SPREAD_S } from 'src/shared/ruleset'
 import {
 	MONUMENT_PIT_SIZE_M,
@@ -38,14 +40,21 @@ export const OASIS_CELL_M = 4
 export const OASIS_BAND_M = 4
 /** How far the earth floor sits below the old walkable top (m). Under DCL_MAX_AUTO_STEP_M (0.3). */
 export const OASIS_DROP_M = 0.27
-/** Oasis radius (m) on cell centres: the heat radius minus half a cell diagonal, so a cell never reaches past the melted snow disc. */
-export const OASIS_RADIUS_M = CRYSTAL_HEAT_RADIUS_M - OASIS_CELL_M * Math.SQRT1_2
+/**
+ * Nominal final oasis radius (m) on cell centres. Luke's playtest: a ragged blocky patch clearly smaller than the 50 m snow
+ * disc, ringed by permafrost caps that never melt (the blue ring is the intended look). Measured from his mid-melt screenshot
+ * (patch ~0.75 of the cap circle, i.e. 28-36 m); 32 m nominal with the +/- OASIS_JITTER_M edge below gives a 28..36 m edge.
+ * The snow still melts out to CRYSTAL_HEAT_RADIUS_M (heat front, unchanged).
+ */
+export const OASIS_RADIUS_M = 32
 /** Radius (m) the release burst melts instantly (the middle section). */
 export const OASIS_INNER_M = 12
 /** Seconds the rest of the caps take to melt outward after the burst. */
-export const OASIS_MELT_S = 90
-/** Per-cell irregularity (m, +/-) of the outward melt edge. */
-export const OASIS_JITTER_M = 3
+export const OASIS_MELT_S = 60
+/** Per-cell irregularity (m, +/-) of the outward melt edge; it also ragged-ises the final edge (a cell is in when d - jitter <= radius). */
+export const OASIS_JITTER_M = 4
+/** Farthest cell centre (m) that can ever melt. */
+export const OASIS_REACH_M = OASIS_RADIUS_M + OASIS_JITTER_M
 /** Ms after the server release at which the burst is over and the outward melt starts. */
 export const OASIS_MELT_DELAY_MS = (CRYSTAL_THAW_DELAY_S + CRYSTAL_THAW_SPREAD_S) * 1000
 
@@ -217,7 +226,8 @@ function cellCentre(v: number): number {
 function cellNeed(e: OasisEntry, ix: number, iz: number, d: number): number {
 	if (d <= OASIS_INNER_M) return d
 	const jit = (oasisHash01(ix, iz, Math.round(e.x * 4), Math.round(e.z * 4)) - 0.5) * 2 * OASIS_JITTER_M
-	return Math.min(OASIS_RADIUS_M, Math.max(OASIS_INNER_M + 0.01, d - jit))
+	// > OASIS_RADIUS_M: this cell stays frozen for good (ragged final edge).
+	return Math.max(OASIS_INNER_M + 0.01, d - jit)
 }
 
 /** True when this entry can ever lower the cell holding (x, z); fills `out` with its distance + need. */
@@ -232,10 +242,11 @@ function cellOf(e: OasisEntry, map: TerrainMap | null, x: number, z: number): nu
 	const dx = cx - e.x
 	const dz = cz - e.z
 	const d = Math.sqrt(dx * dx + dz * dz)
-	if (d > OASIS_RADIUS_M) return Number.POSITIVE_INFINITY
+	if (d > OASIS_REACH_M) return Number.POSITIVE_INFINITY
 	const m = map ?? mapRef
-	if (m && (levelAtWorld(m, cx, cz) !== e.level || isLavaAtWorld(m, cx, cz))) return Number.POSITIVE_INFINITY
-	return cellNeed(e, ix, iz, d)
+	if (m && (isMountainLevel(levelAtWorld(m, cx, cz)) || isLavaAtWorld(m, cx, cz))) return Number.POSITIVE_INFINITY
+	const need = cellNeed(e, ix, iz, d)
+	return need > OASIS_RADIUS_M ? Number.POSITIVE_INFINITY : need
 }
 
 function loweredWith(list: readonly OasisEntry[], map: TerrainMap | null, x: number, z: number): boolean {
@@ -257,7 +268,7 @@ export function oasisLoweredAt(map: TerrainMap, x: number, z: number): boolean {
 
 /**
  * Local epoch ms at which the cell holding (x, z) is (or was) melted, from the entries' timing alone:
- * Infinity = never (other level, lava, pit, outside), -Infinity = already open for good.
+ * Infinity = never (mountain, lava, pit, outside), -Infinity = already open for good.
  * Agrees with oasisLoweredAt as the clock passes it (tested in oasisCheck).
  */
 export function oasisCellExposeMs(map: TerrainMap, x: number, z: number): number {
