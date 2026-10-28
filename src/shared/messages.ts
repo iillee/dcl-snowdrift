@@ -505,6 +505,8 @@ export const Messages = {
 		fresh : Schemas.Int,
 		/** userId of the igniter on a fresh activation, '' otherwise. */
 		by    : Schemas.String,
+		/** Floating crystals: ms since the server released this crystal (oasis melt + regrowth clock), -1 = unknown / not released. */
+		ageMs : Schemas.Int,
 	}),
 
 	// Server -> Client (floating-crystals ruleset): monument charge 0..1.

@@ -22,6 +22,7 @@ import {
 import { Vector3 } from '@dcl/sdk/math'
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { hearthSurfaceY } from 'src/client/hearthSeat'
 
 import { createFlameRig } from 'src/client/flameBillboards'
 import { flameLightSeed } from 'src/shared/flameVariant'
@@ -62,8 +63,9 @@ export function setupCampfire(): void {
 	// the log pile. The flame cluster is a sibling of the logs.
 	const root = engine.addEntity()
 	Transform.create(root, {
-		position: Vector3.create(CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z),
+		position: Vector3.create(CAMPFIRE_WORLD_X, hearthSurfaceY(), CAMPFIRE_WORLD_Z),
 	})
+	let lastSeatY = hearthSurfaceY()
 
 	const base = engine.addEntity()
 	Transform.create(base, { parent: root, position: Vector3.Zero() })
@@ -104,6 +106,12 @@ export function setupCampfire(): void {
 
 	engine.addSystem(() => {
 		try {
+			// An oasis melting the cap under the hearth lowers the floor: the whole fire (stones, flames, spots, light, audio, collider) hangs on the root.
+			const seatY = hearthSurfaceY()
+			if (seatY !== lastSeatY) {
+				lastSeatY = seatY
+				Transform.getMutable(root).position = Vector3.create(CAMPFIRE_WORLD_X, seatY, CAMPFIRE_WORLD_Z)
+			}
 			const tier  = getMainFireTier()
 			// Stopwatch flame: write whenever it moves 0.001 (effectively
 			// every frame while burning) so decay reads as a smooth shrink.

@@ -16,6 +16,8 @@ import {
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PROP_CATALOG, PropDef } from 'src/shared/props/catalog'
+import { activeTerrain } from 'src/shared/terrain/terrainCache'
+import { oasisDeltaY, oasisDropAt, onOasisChanged } from 'src/shared/terrain/oasis'
 import { scatterProps } from 'src/shared/props/scatter'
 import { WOOD_LOGS_PER_TREE } from 'src/shared/woodScatter'
 
@@ -27,6 +29,18 @@ let hasSpawned = false
 let onTreesSpawned: (() => void) | null = null
 
 const defsById = new Map<string, PropDef>(PROP_CATALOG.map(d => [d.id, d]))
+
+// An oasis melts the terrain cap away: props (trees) standing inside it move down onto the new floor.
+onOasisChanged((was) => {
+	const map = activeTerrain()
+	if (!map) return
+	for (const e of spawnedEntities) {
+		const tr = Transform.getMutableOrNull(e)
+		if (!tr) continue
+		const dy = oasisDeltaY(map, tr.position.x, tr.position.z, was)
+		if (dy !== 0) tr.position = Vector3.create(tr.position.x, tr.position.y + dy, tr.position.z)
+	}
+})
 
 
 /**
@@ -63,7 +77,9 @@ export function setupProps(seed: number, reservedCells: ReadonlySet<string>): vo
 		const e = engine.addEntity()
 		// worldY is the prop's own offset; groundY is the terrain surface
 		// scatterProps sampled for this seed's map.
+		const oMap   = activeTerrain()
 		const groundY = p.groundY - (p.propId === 'tree_4' ? p.scale * TREE_SINK_PER_SCALE_M : 0)
+			- (oMap ? oasisDropAt(oMap, p.worldX, p.worldZ) : 0)
 		Transform.create(e, {
 			position: Vector3.create(p.worldX, groundY + p.worldY, p.worldZ),
 			rotation: Quaternion.fromEulerDegrees(0, p.yawDeg, 0),

@@ -24,6 +24,13 @@ import {
 export const CAMPFIRE_WORLD_X = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_WIDTH  * MAZE_TILE_WORLD_METERS) / 2
 /** Campfire world position (Z). Geometric centre of the playfield. */
 export const CAMPFIRE_WORLD_Z = MAZE_ORIGIN_OFFSET_METERS + (MAZE_GRID_HEIGHT * MAZE_TILE_WORLD_METERS) / 2
+/**
+ * Spawn / sunrise look heading: compass degrees from +Z (north), clockwise.
+ * 232.5 = SW of WSW. The spawn pad sits behind the fire on this line and
+ * the player arrives facing the fire; world gen puts the near monument in
+ * front of that view. Shared so client (player.ts) and terrain gen agree.
+ */
+export const SPAWN_LOOK_COMPASS_DEG = 232.5
 /** Campfire visual base height. Sits on the hearth level. */
 export const CAMPFIRE_WORLD_Y = TERRAIN_HEARTH_SURFACE_Y
 

@@ -16,7 +16,8 @@ import {
 	isMountainLevel,
 } from 'src/shared/settings'
 import { generateTerrain } from 'src/shared/terrain/terrainGen'
-import { groundYAtWorld, isLavaAtWorld, levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
+import { isLavaAtWorld, levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
+import { walkableYAtWorld } from 'src/shared/terrain/oasis'
 
 
 /** Maps kept before the oldest is dropped. */
@@ -77,7 +78,8 @@ export function activeTerrain(): TerrainMap | null {
 export function activeGroundYAt(x: number, z: number): number {
 	const map = activeTerrain()
 	if (map === null) return TERRAIN_HEARTH_SURFACE_Y
-	return groundYAtWorld(map, x, z)
+	// Inside a released oasis the cap is gone: the floor is one step lower (shared/terrain/oasis.ts).
+	return walkableYAtWorld(map, x, z)
 }
 
 

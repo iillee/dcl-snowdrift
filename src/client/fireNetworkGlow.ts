@@ -70,7 +70,8 @@ import {
 } from 'src/shared/fireNetwork'
 import { room } from 'src/shared/messages'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
-import { TerrainMap, groundYAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
+import { TerrainMap, levelAtWorld } from 'src/shared/terrain/terrainMap'
+import { oasisDeltaY, onOasisChanged, walkableYAtWorld } from 'src/shared/terrain/oasis'
 import { SNOW_CELL_M, cellCenterWorld as snowCellCenter, cellCoordsFromKey, cellKey, forEachCellInDisc } from 'src/shared/snowGrid'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { getHiddenFireFuel, getMainFireFuel } from 'src/client/hearthFuel'
@@ -94,6 +95,21 @@ interface Piece { e: Entity; t: number; sx: number; sy: number; sz: number; pos:
 interface GlowLink { ax: number; az: number; bx: number; bz: number; a: number; b: number; state: number; t0Ms: number; deadA: boolean; deadB: boolean; L: number; pieces: Piece[]; warm: Map<number, number>; dimClock: number; dimmed: boolean; finalMs?: number }
 
 const glow = new Map<string, GlowLink>()
+
+// An oasis melts the terrain cap away: glowing path pieces inside it move down onto the new floor.
+onOasisChanged((was) => {
+	const map = activeTerrain()
+	if (!map) return
+	for (const l of glow.values()) {
+		for (const p of l.pieces) {
+			const dy = oasisDeltaY(map, p.pos.x, p.pos.z, was)
+			if (dy === 0) continue
+			p.pos = Vector3.create(p.pos.x, p.pos.y + dy, p.pos.z)
+			const tr = Transform.getMutableOrNull(p.e)
+			if (tr) tr.position = Vector3.create(tr.position.x, tr.position.y + dy, tr.position.z)
+		}
+	}
+})
 let ghostSeq = 0
 let lodClock = 0
 let installed = false
@@ -156,6 +172,11 @@ export function monumentHasChargeLink(index: number): boolean {
 	return false
 }
 
+/** Calls fn(x, z) for every live path piece (oasis vegetation keeps clear of the fire paths). */
+export function forEachGlowPoint(fn: (x: number, z: number) => void): void {
+	for (const l of glow.values()) for (const p of l.pieces) fn(p.pos.x, p.pos.z)
+}
+
 export function getGlowEntityCount(): number {
 	let n = 0
 	for (const l of glow.values()) n += l.pieces.length
@@ -207,7 +228,7 @@ function buildCubes(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], 
 				next += step
 				if (ends.some((e) => (x - e.x) ** 2 + (z - e.z) ** 2 < clear2)) continue
 				if (levelAtWorld(map, x, z) !== r.level) continue
-				const y = groundYAtWorld(map, x, z) + NETWORK_CUBE_FLOAT_M
+				const y = walkableYAtWorld(map, x, z) + NETWORK_CUBE_FLOAT_M
 				const sph = NETWORK_CUBE_SHAPE === 'sphere'
 				addBox(Vector3.create(x, y, z), yaw, s, s, s, t0 + runT + L * u, out, sph ? 0 : NETWORK_CUBE_TILT_DEG, sph)
 			}
@@ -250,7 +271,7 @@ function buildTiles(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], 
 		for (let i = 0; i < n; i++) done.add(cellKey(gx + i, gz))
 		const c0 = snowCellCenter(k)
 		const x = c0.x + (n - 1) * SNOW_CELL_M / 2
-		const y = groundYAtWorld(map, c0.x, c0.z) + NETWORK_TILE_LIFT_M + NETWORK_TILE_THICK_M / 2
+		const y = walkableYAtWorld(map, c0.x, c0.z) + NETWORK_TILE_LIFT_M + NETWORK_TILE_THICK_M / 2
 		addBox(Vector3.create(x, y, c0.z), 0, n * SNOW_CELL_M - NETWORK_TILE_INSET_M, NETWORK_TILE_THICK_M, SNOW_CELL_M - NETWORK_TILE_INSET_M, tMin, out)
 	}
 	return out
@@ -300,7 +321,7 @@ function buildPieces(ax: number, az: number, bx: number, bz: number, a: number, 
 			for (let s = 0; s < n; s++) {
 				const u = (s + 0.5) / n
 				const x = p.x + (q.x - p.x) * u, z = p.z + (q.z - p.z) * u
-				const y = groundYAtWorld(map, x, z) + NETWORK_GLOW_LIFT_M
+				const y = walkableYAtWorld(map, x, z) + NETWORK_GLOW_LIFT_M
 				addBox(Vector3.create(x, y, z), yaw, NETWORK_GLOW_WIDTH_M, GLOW_THICK_M, L / n, t0 + L * u, pieces)
 			}
 			t0 += L

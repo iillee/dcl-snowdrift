@@ -31,7 +31,8 @@ import { getPlayer } from '@dcl/sdk/players'
 
 import { cycleMazeSeed, cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { inPickupReach } from 'src/shared/logs'
-import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
+import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import { oasisDeltaY, oasisDropAt, onOasisChanged } from 'src/shared/terrain/oasis'
 import { room } from 'src/shared/messages'
 import { STAGE_MELTED, worldToCellKey } from 'src/shared/snowGrid'
 import {
@@ -93,6 +94,20 @@ const activeIdx         = new Set<number>()
 /** False until the server's first woodActiveSet lands. */
 let hasActiveSet        = false
 const chunkEntities     = new Map<number, ChunkRec>()
+
+// An oasis melts the terrain cap away: revealed wood inside it moves down onto the new floor.
+onOasisChanged((was) => {
+	const map = activeTerrain()
+	if (!map) return
+	for (const rec of chunkEntities.values()) {
+		const dy = oasisDeltaY(map, rec.x, rec.z, was)
+		if (dy === 0) continue
+		for (const e of [rec.entity, rec.beacon]) {
+			const tr = e === null ? null : Transform.getMutableOrNull(e)
+			if (tr) tr.position = Vector3.create(tr.position.x, tr.position.y + dy, tr.position.z)
+		}
+	}
+})
 /** Idx -> Date.now() when the local player grabbed it. Reveal must
  *  not put the GLB back while this is set, or the head pop plays over
  *  a chunk that is still sitting on the snow. Cleared on the server
@@ -211,10 +226,13 @@ function spawnChunk(idx: number, armed: boolean): void {
 		return
 	}
 	const entity = engine.addEntity()
-	attachWoodModel(entity, c.worldX, c.worldZ, (idx * 37) % 360, c.worldY)
+	// scatter worldY is the frozen-cap surface; inside an oasis the floor is one step lower.
+	const oMap = activeTerrain()
+	const y = c.worldY - (oMap ? oasisDropAt(oMap, c.worldX, c.worldZ) : 0)
+	attachWoodModel(entity, c.worldX, c.worldZ, (idx * 37) % 360, y)
 
 	let beacon: Entity | null = null
-	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, c.worldY, c.worldZ)
+	if (DEV_BEACON_ENABLED) beacon = spawnBeacon(c.worldX, y, c.worldZ)
 
 	chunkEntities.set(idx, { entity, beacon, x: c.worldX, z: c.worldZ, kind: c.kind, armed })
 }

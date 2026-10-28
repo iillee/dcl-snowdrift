@@ -20,12 +20,13 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 import { getMainFireSmokeDensity, getMainFireSmokeHeight, getMainFireTier } from 'src/client/hearthFuel'
+import { hearthSurfaceY } from 'src/client/hearthSeat'
 
 
 // MARK: Tuning
 // Emit from just above the flame tip so smoke reads as rising from the
 // fire, not from the log pile.
-const SMOKE_ORIGIN_Y  = CAMPFIRE_WORLD_Y + 1.15
+const SMOKE_ORIGIN_DY = 1.15
 // Cone tuning: narrow half-angle → tight column that widens with age
 // as sizeOverTime + wind spread the particles.
 const CONE_ANGLE_DEG  = 12
@@ -111,7 +112,7 @@ export function setupCampfireSmoke(): void {
 	// entity's rotation orients the cone; default (identity) points
 	// along +Y, which is what we want.
 	Transform.create(emitter, {
-		position: Vector3.create(CAMPFIRE_WORLD_X, SMOKE_ORIGIN_Y, CAMPFIRE_WORLD_Z),
+		position: Vector3.create(CAMPFIRE_WORLD_X, hearthSurfaceY() + SMOKE_ORIGIN_DY, CAMPFIRE_WORLD_Z),
 		rotation: Quaternion.Identity(),
 	})
 
@@ -151,7 +152,14 @@ export function setupCampfireSmoke(): void {
 	// strong fire is a thicker column, not a bigger blob.
 	let lastTier = -2
 	let lastKey  = ''
+	let lastY    = hearthSurfaceY()
 	engine.addSystem(() => {
+		// The floor under the hearth drops when an oasis melts the cap: the plume follows.
+		const seatY = hearthSurfaceY()
+		if (seatY !== lastY) {
+			lastY = seatY
+			Transform.getMutable(emitter).position = Vector3.create(CAMPFIRE_WORLD_X, seatY + SMOKE_ORIGIN_DY, CAMPFIRE_WORLD_Z)
+		}
 		const tier = getMainFireTier()
 		const h = Math.round(getMainFireSmokeHeight() * 50) / 50
 		const d = Math.round(getMainFireSmokeDensity() * 50) / 50

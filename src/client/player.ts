@@ -12,14 +12,14 @@
 import { engine, Transform } from '@dcl/sdk/ecs'
 import { movePlayerTo } from '~system/RestrictedActions'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, SPAWN_LOOK_COMPASS_DEG } from 'src/shared/campfire'
 import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
 
 import { isTopDownActive, toggleTopDownCamera } from 'src/client/topDownCamera'
 
 
 /** Compass degrees from +Z (north), clockwise. 232.5 = SW of WSW. */
-const LOOK_SUNRISE_DEG = 232.5
+const LOOK_SUNRISE_DEG = SPAWN_LOOK_COMPASS_DEG
 const LOOK_DIST_M      = 80
 const LOOK_UP_M        = 8
 const LOOK_RAD         = (LOOK_SUNRISE_DEG * Math.PI) / 180

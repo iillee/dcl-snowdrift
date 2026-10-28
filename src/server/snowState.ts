@@ -29,6 +29,7 @@ import {
 	worldToCellKey,
 } from 'src/shared/snowGrid'
 import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
+import { oasisClear, oasisSetBurstReveal } from 'src/shared/terrain/oasis'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { levelAtWorld, TerrainMap } from 'src/shared/terrain/terrainMap'
 import {
@@ -493,6 +494,7 @@ export function tickHeatFronts(nowMs: number): boolean {
 			lowerCellTo(key, lag >= HEAT_FRONT_BAND_M ? 0 : lag >= (2 * HEAT_FRONT_BAND_M) / 3 ? 1 : 2)
 		})
 		f.doneR = r
+		oasisSetBurstReveal(f.cx, f.cz, Math.min(r, f.R)) // opens at most OASIS_INNER_M; the rest melts on the oasisTick clock
 		if (u >= 1) {
 			// Final sweep: everything inside R is held clear.
 			meltHeatZone(f.cx, f.cz, f.R)
@@ -589,6 +591,7 @@ export function clearAllSnow(): void {
 	scarredCells.clear()
 	heatZoneCells.clear()
 	heatFronts.length = 0
+	oasisClear()
 	zeroAllSnowTiles()
 	noteComponentChange(cleared)
 	coverageDirty = true

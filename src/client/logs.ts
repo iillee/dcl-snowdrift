@@ -25,7 +25,9 @@
  */
 
 import { Transform, engine, Entity } from '@dcl/sdk/ecs'
-import { activeGroundYAt } from 'src/shared/terrain/terrainCache'
+import { Vector3 } from '@dcl/sdk/math'
+import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
+import { oasisDeltaY, onOasisChanged } from 'src/shared/terrain/oasis'
 
 import { inPickupReach } from 'src/shared/logs'
 import { room } from 'src/shared/messages'
@@ -52,6 +54,17 @@ interface PileRec {
 }
 
 const piles = new Map<number, PileRec>()
+
+// An oasis melts the terrain cap away: dropped logs inside it move down onto the new floor.
+onOasisChanged((was) => {
+	const map = activeTerrain()
+	if (!map) return
+	for (const rec of piles.values()) {
+		const dy = oasisDeltaY(map, rec.x, rec.z, was)
+		const tr = dy === 0 ? null : Transform.getMutableOrNull(rec.entity)
+		if (tr) tr.position = Vector3.create(tr.position.x, tr.position.y + dy, tr.position.z)
+	}
+})
 
 
 // MARK: spawnPileEntity

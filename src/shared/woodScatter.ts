@@ -531,6 +531,10 @@ export function computeWoodScatter(
 }
 
 
+/** Frontier routes only run to monuments at least this far (m) from the hearth. */
+const WOOD_FRONTIER_ROUTE_MIN_M = 80
+
+
 // MARK: frontierSpotOk
 function frontierSpotOk(x: number, z: number, reserved: ReadonlySet<string>): boolean {
 	if (scatterMap === null) return false
@@ -569,6 +573,9 @@ function placeFrontierBands(
 		const m  = cellCenterWorld(s.cx, s.cz)
 		const vx = m.x - CENTRE_X, vz = m.z - CENTRE_Z
 		const L  = Math.hypot(vx, vz) || 1
+		// The near-spawn monument is a few steps from the hearth: a 'frontier' route to it would
+		// just pile free logs on the spawn (the near / far bands already feed the start).
+		if (L < WOOD_FRONTIER_ROUTE_MIN_M) continue
 		const nx = -vz / L, nz = vx / L
 		let placed = 0, tries = 0
 		while (placed < WOOD_FRONTIER_ROUTE_POOL && tries < WOOD_FRONTIER_ROUTE_POOL * 30) {

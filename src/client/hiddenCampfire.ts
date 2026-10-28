@@ -45,6 +45,7 @@ import { playSurgeSfxAt } from 'src/client/audio'
 import { applyHearthSmoke } from 'src/client/campfireSmoke'
 import { onCycleSeedChange } from 'src/client/cycle'
 import { createFlameRig, FlameRig } from 'src/client/flameBillboards'
+import { oasisVersion } from 'src/shared/terrain/oasis'
 import { flameLightSeed } from 'src/shared/flameVariant'
 import {
 	hearthLightParams, LitFirePos, nearestLitFireIndex, syncPointLight,
@@ -709,6 +710,11 @@ function handleCycleSeedChange(newSeed: number): void {
 
 /** Terrain map the pits' Y was last taken from (null = none yet). */
 let seatedMap: TerrainMap | null = null
+/** Oasis version the pits' Y was last taken at (an oasis lowers the floor one step). */
+let seatedOasis = -1
+/** Seconds between safety re-seat checks, and the running timer. */
+const RESEAT_POLL_S = 0.5
+let reseatPollS = 0
 
 
 // MARK: groundedPitY
@@ -744,10 +750,16 @@ function shiftEntityY(e: Entity | null, dy: number): void {
  * are parented to the pit and follow it. Cheap: one identity check per
  * frame, work only on a layout change.
  */
-function reseatPitsOnTerrain(): void {
+function reseatPitsOnTerrain(dt: number): void {
 	const map = activeTerrain()
-	if (map === seatedMap) return
+	// Besides the layout / oasis-change triggers, re-check every RESEAT_POLL_S: a pit (and its flame, light, smoke,
+	// beacon, fuel bar) must never be left at an old floor height (oasis cap melted under a lit or just-built fire).
+	reseatPollS += dt
+	const due = reseatPollS >= RESEAT_POLL_S
+	if (due) reseatPollS = 0
+	if (map === seatedMap && oasisVersion() === seatedOasis && !due) return
 	seatedMap = map
+	seatedOasis = oasisVersion()
 	if (map === null) return
 	let moved = 0
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {

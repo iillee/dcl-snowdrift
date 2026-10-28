@@ -70,6 +70,7 @@ import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
 import { HEAT_FRONT_BAND_M, heatFrontRadiusM } from 'src/shared/heatFront'
+import { oasisClear, oasisNoteRelease, oasisRelease, oasisSetBurstReveal } from 'src/shared/terrain/oasis'
 import { setSnowCellOffsets } from 'src/client/snow/snowRenderer'
 import {
 	CINE_SETTLE_S,
@@ -113,6 +114,7 @@ import {
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { fireFinalChargePulse, monumentHasChargeLink } from 'src/client/fireNetworkGlow'
+import { clearMonumentChargeHums, stopMonumentChargeHum, updateMonumentChargeHum } from 'src/client/monumentChargeHum'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
 import { crystalFloatAboveGround } from 'src/shared/crystalFloat'
@@ -293,6 +295,8 @@ const CRYSTAL_HUM_SRC = 'assets/sounds/crystal.mp3'
 export const CRYSTAL_HUM_VOLUME = 0.7
 /** The hum plays from a fixed invisible point this high above the socket (m). */
 const CRYSTAL_HUM_HEIGHT_M = 2
+/** The buried-monument charge hum emitter sits this high above the ground (m). */
+const CHARGE_HUM_HEIGHT_M = 2
 
 // MARK: Tuning - gaze hum
 /**
@@ -1032,6 +1036,9 @@ function setPhase(slot: Slot, phase: Phase): void {
 
 /** Snap a slot to its finished state (hydration / late join). */
 function snapDone(slot: Slot): void {
+	// Floating crystals: hydrated / late-joined release = the finished oasis (terrain cap already gone).
+	const oMap = isFloatingCrystals() ? activeTerrain() : null
+	if (oMap) oasisRelease(oMap, slot.x, slot.z, Number.POSITIVE_INFINITY)
 	removeAllIce(slot)
 	slot.active = true
 	startHum(slot)
@@ -1176,6 +1183,8 @@ export function getMonumentTotal(): number {
 // MARK: clearAll
 function clearAll(): void {
 	abortMonumentCinematic()
+	oasisClear()
+	clearMonumentChargeHums()
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots[i]
 		if (!s) continue
@@ -1681,6 +1690,7 @@ function resetForSeed(seed: number): void {
 	if (cycleSeedsEqual(seed, currentSeed) && currentSeed !== 0) return
 	console.log(`stationMarkers: cycle roll ${currentSeed} -> ${seed}, clearing activations`)
 	currentSeed = seed
+	oasisClear()
 	for (let i = 0; i < STATION_COUNT_MAX; i++) { pendingActive[i] = false; pendingIce[i] = 0; pendingCharge[i] = 0 }
 	finaleT = -1
 	// Markers rebuild via activeTerrain watcher when layout changes
@@ -1727,7 +1737,7 @@ export function setupStationMarkers(): void {
 		playRemoteMeltCue(slot, before)
 	})
 
-	room.onMessage('stationState', ({ seed, index, active, fresh, by }) => {
+	room.onMessage('stationState', ({ seed, index, active, fresh, by, ageMs }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) {
 			console.log(
 				`stationMarkers: ignore stationState seed=${seed} (have ${currentSeed})`,
@@ -1739,6 +1749,8 @@ export function setupStationMarkers(): void {
 		const wasActive = pendingActive[index]
 		pendingActive[index] = true
 		const slot = slots[index]
+		// Release clock for the oasis melt + regrowth: the server's age, so a late joiner lands mid-growth.
+		if (slot && typeof ageMs === 'number' && ageMs >= 0) oasisNoteRelease(slot.x, slot.z, Date.now() - ageMs)
 		// Hydration (fresh=0): snap to hovering + beams. Fresh: rise +
 		// beams + SFX, unless this client already played it (local melter).
 		const animate = fresh === 1 && !!slot && !slot.active
@@ -1811,12 +1823,16 @@ function crystalSystem(dt: number): void {
 		if (!slot) continue
 		total++
 		if (slot.active) {
+			stopMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt) // fade out on release
 			removeCrystalFx(i)
 			if (slot.phase === 'done') up++
 			continue
 		}
 		const ch = pendingCharge[i] ?? 0
 		let f = fx[i]
+		// Looping 3D hum while buried and receiving heat from the fire network (live charge link, not full, not released).
+		if (ch >= 1 || pendingActive[i]) stopMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt)
+		else updateMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, monumentHasChargeLink(i), dt)
 		// Bar hidden until charging starts (charge > 0 or a live charge link);
 		// once it has charge it stays until release.
 		const started = ch > 0 || monumentHasChargeLink(i)
@@ -2063,6 +2079,9 @@ function startBurst(slot: Slot, i: number): void {
 	paintEnergy(e, 1, 3)
 	const h = crystalFloatAboveGround(activeTerrain(), slot.groundY)
 	bursts[i] = { e, t: 0, endR: Math.hypot(CRYSTAL_HEAT_RADIUS_M + HEAT_FRONT_BAND_M, h), cx: slot.x, cz: slot.z, h, doneR: 0, stepAcc: 0 }
+	// The oasis exists from the burst; its terrain cap melts away ring by ring behind the front (burstSystem).
+	const oMap = activeTerrain()
+	if (oMap) oasisRelease(oMap, slot.x, slot.z, 0)
 	playBeamSfx(BEAM_SFX_VOLUME, 0.05)
 }
 /* Burst radius 0 -> hypot(R + 3 m band, this crystal's float height above ground) over CRYSTAL_BURST_S (per burst endR); alpha 1 -> 0. */
@@ -2103,9 +2122,9 @@ function burstSystem(dt: number): void {
 		if (u >= 1 || b.stepAcc >= BURST_MELT_STEP_S) {
 			b.stepAcc = 0
 			const r = Math.min(heatFrontRadiusM(u, CRYSTAL_HEAT_RADIUS_M, b.h), CRYSTAL_HEAT_RADIUS_M)
-			if (r > b.doneR) { predictHeatFrontMelt(b.cx, b.cz, b.doneR, r); b.doneR = r }
+			if (r > b.doneR) { predictHeatFrontMelt(b.cx, b.cz, b.doneR, r); oasisSetBurstReveal(b.cx, b.cz, r); b.doneR = r }
 		}
-		if (u >= 1) { engine.removeEntity(b.e); bursts[i] = null }
+		if (u >= 1) { oasisSetBurstReveal(b.cx, b.cz, Number.POSITIVE_INFINITY); engine.removeEntity(b.e); bursts[i] = null }
 	}
 }
 function clearSphere(i: number): void {

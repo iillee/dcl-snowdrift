@@ -683,6 +683,13 @@ export interface AvatarOffscreenHint {
 }
 
 
+// MARK: getTopDownFocus
+/** Ground point (x, z) the overview camera is centred on, or null while the overview is off. */
+export function getTopDownFocus(): { x: number; z: number } | null {
+	return active ? { x: targetPos.x, z: targetPos.z } : null
+}
+
+
 // MARK: getAvatarOffscreenHint
 /**
  * When free-panned far enough that the local avatar is outside the

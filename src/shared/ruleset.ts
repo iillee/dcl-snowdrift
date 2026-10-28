@@ -201,8 +201,22 @@ export const CRYSTAL_IDLE_LAVA_HEAT     = 0.15
 export const CRYSTAL_IDLE_SMOKE_RATE  = 0.5
 export const CRYSTAL_IDLE_SMOKE_SIZE  = 0.8
 export const CRYSTAL_IDLE_SMOKE_ALPHA = 0.7
-/** Floating crystals: nearest-spawn monument target distance from the hearth (m). */
-export const CRYSTAL_NEAR_MONUMENT_TARGET_M = 95
+/**
+ * Floating crystals: nearest-spawn monument target distance from the hearth (m).
+ * 25 m = the first terrain-cell ring around the hearth (centres 25.3 m out on
+ * the 16 m grid, on the forced-flat hearth terrace, 8 candidates). Why: a built
+ * fire is >= 18 m from the hearth (BUILT_FIRE_MIN_SPACING_M) and >= 10 m from
+ * the monument (STATION_CLEAR_M + BUILT_FIRE_MONUMENT_CLEAR_M); a fire links
+ * and charges within MONUMENT_LINK_RANGE_M (40 m) of the monument centre, so a
+ * fire anywhere in the ~270 deg arc facing it (at 18 m) or the whole hemisphere
+ * facing it (out to ~30 m) connects. The hearth itself never charges it.
+ */
+export const CRYSTAL_NEAR_MONUMENT_TARGET_M = 40
+/** Floating crystals: preferred near-monument band (m from the hearth): ~40 m (Luke: 25 m was too close to spawn), 36..44 m. */
+export const CRYSTAL_NEAR_MONUMENT_MIN_M = 36
+export const CRYSTAL_NEAR_MONUMENT_MAX_M = 44
+/** Floating crystals: widest fallback band (m) before the classic relaxed band (the 33.9 m diagonal ring + beyond). */
+export const CRYSTAL_NEAR_MONUMENT_RELAX_MAX_M = 60
 /** Floating crystals: summit map tablet clearance beyond the crater heat radius (m from lava centre). */
 export const CRYSTAL_MAP_LAVA_CLEAR_M = 6
 /** Floating crystals: summit map tablet clearance from a rim ladder landing (m). */

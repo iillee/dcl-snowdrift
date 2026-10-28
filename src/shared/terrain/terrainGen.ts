@@ -22,7 +22,7 @@
  */
 
 import { computeVolcanoCrownCells, crownLevelFor } from 'src/shared/terrain/volcanoCrown'
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, SPAWN_LOOK_COMPASS_DEG } from 'src/shared/campfire'
 import {
 	MONUMENT_COUNT,
 	MONUMENT_DISTANCE_BANDS,
@@ -32,6 +32,9 @@ import {
 	MONUMENT_RELAX_SEP_FRAC,
 	isFloatingCrystals,
 	CRYSTAL_NEAR_MONUMENT_TARGET_M,
+	CRYSTAL_NEAR_MONUMENT_MIN_M,
+	CRYSTAL_NEAR_MONUMENT_MAX_M,
+	CRYSTAL_NEAR_MONUMENT_RELAX_MAX_M,
 } from 'src/shared/ruleset'
 import {
 	MAJOR_GROVE_COUNT,
@@ -209,6 +212,10 @@ const STATION_LOS_NEAR_TARGET  = 2
 // The grove is the hearth tree ring (catalog radiiM 64 / 88 / 96 / 104 m
 // core, 144 / 168 m far trees) on the forced hearth terrace
 // (HEARTH_FORCE_R 4.5 cells = 72 m, blended to 9 cells = 144 m).
+// Floating crystals override this: the near monument sits ~25 m from the hearth
+// (CRYSTAL_NEAR_MONUMENT_TARGET_M, the first cell ring, always on the flat hearth
+// terrace) in front of the spawn view (SPAWN_LOOK_COMPASS_DEG), so any fire built
+// near spawn links to it.
 /** Preferred distance from the hearth (m): between the two far hearth trees (144 / 168 m). */
 export const NEAR_STATION_TARGET_M       = 160
 /** Inner edge of the preferred band (m). */
@@ -427,7 +434,7 @@ function buildOnce(
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [])
 	}
 	if (stations.length < STATION_COUNT) console.log(`terrainGen: only ${stations.length}/${STATION_COUNT} monuments placed`)
-	if (nearPull() !== 1 && stations.length >= STATION_MIN_VALID && stations[0].near) {
+	if (!isFloatingCrystals() && nearPull() !== 1 && stations.length >= STATION_MIN_VALID && stations[0].near) {
 		stations = pullNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, stations)
 	}
 
@@ -2188,7 +2195,14 @@ function pickNearStation(
 	const rimPts  = volcanoRimPoints(work, volcano)
 	const centre  = stationLosTarget(work.landforms, volcano)
 	const volcAng = Math.atan2(centre.fz - HEARTH_FZ, centre.fx - HEARTH_FX)
-	const awayAng = volcAng + Math.PI
+	// Floating crystals: the near monument is ~25 m from the hearth, so "away
+	// from the volcano" no longer matters; it goes in FRONT of the spawn view
+	// instead (the player arrives on the pad behind the fire looking along
+	// SPAWN_LOOK_COMPASS_DEG: forward = (sin, cos) in x / z).
+	const crystals = isFloatingCrystals()
+	const lookRad  = (SPAWN_LOOK_COMPASS_DEG * Math.PI) / 180
+	const awayAng  = crystals ? Math.atan2(Math.cos(lookRad), Math.sin(lookRad)) : volcAng + Math.PI
+	const candMinM = crystals ? CRYSTAL_NEAR_MONUMENT_MIN_M : NEAR_STATION_RELAX_MIN_M
 	const ladderCells = new Set<number>()
 	for (const l of ladders) {
 		ladderCells.add(l.lowCz * W + l.lowCx)
@@ -2204,7 +2218,7 @@ function pickNearStation(
 			if (cx < 2 || cz < 2 || cx >= W - 2 || cz >= H - 2) continue
 			const i = cz * W + cx
 			const distM = Math.hypot(cx + 0.5 - HEARTH_FX, cz + 0.5 - HEARTH_FZ) * TERRAIN_CELL_M
-			if (distM < NEAR_STATION_RELAX_MIN_M || distM > NEAR_STATION_RELAX_MAX_M) continue
+			if (distM < candMinM || distM > NEAR_STATION_RELAX_MAX_M) continue
 			if (routeDist[i] < 0) continue
 			const lv = work.levels[i]
 			if (lv !== LOW && lv !== MID && lv !== HIGH) continue
@@ -2243,6 +2257,13 @@ function pickNearStation(
 	// the rim), so no pass requires a clear beam; the beam lift is still
 	// computed for the hover height.
 	const passes: Pass[] = [
+		// Floating crystals: the 20-30 m ring beside the hearth (the 25.3 m cell
+		// ring on the forced-flat hearth terrace), any side, best view first; then
+		// the next rings out; the classic passes below stay as a last resort.
+		...(crystals ? [
+			{ name: 'close+front+los',    minM: CRYSTAL_NEAR_MONUMENT_MIN_M, maxM: CRYSTAL_NEAR_MONUMENT_MAX_M,       maxOffDeg: 180, clear: false, los: true },
+			{ name: 'close+relaxed+los',  minM: CRYSTAL_NEAR_MONUMENT_MIN_M, maxM: CRYSTAL_NEAR_MONUMENT_RELAX_MAX_M, maxOffDeg: 180, clear: false, los: true },
+		] : []),
 		{ name: 'band+away+los',        minM: Math.max(NEAR_STATION_RELAX_MIN_M, NEAR_STATION_MIN_M * distScale), maxM: NEAR_STATION_MAX_M * distScale,       maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
 		{ name: 'relaxed+away+los',     minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
 		{ name: 'relaxed+wideAway+los', minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_RELAX_DEG, clear: false, los: true  },

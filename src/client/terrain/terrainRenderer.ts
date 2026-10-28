@@ -48,9 +48,21 @@ import {
 	MONUMENT_SOCKET_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
+	levelAtWorld,
 } from 'src/shared/terrain/terrainMap'
+import {
+	OASIS_CELL_M,
+	OASIS_DROP_M,
+	OASIS_RADIUS_M,
+	oasisEntries,
+	oasisLoweredAt,
+	oasisQuantReveal,
+	oasisTick,
+	oasisVersion,
+} from 'src/shared/terrain/oasis'
 
 import { MONUMENT_BLACK, MONUMENT_MATTE_PBR } from 'src/client/monumentMaterial'
+import { clearOasisVegetation, installOasisVegetation } from 'src/client/terrain/oasisVegetation'
 import { clearLadders, setupLadders } from 'src/client/terrain/ladders'
 import { thawWaveReachedRect } from 'src/client/worldThaw'
 
@@ -61,11 +73,12 @@ import { thawWaveReachedRect } from 'src/client/worldThaw'
 const SLAB_BASE_Y = -4
 
 /**
- * Thickness of the cap sitting on each slab, metres. Only its top face
- * is ever meant to be read, so keep it thin: on a cliff lip the side
- * shows as a painted stripe between the snow and the rock.
+ * Thickness of the cap sitting on each slab, metres: exactly one walkable
+ * step (under DCL_MAX_AUTO_STEP_M 0.3), so an oasis can melt the cap away and
+ * leave a floor OASIS_DROP_M lower that players walk down / up. On a cliff lip
+ * the side shows as a blue stripe between the snow and the rock.
  */
-const CAP_M = 0.15
+const CAP_M = 0.28
 
 /**
  * Spawn / keep melt-blue caps within this distance of the player
@@ -90,6 +103,12 @@ const COLOR_ROCK = Color4.create(0.2525, 0.3354, 0.6314, 1)
 /** Melt-blue ground the snow lies on, at every playable level. */
 const COLOR_GROUND = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
 
+/** Bare earth under a melted-away cap (oasis floor). Flat warm brown, matte. */
+const COLOR_EARTH = Color4.create(0.42, 0.39, 0.36, 1) // grey with a faint brown tint
+
+/** Oasis pieces built per frame (mobile allows ~300 addEntity / frame; keep well under). */
+const OASIS_SPAWN_BUDGET_PER_FRAME = 150
+
 /** Monument socket border + socket bottom: the obelisk's matte deep black. */
 const COLOR_PIT    = MONUMENT_BLACK
 const COLOR_SOCKET = MONUMENT_BLACK
@@ -106,10 +125,21 @@ type RectGeom = {
 	wantsCap: boolean
 	rock    : Entity
 	cap     : Entity | null
+	/** Terrain level of this rect (oasis circles only lower rects on the monument's level). */
+	level   : number
+	/** True while an oasis has cut into this rect: cap pieces + earth pieces replace `cap`, no distance culling. */
+	oasisMode  : boolean
+	oasisSig   : string
+	oasisPieces: Entity[]
 }
 
 const rectGeoms: RectGeom[] = []
 const terrainEntities: Entity[] = []
+/** Oasis pieces replaced this frame: removed after OASIS_RETIRE_FRAMES so the new ones are drawn first. */
+const oasisRetire: Array<{ e: Entity; frames: number }> = []
+const oasisDirty = new Set<RectGeom>()
+let oasisSeenVersion = -1
+const OASIS_RETIRE_FRAMES = 2
 let terrainSeed       = 0
 let terrainGeneration = 0
 let capLodInstalled   = false
@@ -129,6 +159,12 @@ export function setTerrainSeed(seed: number): void {
 // MARK: clearTerrain
 /** Remove every terrain and ladder entity. No-op when nothing is up. */
 export function clearTerrain(): void {
+	for (const g of rectGeoms) for (const p of g.oasisPieces) engine.removeEntity(p)
+	for (const r of oasisRetire) engine.removeEntity(r.e)
+	oasisRetire.length = 0
+	oasisDirty.clear()
+	oasisSeenVersion = -1
+	clearOasisVegetation()
 	for (const e of terrainEntities) engine.removeEntity(e)
 	terrainEntities.length = 0
 	rectGeoms.length = 0
@@ -214,7 +250,8 @@ function addRect(
 	const rock    = spawnSlab(centerX, centerZ, sizeX, sizeZ, SLAB_BASE_Y, rockTop, COLOR_ROCK)
 	let   cap: Entity | null = null
 	if (showCap) cap = spawnSlab(centerX, centerZ, sizeX, sizeZ, top - CAP_M, top, COLOR_GROUND)
-	rectGeoms.push({ centerX, centerZ, sizeX, sizeZ, top, wantsCap, rock, cap })
+	const level = levelAtWorld(getTerrain(terrainSeed), centerX, centerZ)
+	rectGeoms.push({ centerX, centerZ, sizeX, sizeZ, top, wantsCap, rock, cap, level, oasisMode: false, oasisSig: '', oasisPieces: [] })
 	return cap !== null
 }
 
@@ -334,6 +371,8 @@ function ensureCapLodSystem(): void {
 	if (capLodInstalled) return
 	capLodInstalled = true
 	engine.addSystem(capLodSystem)
+	engine.addSystem(oasisSystem)
+	installOasisVegetation()
 }
 
 
@@ -348,6 +387,8 @@ function capLodSystem(): void {
 	const focus = readFocusXZ()
 	for (const g of rectGeoms) {
 		if (!g.wantsCap) continue
+		// An oasis owns this rect's cap (pieces, always drawn: the rock top is one step down).
+		if (g.oasisMode) continue
 		// After the world thaw the ice cap melts off as the wave reaches
 		// the rect: drop it and run the rock to the full walkable height
 		// (same as a distance-culled cap). Reset brings caps back.
@@ -365,6 +406,157 @@ function capLodSystem(): void {
 			setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top)
 		}
 	}
+}
+
+
+// MARK: oasisSystem
+/**
+ * Oasis (released monument) terrain: inside the revealed circle the cap is gone and brown
+ * earth shows one step lower (shared/terrain/oasis.ts owns the cells and the reveal ring).
+ * Only rects on the monument's level that the circle reaches are touched. Each is rebuilt
+ * when its cell mask changes (a few ring steps per burst): new pieces first, old ones
+ * retired a couple of frames later so no frame shows a hole. Work is capped per frame.
+ */
+function oasisSystem(): void {
+	// Outward melt after the burst: pure function of the release time (shared/terrain/oasis.ts).
+	oasisTick(Date.now())
+	if (oasisRetire.length > 0) {
+		let w = 0
+		for (const r of oasisRetire) {
+			r.frames--
+			if (r.frames <= 0) engine.removeEntity(r.e)
+			else oasisRetire[w++] = r
+		}
+		oasisRetire.length = w
+	}
+	const v = oasisVersion()
+	if (v !== oasisSeenVersion) {
+		oasisSeenVersion = v
+		for (const g of rectGeoms) if (g.wantsCap && (g.oasisMode || oasisTouches(g))) oasisDirty.add(g)
+	}
+	if (oasisDirty.size === 0) return
+	let spent = 0
+	for (const g of oasisDirty) {
+		if (spent >= OASIS_SPAWN_BUDGET_PER_FRAME) break
+		spent += rebuildOasisRect(g)
+		oasisDirty.delete(g)
+	}
+}
+
+
+// MARK: oasisTouches
+/** True when a revealed oasis on this rect's level reaches it. */
+function oasisTouches(g: RectGeom): boolean {
+	const reach = OASIS_RADIUS_M + OASIS_CELL_M
+	for (const e of oasisEntries()) {
+		if (e.level !== g.level || oasisQuantReveal(e.reveal) <= 0) continue
+		if (distSqToRect(e.x, e.z, g.centerX, g.centerZ, g.sizeX, g.sizeZ) <= reach * reach) return true
+	}
+	return false
+}
+
+
+// MARK: gridLines
+/** Rect edges a..b plus every OASIS_CELL_M grid line strictly between them. */
+function gridLines(a: number, b: number): number[] {
+	const out = [a]
+	for (let k = Math.floor((a - TERRAIN_ORIGIN_M) / OASIS_CELL_M) + 1; ; k++) {
+		const v = TERRAIN_ORIGIN_M + k * OASIS_CELL_M
+		if (v >= b - 1e-6) break
+		if (v > a + 1e-6) out.push(v)
+	}
+	out.push(b)
+	return out
+}
+
+
+// MARK: retireTracked
+/** Stop tracking a terrain entity and remove it after the retire delay. */
+function retireTracked(e: Entity): void {
+	const i = terrainEntities.indexOf(e)
+	if (i >= 0) terrainEntities.splice(i, 1)
+	oasisRetire.push({ e, frames: OASIS_RETIRE_FRAMES })
+}
+
+
+// MARK: rebuildOasisRect
+/**
+ * Rebuild one rect's cap as cap pieces (cells still frozen) + earth pieces (cells lowered),
+ * greedily merged into few boxes. Returns pieces spawned (0 = nothing changed).
+ */
+function rebuildOasisRect(g: RectGeom): number {
+	const map = getTerrain(terrainSeed)
+	const xs = gridLines(g.centerX - g.sizeX / 2, g.centerX + g.sizeX / 2)
+	const zs = gridLines(g.centerZ - g.sizeZ / 2, g.centerZ + g.sizeZ / 2)
+	const nx = xs.length - 1
+	const nz = zs.length - 1
+	const mask = new Uint8Array(nx * nz)
+	let any = false
+	let sig = ''
+	for (let iz = 0; iz < nz; iz++) {
+		for (let ix = 0; ix < nx; ix++) {
+			const low = oasisLoweredAt(map, (xs[ix] + xs[ix + 1]) / 2, (zs[iz] + zs[iz + 1]) / 2)
+			mask[iz * nx + ix] = low ? 1 : 0
+			if (low) any = true
+			sig += low ? '1' : '0'
+		}
+	}
+	if (!any) {
+		if (!g.oasisMode) return 0
+		// Oasis gone (cycle reset): back to a plain rect; capLodSystem restores the cap by distance.
+		for (const p of g.oasisPieces) oasisRetire.push({ e: p, frames: OASIS_RETIRE_FRAMES })
+		g.oasisPieces = []
+		g.oasisMode = false
+		g.oasisSig = ''
+		setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top)
+		return 0
+	}
+	if (g.oasisMode && sig === g.oasisSig) return 0
+
+	// Rock is one step down everywhere in this rect (far-culled rects had it at full height).
+	setSlabSpan(g.rock, g.centerX, g.centerZ, g.sizeX, g.sizeZ, SLAB_BASE_Y, g.top - CAP_M)
+	const pieces: Entity[] = []
+	const used = new Uint8Array(nx * nz)
+	for (let iz = 0; iz < nz; iz++) {
+		for (let ix = 0; ix < nx; ix++) {
+			if (used[iz * nx + ix]) continue
+			const state = mask[iz * nx + ix]
+			let w = 1
+			while (ix + w < nx && !used[iz * nx + ix + w] && mask[iz * nx + ix + w] === state) w++
+			let h = 1
+			for (; iz + h < nz; h++) {
+				let ok = true
+				for (let k = 0; k < w; k++) {
+					const j = (iz + h) * nx + ix + k
+					if (used[j] || mask[j] !== state) { ok = false; break }
+				}
+				if (!ok) break
+			}
+			for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) used[(iz + dz) * nx + ix + dx] = 1
+			const cx = (xs[ix] + xs[ix + w]) / 2
+			const cz = (zs[iz] + zs[iz + h]) / 2
+			const sx = xs[ix + w] - xs[ix]
+			const sz = zs[iz + h] - zs[iz]
+			pieces.push(state === 1
+				// Earth floor: top OASIS_DROP_M under the old surface, its foot sunk 2 cm into the rock.
+				? spawnSlab(cx, cz, sx, sz, g.top - CAP_M - 0.02, g.top - OASIS_DROP_M, COLOR_EARTH, false)
+				: spawnSlab(cx, cz, sx, sz, g.top - CAP_M, g.top, COLOR_GROUND, false))
+		}
+	}
+	if (g.cap !== null) { retireTracked(g.cap); g.cap = null }
+	for (const p of g.oasisPieces) oasisRetire.push({ e: p, frames: OASIS_RETIRE_FRAMES })
+	g.oasisPieces = pieces
+	g.oasisMode = true
+	g.oasisSig = sig
+	return pieces.length
+}
+
+
+/** Live oasis piece count (debug / perf). */
+export function oasisPieceCount(): number {
+	let n = 0
+	for (const g of rectGeoms) n += g.oasisPieces.length
+	return n
 }
 
 
@@ -413,10 +605,11 @@ function spawnSlab(
 	bottomY : number,
 	topY    : number,
 	color   : Color4,
+	track   : boolean = true,
 ): Entity {
 	const height = topY - bottomY
 	const e      = engine.addEntity()
-	terrainEntities.push(e)
+	if (track) terrainEntities.push(e)
 	Transform.create(e, {
 		position: Vector3.create(centerX, bottomY + height / 2, centerZ),
 		scale   : Vector3.create(sizeX, height, sizeZ),

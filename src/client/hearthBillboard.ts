@@ -33,7 +33,8 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { hearthSurfaceY } from 'src/client/hearthSeat'
 import { FUEL_MAX, TIER_FUEL, hearthDecayRate } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
 import {
@@ -301,9 +302,19 @@ export function setupHearthBillboard(): void {
 		return
 	}
 	mainRig = spawnHearthBillboard(
-		CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z,
+		CAMPFIRE_WORLD_X, hearthSurfaceY(), CAMPFIRE_WORLD_Z,
 		getMainFireFuel, getHearthPlayerCount,
 	)
+	// The floor under the hearth drops when an oasis melts the cap: the fuel bar follows.
+	let lastSeatY = hearthSurfaceY()
+	engine.addSystem(() => {
+		const seatY = hearthSurfaceY()
+		if (seatY === lastSeatY || mainRig === null) return
+		const tr = Transform.getMutableOrNull(mainRig.root)
+		if (tr === null) return
+		tr.position = Vector3.create(tr.position.x, tr.position.y + (seatY - lastSeatY), tr.position.z)
+		lastSeatY = seatY
+	})
 
 	// Celebration hook - flash the main-hearth fill white + whoosh SFX.
 	room.onMessage('hearthMax', () => {

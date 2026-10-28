@@ -27,7 +27,8 @@ import {
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { hearthSurfaceY } from 'src/client/hearthSeat'
 
 import { getHiddenCampfireWorldPos } from 'src/client/hiddenCampfire'
 
@@ -207,7 +208,7 @@ function resolveFirePos(target: number): Vector3 {
 	}
 	return Vector3.create(
 		CAMPFIRE_WORLD_X,
-		CAMPFIRE_WORLD_Y + FIRE_AIM_Y,
+		hearthSurfaceY() + FIRE_AIM_Y,
 		CAMPFIRE_WORLD_Z,
 	)
 }

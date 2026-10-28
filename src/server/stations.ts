@@ -59,6 +59,7 @@ import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setCharg
 import { getVisibleEdges } from 'src/server/fireNetworkLinks'
 import { CHARGE_LINK_EDGE_PAD_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
 import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
+import { oasisClear, oasisNoteRelease, oasisRelease, oasisTick } from 'src/shared/terrain/oasis'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { chargeHeatFuel } from 'src/shared/ruleset'
 
@@ -81,6 +82,8 @@ let chargeAcc = 0
 
 let currentSeed = 0
 const active: boolean[] = new Array<boolean>(STATION_CAP).fill(false)
+/** Server epoch ms each crystal was released (0 = not released this cycle). Sent as ageMs so clients time the oasis melt + regrowth. */
+const releasedAtMs: number[] = new Array<number>(STATION_CAP).fill(0)
 /** Melted ice-chunk bitmask per monument (src/shared/monumentIce.ts). */
 const iceMask: number[] = new Array<number>(STATION_CAP).fill(0)
 /** Charging-monument heat ring (m) currently melted/protected per monument (0 = none). */
@@ -136,6 +139,12 @@ function thawPayload(): {
 }
 
 
+/** Age (ms) of crystal `index`'s release for the wire, -1 = not released. */
+function releaseAgeMs(index: number): number {
+	return active[index] && releasedAtMs[index] > 0 ? Math.max(0, clampInt32(Date.now() - releasedAtMs[index])) : -1
+}
+
+
 function broadcastOne(index: number, fresh = false, by = ''): void {
 	room.send('stationState', {
 		seed  : currentSeed,
@@ -143,6 +152,7 @@ function broadcastOne(index: number, fresh = false, by = ''): void {
 		active: active[index] ? 1 : 0,
 		fresh : fresh ? 1 : 0,
 		by    : fresh ? by : '',
+		ageMs : releaseAgeMs(index),
 	})
 }
 
@@ -235,7 +245,8 @@ function advanceThawStage(reason: string): void {
 
 function resetForCycle(seed: number): void {
 	currentSeed = seed
-	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0 }
+	oasisClear()
+	for (let i = 0; i < STATION_CAP; i++) { active[i] = false; iceMask[i] = 0; monHeatR[i] = 0; releasedAtMs[i] = 0 }
 	resetCharges()
 	worldThawed = false
 	thawDay = 0
@@ -265,7 +276,7 @@ export function sendStationStateTo(userId: string): void {
 	for (let i = 0; i < stationTotal(); i++) {
 		room.send(
 			'stationState',
-			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0, by: '' },
+			{ seed: currentSeed, index: i, active: active[i] ? 1 : 0, fresh: 0, by: '', ageMs: releaseAgeMs(i) },
 			{ to: [userId] },
 		)
 		broadcastIce(i, userId)
@@ -295,6 +306,7 @@ export function setupStationsServer(): void {
 			if (frontAcc < 0.125) return
 			frontAcc = 0
 			tickHeatFronts(Date.now())
+			oasisTick(Date.now())
 			publishCoverageIfDirty()
 		}, undefined, 'crystalHeatFrontSystem')
 	}
@@ -507,6 +519,9 @@ function releaseCrystal(i: number, by: string, force = false): void {
 	const st = activeTerrain()?.stations[i]
 	if (st) {
 		const c = cellCenterWorld(st.cx, st.cz)
+		releasedAtMs[i] = Date.now()
+		oasisNoteRelease(c.x, c.z, releasedAtMs[i])
+		oasisRelease(activeTerrain()!, c.x, c.z, 0) // inner cap melts with the front (snowState.tickHeatFronts), the rest on the oasisTick clock
 		startHeatZoneFront(c.x, c.z, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_SPREAD_S, CRYSTAL_THAW_DELAY_S, CRYSTAL_LASER_ENABLED ? 0 : crystalFloatAboveGround(activeTerrain(), groundYAtWorld(activeTerrain()!, c.x, c.z)))
 		console.log(`[Server] stations[${i}]: crystal heat front started (held so far ${heatZoneCellCount()})`)
 	}
