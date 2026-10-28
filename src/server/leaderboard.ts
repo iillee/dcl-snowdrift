@@ -25,7 +25,8 @@
  * Persistence: scene Storage (`Storage` from @dcl/sdk/server), one key PER WORLD PROFILE
  * (LEADERBOARD_STORAGE_KEY: the standard game keeps 'cryocene.leaderboard.v2', the 3-monument
  * playtest uses '...v2.compact3', so their records never mix), one record per player (capped). Survives the ~2 min empty-server
- * shutdown and redeploys. Writes are batched through a retry loop because
+ * shutdown and redeploys. Writes are throttled (shared/saveThrottle.ts: at most one per SAVE_MIN_INTERVAL_S = 45 s; a release,
+ * completion, new player record or cycle roll is flushed at once) and retried after a failure because
  * Storage.set resolves false rather than throwing. Clients never write:
  * they only receive `leaderboardState`.
  */
@@ -51,6 +52,7 @@ import {
 	trimPlayers,
 } from 'src/shared/leaderboard'
 import { isFloatingCrystals } from 'src/shared/ruleset'
+import { SaveThrottle } from 'src/shared/saveThrottle'
 import { WORLD_BOARD_SUFFIX } from 'src/shared/settings'
 import { room } from 'src/shared/messages'
 
@@ -68,7 +70,10 @@ let loaded = false
 let gaveUp = false
 let loadAttempts = 0
 let loadInFlight = false
-let saveDirty = false
+/** Write throttle (shared/saveThrottle.ts): ordinary changes at most every SAVE_MIN_INTERVAL_S (45 s), releases / new records / cycle rolls flush at once. */
+const throttle = new SaveThrottle()
+/** Set by an update op that created a brand-new player record: that save is not delayed. */
+let urgentOnce = false
 let saveInFlight = false
 let retryClock = 0
 /** Updates made before the load finished; replayed on top of the stored data. */
@@ -101,9 +106,8 @@ export function sendLeaderboardTo(userId: string): void {
 	broadcastBoard(userId)
 }
 
-function markChanged(): void {
-	saveDirty = true
-	retryClock = RETRY_S // first save attempt on the next tick
+function markChanged(urgent: boolean): void {
+	throttle.markDirty(urgent)
 	broadcastBoard()
 }
 
@@ -123,16 +127,18 @@ function playerFor(a: string): LeaderboardPlayer {
  * Run `op` against the player table (queued until Storage has loaded so
  * stored data is never clobbered). `op` returns true if anything changed.
  */
-function update(op: () => boolean): void {
+function update(op: () => boolean, urgent = false): void {
 	const run = () => {
+		urgentOnce = false
 		if (op()) {
 			// Over the cap: drop the least notable players.
 			if (players.size > LEADERBOARD_STORE_MAX) {
 				const keep = new Set(trimPlayers(list()).map((p) => p.a))
 				for (const a of [...players.keys()]) if (!keep.has(a)) players.delete(a)
 			}
-			markChanged()
+			markChanged(urgent || urgentOnce)
 		}
+		urgentOnce = false
 	}
 	if (loaded || gaveUp) run()
 	else pendingOps.push(run)
@@ -157,7 +163,10 @@ export function noteContributor(address: string | undefined, fireId?: number, bu
 	console.log(`[Server] leaderboard: contributor ${a} (${contributors.size} this run)`)
 	if (isRunTainted()) return
 	const day = Math.max(1, getDayNumber())
-	update(() => liftDays(a, day))
+	update(() => {
+		if (!players.has(a)) urgentOnce = true // a new player record is written at once
+		return liftDays(a, day)
+	})
 }
 
 
@@ -269,7 +278,7 @@ export function recordRunProgress(released: number, total: number): void {
 			if (complete) improveThaw(p, day, ts)
 		}
 		return changed
-	})
+	}, true) // a release / completion is a record: written on the next tick, never held back by the throttle
 }
 
 
@@ -314,19 +323,21 @@ async function loadBoard(): Promise<void> {
 }
 
 async function saveBoard(): Promise<void> {
-	if (saveInFlight || !saveDirty || !loaded) return
+	if (saveInFlight || !throttle.isDirty() || !loaded) return
 	saveInFlight = true
 	const snapshot = serializeBoard(list())
 	try {
 		const ok = await Storage.set(LEADERBOARD_STORAGE_KEY, snapshot, { skipIfUnchanged: false })
 		if (ok) {
 			// Changes made while the write was in flight stay dirty.
-			if (serializeBoard(list()) === snapshot) saveDirty = false
+			throttle.onSaved(Date.now(), serializeBoard(list()) === snapshot)
 			console.log(`[Server] leaderboard: saved ${players.size} players`)
 		} else {
+			throttle.onFailed(Date.now())
 			console.log('[Server] leaderboard: Storage.set returned false - will retry')
 		}
 	} catch (err) {
+		throttle.onFailed(Date.now())
 		console.log(`[Server] leaderboard: save failed: ${err} - will retry`)
 	} finally {
 		saveInFlight = false
@@ -343,6 +354,7 @@ export function setupLeaderboardServer(): void {
 	})
 
 	onCycleRoll(() => {
+		if (throttle.isDirty()) throttle.markDirty(true) // flush whatever the last world earned before the new one starts
 		contributors.clear()
 		fireContributors.clear()
 		firenetSig = ''
@@ -362,13 +374,14 @@ export function setupLeaderboardServer(): void {
 	void loadBoard()
 	retryClock = 0
 	engine.addSystem((dt: number) => {
-		const needLoad = !loaded && !gaveUp
-		if (!needLoad && !(saveDirty && loaded)) return
-		retryClock += dt
-		if (retryClock < RETRY_S) return
-		retryClock = 0
-		if (needLoad) void loadBoard()
-		else void saveBoard()
+		if (!loaded && !gaveUp) {
+			retryClock += dt
+			if (retryClock < RETRY_S) return
+			retryClock = 0
+			void loadBoard()
+			return
+		}
+		if (loaded && !saveInFlight && throttle.shouldSave(Date.now())) void saveBoard()
 	}, undefined, 'leaderboardPersistSystem')
 	console.log(`[Server] leaderboard: ready (storage key ${LEADERBOARD_STORAGE_KEY})`)
 }

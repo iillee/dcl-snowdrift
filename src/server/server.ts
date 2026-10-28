@@ -14,6 +14,7 @@
 
 import { engine } from '@dcl/sdk/ecs'
 import { myProfile } from '@dcl/sdk/network'
+import { SNOW_JOIN_FALLBACK_MS, SnowJoinGate } from 'src/shared/snowJoin'
 
 import { CAMPFIRE_MELT_RADIUS_M, CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
@@ -194,6 +195,12 @@ export async function setupServer(): Promise<void> {
 	// and the restart wiped the world back to day 1.
 	const lastJoinHydrateMs = new Map<string, number>()
 	const JOIN_HYDRATE_DEBOUNCE_MS = 5000
+	const snowGate = new SnowJoinGate()
+	engine.addSystem(() => {
+		if (!snowGate.tick(Date.now())) return
+		const n = republishAllSnowTiles()
+		console.log(`[Server] snow: a joiner's snowResync never came - republished ${n} tiles once (fallback)`)
+	}, undefined, 'snowJoinFallback')
 	room.onMessage('joinRoster', ({ userId }, context) => {
 		// Bevy preview often omits context.from. The payload wallet is
 		// what the client is actually sending. Dropping the join here
@@ -286,11 +293,10 @@ export async function setupServer(): Promise<void> {
 		sendHearthFuelStateTo(from)
 		sendFrostBodiesTo(from)
 		sendEmberFailTo(from)
-		// Force a fresh PaintTile write so this joiner cannot hydrate
-		// from the empty create() snapshot that syncEntity may have
-		// captured before the seed flush.
-		const snowTiles = republishAllSnowTiles()
-		console.log(`[Server] joinRoster: republished ${snowTiles} snow tiles for ${from}`)
+		// Snow: NO republish here. This one usually lands in the empty snapshot the joiner then hydrates; the joiner's own snowResync (sent
+		// once it is CRDT-synced) is the single send per join. If it never comes, snowGate.tick republishes once after SNOW_JOIN_FALLBACK_MS.
+		snowGate.onJoin(from, Date.now())
+		console.log(`[Server] joinRoster: snow tiles for ${from} follow with its snowResync (fallback in ${SNOW_JOIN_FALLBACK_MS / 1000}s)`)
 	})
 
 	// Joiner often sends joinRoster before CRDT sync. That republish
@@ -299,6 +305,7 @@ export async function setupServer(): Promise<void> {
 	room.onMessage('snowResync', (_payload, context) => {
 		const from = context?.from
 		if (!from) return
+		snowGate.onResync(from) // the join's single send, or a genuine recovery resync (server restart / silence)
 		const n = republishAllSnowTiles()
 		sendHearthFuelStateTo(from)
 		console.log(`[Server] snowResync from ${from}: republished ${n} tiles`)

@@ -522,7 +522,7 @@ function placeDestinationGrove(
 		if (!placed) {
 			console.log(
 				`scatter: placeDestinationGrove: ring slot ${i + 1}/${count} ` +
-				`r=${radius.toFixed(0)}m lv=${dest.level} missed Ã¢â‚¬â€ sparse fill`,
+				`r=${radius.toFixed(0)}m lv=${dest.level} missed - sparse fill`,
 			)
 		}
 	}

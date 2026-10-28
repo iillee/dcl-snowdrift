@@ -62,6 +62,24 @@ let installed            = false
 let sweepAccum           = 0
 
 
+// MARK: logReject
+/**
+ * Why a melt / rescue was refused (the freeze-other-player diagnostics). frostMeltRequest repeats every ~0.35 s while a rescuer holds a
+ * torch on a cube, so each (kind, reason, rescuer, target) is logged at most once per REJECT_LOG_EVERY_MS with a count of the repeats.
+ */
+const REJECT_LOG_EVERY_MS = 10_000
+const rejectSeen = new Map<string, { at: number; n: number }>()
+function logReject(kind: string, reason: string, from: string, target: string): void {
+	const key = `${kind}|${reason}|${from}|${target}`
+	const now = Date.now()
+	const s   = rejectSeen.get(key)
+	if (s && now - s.at < REJECT_LOG_EVERY_MS) { s.n++; return }
+	if (rejectSeen.size > 200) rejectSeen.clear()
+	rejectSeen.set(key, { at: now, n: 0 })
+	console.log(`[Server] frostLife: ${kind} REJECTED (${reason}) rescuer=${from || '?'} target=${target || '?'}${s && s.n > 0 ? ` (+${s.n} repeats suppressed)` : ''}`)
+}
+
+
 // MARK: isPlayerFrozen
 /** True while this wallet is locked in an ice cube. */
 export function isPlayerFrozen(userId: string): boolean {
@@ -345,14 +363,16 @@ export function setupFrostLifeServer(): void {
 
 	room.onMessage('frostMeltRequest', ({ userId, step, live }, context) => {
 		const from   = context?.from?.toLowerCase()
-		const target = userId.toLowerCase()
-		if (!from || !target || from === target) return
+		const target = (userId ?? '').toLowerCase()
+		if (!from)   { logReject('frostMeltRequest', 'no context.from: sender unknown', '', target); return }
+		if (!target) { logReject('frostMeltRequest', 'missing target id', from, ''); return }
+		if (from === target) { logReject('frostMeltRequest', 'rescuer is the target', from, target); return }
 		if (frozen.has(from)) {
-			console.log(`[Server] frostLife: ${from} is frozen and cannot melt ${target}`)
+			logReject('frostMeltRequest', 'rescuer is frozen', from, target)
 			return
 		}
 		if (!frozen.has(target)) {
-			console.log(`[Server] frostLife: melt ignored, ${target} is not frozen`)
+			logReject('frostMeltRequest', `target not frozen (${frozen.size} frozen: ${[...frozen].join(',') || 'none'})`, from, target)
 			return
 		}
 		let hold = meltHold.get(target)
@@ -386,21 +406,16 @@ export function setupFrostLifeServer(): void {
 
 	room.onMessage('frostRescue', ({ userId }, context) => {
 		const from   = context?.from?.toLowerCase()
-		const target = userId.toLowerCase()
-		if (!from || !target) {
-			console.log('[Server] frostLife: frostRescue ignored, missing id')
-			return
-		}
-		if (from === target) {
-			console.log(`[Server] frostLife: ${from} cannot thaw themselves`)
-			return
-		}
+		const target = (userId ?? '').toLowerCase()
+		if (!from)   { logReject('frostRescue', 'no context.from: sender unknown', '', target); return }
+		if (!target) { logReject('frostRescue', 'missing target id', from, ''); return }
+		if (from === target) { logReject('frostRescue', 'rescuer is the target', from, target); return }
 		if (frozen.has(from)) {
-			console.log(`[Server] frostLife: ${from} is frozen and cannot thaw ${target}`)
+			logReject('frostRescue', 'rescuer is frozen', from, target)
 			return
 		}
 		if (!frozen.has(target)) {
-			console.log(`[Server] frostLife: rescue ignored, ${target} is not frozen`)
+			logReject('frostRescue', `target not frozen (${frozen.size} frozen: ${[...frozen].join(',') || 'none'})`, from, target)
 			return
 		}
 		clearFrozen(target)

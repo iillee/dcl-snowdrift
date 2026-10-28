@@ -316,17 +316,27 @@ interface LadderSite {
 export function generateTerrain(seed: number): TerrainMap {
 	let last: TerrainMap | null = null
 	let lastFailure = ''
+	const rejected: string[] = []
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		const usedSeed = attempt === 0 ? seed >>> 0 : (Math.imul(seed ^ attempt, 0x9E3779B1) + attempt) >>> 0
+		nearMonumentLog = ''
 		const map      = buildOnce(seed, usedSeed, attempt + 1)
 		const failure  = validate(map)
-		if (failure === '') return map
+		if (failure === '') {
+			// ONE summary per generated layout (the near-monument pick used to be logged by every rejected attempt).
+			console.log(`terrainGen: seed ${seed}: layout ${usedSeed} after ${attempt + 1} attempt(s)${rejected.length ? ' (rejected: ' + rejected.join('; ') + ')' : ''}${nearMonumentLog ? '; ' + nearMonumentLog : ''}`)
+			return map
+		}
+		rejected.push(failure)
 		last        = map
 		lastFailure = failure
 	}
 	console.log(`terrainGen: generateTerrain: seed ${seed} failed ${MAX_ATTEMPTS} attempts (${lastFailure}), keeping last`)
 	return last!
 }
+
+/** The near-monument pick of the attempt being built (buildOnce writes it; generateTerrain prints it once for the accepted attempt). */
+let nearMonumentLog = ''
 
 
 // MARK: buildOnce
@@ -426,7 +436,7 @@ function buildOnce(
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [nearPicks[k].station])
 		if (stations.length > best.length) best = stations
 		if (stations.length >= STATION_COUNT) {
-			console.log('terrainGen: ' + nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : ''))
+			nearMonumentLog = nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : '')
 			break
 		}
 	}

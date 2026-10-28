@@ -159,12 +159,13 @@ export function onHiddenFireRelit(handler: () => void): void {
 // MARK: recomputePositions
 function recomputePositions(): void {
 	const spots = pickHiddenCampfires(currentSeed)
+	let unused = 0
 	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
 		const spot = spots[i]
 		if (!spot) {
 			worldX[i] = 0
 			worldZ[i] = 0
-			console.log(`[Server] hiddenCampfire: recomputePositions: slot ${i} unused this cycle`)
+			unused++
 			continue
 		}
 		worldX[i] = spot.x
@@ -175,6 +176,7 @@ function recomputePositions(): void {
 			`world=(${spot.x.toFixed(1)},${spot.y.toFixed(1)},${spot.z.toFixed(1)})`,
 		)
 	}
+	if (unused > 0) console.log(`[Server] hiddenCampfire: recomputePositions: ${unused}/${HIDDEN_CAMPFIRE_COUNT} slots unused this cycle`)
 }
 
 
@@ -217,13 +219,8 @@ function resetForCycle(newSeed: number): void {
 	lastRecycleSent = -2
 	clearSlotTouches()
 	recomputePositions()
-	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		console.log(
-			`[Server] hiddenCampfire[${i}]: reset for cycle seed=${currentSeed} ` +
-			`pos=(${worldX[i].toFixed(1)}, ${worldZ[i].toFixed(1)})`,
-		)
-		broadcastOne(i)
-	}
+	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) broadcastOne(i)
+	console.log(`[Server] hiddenCampfire: reset for cycle seed=${currentSeed}: ${HIDDEN_CAMPFIRE_COUNT} slots cleared`)
 }
 
 
@@ -420,11 +417,10 @@ export function setupHiddenCampfireServer(): void {
 	currentSeed = getCurrentCycleSeed()
 	recomputePositions()
 	seedHiddenCampfireDimples()
-	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) {
-		console.log(
-			`[Server] hiddenCampfire[${i}]: cycle seed=${currentSeed} ` +
-			`pos=(${worldX[i].toFixed(1)}, ${worldZ[i].toFixed(1)}) lit=${lit[i]}`
-		)
+	{
+		let placed = 0, litNow = 0
+		for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) { if (worldX[i] !== 0 || worldZ[i] !== 0) placed++; if (lit[i]) litNow++ }
+		console.log(`[Server] hiddenCampfire: cycle seed=${currentSeed}: ${HIDDEN_CAMPFIRE_COUNT} slots, ${placed} placed, ${litNow} lit`)
 	}
 
 	room.onMessage('hiddenCampfireIgnite', ({ seed, index }, context) => {
