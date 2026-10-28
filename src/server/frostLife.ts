@@ -225,7 +225,7 @@ function clearFrozen(id: string): void {
 
 
 // MARK: anyLivingFire
-/** A fire a frozen player can wake at: lit hearth, lit hidden pit, or stage 1+ lava. */
+/** A fire a frozen player can wake at: lit hearth, lit hidden pit, or stage 1+ lava (a released monument's socket lava is NOT a fire: it only relights torches). */
 function anyLivingFire(): boolean {
 	return getMainFireFuel() > 0 || isAnyHiddenFireLit() || isVolcanoLavaLit()
 }

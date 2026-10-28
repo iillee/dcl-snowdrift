@@ -94,12 +94,14 @@ export interface WorldProfileSpec {
 	volcano: boolean
 	/** Leaderboard storage-key suffix ('' = the standard board, key unchanged). */
 	boardSuffix: string
+	/** Crowd burn coefficient c of the fire decay 1 + c * log2(players) (hearthFuel.hearthDecayRate): standard 0.5, compact_3 0.25 (15-player playtest). */
+	crowdBurnCoef: number
 }
 
 export const WORLD_PROFILE_SPEC: Record<WorldProfile, WorldProfileSpec> = {
-	playtest_52: { parcels: 52,  paddingMeters: 0,   monuments: 6, volcano: true,  boardSuffix: '' },
-	full_100:    { parcels: 100, paddingMeters: 16,  monuments: 6, volcano: true,  boardSuffix: '' },
-	compact_3:   { parcels: 52,  paddingMeters: 144, monuments: 3, volcano: false, boardSuffix: '.compact3' },
+	playtest_52: { parcels: 52,  paddingMeters: 0,   monuments: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
+	full_100:    { parcels: 100, paddingMeters: 16,  monuments: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
+	compact_3:   { parcels: 52,  paddingMeters: 144, monuments: 3, volcano: false, boardSuffix: '.compact3', crowdBurnCoef: 0.25 },
 }
 
 const _world = WORLD_PROFILE_SPEC[WORLD_PROFILE]
@@ -110,6 +112,8 @@ export const WORLD_MONUMENT_COUNT: number = _world.monuments
 export const WORLD_HAS_VOLCANO: boolean = _world.volcano
 /** True for the compact 15-player playtest profile. */
 export const WORLD_IS_COMPACT: boolean = (WORLD_PROFILE as WorldProfile) === 'compact_3'
+/** Crowd burn coefficient of the active profile (0.5 standard, 0.25 compact_3): hearthFuel.hearthDecayRate = 1 + coef * log2(players). */
+export const WORLD_CROWD_BURN_COEF: number = _world.crowdBurnCoef
 /** Leaderboard storage-key suffix of the active profile ('' = standard board). */
 export const WORLD_BOARD_SUFFIX: string = _world.boardSuffix
 

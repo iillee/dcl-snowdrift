@@ -24,8 +24,9 @@ import {
 	BUILT_FIRE_MAX, CHARGE_REF_DIST_M, CHARGE_RING_M, CHARGE_REF_FIRES, CHARGE_TARGET_S, MONUMENT_COUNT, MONUMENT_DISTANCE_BANDS, MONUMENT_MIN_ANGLE_DEG,
 	WOOD_FRONTIER_RING_ACTIVE, WOOD_FRONTIER_ROUTE_ACTIVE, chargeRatePerS,
 } from 'src/shared/ruleset'
+import { hearthDecayRate } from 'src/shared/hearthFuel'
 import {
-	TERRAIN_CELL_M, WORLD_BOARD_SUFFIX, WORLD_HAS_VOLCANO, WORLD_IS_COMPACT, WORLD_MONUMENT_COUNT, WORLD_PROFILE, WORLD_PROFILE_SPEC, WorldProfile,
+	WORLD_CROWD_BURN_COEF, TERRAIN_CELL_M, WORLD_BOARD_SUFFIX, WORLD_HAS_VOLCANO, WORLD_IS_COMPACT, WORLD_MONUMENT_COUNT, WORLD_PROFILE, WORLD_PROFILE_SPEC, WorldProfile,
 	TERRAIN_LEVEL_HIGH, TERRAIN_LEVEL_MOUNTAIN, groundYForLevel, isCrownLevel, isMountainLevel, isInsidePlayfield, sceneHeightLimitM,
 } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
@@ -337,5 +338,23 @@ if (WORLD_IS_COMPACT) {
 	say(`  seeds ${SEEDS - seedsShort.length}/${SEEDS} placed ${MONUMENT_COUNT}/${MONUMENT_COUNT} | min spacing ${stat(spacing)} m`)
 }
 say(`  fire links around monuments: ${netPairs} pairs routed (${netNull} no route), ${netCrossing} would have crossed a monument if straight, 0 do now`)
+// ---------- crowd burn coefficient (fire decay 1 + c * log2(players)): 0.5 standard, 0.25 compact_3, one path for every fire ----------
+{
+	expect(WORLD_PROFILE_SPEC.playtest_52.crowdBurnCoef === 0.5 && WORLD_PROFILE_SPEC.full_100.crowdBurnCoef === 0.5, 'standard profiles must keep the crowd burn coefficient 0.5')
+	expect(WORLD_PROFILE_SPEC.compact_3.crowdBurnCoef === 0.25, 'compact_3 must use the crowd burn coefficient 0.25')
+	expect(WORLD_CROWD_BURN_COEF === spec.crowdBurnCoef && WORLD_CROWD_BURN_COEF === (WORLD_IS_COMPACT ? 0.25 : 0.5), `active crowd burn coefficient ${WORLD_CROWD_BURN_COEF} is not the profile's`)
+	for (const n of [1, 2, 4, 8, 15, 16, 20]) {
+		const want = 1 + (WORLD_IS_COMPACT ? 0.25 : 0.5) * Math.log2(n)
+		expect(Math.abs(hearthDecayRate(n) - want) < 1e-9, `hearthDecayRate(${n}) = ${hearthDecayRate(n)}, want ${want}`)
+	}
+	expect(hearthDecayRate(1) === 1 && hearthDecayRate(0) === 1, 'solo burn must stay 1x')
+	expect(Math.abs(hearthDecayRate(15, 0.5) - (1 + 0.5 * Math.log2(15))) < 1e-9, 'the standard 0.5 curve changed')
+	// every burn path reads the same function with the player count only (no local override); torches do not use the crowd factor at all
+	for (const f of ['src/server/hearthFuel.ts', 'src/server/hiddenCampfire.ts']) expect(/hearthDecayRate\(players\) \* getPhaseDrainMul\(\)/.test(code(f)), f + ' does not burn with hearthDecayRate(players)')
+	expect(/hearthDecayRate\(players\)/.test(code('src/client/hearthBillboard.ts')), 'the xN chip does not use hearthDecayRate')
+	expect(!/hearthDecayRate/.test(code('src/client/torchInput.ts') + code('src/client/torchEquip.ts')), 'torches use the crowd burn factor')
+	const log = (n: number, phase: number, ch = 1): number => 120 / (hearthDecayRate(n) * phase * ch)
+	say(`  log burn time (s) day/night/charging-night: 1p ${log(1, 0.5).toFixed(0)}/${log(1, 1.5).toFixed(0)}/${log(1, 1.5, 1.5).toFixed(0)}  4p ${log(4, 0.5).toFixed(0)}/${log(4, 1.5).toFixed(0)}/${log(4, 1.5, 1.5).toFixed(0)}  15p ${log(15, 0.5).toFixed(0)}/${log(15, 1.5).toFixed(0)}/${log(15, 1.5, 1.5).toFixed(0)}`)
+}
 say(bad === 0 ? 'compactProfileCheck: OK' : `compactProfileCheck: ${bad} FAILURES`)
 if (bad) process.exitCode = 1

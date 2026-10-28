@@ -1,3 +1,5 @@
+import { WORLD_CROWD_BURN_COEF } from 'src/shared/settings'
+
 /**
  * hearthFuel.ts - shared fuel model for campfires.
  *
@@ -290,7 +292,9 @@ export const FLAME_SCALE_EXP = 0.7
 // MARK: hearthDecayRate
 /**
  * Fuel-seconds burned per real second from the crowd alone, before
- * the phase multiplier. Formula: 1 + 0.5 * log2(max(1, playerCount)).
+ * the phase multiplier. Formula: 1 + c * log2(max(1, playerCount)), c = WORLD_CROWD_BURN_COEF
+ * (settings.ts profile spec): 0.5 in the standard profiles, 0.25 in compact_3 (15-player playtest:
+ * 2.0x instead of 2.95x). The table below is the standard 0.5.
  *
  *   1p ->  1.0x
  *   2p ->  1.5x
@@ -303,7 +307,7 @@ export const FLAME_SCALE_EXP = 0.7
  * so a 20-player night at ~10.6x was a tax nobody could read. Extra
  * fires are the stronger drain. Night still applies its own 2x.
  */
-export function hearthDecayRate(playerCount: number): number {
+export function hearthDecayRate(playerCount: number, coef: number = WORLD_CROWD_BURN_COEF): number {
 	const n = Math.max(1, playerCount | 0)
-	return 1 + 0.5 * Math.log2(n)
+	return 1 + coef * Math.log2(n)
 }

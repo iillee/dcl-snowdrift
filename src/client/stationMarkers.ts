@@ -82,6 +82,7 @@ import {
 } from 'src/client/monumentCinematic'
 import { GEM_ALPHA_REST, GEM_ENABLED, MONUMENT_GEM_FADE_S, MONUMENT_MATTE_PBR, gemDipAt, monumentGemPbr } from 'src/client/monumentMaterial'
 import { isTorchLit } from 'src/client/torchEquip'
+import { clearSocketLava, updateSocketLava } from 'src/client/socketLava'
 import { setVolcanoLavaStage } from 'src/client/volcanoCrown'
 import { DEBUG_VOLCANO_STAGE_OVERRIDE } from 'src/client/devFlags'
 import { Billboard, BillboardMode } from '@dcl/sdk/ecs'
@@ -1187,6 +1188,7 @@ export function getMonumentTotal(): number {
 function clearAll(): void {
 	abortMonumentCinematic()
 	oasisClear()
+	clearSocketLava()
 	clearFinalePulses()
 	clearMonumentChargeHums()
 	for (let i = 0; i < slots.length; i++) {
@@ -1589,6 +1591,22 @@ function syncSnowOffsets(): void {
 	setSnowCellOffsets(out)
 }
 
+// MARK: socketLavaSystem
+/**
+ * Released monuments leave lava on the floor of their socket (client/socketLava.ts, shared/socketLava.ts): a permanent torch relight
+ * source. Driven only by the server-synced release (slot.active) and the crystal's own pose, so late joiners and every other client agree.
+ */
+function socketLavaSystem(dt: number): void {
+	if (!isFloatingCrystals()) return
+	for (let i = 0; i < slots.length; i++) {
+		const slot = slots[i]
+		if (!slot) continue
+		const rig = Transform.getOrNull(slot.rig)
+		const bottomY = rig ? rig.position.y - OB_TOTAL_M / 2 : Number.NEGATIVE_INFINITY
+		updateSocketLava(i, slot.x, slot.z, slot.groundY, slot.active, bottomY, dt)
+	}
+}
+
 // MARK: animSystem
 function animSystem(dt: number): void {
 	const map = activeTerrain()
@@ -1722,6 +1740,7 @@ export function setupStationMarkers(): void {
 	engine.addSystem(gemSystem)
 	engine.addSystem(syncSnowOffsets)
 	engine.addSystem(gazeSystem)
+	engine.addSystem(socketLavaSystem)
 	if (isFloatingCrystals()) { engine.addSystem(crystalSystem); engine.addSystem(laserSystem); engine.addSystem(burstSystem); engine.addSystem(finalePulseSystem); engine.addSystem(skyIdlePulseSystem) }
 
 	room.onMessage('monumentCharge', ({ seed, index, charge }) => {

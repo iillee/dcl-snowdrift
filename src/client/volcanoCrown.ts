@@ -27,6 +27,8 @@ import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { TERRAIN_CELL_M, groundYForLevel } from 'src/shared/settings'
+import { paintLava } from 'src/client/lavaLook'
+import { isInSocketLavaRelightRange } from 'src/client/socketLava'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import {
 	DIR_DX,
@@ -63,11 +65,6 @@ const LINING_GAP_M  = 0.03
 const LINING_BELOW_RIM_M = 0.05
 const LINING_TOP_GAP_M    = 0.03
 const COLOR_BASALT  = Color4.create(0.16, 0.12, 0.11, 1)
-const COLOR_LAVA    = Color4.create(1.0, 0.42, 0.04, 1)
-const LAVA_EMISSIVE = Color3.create(1.0, 0.38, 0.03)
-/** Cooler crust colours for the low stages (blended by LAVA_HEAT_BY_STAGE). */
-const COLOR_CRUST    = Color4.create(0.30, 0.08, 0.03, 1)
-const CRUST_EMISSIVE = Color3.create(0.70, 0.16, 0.02)
 /** Lowest lid height while a cell is still spreading in (m above the rim). */
 const LAVA_MIN_TOP_M = -0.03
 
@@ -178,7 +175,6 @@ function applyLava(): void {
 	const p      = lavaCur
 	const rimY   = volcanoRimY()
 	const bottom = rimY - LAVA_SINK_M
-	const mobile = isMobile()
 	for (const c of lavaCells) {
 		// Centre cell (d = 0) is first in and present whenever cover > 0.
 		const a = p.cover <= 0 ? 0 : Math.max(0, Math.min(1, (p.cover - c.d) / LAVA_EDGE_SOFT))
@@ -204,29 +200,7 @@ function applyLava(): void {
 			tr.scale    = Vector3.create(TERRAIN_CELL_M, h, TERRAIN_CELL_M)
 		}
 		c.a = a
-		const k = Math.max(0, Math.min(1, p.heat))
-		const col = Color4.create(
-			COLOR_CRUST.r + (COLOR_LAVA.r - COLOR_CRUST.r) * k,
-			COLOR_CRUST.g + (COLOR_LAVA.g - COLOR_CRUST.g) * k,
-			COLOR_CRUST.b + (COLOR_LAVA.b - COLOR_CRUST.b) * k,
-			1,
-		)
-		if (mobile) {
-			Material.setBasicMaterial(c.e, { diffuseColor: col, castShadows: false })
-		} else {
-			Material.setPbrMaterial(c.e, {
-				albedoColor      : col,
-				emissiveColor    : Color3.create(
-					CRUST_EMISSIVE.r + (LAVA_EMISSIVE.r - CRUST_EMISSIVE.r) * k,
-					CRUST_EMISSIVE.g + (LAVA_EMISSIVE.g - CRUST_EMISSIVE.g) * k,
-					CRUST_EMISSIVE.b + (LAVA_EMISSIVE.b - CRUST_EMISSIVE.b) * k,
-				),
-				emissiveIntensity: p.emis * a,
-				roughness        : 0.6,
-				metallic         : 0.0,
-				castShadows      : false,
-			})
-		}
+		paintLava(c.e, p.heat, p.emis * a) // the shared lava material (lavaLook.ts)
 	}
 }
 
@@ -320,6 +294,7 @@ export function nearestLitLava(x: number, z: number): { x: number; z: number; d:
  * crown lip looking in). Same prompt / E press as a campfire.
  */
 export function isInLavaRelightRange(): boolean {
+	if (isInSocketLavaRelightRange()) return true // a released monument's socket lava: always a relight source
 	if (lavaStage <= 0) return false
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (t === null) return false

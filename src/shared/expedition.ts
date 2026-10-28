@@ -14,7 +14,7 @@ import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { finaleRestoredS } from 'src/shared/finale'
 
 /** Seconds of the shared countdown between the request and the new world. */
-export const NEW_EXPEDITION_COUNTDOWN_S = 180
+export const NEW_EXPEDITION_COUNTDOWN_S = 60
 
 /** Server-side state: deadlineMs 0 = no countdown running. `initiator` = lowercase wallet of the player who started it. */
 export interface ExpeditionCountdown {

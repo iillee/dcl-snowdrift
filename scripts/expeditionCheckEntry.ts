@@ -2,7 +2,7 @@
  * expeditionCheck - the NEW EXPEDITION reset (src/shared/expedition.ts ExpeditionServerCore = the code the server runs, src/server/expedition.ts
  * wires it; src/client/expedition.ts + the Help panel / HUD chip read it):
  *  - validation: nothing before the expedition is complete AND the world restored, no anonymous sender, a stale world is refused;
- *  - ONE shared countdown (NEW_EXPEDITION_COUNTDOWN_S = 180): any number of presses (any player) never restart / duplicate it;
+ *  - ONE shared countdown (NEW_EXPEDITION_COUNTDOWN_S = 60): any number of presses (any player) never restart / duplicate it;
  *  - cancel: initiator only (wallet case-insensitive), others and a cancel without a countdown change nothing, BEGIN is back after a cancel;
  *  - deadline sync: the clients derive a local deadline from the broadcast ONCE; clients with different clock skews / latencies and a late
  *    joiner agree on the time left to the second, the clock never jumps, it ends exactly at the server deadline;
@@ -36,7 +36,8 @@ const B = '0xbbbb000000000000000000000000000000000002'
 const C = '0xcccc000000000000000000000000000000000003'
 
 // --- constants / timeline ---
-if (NEW_EXPEDITION_COUNTDOWN_S !== 180) fail(`countdown is ${NEW_EXPEDITION_COUNTDOWN_S} s, not 180`)
+if (NEW_EXPEDITION_COUNTDOWN_S !== 60) fail(`countdown is ${NEW_EXPEDITION_COUNTDOWN_S} s, not 60`)
+const CD_MS = NEW_EXPEDITION_COUNTDOWN_S * 1000
 const restored = finaleRestoredS()
 if (!(restored >= finaleTimes().pulseAtS + OASIS_FINALE_MELT_S - 1e-9 && restored >= finaleTimes().pulseAtS + FINALE_PULSE_S)) fail('the world counts as restored before the ground / snow finished')
 if (!(restored > finaleTimes().cineEndS - 3)) fail('button could appear well before the ending shot is over')
@@ -56,7 +57,7 @@ if (!(restored > finaleTimes().cineEndS - 3)) fail('button could appear well bef
 	if (beginExpedition(st, '', T, true) !== 'no_sender' || beginExpedition(st, 'unknown', T, true) !== 'no_sender' || st.deadlineMs !== 0) fail('anonymous sender accepted')
 	if (cancelExpedition(st, A) !== 'none') fail('cancel without a countdown')
 	if (beginExpedition(st, A, T, true) !== 'started') fail('valid request refused')
-	if (st.deadlineMs !== T + 180_000 || st.initiator !== A.toLowerCase()) fail('deadline / initiator wrong')
+	if (st.deadlineMs !== T + CD_MS || st.initiator !== A.toLowerCase()) fail('deadline / initiator wrong')
 	const d0 = st.deadlineMs
 	for (let i = 0; i < 500; i++) {
 		const who = i % 3 === 0 ? A : i % 3 === 1 ? B : C
@@ -66,7 +67,7 @@ if (!(restored > finaleTimes().cineEndS - 3)) fail('button could appear well bef
 	if (cancelExpedition(st, B) !== 'not_initiator' || cancelExpedition(st, C) !== 'not_initiator' || st.deadlineMs !== d0) fail('a non-initiator cancelled')
 	if (cancelExpedition(st, A.toUpperCase().replace('0X', '0x')) !== 'cancelled' || st.deadlineMs !== 0 || st.initiator !== '') fail('the initiator could not cancel')
 	if (beginExpedition(st, B, T + 10_000, true) !== 'started' || st.initiator !== B.toLowerCase()) fail('BEGIN not available again after a cancel / another player cannot start next')
-	if (expeditionRemainingMs(st, T + 10_000) !== 180_000 || expeditionRemainingMs(st, T + 400_000) !== 0) fail('remaining time')
+	if (expeditionRemainingMs(st, T + 10_000) !== CD_MS || expeditionRemainingMs(st, T + CD_MS + 220_000) !== 0) fail('remaining time')
 }
 
 // --- the server core against a fake world, with simulated clients ---
@@ -123,7 +124,7 @@ function run(): void {
 	if (core.request(A, world.seed) !== 'started') fail('valid request not accepted')
 	for (let i = 0; i < 20; i++) { core.request(i % 2 ? B : C, world.seed); core.request(A, world.seed) }
 	deliver()
-	if (core.countdown().deadlineMs !== t0 + 180_000) fail('deadline moved by repeated presses')
+	if (core.countdown().deadlineMs !== t0 + CD_MS) fail('deadline moved by repeated presses')
 	if (!(a.active && b.active && c2.active)) fail('countdown not shown to everybody')
 	// only A is the initiator for the UI: A sees CANCEL; B / C do not
 	if (!(a.initiator === A.toLowerCase() && b.initiator === A.toLowerCase() && c2.initiator === A.toLowerCase())) fail('initiator not synced')
@@ -131,11 +132,11 @@ function run(): void {
 	if (core.cancel(B, world.seed) !== 'not_initiator' || !a.active) fail('non-initiator cancel changed the countdown')
 	// the clocks agree (client clocks are off by hours; the deadline is derived from the remaining time, not from epoch)
 	let prevShown = new Map<string, number>()
-	for (let t = 1; t <= 150; t++) {
+	for (let t = 1; t <= CD_MS / 2000; t++) {
 		advance(1000)
 		const left = (c: Client): number => expeditionSecondsLeft(c.localDeadline, local(c))
 		const sa = left(a), sb = left(b), sc = left(c2)
-		const truth = Math.ceil((t0 + 180_000 - world.now) / 1000)
+		const truth = Math.ceil((t0 + CD_MS - world.now) / 1000)
 		for (const [cl, v] of [[a, sa], [b, sb], [c2, sc]] as Array<[Client, number]>) {
 			// a client lags the server by its latency at most
 			if (Math.abs(v - truth) > 1) fail(`client ${cl.name.slice(0, 6)} shows ${v} s, server ${truth} s`)
@@ -145,7 +146,7 @@ function run(): void {
 		}
 	}
 	if (Math.abs(expeditionSecondsLeft(a.localDeadline, local(a)) - 30) > 1) fail(`A shows ${expeditionSecondsLeft(a.localDeadline, local(a))} s with 30 s left`)
-	// a late joiner (new client, odd clock) 150 s in
+	// a late joiner (new client, odd clock) at half time
 	const late = mk('late', 777_777, 0.3)
 	core.hydrate('late'); deliver()
 	if (!late.active || Math.abs(expeditionSecondsLeft(late.localDeadline, local(late)) - 30) > 1) fail(`late joiner shows ${expeditionSecondsLeft(late.localDeadline, local(late))} s, want ~30`)
@@ -153,7 +154,7 @@ function run(): void {
 	// the initiator disconnects: nothing to do, the countdown continues (no presence handling at all)
 	clients.delete(a.name)
 	advance(10_000)
-	if (core.countdown().deadlineMs !== t0 + 180_000) fail('the countdown changed when the initiator left')
+	if (core.countdown().deadlineMs !== t0 + CD_MS) fail('the countdown changed when the initiator left')
 	// cancel by the initiator after a reconnect (same wallet): HUD removed everywhere, BEGIN back, world unchanged
 	const a2 = mk(A.toLowerCase(), 5, 0.1)
 	core.hydrate(a2.name); deliver()
@@ -172,7 +173,7 @@ function run(): void {
 	const seedBefore = world.seed
 	let rollsAt = -1
 	for (let t = 0; t < 200; t++) { const r0 = world.rolls; advance(1000); if (world.rolls > r0) { rollsAt = world.now - t1; break } }
-	if (rollsAt !== 180_000) fail(`rolled at +${rollsAt} ms, want exactly 180000`)
+	if (rollsAt !== CD_MS) fail(`rolled at +${rollsAt} ms, want exactly ${CD_MS}`)
 	for (let t = 0; t < 30; t++) advance(1000)
 	if (world.rolls !== 1) fail(`${world.rolls} rolls for one countdown`)
 	if (world.seed === seedBefore) fail('same world seed after the reset')
@@ -228,6 +229,13 @@ run()
 	if (!/begin\s*=\s*canBeginNewExpedition\(\)/.test(hp) || !/cancel\s*=\s*isNewExpeditionMine\(\)/.test(hp)) fail('Help panel does not gate BEGIN / CANCEL on the synced state')
 	const hud = src('src/client/ui/layers/layer.expeditionCountdown.tsx')
 	if (!/NEW EXPEDITION IN/.test(hud) || !/isNewExpeditionCounting\(\)/.test(hud)) fail('HUD countdown chip missing')
+	// on-screen buttons (not only the Help panel): BEGIN when eligible, CANCEL for the initiator only, tap-sized, server-validated actions
+	if (!/BEGIN NEW EXPEDITION/.test(hud) || !/CANCEL NEW EXPEDITION/.test(hud)) fail('HUD is missing the on-screen BEGIN / CANCEL buttons')
+	if (!/const begin\s*=\s*canBeginNewExpedition\(\)/.test(hud) || !/const cancel\s*=\s*isNewExpeditionMine\(\)/.test(hud)) fail('HUD buttons are not gated on the synced eligibility / initiator')
+	if (!/\{begin && \(/.test(hud) || !/\{cancel && \(/.test(hud)) fail('HUD BEGIN / CANCEL are not rendered conditionally')
+	if (!/onPress = \{requestNewExpedition\}/.test(hud) || !/onPress = \{cancelNewExpedition\}/.test(hud)) fail('HUD buttons do not send the requests')
+	{ const m = /EXPEDITION_BTN_H\s*=\s*(\d+)/.exec(hud); if (!m || Number(m[1]) < 44) fail('HUD button is below a 44 px tap height') }
+	if (!/if \(!counting && !begin\) return null/.test(hud)) fail('HUD shows something while nothing is eligible / running')
 	if (!/expeditionCountdownLayer/.test(src('src/client/ui/index.tsx'))) fail('HUD countdown chip not registered')
 }
 
