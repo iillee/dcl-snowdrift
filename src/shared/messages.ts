@@ -474,11 +474,11 @@ export const Messages = {
 	// Client -> Server: TEMPORARY debug - light all stations + thaw.
 	// Ignored unless DEBUG_THAW_BUTTON (src/client/devFlags.ts) is true.
 	debugThaw: Schemas.Map({ seed: Schemas.Int }),
-	// Client -> Server: TEMPORARY debug - light the next unlit monument
+	// Client -> Server: TEMPORARY debug - light the next unlit obelisk
 	// (volcano thaw stage +1). Same DEBUG_THAW_BUTTON gate.
 	debugVolcanoStage: Schemas.Map({ seed: Schemas.Int }),
 	// Client -> Server (floating crystals): fire the ending ("The world begins to thaw") without 6 activations: every unreleased
-	// monument is released silently, the finale starts FINALE_DEBUG_DELAY_S later. Ignored unless DEBUG_FINALE_BUTTON.
+	// obelisk is released silently, the finale starts FINALE_DEBUG_DELAY_S later. Ignored unless DEBUG_FINALE_BUTTON.
 	debugFinale: Schemas.Map({ seed: Schemas.Int }),
 
 	// Server -> Client: fire-network link (src/server/fireNetwork.ts). Ids:
@@ -525,7 +525,9 @@ export const Messages = {
 		ageMs : Schemas.Int,
 	}),
 
-	// Server -> Client (floating-crystals ruleset): monument charge 0..1.
+	// NOTE: the three message names below (monumentCharge, monumentIceMelt, monumentIceState) keep their
+	// pre-rename 'monument' wire names: they are the network protocol, and older clients/servers still use them.
+	// Server -> Client (floating-crystals ruleset): obelisk charge 0..1.
 	// Broadcast as it changes (~4 Hz while charging) and to joiners.
 	// Number, not Float (Float payloads arrive empty).
 	monumentCharge: Schemas.Map({
@@ -535,7 +537,7 @@ export const Messages = {
 	}),
 
 	// Client -> Server: the sender's lit torch melted one ice chunk of a
-	// monument pit (src/shared/monumentIce.ts). seed = cycle seed, index
+	// obelisk pit (src/shared/obeliskIce.ts). seed = cycle seed, index
 	// = station, chunk = chunk index. Idempotent; the server sets the bit,
 	// clears the snow over the chunk and broadcasts monumentIceState.
 	monumentIceMelt: Schemas.Map({
@@ -544,7 +546,7 @@ export const Messages = {
 		chunk: Schemas.Int,
 	}),
 
-	// Server -> Client: melted-chunk bitmask for one monument (bit i =
+	// Server -> Client: melted-chunk bitmask for one obelisk (bit i =
 	// chunk i melted). Broadcast on change and on cycle reset, sent to
 	// joiners for hydration. stationActivate is refused until full.
 	monumentIceState: Schemas.Map({
@@ -562,7 +564,7 @@ export const Messages = {
 		// Day number (cycleId+1) the thaw happened on; 0 when not thawed.
 		// Winter returns at the sunrise of day thawDay + POST_THAW_DAYS + 1.
 		thawDay: Schemas.Int,
-		// Volcano thaw stage 0..3 (= active monuments when accepted).
+		// Volcano thaw stage 0..3 (= active obelisks when accepted).
 		stage    : Schemas.Int,
 		// Current melt-wave step (thawWave.ts ThawSegment): radius goes
 		// fromM -> toM metres over waveDurMs. waveAgeMs = ms since the
@@ -575,11 +577,11 @@ export const Messages = {
 		waveDurMs: Schemas.Int,
 	}),
 
-	// Server -> Client (floating crystals): the ending after the last monument is released (src/shared/finale.ts).
-	// running 0 = not started (cycle reset). first = monument index the ring (and the first beam) starts at (the last
+	// Server -> Client (floating crystals): the ending after the last obelisk is released (src/shared/finale.ts).
+	// running 0 = not started (cycle reset). first = obelisk index the ring (and the first beam) starts at (the last
 	// one released). ageMs = ms since the finale START (server clock at send time), NEGATIVE while it is still to
 	// begin; clients place beams / title by age, late joiners land on the finished state. fresh 1 = live broadcast.
-	// The ring topology is NOT sent: both sides derive it from the monument layout (finaleEdges).
+	// The ring topology is NOT sent: both sides derive it from the obelisk layout (finaleEdges).
 	crystalFinaleState: Schemas.Map({
 		seed   : Schemas.Int,
 		running: Schemas.Int,

@@ -7,13 +7,13 @@
  *
  * Four small tabs, one table each (top LEADERBOARD_SHOW players, local
  * player's name in gold):
- *   Fastest Run - Player, Days, Time (best completion of all monuments)   [default]
+ *   Fastest Run - Player, Days, Time (best completion of all obelisks)   [default]
  *   Longest Run - Player, Days (most days survived in one run)
- *   Monuments   - Player, Monuments (lifetime released)
+ *   Obelisks   - Player, Obelisks (lifetime released)
  *   Biggest Firenet - Player, Fires (most campfires in one linked network)
  *
  * The board shown is the ACTIVE world profile's (the server only ever sends its own): the standard game shows no heading,
- * the 3-monument playtest shows LEADERBOARD_HEADING above the tabs. Read-only: records are written by the server only.
+ * the 3-obelisk playtest shows LEADERBOARD_HEADING above the tabs. Read-only: records are written by the server only.
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
@@ -70,7 +70,7 @@ const COL_RANK = 40
 const TABS: Array<{ kind: BoardKind; label: string }> = [
 	{ kind: 'fastest',   label: 'Fastest Run' },
 	{ kind: 'longest',   label: 'Longest Run' },
-	{ kind: 'monuments', label: 'Monuments' },
+	{ kind: 'monuments', label: 'Obelisks' },
 	{ kind: 'firenet',   label: 'Biggest Firenet' },
 ]
 
@@ -91,7 +91,7 @@ function valueHeads(kind: BoardKind): string[] {
 	if (kind === 'fastest') return ['Days', 'Time']
 	if (kind === 'longest') return ['Days']
 	if (kind === 'firenet') return ['Fires']
-	return ['Monuments']
+	return ['Obelisks']
 }
 
 

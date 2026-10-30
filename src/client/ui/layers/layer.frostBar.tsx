@@ -33,7 +33,6 @@ import { playUiClick } from 'src/client/audio'
 import { FROST_MAX } from 'src/shared/frost/tuning'
 import { isFloatingCrystals } from 'src/shared/ruleset'
 import { ClockButton, DevAdvancePhaseButton, DevRollButton, DevSnuffButton, HelpButton, LeaderboardButton, MuteButton, SnowflakeIcon, SpectatorButton } from 'src/client/ui/layers/layer.brushSize'
-import { UI_THEME } from 'src/client/ui/theme/settings'
 import { MOBILE_TOP_ROW_INSET } from 'src/client/ui/mobileHud'
 
 // Feature flag — ClockButton (24 h rebuild countdown popover) is hidden
@@ -202,7 +201,7 @@ const RADIUS_SEG_MB   = 10
 
 
 // MARK: DebugStageButton
-/** TEMPORARY: lights the next monument (volcano stage +1). Gated by DEBUG_THAW_BUTTON. */
+/** TEMPORARY: lights the next obelisk (volcano stage +1). Gated by DEBUG_THAW_BUTTON. */
 function DebugStageButton() {
 	const stage = getThawStage()
 	const done  = stage >= 3
@@ -258,7 +257,7 @@ function DebugThawButton() {
 
 
 // MARK: DebugFinaleButton
-/** TEMPORARY: fires the floating-crystals ending (releases every monument silently, ending ~3 s later). Gated by DEBUG_FINALE_BUTTON. */
+/** TEMPORARY: fires the floating-crystals ending (releases every obelisk silently, ending ~3 s later). Gated by DEBUG_FINALE_BUTTON. */
 function DebugFinaleButton() {
 	const pressed = isFinaleRunning()
 	return (

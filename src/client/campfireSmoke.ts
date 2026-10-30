@@ -17,7 +17,7 @@
 import { Entity, PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState, ParticleSystem, Transform, engine } from '@dcl/sdk/ecs'
 import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 
 import { getMainFireSmokeDensity, getMainFireSmokeHeight, getMainFireTier } from 'src/client/hearthFuel'
 import { hearthSurfaceY } from 'src/client/hearthSeat'

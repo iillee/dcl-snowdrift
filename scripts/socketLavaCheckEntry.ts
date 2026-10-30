@@ -1,10 +1,10 @@
 /**
- * socketLavaCheck - lava on the floor of a released monument's socket (src/shared/socketLava.ts, client/socketLava.ts):
+ * socketLavaCheck - lava on the floor of a released obelisk's socket (src/shared/socketLava.ts, client/socketLava.ts):
  *  - geometry: the pool sits inside the socket (floor .. floor + thickness, below ground, never under y = 0.03 on a low terrace);
  *  - timing: it appears only once the crystal's bottom tip has cleared it (frozen / rising = none), fills in over SOCKET_LAVA_RISE_S, stays,
- *    and is gone when the monument is not released (new world);
+ *    and is gone when the obelisk is not released (new world);
  *  - sync / late join: presence is a pure function of (released, crystal pose), so clients that joined at different times converge to the
- *    same value, a late joiner snapped to the hovering pose gets the full pool after the same ramp; works for any monument count / profile;
+ *    same value, a late joiner snapped to the hovering pose gets the full pool after the same ramp; works for any obelisk count / profile;
  *  - relight (the existing torch interaction): beside the socket at ground height = yes, far / far above / not yet lit = no;
  *  - NOT living flame: it never keeps the world from ending and is no wake point for frozen players (no server / wake path knows it);
  *  - wiring (source facts): same lava material as the volcano, no new message / asset / collider, E prompt + torch button use it, reset on world change.
@@ -17,7 +17,7 @@ import {
 	SOCKET_LAVA_SIZE_M, SOCKET_LAVA_THICK_M, socketLavaCanRelight, socketLavaClear, socketLavaDistance, socketLavaFloorY, socketLavaHeightM,
 	socketLavaPresenceStep, socketLavaThickM, socketLavaTopY,
 } from 'src/shared/socketLava'
-import { MONUMENT_SOCKET_DEPTH_M, MONUMENT_SOCKET_MIN_FLOOR_Y, MONUMENT_SOCKET_SIZE_M } from 'src/shared/terrain/terrainMap'
+import { OBELISK_SOCKET_DEPTH_M, OBELISK_SOCKET_MIN_FLOOR_Y, OBELISK_SOCKET_SIZE_M } from 'src/shared/terrain/terrainMap'
 
 const g0 = globalThis as { __realLog?: typeof console.log }
 g0.__realLog ??= console.log
@@ -31,14 +31,14 @@ const code = (p: string): string => src(p).replace(/\/\*[\s\S]*?\*\//g, '').repl
 // --- geometry (terraces: low ground 0.25 m, normal ground, high ground) ---
 for (const ground of [0.25, 0.9, 4, 17.5]) {
 	const floor = socketLavaFloorY(ground), top = socketLavaTopY(ground)
-	if (floor < MONUMENT_SOCKET_MIN_FLOOR_Y - 1e-9) fail(`floor ${floor} under the minimum floor Y at ground ${ground}`)
-	if (ground - floor > MONUMENT_SOCKET_DEPTH_M + 1e-9) fail(`socket deeper than ${MONUMENT_SOCKET_DEPTH_M} m at ground ${ground}`)
+	if (floor < OBELISK_SOCKET_MIN_FLOOR_Y - 1e-9) fail(`floor ${floor} under the minimum floor Y at ground ${ground}`)
+	if (ground - floor > OBELISK_SOCKET_DEPTH_M + 1e-9) fail(`socket deeper than ${OBELISK_SOCKET_DEPTH_M} m at ground ${ground}`)
 	if (Math.abs(top - floor - socketLavaThickM(ground)) > 1e-9 || socketLavaThickM(ground) > SOCKET_LAVA_THICK_M + 1e-9 || socketLavaThickM(ground) <= 0) fail('lava thickness wrong')
 	// the pool always stays under the ground / the invisible plug (a pool poking above it would block the player)
 	if (top > ground + 1e-9) fail(`pool top ${top} above the ground ${ground}`)
 }
-if (!(SOCKET_LAVA_SIZE_M < MONUMENT_SOCKET_SIZE_M)) fail('pool wider than the socket')
-if (!(SOCKET_LAVA_THICK_M < MONUMENT_SOCKET_DEPTH_M)) fail('pool thicker than the socket is deep')
+if (!(SOCKET_LAVA_SIZE_M < OBELISK_SOCKET_SIZE_M)) fail('pool wider than the socket')
+if (!(SOCKET_LAVA_THICK_M < OBELISK_SOCKET_DEPTH_M)) fail('pool thicker than the socket is deep')
 
 // --- timing: frozen (obelisk bottom 14-18 m down) / rising = none, hovering = pool ---
 const G = 3
@@ -55,13 +55,13 @@ function run(p0: number, steps: number, dt: number, clear: boolean): number { le
 	if (full !== 1) fail(`presence after ${SOCKET_LAVA_RISE_S} s is ${full}, not 1`)
 	if (run(0, Math.floor(SOCKET_LAVA_RISE_S / 0.05 / 2), 0.05, true) >= 1) fail('the pool is full before the ramp ended')
 	if (run(1, 1000, 0.05, true) !== 1) fail('presence exceeds 1')
-	if (run(1, Math.ceil(SOCKET_LAVA_RISE_S / 0.05) + 1, 0.05, false) !== 0) fail('the pool does not go away when the monument is not released (new world)')
+	if (run(1, Math.ceil(SOCKET_LAVA_RISE_S / 0.05) + 1, 0.05, false) !== 0) fail('the pool does not go away when the obelisk is not released (new world)')
 	// frame-rate independence: 30 fps vs 60 fps vs one big step reach the same value
 	const a = run(0, 60, 1 / 60, true), b = run(0, 30, 1 / 30, true), c = run(0, 1, 1, true)
 	if (Math.abs(a - b) > 1e-9 || Math.abs(a - Math.min(1, 1 / SOCKET_LAVA_RISE_S)) > 1e-9 || c !== Math.min(1, 1 / SOCKET_LAVA_RISE_S)) fail('presence depends on the frame rate')
 }
 
-// --- sync / late join: clients that joined at different moments converge (state = released + pose only), any monument count ---
+// --- sync / late join: clients that joined at different moments converge (state = released + pose only), any obelisk count ---
 for (const count of [3, 6, 8]) {
 	for (let m = 0; m < count; m++) {
 		const ground = 1 + m * 2.3
@@ -72,7 +72,7 @@ for (const count of [3, 6, 8]) {
 		const py = run(0, 100, 0.05, released && socketLavaClear(hoverBottom + ground, ground))
 		const pz = run(0, 600, 0.05, released && socketLavaClear(hoverBottom + ground, ground))
 		const want = released ? 1 : 0
-		if (px !== want || py !== want || pz !== want) fail(`monument ${m}/${count}: clients disagree (${px}, ${py}, ${pz}), want ${want}`)
+		if (px !== want || py !== want || pz !== want) fail(`obelisk ${m}/${count}: clients disagree (${px}, ${py}, ${pz}), want ${want}`)
 	}
 }
 

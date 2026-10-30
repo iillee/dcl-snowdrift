@@ -15,6 +15,8 @@ Generated index. Owner is never asked to hand-maintain this.
 | H1-06 | 8 concurrent players hold 30 fps on mid-tier Android during a nighttime scene with heavy snowfall and active hearth particles across the **authored live envelope** (100 × 100 once H1-07 is fixed; previously measured intent was 64 × 64). | §5 population / §6 mobile / §3 Scale | IF 8 test devices connect to the live scene at night with HEAVY weather THEN each device reports ≥ 30 fps median over a 3-minute sample | Phase 1–2 playtest with 8 devices, DCL mobile client, Pixel 6a or equivalent reference device | untested | yes |
 | H1-07 | Mobile Explorer exposes the same World parcel footprint as desktop for large Worlds (authored 100 × 100 / 10 000 parcels). | §3 Scale / session-2026-10-05 | IF desktop and mobile join the same `snowdrift.dcl.eth` deploy THEN both `getSceneInformation` parcel lists span 100 × 100 (not mobile-only 51 × 51) AND walking ~50 m from the hearth does not fire leave-scene | Repro with in-scene **xy** bounds HUD; confirm Worlds content server still has 10 000 parcels; await DCL Explorer fix or workaround | **failing** (2026-10-05: mobile 51×51 / 2601, desktop 100×100 / 10000; reported upstream) | yes |
 
+> **Note 2026-10-29:** the deployed scene is now **52 x 52** parcels (2704), not 100 x 100, and the active `compact_3` playtest profile plays on a centred 34 x 34 parcel field. H1-06 / H1-07 still describe the 100 x 100 `full_100` envelope; H1-07 was not re-tested at 52 x 52.
+
 ## H2 — active hypotheses (persistent-civ model, added 2026-09-22)
 
 | ID | Claim | Source | IF / THEN | Cheapest killing test | Status | Mobile-sensitive |

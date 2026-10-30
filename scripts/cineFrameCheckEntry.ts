@@ -1,5 +1,5 @@
 /**
- * cineFrameCheck - crystal release end shot per monument terrace: oblique 45-50 deg view, the whole melt circle inside
+ * cineFrameCheck - crystal release end shot per obelisk terrace: oblique 45-50 deg view, the whole melt circle inside
  * the frame, the tip HEADROOM below the top of the letterboxed frame. Bundled by scripts/cineFrameCheck.mjs.
  */
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'

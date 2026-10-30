@@ -2,7 +2,7 @@
  * leaderboard.ts (client) - per-player leaderboard state.
  *
  * Receives `leaderboardState` from the server (joiners + every update),
- * holds the four boards (longest / fastest / monuments / firenet), the selected
+ * holds the four boards (longest / fastest / obelisks / firenet), the selected
  * tab and whether the panel is open. The panel itself
  * is src/client/ui/layers/layer.leaderboard.tsx. Clients never submit
  * records; the only thing sent up is the display name (`playerName`),
@@ -23,8 +23,6 @@ import { isFloatingCrystals } from 'src/shared/ruleset'
 
 let boards: LeaderboardBoards = { longest: [], fastest: [], monuments: [], firenet: [] }
 let tab: BoardKind = 'fastest'
-/** True once the server has sent a board (an empty board still counts). */
-let received = false
 let open = false
 
 
@@ -37,10 +35,8 @@ export function setLeaderboardTab(kind: BoardKind): void { tab = kind }
 export function getLocalAddress(): string {
 	return (PlayerIdentityData.getOrNull(engine.PlayerEntity)?.address ?? getPlayer()?.userId ?? '').toLowerCase()
 }
-export function hasLeaderboard(): boolean { return received }
 export function isLeaderboardOpen(): boolean { return open }
 
-export function openLeaderboard(): void { open = true }
 export function closeLeaderboard(): void { open = false }
 export function toggleLeaderboard(): void { open = !open }
 
@@ -52,7 +48,6 @@ export function setupLeaderboardClient(): void {
 
 	room.onMessage('leaderboardState', ({ json }) => {
 		boards = decodeBoardWire(json)
-		received = true
 	})
 
 	// Tell the server our display name once per server session (it forgets

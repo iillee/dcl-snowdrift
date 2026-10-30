@@ -1,7 +1,7 @@
 /**
  * clientHandler.ts — client network boundary.
  *
- * Inbound room messages → eventBus. Outbound: joinRoster + paintTick.
+ * Inbound room messages → the client handlers. Outbound: joinRoster + paintTick.
  * Snow *state* is CRDT only (PaintTile / PaintCoverage).
  */
 

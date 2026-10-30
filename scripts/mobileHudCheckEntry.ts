@@ -33,10 +33,10 @@ const code = (p: string): string => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*
 	if (/hide\s*:\s*false/.test(t)) fail('a native action button is still shown')
 	if (/inputSystem|toggleMusic|toggleHelpPanel|toggleLeaderboardPanel|addSystem/.test(t)) fail('a mobile input dispatch for the hidden slots is left in touchControls.ts')
 	// the hand's users still work on mobile
-	const cin = code('src/client/monumentCinematic.ts')
+	const cin = code('src/client/obeliskCinematic.ts')
 	if (!/IA_JUMP, PointerEventType\.PET_DOWN/.test(cin)) fail('the cinematic no longer skips on jump (mobile path)')
 	const cl = code('src/client/ui/layers/layer.cinematic.tsx')
-	if (!/value\s*=\s*"SKIP"/.test(cl) || !/onMouseDown = \{\(\) => \{ if \(isCinematicSkippable\(\)\) skipMonumentCinematic\(\) \}\}/.test(cl)) fail('the on-screen SKIP label of the cinematic is gone')
+	if (!/value\s*=\s*"SKIP"/.test(cl) || !/onMouseDown = \{\(\) => \{ if \(isCinematicSkippable\(\)\) skipObeliskCinematic\(\) \}\}/.test(cl)) fail('the on-screen SKIP label of the cinematic is gone')
 	const z = code('src/client/ui/layers/layer.topDownZoom.tsx')
 	if (!/nearMapTable\(\) && <MapButton \/>/.test(z) || !/onMouseDown = \{\(\) => openSummitMap\(\)\}/.test(z) || !/isNearSummitTable\(p\.x, p\.y, p\.z\)/.test(z)) fail('no mobile VIEW MAP button for the summit map table')
 	const st = code('src/client/summitMapTable.ts')

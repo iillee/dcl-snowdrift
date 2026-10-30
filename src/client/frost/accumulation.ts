@@ -46,9 +46,9 @@ import { getHiddenCampfireWarmthPositions, isHiddenCampfireLit } from 'src/clien
 import { isOnHeatPath } from 'src/client/fireNetworkGlow'
 import { NETWORK_PATH_WARM_FUEL } from 'src/shared/fireNetwork'
 import { getLivePhaseConfig } from 'src/client/phase'
-import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
+import { isSurvivalPausedByCinematic } from 'src/client/obeliskCinematic'
 import { thawHeatAt } from 'src/client/worldThaw'
-import { crystalHeatAt, monumentChargeHeatAt } from 'src/client/stationMarkers'
+import { crystalHeatAt, obeliskChargeHeatAt } from 'src/client/stationMarkers'
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isTorchProtecting } from 'src/client/torch'
 import { activeGroundYAt, activeIsLavaAt, activeTerrain } from 'src/shared/terrain/terrainCache'
@@ -68,8 +68,6 @@ import {
 let sampleAccum      = 0
 let frost            = 0
 let lastWrittenFrost = 0
-/** True while a fire is actively thawing remaining frost. */
-let warmingByFire    = false
 /**
  * Warmth reserve (frost points). 0..FROST_MAX - frost. Cold drains it
  * before frost can grow; a lit torch (with no cold on it) or a fire
@@ -204,7 +202,7 @@ const SNOW_CONTACT_GROUNDED_TOL_M = 0.15
 function isTouchingSnow(x: number, y: number, z: number): boolean {
 	const stage = getSnowStageAtWorld(x, y, z)
 	if (stage === 0) return false
-	// Snow lying on monument ice sits higher by the ice height.
+	// Snow lying on obelisk ice sits higher by the ice height.
 	const key = worldToCellKey(x, z)
 	const lift = key === null ? 0 : getSnowCellLiftM(key)
 	const snowTopY = activeGroundYAt(x, z) + lift + SNOW_STAGE_HEIGHT_M[stage]
@@ -295,7 +293,6 @@ export function initFrostAccumulation(): void {
 				frost            = 0
 				lastWrittenFrost = 0
 				lastColdSegments = 0
-				warmingByFire    = false
 				FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 			}
 			warmth = FROST_MAX
@@ -367,15 +364,15 @@ export function initFrostAccumulation(): void {
 				warmthFuel   = CRATER_HEAT_FUEL
 			}
 		}
-		// Charging monument (floating crystals): a campfire of its charge tier.
+		// Charging obelisk (floating crystals): a campfire of its charge tier.
 		{
-			const mf = monumentChargeHeatAt(x, z)
+			const mf = obeliskChargeHeatAt(x, z)
 			if (mf > 0) {
 				const w = hearthWarmthPerSec(mf)
 				if (w > warmthPerSec) { warmthPerSec = w; warmthFuel = mf }
 			}
 		}
-		// Lit monuments give no heat and melt no snow (visual only).
+		// Lit obelisks give no heat and melt no snow (visual only).
 		if (isHiddenCampfireLit()) {
 			for (const hp of getHiddenCampfireWarmthPositions()) {
 				if (hp.radiusSq <= 0) continue
@@ -411,11 +408,9 @@ export function initFrostAccumulation(): void {
 					// first, then the rest of the sample recovers frost.
 					refillWarmth(step, -net)
 				}
-				warmingByFire = net < 0 && frost > 0
 				thawedByFire  = net < 0 && frost < before
 			}
 		} else {
-			warmingByFire = false
 			// Ambient + snow. A lit torch blocks ambient only when
 			// torchLeakPhases is null (day). At dusk and night it leaks.
 			let ratePerSec = 0
@@ -514,7 +509,6 @@ export function resetFrostLocal(): void {
 	frost             = 0
 	lastWrittenFrost  = 0
 	lastColdSegments  = 0
-	warmingByFire     = false
 	setFrostRising(false)
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value: 0 })
 }
@@ -540,7 +534,6 @@ function seedWarmSegments(warmSegments: number, label: string): void {
 	warmth           = FROST_MAX - value
 	lastWrittenFrost = value
 	lastColdSegments = visibleColdSegments(value)
-	warmingByFire    = false
 	setFrostRising(false)
 	FrostLevel.createOrReplace(engine.PlayerEntity, { value })
 	console.log(`frost/accumulation: ${label}: bar at ${value}, ${clamped} gold`)

@@ -6,7 +6,7 @@
  *   - a grass shade (0 = stays bare earth, 1..3 = dark / mid / light green, in low-frequency patches)
  *     and a pop-in time (GRASS_MIN_S..+GRASS_SPREAD_S after the cell melted),
  *   - a few decorations placed inside it: pines (growing), round bushes, lilac-grey rocks, denser toward
- *     the monument, each with its own start time + grow duration relative to the cell's melt time.
+ *     the obelisk, each with its own start time + grow duration relative to the cell's melt time.
  * Times are local epoch ms derived from the oasis entries' melt clock (shared/terrain/oasis.ts), which is
  * itself derived from the server release age, so every client (and a late joiner) agrees. -Infinity = grown.
  * Overlapping oases: cells are keyed globally, so a cell exists once (owner = the oasis that melts it first).
@@ -14,7 +14,7 @@
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
-	MONUMENT_PIT_SIZE_M,
+	OBELISK_PIT_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
 	groundYAtWorld,
@@ -55,7 +55,7 @@ export const VEG_TREE_GROW_SPREAD_S = 35
 /** Per-oasis entity caps (per kind items; a pine is 2-3 entities). */
 /**
  * Density / bare-patch profile radius (m): the ORIGINAL 47.2 m oasis radius. The smaller melted patch keeps the same look, density and
- * spacing at every distance from the monument (nothing is thinned for the radius change); only the caps scale with the patch area.
+ * spacing at every distance from the obelisk (nothing is thinned for the radius change); only the caps scale with the patch area.
  */
 export const VEG_PROFILE_R_M = 47.17
 /** Patch area relative to the original 47.2 m oasis (scales the per-oasis caps). */
@@ -79,8 +79,8 @@ export const VEG_MAX_BUSHES = Math.ceil(70 * VEG_AREA_SCALE)
 export const VEG_MAX_ROCKS = Math.ceil(20 * VEG_AREA_SCALE)
 /** Thickness of a grass slab (m): sits just above the earth floor, under the walking step. */
 export const VEG_GRASS_TOP_M = 0.03
-/** Keep decorations this far (m, Chebyshev) from the monument centre: its 6 m plinth + margin. */
-export const VEG_PLINTH_CLEAR_M = MONUMENT_PIT_SIZE_M / 2 + 3
+/** Keep decorations this far (m, Chebyshev) from the obelisk centre: its 6 m plinth + margin. */
+export const VEG_PLINTH_CLEAR_M = OBELISK_PIT_SIZE_M / 2 + 3
 /** Keep decorations this far (m, Chebyshev) from the main hearth: the fire + the spawn spot + a margin. */
 export const VEG_HEARTH_CLEAR_M = 6
 /** Keep decorations this far (m) from a ladder foot / landing. */
@@ -313,7 +313,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 		const caps = baseCaps.map((v) => Math.ceil(v * sc))
 		for (let k = 0; k < 3; k++) {
 			if (k === VEG_TREE) {
-				// Greedy by priority: a pine is kept only if its canopy clears every kept pine (radius sum) and the monument / hearth.
+				// Greedy by priority: a pine is kept only if its canopy clears every kept pine (radius sum) and the obelisk / hearth.
 				lists[k].sort((a, b) => a.pri - b.pri)
 				const kept: VegItem[] = []
 				const own = ownerOf.get(ownerKey)
@@ -363,11 +363,11 @@ export function vegCanopyClear(map: TerrainMap, x: number, z: number, r: number)
 
 // MARK: vegPosOk
 
-/** Static keep-outs for a decoration at (x, z): monument plinth, hearth, ladders, cliff edges, lava. */
+/** Static keep-outs for a decoration at (x, z): obelisk plinth, hearth, ladders, cliff edges, lava. */
 export function vegPosOk(map: TerrainMap, owner: OasisEntry, x: number, z: number): boolean {
 	if (Math.abs(x - owner.x) < VEG_PLINTH_CLEAR_M && Math.abs(z - owner.z) < VEG_PLINTH_CLEAR_M) return false
 	for (const st of map.stations) {
-		// other monuments' plinths too (oases can overlap)
+		// other obelisks' plinths too (oases can overlap)
 		const sx = TERRAIN_ORIGIN_M + (st.cx + 0.5) * 16
 		const sz = TERRAIN_ORIGIN_M + (st.cz + 0.5) * 16
 		if (Math.abs(x - sx) < VEG_PLINTH_CLEAR_M && Math.abs(z - sz) < VEG_PLINTH_CLEAR_M) return false

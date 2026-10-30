@@ -1,6 +1,6 @@
 # Session 2026-10-26 - staged volcano, world end, overview, first-load fix
 
-> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 monuments, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (6 monuments charged by player-built fires, oasis, World Thaws ending); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins.
+> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 obelisks, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (obelisks charged by player-built fires: 6 in the standard profiles, 3 in the active `compact_3`; oasis; the "THE WORLD BEGINS TO THAW" ending; New Expedition reset); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins (constants, switches and file names mentioned below may have been removed or renamed since, e.g. in the 2026-10-29 cleanup; `monument` is now `obelisk` in the code).
 
 
 Branch `cinematic`, on top of e608161.
@@ -10,5 +10,5 @@ Branch `cinematic`, on top of e608161.
 - **Lava torch relight:** from stage 1 a torch can be relit at the lava (LAVA_RELIGHT_REACH_M); lava is also a wake point for frozen players.
 - **World end** (`src/server/worldFlame.ts`): the world ends when no campfire and no torch is lit for 4 s. Lava does NOT count (Luke). Disabled after victory (stage 3) and post-win days; frozen players no longer drive it.
 - **Isometric overview:** cliff auto-rotate (occlusion ray vs 16 m cells every 0.25 s, turn 90 deg to a clear yaw after 0.4 s blocked, 2 s hold), flag ISO_AUTO_ROTATE_ENABLED; key 4 rotates by hand. Zoom now uses pixelwars' steps: desktop 7 / 29 / 60 (opens at 29), mobile 5 / 15 / 25 (opens at closest), lens widens up to 80 deg past the bounds/ceiling clamp. Pan, snap-back and the off-screen avatar hint kept.
-- **Monument gem look** built but disabled (GEM_ENABLED = false); obelisks stay matte black.
+- **Obelisk gem look** built but disabled (GEM_ENABLED = false); obelisks stay matte black.
 - **First-load fix:** the cold-open min hold started at module load, so it often elapsed behind the explorer loading screen and the hearth card + Day 1 card were never seen. Now the hold starts at first UI render, also waits for the avatar, then holds COLD_OPEN_READY_HOLD_MS 1.5 s; the day card waits SPLASH_AFTER_COVER_MS 0.6 s after uncover.

@@ -4,7 +4,7 @@
  * The platform shuts the server down after the last player leaves (and on
  * redeploys) and cold-starts a new one with fresh state. The client has
  * to notice that on its own: without this it kept the old snow, fires,
- * monuments and log piles until a paintTick happened to bounce back as
+ * obelisks and log piles until a paintTick happened to bounce back as
  * pleaseRejoin (an idle client never did).
  *
  * Sources of the session id: cycleState and serverBeat messages. A change

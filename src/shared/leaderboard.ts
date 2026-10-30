@@ -4,8 +4,8 @@
  *
  * Four boards over one stored record per player:
  *   longest   - most days survived in one run the player contributed to
- *   fastest   - best completion (all monuments): fewest days, then shortest real time
- *   monuments - lifetime monuments released in runs they contributed to
+ *   fastest   - best completion (all obelisks): fewest days, then shortest real time
+ *   obelisks - lifetime obelisks released in runs they contributed to
  *   firenet   - biggest single connected fire network (campfires) they helped build / feed
  *
  * The server (src/server/leaderboard.ts) is the only writer; clients only
@@ -25,10 +25,10 @@ export const LEADERBOARD_BASE_KEY = 'cryocene.leaderboard.v2'
 export function leaderboardKeyFor(profile: WorldProfile): string {
 	return LEADERBOARD_BASE_KEY + WORLD_PROFILE_SPEC[profile].boardSuffix
 }
-/** ACTIVE profile's key: 'cryocene.leaderboard.v2' (standard, unchanged) or 'cryocene.leaderboard.v2.compact3' (3-monument playtest), so records never mix. */
+/** ACTIVE profile's key: 'cryocene.leaderboard.v2' (standard, unchanged) or 'cryocene.leaderboard.v2.compact3' (3-obelisk playtest), so records never mix. */
 export const LEADERBOARD_STORAGE_KEY = LEADERBOARD_BASE_KEY + WORLD_BOARD_SUFFIX
 /** Panel heading for a non-standard board ('' = standard board, no heading). */
-export const LEADERBOARD_HEADING = WORLD_IS_COMPACT ? 'PLAYTEST BOARD - 3 MONUMENTS' : ''
+export const LEADERBOARD_HEADING = WORLD_IS_COMPACT ? 'PLAYTEST BOARD - 3 OBELISKS' : ''
 /** Players kept in storage. */
 export const LEADERBOARD_STORE_MAX = 300
 /** Rows per board sent to clients and shown in the panel. */
@@ -45,16 +45,18 @@ export type LeaderboardPlayer = {
 	n  : string
 	/** Most days survived in a single run they contributed to (0 = none). */
 	d  : number
-	/** Fewest days of a completed (all monuments) run (0 = never completed). */
+	/** Fewest days of a completed (all obelisks) run (0 = never completed). */
 	td : number
 	/** Real seconds of that fastest completion (tie-break after td). */
 	ts : number
-	/** Lifetime monuments released in runs they contributed to. */
+	/** Lifetime obelisks released in runs they contributed to. */
 	mon: number
 	/** Most campfires in one connected fire network they contributed to (0 = none; networks of 2+ only). */
 	fn : number
 }
 
+// The 'monuments' board key predates the monument -> obelisk rename; it is part of the board wire JSON
+// (decodeBoardWire accepts old payloads), so the key value is kept.
 export type BoardKind = 'longest' | 'fastest' | 'monuments' | 'firenet'
 
 /** One row as clients receive it (name already resolved by the server). */
@@ -84,7 +86,7 @@ export function newPlayer(a: string, n = ''): LeaderboardPlayer {
 // MARK: comparators
 const byAddr = (x: LeaderboardPlayer, y: LeaderboardPlayer) => (x.a < y.a ? -1 : x.a > y.a ? 1 : 0)
 
-/** Most days; ties: more monuments, then address (stable). */
+/** Most days; ties: more obelisks, then address (stable). */
 export function compareLongest(x: LeaderboardPlayer, y: LeaderboardPlayer): number {
 	return (y.d - x.d) || (y.mon - x.mon) || byAddr(x, y)
 }
@@ -92,8 +94,8 @@ export function compareLongest(x: LeaderboardPlayer, y: LeaderboardPlayer): numb
 export function compareFastest(x: LeaderboardPlayer, y: LeaderboardPlayer): number {
 	return (x.td - y.td) || (x.ts - y.ts) || byAddr(x, y)
 }
-/** Most monuments; ties: more days survived, then address. */
-export function compareMonuments(x: LeaderboardPlayer, y: LeaderboardPlayer): number {
+/** Most obelisks; ties: more days survived, then address. */
+export function compareObelisks(x: LeaderboardPlayer, y: LeaderboardPlayer): number {
 	return (y.mon - x.mon) || (y.d - x.d) || byAddr(x, y)
 }
 
@@ -107,7 +109,7 @@ export function compareFirenet(x: LeaderboardPlayer, y: LeaderboardPlayer): numb
 // MARK: networkCredits
 /**
  * Biggest connected fire network per contributor. ids = every burning fire,
- * edges = live fire-to-fire links (monuments never appear in either). Each
+ * edges = live fire-to-fire links (obelisks never appear in either). Each
  * connected component of 2+ fires credits every player in who(fireId) with
  * its size; a player keeps the max over components. Returns wallet -> size.
  */
@@ -159,7 +161,7 @@ export function improveThaw(p: LeaderboardPlayer, days: number, ts: number): boo
 // MARK: trimPlayers
 /**
  * Keep at most `max` players. The ones dropped are the least notable:
- * a completion outweighs everything, then monuments, then days.
+ * a completion outweighs everything, then obelisks, then days.
  */
 export function trimPlayers(list: LeaderboardPlayer[], max: number = LEADERBOARD_STORE_MAX): LeaderboardPlayer[] {
 	if (list.length <= max) return list
@@ -261,7 +263,7 @@ export function buildBoards(list: LeaderboardPlayer[]): LeaderboardBoards {
 	return {
 		longest  : top(list.filter((p) => p.d > 0), compareLongest, (p) => ({ a: p.a, name: playerLabel(p), v: p.d, ts: 0 })),
 		fastest  : top(list.filter((p) => p.td > 0), compareFastest, (p) => ({ a: p.a, name: playerLabel(p), v: p.td, ts: p.ts })),
-		monuments: top(list.filter((p) => p.mon > 0), compareMonuments, (p) => ({ a: p.a, name: playerLabel(p), v: p.mon, ts: 0 })),
+		monuments: top(list.filter((p) => p.mon > 0), compareObelisks, (p) => ({ a: p.a, name: playerLabel(p), v: p.mon, ts: 0 })),
 		firenet  : top(list.filter((p) => p.fn > 0), compareFirenet, (p) => ({ a: p.a, name: playerLabel(p), v: p.fn, ts: 0 })),
 	}
 }

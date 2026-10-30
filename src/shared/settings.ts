@@ -44,13 +44,6 @@ export const IS_DEV =
 export const PAINT_CELLS_PER_TILE_AXIS = 16
 
 /**
- * Target brush diameter in world meters. Converted to an odd cell count
- * from the paint cell size so players cover a similar area at any
- * resolution. Baseline matches squareoff's 3×3 at 2 m cells (= 6 m).
- */
-export const PAINT_BRUSH_SIZE_METERS = 3
-
-/**
  * Distance in world meters to project the paint brush ahead of the player
  * along their facing direction. Gives the melt a small lead so cells clear
  * just before the player walks over them, rather than under their feet.
@@ -64,12 +57,12 @@ export const PAINT_BRUSH_LEAD_METERS = 1.2
 // full Live World footprint without forking terrainGen.
 
 /**
- * THE ONE SWITCH (WORLD_PROFILE below): map size, monument count, volcano, finale ring and leaderboard storage key all
+ * THE ONE SWITCH (WORLD_PROFILE below): map size, obelisk count, volcano, finale ring and leaderboard storage key all
  * derive from the active profile.
- * - playtest_52 : standard game, 6 monuments + volcano, 52x52 parcels, no padding.
- * - full_100    : standard game, 6 monuments + volcano, 100x100 parcels.
+ * - playtest_52 : standard game, 6 obelisks + volcano, 52x52 parcels, no padding.
+ * - full_100    : standard game, 6 obelisks + volcano, 100x100 parcels.
  * - compact_3   : 15-player ~30 min playtest. Scene stays 52x52 parcels (scene.json unchanged); the playfield is the
- *   centred 34x34 parcels (544 m, 65% of 52) with 144 m padding/side behind the impassable mountain band. 3 monuments,
+ *   centred 34x34 parcels (544 m, 65% of 52) with 144 m padding/side behind the impassable mountain band. 3 obelisks,
  *   NO volcano, its own leaderboard (key suffix .compact3).
  */
 export type WorldProfile = 'playtest_52' | 'full_100' | 'compact_3'
@@ -88,8 +81,8 @@ export interface WorldProfileSpec {
 	parcels: number
 	/** Meters of empty padding on each side between playfield and scene edge. */
 	paddingMeters: number
-	/** Monuments per world (floating-crystals ruleset). */
-	monuments: number
+	/** Obelisks per world (floating-crystals ruleset). */
+	obelisks: number
 	/** false = no volcano landmark (no mountain / crater / lava / smoke / ladders / summit tablet). */
 	volcano: boolean
 	/** Leaderboard storage-key suffix ('' = the standard board, key unchanged). */
@@ -99,15 +92,15 @@ export interface WorldProfileSpec {
 }
 
 export const WORLD_PROFILE_SPEC: Record<WorldProfile, WorldProfileSpec> = {
-	playtest_52: { parcels: 52,  paddingMeters: 0,   monuments: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
-	full_100:    { parcels: 100, paddingMeters: 16,  monuments: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
-	compact_3:   { parcels: 52,  paddingMeters: 144, monuments: 3, volcano: false, boardSuffix: '.compact3', crowdBurnCoef: 0.25 },
+	playtest_52: { parcels: 52,  paddingMeters: 0,   obelisks: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
+	full_100:    { parcels: 100, paddingMeters: 16,  obelisks: 6, volcano: true,  boardSuffix: '', crowdBurnCoef: 0.5 },
+	compact_3:   { parcels: 52,  paddingMeters: 144, obelisks: 3, volcano: false, boardSuffix: '.compact3', crowdBurnCoef: 0.25 },
 }
 
 const _world = WORLD_PROFILE_SPEC[WORLD_PROFILE]
 
-/** Monuments per world for the active profile (ruleset.MONUMENT_COUNT). */
-export const WORLD_MONUMENT_COUNT: number = _world.monuments
+/** Obelisks per world for the active profile (ruleset.OBELISK_COUNT). */
+export const WORLD_OBELISK_COUNT: number = _world.obelisks
 /** True when the active profile has the volcano landmark. */
 export const WORLD_HAS_VOLCANO: boolean = _world.volcano
 /** True for the compact 15-player playtest profile. */
@@ -144,13 +137,6 @@ export const MAZE_PLAYFIELD_METERS =
  */
 export const MAJOR_GROVE_COUNT = 3
 
-/**
- * Back-compat alias for square-scene call sites. Use the axis-specific
- * constants above for anything that touches maze geometry.
- */
-export const SCENE_WORLD_SIZE_METERS = SCENE_WORLD_SIZE_X_METERS
-
-
 // MARK: Maze tiles
 
 /**
@@ -165,21 +151,6 @@ export const MAZE_TILE_UNSCALED_METERS = 16
 
 /** World-space size of one maze tile after GLTF scale. */
 export const MAZE_TILE_WORLD_METERS = MAZE_TILE_UNSCALED_METERS * MAZE_TILE_GLTF_SCALE
-
-/** Unscaled ramp floor-to-floor rise baked into the tile GLBs. */
-export const MAZE_RAMP_STEP_UNSCALED_METERS = 5.3835
-
-/** World-space Y rise per ramp after GLTF scale. */
-export const MAZE_RAMP_STEP_METERS = MAZE_RAMP_STEP_UNSCALED_METERS * MAZE_TILE_GLTF_SCALE
-
-/**
- * Cap on stacked tile Y (meters). Flat canvas: 0 outlaws any ramp (its high
- * side would sit at y+STEP > 0 and canPlace rejects it up front).
- */
-export const MAZE_MAX_STACK_Y_METERS = 0
-
-/** Inclusive max stack level index (0 .. this). */
-export const MAZE_MAX_LEVEL_INDEX = Math.floor(MAZE_MAX_STACK_Y_METERS / MAZE_RAMP_STEP_METERS)
 
 /** Maze tile grid width (X), derived from playfield X ÷ tile world size. */
 export const MAZE_GRID_WIDTH = Math.floor(MAZE_PLAYFIELD_METERS / MAZE_TILE_WORLD_METERS)
@@ -229,7 +200,7 @@ export const TERRAIN_GRID_H = MAZE_GRID_HEIGHT
 export const TERRAIN_LEVEL_STEP_M = 16
 
 /**
- * Walkable surface height of level 0 (every other level, the hearth, spawn, volcano, ladders, monuments, wood and trees derive from it
+ * Walkable surface height of level 0 (every other level, the hearth, spawn, volcano, ladders, obelisks, wood and trees derive from it
  * through groundYForLevel). DCL draws its default ground plane at y = 0 over anything below it, and an oasis floor sits one cap
  * (OASIS_DROP_M 0.27) lower: at the old 0.25 the lowest terrace's earth top was -0.02 m, hidden under the plane (pale white-blue
  * instead of earth). 0.35 keeps that earth top at 0.08 m (oasisCheck asserts >= 0.05).
@@ -380,61 +351,7 @@ export const PAINT_CELL_SIZE_METERS =
 	MAZE_TILE_WORLD_METERS / PAINT_CELLS_PER_TILE_AXIS
 
 
-// MARK: oddBrushCells
-
-/**
- * Round a meter brush span to an odd cell count (≥ 1) so the footprint
- * stays centered on the player.
- */
-function oddBrushCells(
-	brushMeters: number,
-	cellMeters:  number,
-): number {
-	const raw = Math.max(1, Math.round(brushMeters / cellMeters))
-	return raw % 2 === 0 ? raw + 1 : raw
-}
-
-/**
- * Default player brush footprint as an odd square of paint cells
- * (e.g. 3 → 3×3). Derived from PAINT_BRUSH_SIZE_METERS.
- */
-export const PAINT_BRUSH_SIZE_CELLS = oddBrushCells(
-	PAINT_BRUSH_SIZE_METERS,
-	PAINT_CELL_SIZE_METERS,
-)
-
-// MARK: Paint cell streaming
-//
-// Distance-based cell spawn/despawn per tile. Cells only exist while the
-// LOCAL player is within IN_RADIUS of the tile centre; they tear down
-// past OUT_RADIUS. Hysteresis (OUT > IN) prevents churn at the boundary.
-//
-// Choose IN comfortably larger than one tile (16 m) so the tile the
-// player stands on plus its 8 neighbours are always live. Choose OUT
-// large enough that a normal walking speed does not oscillate the gate.
-
-/**
- * Spawn tiles whose centre is within this many meters of the local player.
- *
- * Sized as prefetch headroom on top of the visible ring: the sliced cell
- * spawner (paint.ts CELLS_PER_FRAME) takes ~10-15 frames to fully populate
- * a tile, and at ~4-5 m/s walking speed 12 m of extra buffer gives ~2-3 s
- * for that work to finish before the tile is visually relevant. Result:
- * cubes are already in place by the time the player is close enough to
- * distinguish them from the far-plane LOD.
- */
-export const CELL_STREAM_IN_RADIUS_M  = 40
-
-/** Despawn tiles whose centre exceeds this many meters from the local player. */
-export const CELL_STREAM_OUT_RADIUS_M = 48
-
-/**
- * Streaming gate poll frequency (Hz). Cheap — walks a small tile map
- * and does one distance check per tile. 4 Hz is smooth enough that the
- * gate never lags a walking player past OUT_RADIUS before firing.
- */
-export const CELL_STREAM_POLL_HZ = 4
-
+// MARK: Paint tick / publish rates
 
 /**
  * Client → server paintTick flush rate. Inbound room traffic is capped per

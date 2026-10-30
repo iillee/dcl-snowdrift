@@ -18,7 +18,7 @@
 
 import {
 	AvatarAnchorPointType, AvatarAttach, EasingFunction, Entity, GltfContainer,
-	Transform, Tween, TweenLoop, TweenSequence, VisibilityComponent, engine,
+	Transform, Tween, TweenLoop, TweenSequence, engine,
 } from '@dcl/sdk/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { getPlayer } from '@dcl/sdk/players'

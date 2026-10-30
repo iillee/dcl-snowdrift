@@ -21,7 +21,7 @@ import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { OASIS_CELL_M, oasisCapR, oasisEntries, oasisVersion } from 'src/shared/terrain/oasis'
 import {
-	VEG_BUSH, VEG_GRASS_TOP_M, VEG_ROCK, VEG_TREE, VEG_TREE_TIER_H_M, VegCell, VegItem,
+	VEG_BUSH, VEG_GRASS_TOP_M, VEG_TREE, VEG_TREE_TIER_H_M, VegCell, VegItem,
 	buildVegCells, mergeGrassRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
 } from 'src/shared/terrain/oasisVeg'
 import { getPlacedFirePositions } from 'src/client/hiddenCampfire'
@@ -115,12 +115,6 @@ export function clearOasisVegetation(): void {
 	alive = 0
 	seenVersion = -1
 }
-
-/** Live counts (debug / perf). */
-export function oasisVegetationStats(): { cells: number; items: number; entities: number } {
-	return { cells: cellsByKey.size, items: items.filter((i) => i.spawned && !i.blocked).length, entities: alive }
-}
-
 
 // MARK: entity helpers
 

@@ -1,6 +1,6 @@
 /**
  * chargeLinks.ts - dependency-free registry of which fires are charging
- * a monument right now (floating-crystals ruleset). stations.ts writes
+ * an obelisk right now (floating-crystals ruleset). stations.ts writes
  * it; hiddenCampfire.ts reads it for CHARGE_FIRE_DRAIN_MUL. Keeps the
  * two modules from importing each other.
  *
@@ -10,11 +10,11 @@ const charging = new Set<number>()
 /** Per slot: the player who last built or fed it (gold-name credit). */
 const lastTouch = new Map<number, string>()
 
-/** One charging fire -> monument link (fire-network shape). */
+/** One charging fire -> obelisk link (fire-network shape). */
 export interface ChargePair {
 	/** Hidden slot index of the fire (network id = slot + 1). */
 	slot: number
-	/** Fire-network node id of the monument (MONUMENT_NODE_ID_BASE + i). */
+	/** Fire-network node id of the obelisk (OBELISK_NODE_ID_BASE + i). */
 	mon : number
 	fx: number; fz: number
 	/**
@@ -25,14 +25,14 @@ export interface ChargePair {
 	ends: { x: number; z: number }[]
 }
 let pairs: ChargePair[] = []
-/** fireNetwork.ts: monument node id -> hidden slots with a LIVE (routed, kept) link to it. */
+/** fireNetwork.ts: obelisk node id -> hidden slots with a LIVE (routed, kept) link to it. */
 let monLinks = new Map<number, Set<number>>()
-export function setMonumentLinks(m: Map<number, Set<number>>): void { monLinks = m }
-/** Slots linked to monument node `mon` right now (charge membership = linking). */
-export function monumentLinkedSlots(mon: number): ReadonlySet<number> { return monLinks.get(mon) ?? EMPTY }
+export function setObeliskLinks(m: Map<number, Set<number>>): void { monLinks = m }
+/** Slots linked to obelisk node `mon` right now (charge membership = linking). */
+export function obeliskLinkedSlots(mon: number): ReadonlySet<number> { return monLinks.get(mon) ?? EMPTY }
 const EMPTY: ReadonlySet<number> = new Set<number>()
 
-/** stations.ts: the current fire -> monument charge links. */
+/** stations.ts: the current fire -> obelisk charge links. */
 export function setChargePairs(p: ChargePair[]): void {
 	pairs = p
 }
@@ -41,14 +41,14 @@ export function getChargePairs(): readonly ChargePair[] {
 	return pairs
 }
 
-/** Monument node ids fire `slot` is charging. */
+/** Obelisk node ids fire `slot` is charging. */
 export function chargeTargetsOf(slot: number): number[] {
 	const out: number[] = []
 	for (const p of pairs) if (p.slot === slot) out.push(p.mon)
 	return out
 }
 
-/** Chain charging: slot -> shortest hop to any unreleased monument (1 = direct). */
+/** Chain charging: slot -> shortest hop to any unreleased obelisk (1 = direct). */
 let chainHop = new Map<number, number>()
 export function setChainHops(m: Map<number, number>): void { chainHop = m }
 /** Shortest charge hop of hidden slot i (0 = not in a charging chain). */

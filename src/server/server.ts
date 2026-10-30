@@ -279,7 +279,7 @@ export async function setupServer(): Promise<void> {
 		// Ignition stations + thaw: AFTER cycleState so the joiner's client
 		// already holds the server seed. Before it, the client still has its
 		// local fallback seed (never equal to the server's fresh seed), so
-		// stationState was dropped and late joiners saw unlit monuments.
+		// stationState was dropped and late joiners saw unlit obelisks.
 		sendStationStateTo(from)
 		sendLeaderboardTo(from)
 		sendExpeditionStateTo(from)

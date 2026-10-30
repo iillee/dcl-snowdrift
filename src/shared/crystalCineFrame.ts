@@ -1,10 +1,10 @@
 /**
  * crystalCineFrame.ts - pure end-pose math for the floating-crystal
- * release cinematic (client/monumentCinematic.ts); shared so
+ * release cinematic (client/obeliskCinematic.ts); shared so
  * scripts/cineFrameCheck can sanity-check it per terrace.
  *
- * End shot (Luke's reference): a high oblique view (pitch 45-50 deg down) of the monument from its front,
- * the whole melt circle (radius CRYSTAL_HEAT_RADIUS_M) inside the frame, the monument tip near the top with
+ * End shot (Luke's reference): a high oblique view (pitch 45-50 deg down) of the obelisk from its front,
+ * the whole melt circle (radius CRYSTAL_HEAT_RADIUS_M) inside the frame, the obelisk tip near the top with
  * CINE_CRYSTAL_TIP_HEADROOM of the visible height above it, fire network / cliffs below.
  */
 import { CRYSTAL_HEAT_RADIUS_M } from 'src/shared/ruleset'
@@ -27,9 +27,9 @@ export function cineAspect(width: number, height: number): number {
 	if (!(width > 0) || !(height > 0)) return CINE_CRYSTAL_ASPECT
 	return Math.max(CINE_CRYSTAL_ASPECT_MIN, Math.min(CINE_CRYSTAL_ASPECT_MAX, width / height))
 }
-/** Letterbox bar height, fraction of the screen each (mirrors CINE_BAR_FRAC in monumentCinematic); the bars stay on for the end shot. */
+/** Letterbox bar height, fraction of the screen each (mirrors CINE_BAR_FRAC in obeliskCinematic); the bars stay on for the end shot. */
 export const CINE_CRYSTAL_BAR_FRAC = 0.12
-/** Free space above the monument tip, as a fraction of the BAR-FREE visible height (Luke: ~8-10%). */
+/** Free space above the obelisk tip, as a fraction of the BAR-FREE visible height (Luke: ~8-10%). */
 export const CINE_CRYSTAL_TIP_HEADROOM = 0.09
 /** Everything framed must stay inside this fraction of the visible half-extent (edge margin). */
 export const CINE_CRYSTAL_EDGE_FILL = 0.97
@@ -38,7 +38,7 @@ export const CINE_CRYSTAL_FRAME_GROUND_R_M = CRYSTAL_HEAT_RADIUS_M
 
 export interface CrystalEndPose { dist: number; camH: number; lookH: number; pitchDeg: number }
 
-/** Projection of a point (s along the view bearing from the monument axis, height y, lateral x) -> visible-frame coords. */
+/** Projection of a point (s along the view bearing from the obelisk axis, height y, lateral x) -> visible-frame coords. */
 function project(s: number, y: number, lat: number, D: number, Hc: number, pitch: number, aspect: number): { vx: number; vy: number } | null {
 	const tv = Math.tan((CINE_CRYSTAL_FOV_DEG / 2) * DEG_C)
 	const sr = s + D, dy = y - Hc
@@ -51,7 +51,7 @@ function project(s: number, y: number, lat: number, D: number, Hc: number, pitch
 /**
  * Crystal end pose relative to the crystal's ground. h = top tip height above ground, R = ground ring radius to keep in
  * frame, maxCamH = highest allowed camera height above the ground. For each pitch in [45, 50] and each horizontal
- * camera distance D from the monument axis (nearest first) the camera height is chosen so the tip sits exactly
+ * camera distance D from the obelisk axis (nearest first) the camera height is chosen so the tip sits exactly
  * CINE_CRYSTAL_TIP_HEADROOM below the top of the visible frame; D is accepted when the whole ring (lateral extremes,
  * near and far edges) and the foot stay inside the frame. Smallest D over the pitch range wins; if the ceiling blocks
  * every pitch it flattens (down to 20 deg). `aspect` = screen width / height (vertical FOV is fixed, so a narrower screen needs a farther camera). dist is the horizontal camera distance, lookH the height of the axis point the

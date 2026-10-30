@@ -1,17 +1,17 @@
-# Session 2026-10-07 — V1 MVP loop (monuments → thaw → new winter)
+# Session 2026-10-07 — V1 MVP loop (obelisks → thaw → new winter)
 
-> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 monuments, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (6 monuments charged by player-built fires, oasis, World Thaws ending); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins.
+> **Status 2026-10-28:** snapshot of the classic volcano ruleset (3 obelisks, volcano beams / thaw wave, hidden campfires). The current build runs `RULESET = 'floating-crystals'` (obelisks charged by player-built fires: 6 in the standard profiles, 3 in the active `compact_3`; oasis; the "THE WORLD BEGINS TO THAW" ending; New Expedition reset); see [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Where this note and the code disagree, the code wins (constants, switches and file names mentioned below may have been removed or renamed since, e.g. in the 2026-10-29 cleanup; `monument` is now `obelisk` in the code).
 
 
-Source of truth for what the playtest build does after the 10/06–10/07 pass. Supersedes the "next build" scope in [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) for this playtest.
+Source of truth for what the playtest build does after the 10/06–10/07 pass. Supersedes the "next build" scope in [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md) for this playtest.
 
 ## Locked V1 MVP loop
 
-Survive → explore → find the volcano → climb → read the **summit tablet** (world map) → find the **3 ignition monuments** → **ignite** all three (**any order**) → volcano smoke ramps at **1/3** and **2/3** → the **3rd** thaws a large ring around the volcano → win → 1 warm day → new winter.
+Survive → explore → find the volcano → climb → read the **summit tablet** (world map) → find the **3 ignition obelisks** → **ignite** all three (**any order**) → volcano smoke ramps at **1/3** and **2/3** → the **3rd** thaws a large ring around the volcano → win → 1 warm day → new winter.
 
 - Tablet = **where**; terrain = **how**; survival = **whether**. The tablet is knowledge, **not** a gate.
-- Monuments need no wood or puzzles — only a carried flame.
-- No return-to-peak finalize: the 3rd monument triggers thaw directly.
+- Obelisks need no wood or puzzles — only a carried flame.
+- No return-to-peak finalize: the 3rd obelisk triggers thaw directly.
 - **Stop and playtest** before seasons, discoveries, fire network, etc.
 
 ## World profile
@@ -20,20 +20,20 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 - Low + Mid + High groves, volcano on the high plateau. Densified wood and fires for chain travel; running re-enabled; daytime frost speed halved; spawn waits for terrain + pad at the hearth.
 - Torch readability work is **dropped** for V1.
 
-## Ignition monuments (`src/server/stations.ts`, `src/client/stationMarkers.ts`)
+## Ignition obelisks (`src/server/stations.ts`, `src/client/stationMarkers.ts`)
 
-> **Superseded 2026-10-18:** the monument look, ice test, ignite rules, hover, beams, sound and placement below are out of date. Current state: [`session-2026-10-18-monuments-cinematic.md`](./session-2026-10-18-monuments-cinematic.md). In particular monuments no longer give warmth or melt snow, there is no flame on top, and no station needs volcano line of sight.
+> **Superseded 2026-10-18:** the obelisk look, ice test, ignite rules, hover, beams, sound and placement below are out of date. Current state: [`session-2026-10-18-obelisks-cinematic.md`](./session-2026-10-18-obelisks-cinematic.md). In particular obelisks no longer give warmth or melt snow, there is no flame on top, and no station needs volcano line of sight.
 
 - 3 sockets generated per seed, line-of-sight validated to the volcano.
 - Grey stone stumps with colliders, tall enough to clear ~1.5 m snow; rebuilt when terrain changes.
 - `STATION_DEBUG_BEACONS = false` — debug beacons off; stumps and real beams remain.
-- **Ignite:** stand within **3.5 m** holding a **lit torch**. An **IGNITE MONUMENT** bubble appears in the campfire-prompt slot (`layer.hiddenCampfirePrompt.tsx`); press **E** or tap it. No flame → no prompt. Plain clicking does nothing.
-- On ignite: grow ~50% taller + spin 180° → beam to the volcano → a campfire flame burns on top. The stone keeps its normal grey (`MONUMENT_LIT_RED_TINT = false`; the ember-red tint + glow is off for now).
-- Ignition plays `assets/sounds/monument.mp3` at the monument for every nearby player, only on a fresh ignite (the server flags it `fresh`); late joiners, seed rebuilds and resets stay silent and snap to the lit pose.
-- The summit tablet X for a monument turns **red** once it is lit (in-world engraving + WORLD MAP UI), live and for late joiners; back to black on a new cycle.
-- Lit monuments are **eternal Warm campfires**: ~8 m warmth and snow melt, no fuel, never go out.
+- **Ignite:** stand within **3.5 m** holding a **lit torch**. An **IGNITE OBELISK** bubble appears in the campfire-prompt slot (`layer.hiddenCampfirePrompt.tsx`); press **E** or tap it. No flame → no prompt. Plain clicking does nothing.
+- On ignite: grow ~50% taller + spin 180° → beam to the volcano → a campfire flame burns on top. The stone keeps its normal grey (`OBELISK_LIT_RED_TINT = false`; the ember-red tint + glow is off for now).
+- Ignition plays `assets/sounds/obelisk.mp3` at the obelisk for every nearby player, only on a fresh ignite (the server flags it `fresh`); late joiners, seed rebuilds and resets stay silent and snap to the lit pose.
+- The summit tablet X for an obelisk turns **red** once it is lit (in-world engraving + WORLD MAP UI), live and for late joiners; back to black on a new cycle.
+- Lit obelisks are **eternal Warm campfires**: ~8 m warmth and snow melt, no fuel, never go out.
 - Lit state lives in server memory: a full server restart (or cycle roll) resets it.
-- Not built: relighting a torch from a monument; respawning at a monument.
+- Not built: relighting a torch from an obelisk; respawning at an obelisk.
 
 ## Volcano (`src/client/volcanoCrown.ts`, `src/shared/terrain/volcanoCrown.ts`, `src/client/volcanoSmoke.ts`)
 
@@ -46,12 +46,12 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 
 - A single solid **1.15 m** stone block (footprint = map face), top at waist height, base sunk slightly into the ground.
 - Seated on the **inner crater rim**, with a snow pad melted around it.
-- Engraved, flat **black & white** map (in-world and UI): **▲ volcano**, **○ spawn**, **✕ monuments**. No worlds, no groves.
+- Engraved, flat **black & white** map (in-world and UI): **▲ volcano**, **○ spawn**, **✕ obelisks**. No worlds, no groves.
 - Click opens the **WORLD MAP** UI.
 
 ## Thaw (`src/shared/terrain/thawWave.ts`, `src/server/snowSync.ts`, `src/server/snowState.ts`, `src/client/worldThaw.ts`, `src/client/thawSplash.ts`)
 
-- At the 3rd monument the volcano becomes a giant eternal campfire. A **radial melt wave** grows from the crater over `THAW_WAVE_DURATION_S = 45` and **stops at the thaw radius**.
+- At the 3rd obelisk the volcano becomes a giant eternal campfire. A **radial melt wave** grows from the crater over `THAW_WAVE_DURATION_S = 45` and **stops at the thaw radius**.
 - The radius is sized per map so the zone covers `THAW_AREA_FRACTION = 0.55` of the playfield's snow tiles (disc parts off the map edge count as lost). Works for any profile / volcano position. Check: `node scripts/thawRadiusCheck.mjs`.
 - Inside the zone: ground snow, cliff-top ice caps (the cap mesh drops as the wave reaches it) and scatter wood are removed and held gone until the new-winter reset. Outside it the world stays wintry: snowfall, regrowth and accumulation carry on.
 - Warmth: inside the zone the volcano warms like a Warm campfire and blocks open-air / night cold, fading to 0 over `THAW_EDGE_BAND_M = 48` m at the (growing) wave edge. Outside the zone night cold is normal.
@@ -59,13 +59,13 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 - Rate-limited — fixes the old freeze where every tile was sent and rebuilt in one frame (torch detached, ladders/fires/actions stopped).
 - Lava + **WORLD THAWED** splash.
 - Late joiners get the wave's age from the server and see what has already melted, then the rest of the wave.
-- Debug: `DEBUG_THAW_BUTTON` in `src/client/devFlags.ts` (**false**; server handler gated on the same flag) shows a THAW button right of the frost bar that lights all monuments and runs this same path.
+- Debug: `DEBUG_THAW_BUTTON` in `src/client/devFlags.ts` (**false**; server handler gated on the same flag) shows a THAW button right of the frost bar that lights all obelisks and runs this same path.
 
 ## Post-win reset (`src/client/daySplash.ts`, `src/server/stations.ts`)
 
 - The rest of the thaw day is a bonus.
 - Then `POST_THAW_DAYS = 1` (in `thawWave.ts`) full day: its sunrise splash reads **Winter Approaches in 1 Day** instead of **DAY X**.
-- At the next sunrise the existing cycle roll starts a new winter: fresh seed, snow back, unlit monuments, night cold back on, splash back to Day 1.
+- At the next sunrise the existing cycle roll starts a new winter: fresh seed, snow back, unlit obelisks, night cold back on, splash back to Day 1.
 
 ## Safety / UI
 
@@ -81,8 +81,8 @@ Survive → explore → find the volcano → climb → read the **summit tablet*
 
 ## Parked for after the playtest
 
-- Monuments burning out over time (winter creeping back) as an alternative to the fixed countdown.
+- Obelisks burning out over time (winter creeping back) as an alternative to the fixed countdown.
 - Fuller celebratory eruption (beyond the 3/3 smoke plume + lava).
 - Seasons, discoveries, fire network, staged thaw lighting.
-- Mid/Low monument LOS balance if placement skews High.
+- Mid/Low obelisk LOS balance if placement skews High.
 - Torch readability; GitHub branches beyond `main`.

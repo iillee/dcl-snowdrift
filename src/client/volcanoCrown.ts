@@ -3,7 +3,7 @@
  *
  * The crown itself is terrain (extruded crown levels). This module adds:
  *   - Inner lining: thin dark basalt on lava-facing crown faces (always).
- *   - Lava lids: one box per lava cell, staged by landed monuments
+ *   - Lava lids: one box per lava cell, staged by landed obelisks
  *     (setVolcanoLavaStage 0..3). Stage 0 = no lava entities at all
  *     (scale-hiding leaked through snow). Stage 1 a small dim pool at
  *     the lake centre, stage 2 wider and brighter, stage 3 the full
@@ -23,8 +23,7 @@ import {
 	Transform,
 	engine,
 } from '@dcl/sdk/ecs'
-import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
-import { isMobile } from '@dcl/sdk/platform'
+import { Color4, Vector3 } from '@dcl/sdk/math'
 
 import { TERRAIN_CELL_M, groundYForLevel } from 'src/shared/settings'
 import { paintLava } from 'src/client/lavaLook'
@@ -294,7 +293,7 @@ export function nearestLitLava(x: number, z: number): { x: number; z: number; d:
  * crown lip looking in). Same prompt / E press as a campfire.
  */
 export function isInLavaRelightRange(): boolean {
-	if (isInSocketLavaRelightRange()) return true // a released monument's socket lava: always a relight source
+	if (isInSocketLavaRelightRange()) return true // a released obelisk's socket lava: always a relight source
 	if (lavaStage <= 0) return false
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (t === null) return false
@@ -308,7 +307,7 @@ export function isInLavaRelightRange(): boolean {
 
 // MARK: setVolcanoLavaStage
 /**
- * Lava stage from landed monuments (0..3). 0 = no lava entities; 1..3
+ * Lava stage from landed obelisks (0..3). 0 = no lava entities; 1..3
  * spread / rise / brighten per src/shared/volcanoStages.ts, blended over
  * LAVA_STAGE_BLEND_S. Idempotent; safe before terrain exists.
  */

@@ -26,7 +26,7 @@ import {
 } from 'src/client/ui/mobileHud'
 
 
-const { colors, borderRadius } = UI_THEME
+const { colors } = UI_THEME
 
 const PANEL_BG = colors.statsBg
 const WHITE    = Color4.White()

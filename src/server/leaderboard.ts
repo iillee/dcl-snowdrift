@@ -1,8 +1,8 @@
 /**
  * leaderboard.ts (server) - per-player leaderboard, four boards:
  *   longest   - most days survived in one run the player contributed to
- *   fastest   - best completion of ALL monuments (fewest days, then shortest real time)
- *   monuments - lifetime monuments released in runs they contributed to
+ *   fastest   - best completion of ALL obelisks (fewest days, then shortest real time)
+ *   obelisks - lifetime obelisks released in runs they contributed to
  *   firenet   - most campfires in one connected fire network they contributed to
  *
  * Contributors = wallets that did a meaningful action THIS run: picked up
@@ -12,18 +12,18 @@
  *
  *  - Joining the contributors lifts their `longest` to the current day.
  *  - Each day tick lifts every contributor's `longest` (in-progress runs count).
- *  - Each monument release credits every contributor +1 monument.
- *  - The last release (all monuments) offers every contributor a completion
+ *  - Each obelisk release credits every contributor +1 obelisk.
+ *  - The last release (all obelisks) offers every contributor a completion
  *    for `fastest`.
  *  - Firenet: recordFireNetworks (fireNetwork.ts, every tick) finds the connected
- *    components of fully drawn fire-fire links (monuments never count); each of 2+
+ *    components of fully drawn fire-fire links (obelisks never count); each of 2+
  *    fires credits everyone who built or fed one of its fires with its size, kept
  *    as a personal best. Recomputed only when the links or the per-fire contributors
  *    change, at most every FIRENET_MIN_S seconds.
  * A run that used a dev shortcut (runIntegrity) is excluded from all four.
  *
  * Persistence: scene Storage (`Storage` from @dcl/sdk/server), one key PER WORLD PROFILE
- * (LEADERBOARD_STORAGE_KEY: the standard game keeps 'cryocene.leaderboard.v2', the 3-monument
+ * (LEADERBOARD_STORAGE_KEY: the standard game keeps 'cryocene.leaderboard.v2', the 3-obelisk
  * playtest uses '...v2.compact3', so their records never mix), one record per player (capped). Survives the ~2 min empty-server
  * shutdown and redeploys. Writes are throttled (shared/saveThrottle.ts: at most one per SAVE_MIN_INTERVAL_S = 45 s; a release,
  * completion, new player record or cycle roll is flushed at once) and retried after a failure because
@@ -190,7 +190,7 @@ export function forgetFireContributors(fireId: number): void {
 // MARK: recordFireNetworks
 /**
  * Called every network tick with the burning fire ids and the fully drawn
- * fire-fire links (no monument ends). Credits each network's contributors
+ * fire-fire links (no obelisk ends). Credits each network's contributors
  * with its size when that beats their stored best.
  */
 export function recordFireNetworks(ids: ReadonlyArray<number>, edges: ReadonlyArray<readonly [number, number]>): void {
@@ -250,8 +250,8 @@ function recordDayTick(): void {
 
 // MARK: recordRunProgress
 /**
- * A monument was just released (`released` of `total`). Credit every
- * contributor +1 monument; on the last one, offer each a completion.
+ * An obelisk was just released (`released` of `total`). Credit every
+ * contributor +1 obelisk; on the last one, offer each a completion.
  * Skipped for a tainted (dev-shortcut) run.
  */
 export function recordRunProgress(released: number, total: number): void {

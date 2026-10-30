@@ -36,17 +36,14 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import {
 	TERRAIN_CELL_M,
 	groundYForLevel,
-	isCrownLevel,
-	isMountainLevel,
 } from 'src/shared/settings'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
 import { LevelRect, mergeLevelRects } from 'src/shared/terrain/terrainGen'
 import {
-	MONUMENT_PIT_DEPTH_M,
-	MONUMENT_PIT_SIZE_M,
-	MONUMENT_SOCKET_DEPTH_M,
-	monumentSocketDepth,
-	MONUMENT_SOCKET_SIZE_M,
+	OBELISK_PIT_DEPTH_M,
+	OBELISK_PIT_SIZE_M,
+	obeliskSocketDepth,
+	OBELISK_SOCKET_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
 	levelAtWorld,
@@ -63,7 +60,7 @@ import {
 	oasisVersion,
 } from 'src/shared/terrain/oasis'
 
-import { MONUMENT_BLACK, MONUMENT_MATTE_PBR } from 'src/client/monumentMaterial'
+import { OBELISK_BLACK, OBELISK_MATTE_PBR } from 'src/client/obeliskMaterial'
 import { clearOasisVegetation, installOasisVegetation } from 'src/client/terrain/oasisVegetation'
 import { clearLadders, setupLadders } from 'src/client/terrain/ladders'
 import { thawWaveReachedRect } from 'src/client/worldThaw'
@@ -95,8 +92,8 @@ const CAP_HYSTERESIS_M = 15
 const CAP_DROP_M2 = (CAP_KEEP_M + CAP_HYSTERESIS_M) ** 2
 
 /**
- * Exposed rock. Matches the baseColorFactor on the authored
- * tile-cliff-*.glb models so the greybox reads as the same slate the
+ * Exposed rock. Matches the slate baseColorFactor of the
+ * old tile-cliff models (removed) so the greybox reads as the same slate the
  * eventual cliff kit will use. Every cliff face is this colour at
  * every level — height is read from the geometry, not from a tint.
  */
@@ -111,9 +108,9 @@ const COLOR_EARTH = Color4.create(0.42, 0.39, 0.36, 1) // grey with a faint brow
 /** Oasis pieces built per frame (mobile allows ~300 addEntity / frame; keep well under). */
 const OASIS_SPAWN_BUDGET_PER_FRAME = 150
 
-/** Monument socket border + socket bottom: the obelisk's matte deep black. */
-const COLOR_PIT    = MONUMENT_BLACK
-const COLOR_SOCKET = MONUMENT_BLACK
+/** Obelisk socket border + socket bottom: the obelisk's matte deep black. */
+const COLOR_PIT    = OBELISK_BLACK
+const COLOR_SOCKET = OBELISK_BLACK
 
 
 // MARK: State
@@ -127,7 +124,7 @@ type RectGeom = {
 	wantsCap: boolean
 	rock    : Entity
 	cap     : Entity | null
-	/** Terrain level of this rect (oasis circles only lower rects on the monument's level). */
+	/** Terrain level of this rect (oasis circles only lower rects on the obelisk's level). */
 	level   : number
 	/** True while an oasis has cut into this rect: cap pieces + earth pieces replace `cap`, no distance culling. */
 	oasisMode  : boolean
@@ -222,7 +219,7 @@ export function setupTerrain(): void {
 	}
 	let pits = 0
 	for (const st of map.stations) {
-		caps += addMonumentPit(st.cx, st.cz, groundYForLevel(map.levels[st.cz * map.w + st.cx]), focus)
+		caps += addObeliskPit(st.cx, st.cz, groundYForLevel(map.levels[st.cz * map.w + st.cx]), focus)
 		pits++
 	}
 
@@ -231,7 +228,7 @@ export function setupTerrain(): void {
 
 	console.log(
 		`terrainRenderer: setupTerrain: seed ${map.usedSeed} (try ${map.attempts}), ` +
-		`${rects.length} rock slabs, ${caps} caps (keep=${CAP_KEEP_M}m), ${pits} monument pits, ` +
+		`${rects.length} rock slabs, ${caps} caps (keep=${CAP_KEEP_M}m), ${pits} obelisk pits, ` +
 		`${map.ladders.length} ladders, ${map.regionLevel.length} regions, ` +
 		`${map.destinations.length} destinations`
 	)
@@ -262,8 +259,8 @@ function addRect(
 
 // MARK: carveStationCells
 /**
- * Split merged rects so every monument cell stands alone (it is drawn
- * by addMonumentPit instead). A rect holding a station cell becomes up
+ * Split merged rects so every obelisk cell stands alone (it is drawn
+ * by addObeliskPit instead). A rect holding a station cell becomes up
  * to four strips around it; repeated per station. Deterministic.
  */
 function carveStationCells(map: TerrainMap, rects: LevelRect[]): LevelRect[] {
@@ -288,26 +285,26 @@ function carveStationCells(map: TerrainMap, rects: LevelRect[]): LevelRect[] {
 }
 
 
-// MARK: addMonumentPit
+// MARK: addObeliskPit
 /**
- * A station cell drawn with a square MONUMENT_PIT_SIZE_M recess in the
+ * A station cell drawn with a square OBELISK_PIT_SIZE_M recess in the
  * middle: four ground strips around it (normal rock + cap, so its edge is
- * a rock face), ONE shallow step down to a MONUMENT_PIT_DEPTH_M floor
- * (under the 0.3 m DCL auto-step), and a MONUMENT_SOCKET_SIZE_M square
- * socket MONUMENT_SOCKET_DEPTH_M deep in the centre of the floor that the
+ * a rock face), ONE shallow step down to a OBELISK_PIT_DEPTH_M floor
+ * (under the 0.3 m DCL auto-step), and a OBELISK_SOCKET_SIZE_M square
+ * socket OBELISK_SOCKET_DEPTH_M deep in the centre of the floor that the
  * obelisk sits in. While frozen the recess is filled by the ice mound
  * (stationMarkers). All boxes collide. Returns caps spawned.
  */
-function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number; z: number }): number {
+function addObeliskPit(cx: number, cz: number, top: number, focus: { x: number; z: number }): number {
 	const cell = TERRAIN_CELL_M
 	const x0   = TERRAIN_ORIGIN_M + (cx + 0.5) * cell
 	const z0   = TERRAIN_ORIGIN_M + (cz + 0.5) * cell
-	// Ground right up to a MONUMENT_PIT_SIZE_M square; inside it a dark
+	// Ground right up to a OBELISK_PIT_SIZE_M square; inside it a dark
 	// perimeter band drawn as full-height dark slabs (bedrock to ground
 	// top, same height as the cap beside it: flush, no lip, and no
 	// coplanar faces so no z-fight), then the plain socket in the middle.
-	void MONUMENT_PIT_DEPTH_M
-	const pit  = MONUMENT_PIT_SIZE_M
+	void OBELISK_PIT_DEPTH_M
+	const pit  = OBELISK_PIT_SIZE_M
 	const band = (cell - pit) / 2
 	let caps = 0
 	// South + north strips span the full cell; west + east fill between.
@@ -316,13 +313,13 @@ function addMonumentPit(cx: number, cz: number, top: number, focus: { x: number;
 	if (addRect(x0 - pit / 2 - band / 2, z0, band, pit, top, true, focus)) caps++
 	if (addRect(x0 + pit / 2 + band / 2, z0, band, pit, top, true, focus)) caps++
 
-	const socket  = MONUMENT_SOCKET_SIZE_M
-	const depth   = monumentSocketDepth(top)
+	const socket  = OBELISK_SOCKET_SIZE_M
+	const depth   = obeliskSocketDepth(top)
 	const socketY = top - depth
 	// Black perimeter band, flush with the ground (matte, no reflectivity).
-	for (const e of spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)) paintMonumentMatte(e)
+	for (const e of spawnFrame(x0, z0, pit, socket, SLAB_BASE_Y, top, COLOR_PIT)) paintObeliskMatte(e)
 	// Plain socket: black bottom, walls are the band's inner faces.
-	paintMonumentMatte(spawnSlab(x0, z0, socket, socket, SLAB_BASE_Y, socketY, COLOR_SOCKET))
+	paintObeliskMatte(spawnSlab(x0, z0, socket, socket, SLAB_BASE_Y, socketY, COLOR_SOCKET))
 	// Invisible physics plug filling the socket to ground level, so a
 	// player can never drop into the empty 1.5 m socket and get stuck
 	// after the obelisk rises. Physics only (not pointer/camera).
@@ -363,10 +360,10 @@ function spawnFrame(
 }
 
 
-// MARK: paintMonumentMatte
-/** Monument stone: matte deep black, no reflectivity (src/client/monumentMaterial.ts). */
-function paintMonumentMatte(e: Entity): void {
-	Material.setPbrMaterial(e, { ...MONUMENT_MATTE_PBR })
+// MARK: paintObeliskMatte
+/** Obelisk stone: matte deep black, no reflectivity (src/client/obeliskMaterial.ts). */
+function paintObeliskMatte(e: Entity): void {
+	Material.setPbrMaterial(e, { ...OBELISK_MATTE_PBR })
 }
 
 // MARK: ensureCapLodSystem
@@ -415,7 +412,7 @@ function capLodSystem(): void {
 
 // MARK: oasisSystem
 /**
- * Oasis (released monument) terrain: inside the revealed circle the cap is gone and brown
+ * Oasis (released obelisk) terrain: inside the revealed circle the cap is gone and brown
  * earth shows one step lower (shared/terrain/oasis.ts owns the cells and the reveal ring).
  * Every rect (any terrace, plus mountain wall blocks; not the volcano crown), that the patch reaches is touched; cliff walls stay as they are. Each is rebuilt
  * when its cell mask changes (a few ring steps per burst): new pieces first, old ones
@@ -553,14 +550,6 @@ function rebuildOasisRect(g: RectGeom): number {
 	g.oasisMode = true
 	g.oasisSig = sig
 	return pieces.length
-}
-
-
-/** Live oasis piece count (debug / perf). */
-export function oasisPieceCount(): number {
-	let n = 0
-	for (const g of rectGeoms) n += g.oasisPieces.length
-	return n
 }
 
 

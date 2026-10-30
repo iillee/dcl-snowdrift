@@ -25,11 +25,11 @@ import { playSurgeSfxLocal, playTorchSfxLocal } from 'src/client/audio'
 import { DEV_KEEP_TORCH_LIT } from 'src/client/devFlags'
 import { getMainFireFuel, requestHearthSpark } from 'src/client/hearthFuel'
 import { isInHiddenRelightRange, isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
-import { isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
+import { isReadyToIgniteObelisk, requestObeliskIgnite } from 'src/client/stationMarkers'
 import { isInLavaRelightRange } from 'src/client/volcanoCrown'
 import { isBuildReady, tryBuildFire } from 'src/client/buildFire'
 import { getLivePhaseConfig } from 'src/client/phase'
-import { isSurvivalPausedByCinematic } from 'src/client/monumentCinematic'
+import { isSurvivalPausedByCinematic } from 'src/client/obeliskCinematic'
 import { syncTorchFlameNow } from 'src/client/torch'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import {
@@ -98,10 +98,10 @@ export function tryRelightAtFire(): void {
 		return
 	}
 
-	// Monument ice melts by proximity (stationMarkers meltSystem); once
-	// it is all gone, E / the torch button ignites the monument.
-	if (isReadyToIgniteMonument()) {
-		requestMonumentIgnite()
+	// Obelisk ice melts by proximity (stationMarkers meltSystem); once
+	// it is all gone, E / the torch button ignites the obelisk.
+	if (isReadyToIgniteObelisk()) {
+		requestObeliskIgnite()
 		relightCooldownUntilMs = Date.now() + RELIGHT_COOLDOWN_MS
 		return
 	}

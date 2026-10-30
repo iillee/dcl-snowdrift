@@ -27,3 +27,6 @@ assets/images/screenshot/
 *.skb
 *.bak
 *~
+
+# Installed SDK skill packs (restore with: npx skills add decentraland/sdk-skills --all)
+.agents/

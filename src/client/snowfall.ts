@@ -5,7 +5,7 @@
  * tall column (SNOW_BOTTOM_Y .. SNOW_TOP_Y) that follows the player in XZ
  * (SNOW_COLUMN_HALF_M each way). Particles simulate in WORLD space, so
  * moving the column only moves where new flakes appear. The column top
- * sits near the scene ceiling, above every hovering monument, so no spawn
+ * sits near the scene ceiling, above every hovering obelisk, so no spawn
  * plane is visible against the mountains / volcano; spawning through the
  * whole column means density ramps in softly from the top (no edge) and
  * is uniform below SNOW_BOTTOM_Y. Fall speed is capped per level
@@ -55,7 +55,7 @@ export enum PrecipitationLevel {
 
 // MARK: Tuning
 /**
- * Column top (m): this far under the scene height limit. Hovering monument
+ * Column top (m): this far under the scene height limit. Hovering obelisk
  * tops are capped 24 m under the limit (stationMarkers
  * HOVER_CEILING_MARGIN_M, bob included), so flakes always start above them.
  */

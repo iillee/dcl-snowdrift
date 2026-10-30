@@ -2,10 +2,10 @@
  * crystalFinale.ts - client side of the floating-crystals ENDING ("The world begins to thaw"), see src/shared/finale.ts.
  *
  * The server sends crystalFinaleState (start time as an age, negative until it begins; hydrated to late joiners). From it every
- * client derives the same ring of beams between the monuments' TOP tips and draws ALL of them at once (one emissive box per beam,
- * scaled as it grows, same thickness / look as the vertical monument beam: n entities for the whole ring, they stay), then the
+ * client derives the same ring of beams between the obelisks' TOP tips and draws ALL of them at once (one emissive box per beam,
+ * scaled as it grows, same thickness / look as the vertical obelisk beam: n entities for the whole ring, they stay), then the
  * synchronized pulse (stationMarkers.startFinalePulse flash + the larger oasis the shared oasis registry opens), the title, and - for
- * viewers who were there when it began - the high framing cinematic (monumentCinematic.startFinaleCinematic).
+ * viewers who were there when it began - the high framing cinematic (obeliskCinematic.startFinaleCinematic).
  * The snow in the enlarged area is melted by the server (snowState.startHeatZoneFront) and arrives through the normal snow sync; the
  * ground cap / earth / vegetation come from oasisSetFinalePulse (the time is derived from the finale start, so late joiners see the
  * finished state without any replay).
@@ -16,7 +16,7 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { playBeamSfx } from 'src/client/audio'
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { startFinaleCinematic } from 'src/client/monumentCinematic'
+import { startFinaleCinematic } from 'src/client/obeliskCinematic'
 import { BURST_SFX_VOLUME, canWatchCinematic, finaleAnchors, paintFinaleBeam, startFinalePulse } from 'src/client/stationMarkers'
 import { beginThawSplash } from 'src/client/thawSplash'
 import { cineAspect } from 'src/shared/crystalCineFrame'
@@ -84,7 +84,7 @@ function resetFinale(): void {
 }
 
 
-/** Build the beam entities once every monument slot exists (no MeshRenderer yet: hidden until drawn). */
+/** Build the beam entities once every obelisk slot exists (no MeshRenderer yet: hidden until drawn). */
 function buildBeams(): boolean {
 	const anchors = finaleAnchors()
 	const map = activeTerrain()
@@ -123,8 +123,8 @@ function drawBeam(b: FBeam, f: number): void {
 
 
 /**
- * The camera holds one high pose over the whole ring (all monument tips + sockets): the ring is framed (best effort under the ceiling
- * for the 6-monument ring; the 3-monument triangle fits at a shallower pitch) while the beams connect, the pulse spreads and the title shows.
+ * The camera holds one high pose over the whole ring (all obelisk tips + sockets): the ring is framed (best effort under the ceiling
+ * for the 6-obelisk ring; the 3-obelisk triangle fits at a shallower pitch) while the beams connect, the pulse spreads and the title shows.
  */
 function startCinematic(ageS: number): void {
 	const anchors = finaleAnchors()

@@ -1,9 +1,9 @@
 /**
  * volcanoStages.ts — every tunable for the staged volcano, in one place.
  *
- * Stage = activated monuments (0..3). The server owns the stage (thaw
+ * Stage = activated obelisks (0..3). The server owns the stage (thaw
  * radius / heat / snow); clients drive lava + smoke from the count of
- * monuments whose volcano beam has landed (same number once each beam
+ * obelisks whose volcano beam has landed (same number once each beam
  * lands), so the volcano reacts on screen when the beam arrives.
  *
  * Each table is indexed by stage [0, 1, 2, 3]. Pure; client + server.
@@ -26,7 +26,7 @@ export const THAW_STAGE_WAVE_S: readonly number[] = [0, 10, 12, 45]
 /**
  * Delay from the server accepting an activation to that stage's wave
  * starting: the volcano beam landing on the igniting player's screen.
- * MONUMENT_RISE_S 10 + CINE_SETTLE_S 0.6 + CINE_VOLCANO_DRAW_S 1.8 = 12.4 s
+ * OBELISK_RISE_S 10 + CINE_SETTLE_S 0.6 + CINE_VOLCANO_DRAW_S 1.8 = 12.4 s
  * (non-cinematic viewers: 10 + 0.6 + 1.2 + 1.5 = 13.3 s).
  */
 export const THAW_STAGE_START_DELAY_S = 12.5

@@ -1,6 +1,6 @@
 /**
  * runIntegrity.ts - flags a world cycle as "tainted" when a dev / debug
- * shortcut (advance phase, debug thaw, debug monument) was used, so the
+ * shortcut (advance phase, debug thaw, debug obelisk) was used, so the
  * run never lands on the leaderboard (src/server/leaderboard.ts).
  * Kept dependency-free so phase.ts and stations.ts can import it without
  * an import cycle.

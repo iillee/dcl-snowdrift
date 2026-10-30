@@ -141,8 +141,8 @@ const code = (p: string): string => raw(p).replace(/\/\*[\s\S]*?\*\//g, '').repl
 	if (/[\u00c3\u00c2\u00c5\u00e2][\u0080-\u00bf\u2018-\u203a\u20ac\u2122]/.test(sc.split('\n').filter((l) => /placeDestinationGrove|missed/.test(l)).join('\n')) || /missed [^\n]*sparse fill/.test(sc) === false) fail('scatter.ts: the "missed ... sparse fill" log string is missing or still mojibake')
 	if (!/missed - sparse fill/.test(sc)) fail('scatter.ts log string not ASCII')
 	const tg = code('src/shared/terrain/terrainGen.ts')
-	if (/console\.log\('terrainGen: ' \+ nearPicks\[k\]\.log/.test(tg)) fail('buildOnce still logs the near monument for every attempt')
-	if (!/nearMonumentLog = nearPicks\[k\]\.log/.test(tg) || !/after \$\{attempt \+ 1\} attempt\(s\)/.test(tg)) fail('terrainGen summary (once per accepted layout) missing')
+	if (/console\.log\('terrainGen: ' \+ nearPicks\[k\]\.log/.test(tg)) fail('buildOnce still logs the near obelisk for every attempt')
+	if (!/nearObeliskLog = nearPicks\[k\]\.log/.test(tg) || !/after \$\{attempt \+ 1\} attempt\(s\)/.test(tg)) fail('terrainGen summary (once per accepted layout) missing')
 }
 
 // ---------- 4. frost rejection logs ----------

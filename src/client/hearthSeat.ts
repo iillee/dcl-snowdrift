@@ -1,6 +1,6 @@
 /**
  * hearthSeat.ts - the main hearth's current ground height. The hearth sits on the MID shelf (CAMPFIRE_WORLD_Y), but
- * an oasis of the near-spawn monument melts the terrain cap under it, lowering the floor one step
+ * an oasis of the near-spawn obelisk melts the terrain cap under it, lowering the floor one step
  * (shared/terrain/oasis.ts). Everything attached to the hearth (campfire root with stones / flames / light / audio /
  * collider, smoke, fuel bar, feed-arc aim) reads this each frame so it follows the floor, late joiners included.
  */

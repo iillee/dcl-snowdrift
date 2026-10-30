@@ -1,6 +1,8 @@
 # Terrain rework — elevation, landforms, ladders
 
-*Written 2026-10-05. Owner + agent planning session. Implements Phase 1 of the territory-expansion direction (geography → resource pressure → expansion → fire network → territory) and P3/P5 of [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).*
+> **Status 2026-10-29: implemented and superseded by the code.** This is the 2026-10-05 plan. The terrain generator shipped (`src/shared/terrain/terrainGen.ts`, `terrainMap.ts`; levels 16 m apart via `TERRAIN_LEVEL_STEP_M`; ladders only) and has grown since: the world is the 52 x 52 parcel scene with world profiles (`src/shared/settings.ts`; `compact_3` has no volcano), and obelisk placement, oases and the finale live in `src/shared/terrain/oasis.ts` and `src/shared/finale.ts`. The grid sizes (64 x 64 / 62 x 62), `SNOW_GROUND_TOP_Y` (removed) and `src/client/perimeter.ts` below are historical (the perimeter wall is now `src/client/perimeterWall.ts`). Current detail: [`../docs/HANDOFF.md`](../docs/HANDOFF.md).
+
+*Written 2026-10-05. Owner + agent planning session. Implements Phase 1 of the territory-expansion direction (geography → resource pressure → expansion → fire network → territory) and P3/P5 of [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md).*
 
 ---
 

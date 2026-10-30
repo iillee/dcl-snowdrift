@@ -10,8 +10,8 @@
  *   - IA_ACTION_4 / 5 / 6 (`2` `3` `4`) - hidden on touch: mute, star (leaderboard) and ? (help) are on-screen round buttons at the top-left of
  *                          the HUD row instead (layer.brushSize MuteButton / LeaderboardButton / HelpButton, hosted by layer.frostBar).
  *                          Desktop keeps keys 1 / 2 / 3 / 4.
- *   - IA_POINTER   (the native hand) - hidden on touch. Its two users have on-screen paths: the monument cinematic ends on the SKIP label in the
- *                          bottom bar (layer.cinematic) or the jump button (monumentCinematic), and the summit map table gets a VIEW MAP button
+ *   - IA_POINTER   (the native hand) - hidden on touch. Its two users have on-screen paths: the obelisk cinematic ends on the SKIP label in the
+ *                          bottom bar (layer.cinematic) or the jump button (obeliskCinematic), and the summit map table gets a VIEW MAP button
  *                          while the player stands within reach (layer.topDownZoom, summitMapTable.isNearSummitTable).
  *
  * TouchScreenControls only affects native on-screen buttons, so all of this is a no-op on desktop. There is no mobile input dispatch in this file:

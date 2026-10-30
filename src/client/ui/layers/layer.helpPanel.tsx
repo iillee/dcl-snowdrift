@@ -8,7 +8,7 @@
  * immediately BELOW the HUD button row (BAR_TOP + BTN_SIZE + gap)
  * instead of overlapping the buttons themselves.
  *
- * Copy is the day number, then the tagline and monument progress,
+ * Copy is the day number, then the tagline and obelisk progress,
  * and one line: don't let the fire die.
  */
 
@@ -23,7 +23,7 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 import { playUiClick } from 'src/client/audio'
 import { getDayNumber, isPhaseHydrated } from 'src/client/phase'
 import { UI_THEME } from 'src/client/ui/theme/settings'
-import { getLitMonumentCount, getMonumentTotal } from 'src/client/stationMarkers'
+import { getLitObeliskCount, getObeliskTotal } from 'src/client/stationMarkers'
 import { closeLeaderboard } from 'src/client/leaderboard'
 import {
 	cancelNewExpedition, canBeginNewExpedition, hasExpeditionHelpSection, isNewExpeditionCounting, isNewExpeditionMine,
@@ -193,7 +193,7 @@ class HelpPanelLayer extends Layer {
 					}}
 				/>
 				<Label
-					value    = {`${getLitMonumentCount()}/${getMonumentTotal()} <color=#FFCC4D>monuments</color> activated`}
+					value    = {`${getLitObeliskCount()}/${getObeliskTotal()} <color=#FFCC4D>obelisks</color> activated`}
 					fontSize = {TAG_FONT}
 					color    = {WHITE}
 					font     = "sans-serif"

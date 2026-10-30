@@ -34,13 +34,13 @@ import {
 } from 'src/shared/terrain/terrainCache'
 import { cellCenterWorld, groundFlatWithin, groundYAtWorld, nearStation, TerrainMap } from 'src/shared/terrain/terrainMap'
 import { WOOD_KIND_LOG } from 'src/shared/woodKind'
-import { icedStationIndex } from 'src/shared/monumentIce'
+import { icedStationIndex } from 'src/shared/obeliskIce'
 import {
 	isBuildYourOwnFire,
 	isFloatingCrystals,
-	WOOD_MONUMENT_LOG_COUNT,
-	WOOD_MONUMENT_MAX_M,
-	WOOD_MONUMENT_MIN_M,
+	WOOD_OBELISK_LOG_COUNT,
+	WOOD_OBELISK_MAX_M,
+	WOOD_OBELISK_MIN_M,
 	WOOD_FRONTIER_RING_MAX_M,
 	WOOD_FRONTIER_RING_MIN_M,
 	WOOD_FRONTIER_RING_POOL,
@@ -64,8 +64,6 @@ export const WOOD_NEAR_POOL = 60
 export const WOOD_FAR_POOL = 180
 /** Outer-band pool size. Sparse, so the far trees stay worth the walk. */
 export const WOOD_OUTER_POOL = 70
-/** Fallback buried-wood pool per grove when params are unavailable. */
-export const WOOD_DEST_POOL = 40
 /** Full hearth-band scatter list length (destination pool is separate). */
 export const WOOD_POOL_SIZE = WOOD_NEAR_POOL + WOOD_FAR_POOL + WOOD_OUTER_POOL
 
@@ -83,10 +81,6 @@ export const WOOD_OUTER_ACTIVE = 18
  * is the sum of each grove's woodActive (see listGroveSites).
  */
 export const WOOD_DEST_ACTIVE = 48
-/** Total active buried chunks at cycle start. No in-run refill. */
-export const WOOD_ACTIVE_TARGET =
-	WOOD_NEAR_ACTIVE + WOOD_FAR_ACTIVE + WOOD_OUTER_ACTIVE + WOOD_DEST_ACTIVE
-
 /** Inner edge of the near ring (m). Outside the Warm melt ring. */
 export const WOOD_NEAR_MIN_M = 15
 /** Outer edge of the near ring / inner edge of the far belt (m). */
@@ -111,11 +105,11 @@ export const WOOD_BAND_TREE  = 2
 export const WOOD_BAND_OUTER = 3
 /** Buried wood packed at the Low migration destination. */
 export const WOOD_BAND_DEST  = 4
-/** Build Your Own Fire: wood along hearth -> monument routes. */
+/** Build Your Own Fire: wood along hearth -> obelisk routes. */
 export const WOOD_BAND_FRONTIER_ROUTE = 5
 /** Build Your Own Fire: thin far ring past the classic outer band. */
 export const WOOD_BAND_FRONTIER_RING  = 6
-/** Build Your Own Fire: guaranteed log cluster near the frozen monument. */
+/** Build Your Own Fire: guaranteed log cluster near the frozen obelisk. */
 export const WOOD_BAND_ICED_CLUSTER   = 7
 
 /** Sampling radius (m) around the destination centroid for dest wood.
@@ -136,9 +130,6 @@ export const TREE_CHOP_RADIUS_BASE_M = 5
 export const TREE_CHOP_SCALE_REF     = 6
 /** Mid-size chop reach (meters). Prefer {@link treeChopRadiusM} per tree. */
 export const TREE_CHOP_RADIUS_M      = TREE_CHOP_RADIUS_BASE_M
-export const TREE_CHOP_RADIUS_SQ     = TREE_CHOP_RADIUS_M * TREE_CHOP_RADIUS_M
-
-
 // MARK: treeChopRadiusM
 /**
  * How far from the trunk the player may stand to chop, in metres.
@@ -531,7 +522,7 @@ export function computeWoodScatter(
 }
 
 
-/** Frontier routes only run to monuments at least this far (m) from the hearth. */
+/** Frontier routes only run to obelisks at least this far (m) from the hearth. */
 const WOOD_FRONTIER_ROUTE_MIN_M = 80
 
 
@@ -550,9 +541,9 @@ function frontierSpotOk(x: number, z: number, reserved: ReadonlySet<string>): bo
 // MARK: placeFrontierBands
 /**
  * Build Your Own Fire wood, biased to the frontier: along each straight
- * hearth -> monument line (with lateral spread), a thin ring further
+ * hearth -> obelisk line (with lateral spread), a thin ring further
  * out than the classic bands, and a guaranteed log cluster 25-60 m from
- * the frozen monument (replaces the classic guaranteed campfire there).
+ * the frozen obelisk (replaces the classic guaranteed campfire there).
  * Own RNG salt, so classic bands are unchanged.
  */
 function placeFrontierBands(
@@ -568,12 +559,12 @@ function placeFrontierBands(
 	})
 	const before = out.length
 
-	// Routes toward every monument.
+	// Routes toward every obelisk.
 	for (const s of map.stations) {
 		const m  = cellCenterWorld(s.cx, s.cz)
 		const vx = m.x - CENTRE_X, vz = m.z - CENTRE_Z
 		const L  = Math.hypot(vx, vz) || 1
-		// The near-spawn monument is a few steps from the hearth: a 'frontier' route to it would
+		// The near-spawn obelisk is a few steps from the hearth: a 'frontier' route to it would
 		// just pile free logs on the spawn (the near / far bands already feed the start).
 		if (L < WOOD_FRONTIER_ROUTE_MIN_M) continue
 		const nx = -vz / L, nz = vx / L
@@ -605,7 +596,7 @@ function placeFrontierBands(
 		}
 	}
 
-	// Guaranteed cluster by the frozen monument (same level, ring scan).
+	// Guaranteed cluster by the frozen obelisk (same level, ring scan).
 	const k = icedStationIndex(map)
 	let iced = 0
 	if (k >= 0) {
@@ -614,7 +605,7 @@ function placeFrontierBands(
 		const lv = levelAtWorld(map, m.x, m.z)
 		const mid = (WOOD_ICED_CLUSTER_MIN_M + WOOD_ICED_CLUSTER_MAX_M) / 2
 		let centre: { x: number; z: number } | null = null
-		// Pass 0 keeps the monument's own level; pass 1 accepts any
+		// Pass 0 keeps the obelisk's own level; pass 1 accepts any
 		// reachable level in the band (the same-level shelf can be tiny).
 		for (let pass = 0; pass < 2 && centre === null; pass++)
 		for (let d = 0; centre === null && (mid - d >= WOOD_ICED_CLUSTER_MIN_M || mid + d <= WOOD_ICED_CLUSTER_MAX_M); d += 4) {
@@ -634,7 +625,7 @@ function placeFrontierBands(
 			}
 		}
 
-		// Fallback: the monument sits in a small pocket ringed by mountain,
+		// Fallback: the obelisk sits in a small pocket ringed by mountain,
 		// so the 25-60 m band has no walkable ground. Take the nearest
 		// clear spot from 8 m out to 100 m instead.
 		for (let rad = 8; centre === null && rad <= 100; rad += 4) {
@@ -659,7 +650,7 @@ function placeFrontierBands(
 			}
 		}
 	}
-	// Floating crystals: a few guaranteed logs around EVERY monument so
+	// Floating crystals: a few guaranteed logs around EVERY obelisk so
 	// a solo player can ring it with fires (always active, like the
 	// iced cluster). Appended after the classic draws (same RNG stream
 	// continues), so build-your-own-fire layouts are unchanged.
@@ -667,8 +658,8 @@ function placeFrontierBands(
 	if (isFloatingCrystals()) {
 		for (const st of map.stations) {
 			const m = cellCenterWorld(st.cx, st.cz)
-			for (let n = 0, tries = 0; n < WOOD_MONUMENT_LOG_COUNT && tries < 200; tries++) {
-				const r = WOOD_MONUMENT_MIN_M + rng() * (WOOD_MONUMENT_MAX_M - WOOD_MONUMENT_MIN_M)
+			for (let n = 0, tries = 0; n < WOOD_OBELISK_LOG_COUNT && tries < 200; tries++) {
+				const r = WOOD_OBELISK_MIN_M + rng() * (WOOD_OBELISK_MAX_M - WOOD_OBELISK_MIN_M)
 				const a = rng() * Math.PI * 2
 				const x = m.x + Math.cos(a) * r, z = m.z + Math.sin(a) * r
 				if (!frontierSpotOk(x, z, reserved)) continue
@@ -680,6 +671,6 @@ function placeFrontierBands(
 	}
 	console.log(
 		`woodScatter: placeFrontierBands: +${out.length - before} frontier pieces ` +
-		`(iced monument cluster=${iced}/${WOOD_ICED_CLUSTER_COUNT}, monument logs=${monLogs})`,
+		`(iced obelisk cluster=${iced}/${WOOD_ICED_CLUSTER_COUNT}, obelisk logs=${monLogs})`,
 	)
 }

@@ -13,7 +13,7 @@
 import ReactEcs, { UiEntity } from '@dcl/sdk/react-ecs'
 import { Layer, SetupUiComponentKit } from '@stom66/dcl-ui-component-kit'
 
-import { isMonumentCinematicActive } from 'src/client/monumentCinematic'
+import { isObeliskCinematicActive } from 'src/client/obeliskCinematic'
 import { cinematicLayer }     from 'src/client/ui/layers/layer.cinematic'
 
 import { SHOW_SERVER_STATS } from 'src/client/devFlags'
@@ -51,7 +51,7 @@ import { topDownZoomLayer }   from 'src/client/ui/layers/layer.topDownZoom'
 // MARK: hideDuringCinematic
 /**
  * Wrap gameplay HUD layers so they collapse (display: 'none') while the
- * monument cinematic runs. The wrapper is always rendered and the layer's
+ * obelisk cinematic runs. The wrapper is always rendered and the layer's
  * own tree stays mounted (unmounting lets ReactEcs recycle UiEntities into
  * other layers, see the kit's Layer.keepContentMounted note).
  */
@@ -64,7 +64,7 @@ function hideDuringCinematic(layers: Layer[]): Layer[] {
 				uiTransform = {{
 					width         : '100%',
 					height        : '100%',
-					display       : isMonumentCinematicActive() ? 'none' : 'flex',
+					display       : isObeliskCinematicActive() ? 'none' : 'flex',
 					flexDirection : 'column',
 					alignItems    : 'center',
 					justifyContent: 'center',
@@ -129,7 +129,7 @@ export function setupUi() {
 			...hideDuringCinematic([leaderboardLayer]),
 			// "NEW EXPEDITION IN m:ss" chip under the top row while the shared reset countdown runs.
 			...hideDuringCinematic([expeditionCountdownLayer]),
-			// Monument cinematic letterbox: above HUD chrome, below splashes.
+			// Obelisk cinematic letterbox: above HUD chrome, below splashes.
 			cinematicLayer,
 			// Sunrise "Day X" sits above HUD chrome, below death / ember /
 			// loading so those still cover it.

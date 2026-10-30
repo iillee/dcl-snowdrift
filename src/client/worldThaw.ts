@@ -1,7 +1,7 @@
 /**
  * worldThaw.ts — client mirror of the server's staged volcano thaw.
  *
- * The server owns the thaw stage (0..3 = activated monuments) and the
+ * The server owns the thaw stage (0..3 = activated obelisks) and the
  * current melt-wave step (src/shared/terrain/thawWave.ts ThawSegment) and
  * broadcasts both in worldThawState; late joiners place the wave by age.
  * Snow itself arrives through the PaintTile CRDT. This module answers
@@ -9,7 +9,7 @@
  * it here?" (frost model), and shows the victory card at stage 3.
  *
  * Lava and smoke are NOT driven from here: stationMarkers pushes the
- * landed monument count into volcanoCrown / volcanoSmoke so the volcano
+ * landed obelisk count into volcanoCrown / volcanoSmoke so the volcano
  * reacts when the beam lands on screen.
  */
 
@@ -49,7 +49,7 @@ let waveCentreMap: unknown = null
 let installed = false
 
 
-/** True once stage 3 (all monuments, world thaw) is reached. */
+/** True once stage 3 (all obelisks, world thaw) is reached. */
 export function isWorldThawed(): boolean {
 	return thawed
 }

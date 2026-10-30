@@ -1,7 +1,7 @@
 /** leaderboardCheck: boards, ranking, storage round-trip, wire form, formatting. node scripts/leaderboardCheck.mjs */
 import {
 	LEADERBOARD_SHOW, LEADERBOARD_STORE_MAX, LeaderboardPlayer, buildBoards, cleanName, clipName, compareFastest, compareLongest,
-	compareMonuments, compareFirenet, networkCredits, decodeBoardWire, encodeBoardWire, formatElapsed, improveThaw, newPlayer, parseStoredBoard, serializeBoard,
+	compareObelisks, compareFirenet, networkCredits, decodeBoardWire, encodeBoardWire, formatElapsed, improveThaw, newPlayer, parseStoredBoard, serializeBoard,
 	shortAddress, trimPlayers,
 } from 'src/shared/leaderboard'
 let fails = 0
@@ -28,12 +28,12 @@ const list = [
 	pl(6, { d: 0, mon: 0 }),
 ]
 const b = buildBoards(list)
-ok('longest: days desc, then monuments', ids(b.longest) === 'P3,P2,P4,P5,P1', ids(b.longest))
+ok('longest: days desc, then obelisks', ids(b.longest) === 'P3,P2,P4,P5,P1', ids(b.longest))
 ok('fastest: only completers, days then time', ids(b.fastest) === 'P5,P4,P3', ids(b.fastest))
 ok('fastest carries time', b.fastest[0].v === 5 && b.fastest[0].ts === 400)
 ok('monuments: total desc, then days', ids(b.monuments) === 'P4,P5,P3,P1,P2', ids(b.monuments))
 ok('zero-value players excluded', !ids(b.longest).includes('P6') && !ids(b.monuments).includes('P6'))
-ok('comparators antisymmetric', compareLongest(list[0], list[1]) > 0 && compareLongest(list[1], list[0]) < 0 && compareFastest(list[3], list[4]) > 0 && compareMonuments(list[0], list[1]) < 0)
+ok('comparators antisymmetric', compareLongest(list[0], list[1]) > 0 && compareLongest(list[1], list[0]) < 0 && compareFastest(list[3], list[4]) > 0 && compareObelisks(list[0], list[1]) < 0)
 
 // Top-10 cap and wire size.
 const many = Array.from({ length: 400 }, (_, i) => pl(i + 1, { d: 1 + (i % 30), mon: i % 11, td: i % 3 === 0 ? 3 + (i % 9) : 0, ts: 100 + i }))
@@ -46,7 +46,7 @@ ok('wire addresses lowercase', boards.longest.every((r) => r.a === r.a.toLowerCa
 ok('decode junk -> empty boards', decodeBoardWire('{').longest.length === 0 && decodeBoardWire('[]').fastest.length === 0 && decodeBoardWire('{"longest":5}').longest.length === 0)
 ok('unnamed -> short address on wire', decodeBoardWire(encodeBoardWire([pl(7, { n: '', d: 2 })])).longest[0].name === shortAddress(addr(7)))
 
-// Cap keeps notable players (completers, then monuments, then days).
+// Cap keeps notable players (completers, then obelisks, then days).
 const capped = trimPlayers(Array.from({ length: LEADERBOARD_STORE_MAX + 50 }, (_, i) => pl(i + 1, { d: 1, mon: 0, td: i === 0 ? 4 : 0, ts: 1 })))
 ok('store capped', capped.length === LEADERBOARD_STORE_MAX, String(capped.length))
 ok('cap keeps the completer', capped.some((x) => x.a === addr(1)))
@@ -88,7 +88,7 @@ ok('cleanName', cleanName('  Al\u0001ice   <x> ') === 'Alice x' && cleanName(5) 
 	ok('contributor of only the small network gets its size', credits.get('c') === 2)
 	ok('solo fire is not a network', !credits.has('d'))
 	ok('link to a non-burning fire does not grow the network', credits.get('a') === 4)
-	ok('monument ids never counted when absent from ids/edges', networkCredits([1, 2], [[1, 2], [2, 1000]], who({ 1: ['x'] })).get('x') === 2)
+	ok('obelisk ids never counted when absent from ids/edges', networkCredits([1, 2], [[1, 2], [2, 1000]], who({ 1: ['x'] })).get('x') === 2)
 	ok('no contributors -> no credits', networkCredits([1, 2], [[1, 2]], () => []).size === 0)
 	const fnList = [
 		pl(1, { d: 3, fn: 5 }), pl(2, { d: 9, fn: 5 }), pl(3, { d: 1, fn: 8 }), pl(4, { d: 7, fn: 0 }),

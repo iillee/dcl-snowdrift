@@ -157,7 +157,7 @@ function ensureIce(
 
 
 // MARK: paintIce
-/** Shared with the monument ice (stationMarkers) so both blocks look the same. */
+/** Shared with the obelisk ice (stationMarkers) so both blocks look the same. */
 export function paintIce(block: Entity): void {
 	MeshRenderer.setBox(block)
 	if (isMobile()) {

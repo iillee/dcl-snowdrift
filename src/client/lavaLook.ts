@@ -1,5 +1,5 @@
 /**
- * lavaLook.ts - the one lava material (client). The volcano lava lake (volcanoCrown.ts) and the monument socket lava
+ * lavaLook.ts - the one lava material (client). The volcano lava lake (volcanoCrown.ts) and the obelisk socket lava
  * (socketLava.ts) both paint through it, so they always look the same.
  */
 

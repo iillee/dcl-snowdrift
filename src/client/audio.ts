@@ -24,7 +24,6 @@ import { isMobile } from '@dcl/sdk/platform'
 const MUSIC_VOLUME = 0.4
 const MUSIC_SRC = 'assets/sounds/HomeAgain_Loop.mp3'
 const CLICK_SRC = 'assets/sounds/click.wav'
-const CLAIM_SRC = 'assets/sounds/snowstepsingle.mp3'
 const SURGE_SRC = 'assets/sounds/surge.mp3'
 const TORCH_SRC = 'assets/sounds/torch.mp3'
 const FROST_SRC = 'assets/sounds/frost.mp3'
@@ -34,11 +33,11 @@ const ICEMELT_SRC = 'assets/sounds/icemelt.mp3'
 const SUNRISE_SRC = 'assets/sounds/sunrise.wav'
 const PICKUP_SRC  = 'assets/sounds/pop.mp3'
 const DROP_SRC    = 'assets/sounds/droplogs.mp3'
-const MONUMENT_SRC = 'assets/sounds/monument.mp3'
+const OBELISK_SRC = 'assets/sounds/obelisk.mp3'
 const BEAM_SRC     = 'assets/sounds/beam.wav'
-// First 1.0 s of release.wav + 70 ms fade-out (scripts/trim-release-burst.js).
+// Trimmed copy of the first 1.0 s of the original release recording, with a 70 ms fade-out.
 const RELEASE_BURST_SRC = 'assets/sounds/release_burst.wav'
-// charge_start.wav (first 1.5 s of charge.wav) is no longer used: the beam-hit moment starts the looping crystal.mp3 (stationMarkers startHum).
+// The charge-start cue was dropped: the beam-hit moment starts the looping crystal.mp3 (stationMarkers startHum).
 
 // Frost clip is ~8s but the last ~5s are dead air / trailing hiss we
 // don't want. After a cue starts, cut it once this window elapses.
@@ -54,9 +53,8 @@ let musicEnt: Entity = 0 as Entity
 let muteClickEnt: Entity = 0 as Entity
 let pickupSfxEnt: Entity = 0 as Entity
 let dropSfxEnt: Entity = 0 as Entity
-let claimSfxEnt: Entity = 0 as Entity
 let surgeSfxEnt: Entity = 0 as Entity
-let monumentSfxEnt: Entity = 0 as Entity
+let obeliskSfxEnt: Entity = 0 as Entity
 let releaseBurstSfxEnt: Entity = 0 as Entity
 let beamSfxEnt:     Entity = 0 as Entity
 let torchSfxEnt: Entity = 0 as Entity
@@ -155,9 +153,8 @@ export function initAudio(): void {
 	muteClickEnt  = makeCameraSfx(CLICK_SRC, 0.5)
 	pickupSfxEnt  = makeCameraSfx(PICKUP_SRC, 0.6)
 	dropSfxEnt    = makeCameraSfx(DROP_SRC, 0.7)
-	claimSfxEnt   = makeCameraSfx(CLAIM_SRC, 0.25)
 	surgeSfxEnt   = makeCameraSfx(SURGE_SRC, 0.7)
-	monumentSfxEnt = makeCameraSfx(MONUMENT_SRC, 0.8)
+	obeliskSfxEnt = makeCameraSfx(OBELISK_SRC, 0.8)
 	beamSfxEnt     = makeCameraSfx(BEAM_SRC, 0.8)
 	releaseBurstSfxEnt = makeCameraSfx(RELEASE_BURST_SRC, 0.9)
 	torchSfxEnt   = makeCameraSfx(TORCH_SRC, 0.18)
@@ -236,24 +233,6 @@ export function isMusicMuted(): boolean {
  */
 export function playUiClick(): void {
 	playOneShot(muteClickEnt, CLICK_SRC, 0.5)
-}
-
-/**
- * Play the tile-claim SFX for the local player only (camera-parented,
- * global=true so no 3D falloff). Fires once per new claim — caller
- * (paint CRDT apply) already guards against re-walking own tiles,
- * so no additional throttle needed. Low volume so continuous painting
- * reads as a soft rhythmic sparkle, not a machine gun.
- */
-const CLAIM_MIN_INTERVAL_MS = 300
-let   lastClaimSfxMs        = 0
-
-export function playClaimSfx(): void {
-	const now = Date.now()
-	if (now - lastClaimSfxMs < CLAIM_MIN_INTERVAL_MS) return
-	lastClaimSfxMs = now
-	const pitch = 1 + (Math.random() * 2 - 1) * 0.10
-	playOneShot(claimSfxEnt, CLAIM_SRC, 0.25, pitch)
 }
 
 // MARK: playPickupSfx
@@ -428,7 +407,7 @@ export function playSurgeSfxLocal(): void {
 
 // MARK: playBeamSfx
 /**
- * Volcano-beam whoosh (beam.wav) for the player who ignited a monument:
+ * Volcano-beam whoosh (beam.wav) for the player who ignited an obelisk:
  * camera-parented, non-positional one-shot so it is clearly audible
  * however far the camera is from the obelisk.
  */
@@ -461,21 +440,21 @@ function beamFadeSystem(dt: number): void {
 }
 
 
-// MARK: playMonumentSfxAt
+// MARK: playObeliskSfxAt
 /**
- * Monument ignition cue at the monument (3D-positional, same pattern as
+ * Obelisk ignition cue at the obelisk (3D-positional, same pattern as
  * playSurgeSfxAt). Mobile falls back to the global camera cue.
  */
-export function playMonumentSfxAt(position: Vector3): void {
+export function playObeliskSfxAt(position: Vector3): void {
 	if (isMobile()) {
-		playOneShot(monumentSfxEnt, MONUMENT_SRC, 0.8)
+		playOneShot(obeliskSfxEnt, OBELISK_SRC, 0.8)
 		return
 	}
 	unlockAudio()
 	const ent = engine.addEntity()
 	Transform.create(ent, { position })
 	AudioSource.create(ent, {
-		audioClipUrl: MONUMENT_SRC,
+		audioClipUrl: OBELISK_SRC,
 		playing: true, loop: false, volume: 1.0, global: false,
 	})
 	const CLEANUP_MS = 12000
@@ -491,7 +470,7 @@ export function playMonumentSfxAt(position: Vector3): void {
 
 // MARK: playReleaseBurstSfxAt
 /**
- * Charge-sphere burst cue (first second of release.wav) at the monument,
+ * Charge-sphere burst cue (release_burst.wav) at the obelisk,
  * GLOBAL (camera-attached, non-positional) on every client, so it is not attenuated by the far cinematic camera. Like the other
  * SFX helpers it is not silenced by the mute toggle (mute only pauses the music loop).
  */

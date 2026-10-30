@@ -15,7 +15,6 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import {
 	FIRE_NETWORK_DEBUG,
 	NETWORK_GLOW_DRAW_DIST_M,
-	NETWORK_GLOW_FADE_S,
 	NETWORK_GLOW_LIFT_M,
 	NETWORK_GLOW_STYLE,
 	NETWORK_CUBE_BOB_DIST_M,
@@ -27,7 +26,6 @@ import {
 	NETWORK_CUBE_SPACING_M,
 	NETWORK_CUBE_TILT_DEG,
 	NETWORK_CUBE_SHAPE,
-	NETWORK_SHARED_FUEL_ENABLED,
 	NETWORK_LINK_DIM_WRITE_S,
 	NETWORK_CHARGE_PULSE_AMP,
 	NETWORK_CHARGE_PULSE_PERIOD_S,
@@ -52,11 +50,9 @@ import {
 	NETWORK_CUBE_PULSE_AMP,
 	NETWORK_CUBE_PULSE_PERIOD_S,
 	NETWORK_TILE_BAND_M,
-	NETWORK_PATH_WARM_ENABLED,
 	NETWORK_PATH_WARM_RADIUS_M,
 	NETWORK_TILE_FIRE_CLEAR_M,
-	NETWORK_TILE_MONUMENT_CLEAR_M,
-	NETWORK_TILE_SCALE_S,
+	NETWORK_TILE_OBELISK_CLEAR_M,
 	NETWORK_TILE_INSET_M,
 	NETWORK_TILE_LIFT_M,
 	NETWORK_TILE_MERGE_MAX,
@@ -64,8 +60,6 @@ import {
 	rasterizeRuns,
 	NETWORK_GLOW_WIDTH_M,
 	NETWORK_MELT_S,
-	NETWORK_REFREEZE_S,
-	NETWORK_PATH_REFREEZE_ENABLED,
 	linkKey,
 	routeFireLink,
 } from 'src/shared/fireNetwork'
@@ -77,7 +71,7 @@ import { SNOW_CELL_M, cellCenterWorld as snowCellCenter, cellCoordsFromKey, cell
 import { onCycleSeedChange } from 'src/client/cycle'
 import { getHiddenFireFuel, getMainFireFuel } from 'src/client/hearthFuel'
 import { FUEL_MAX } from 'src/shared/hearthFuel'
-import { MONUMENT_NODE_ID_BASE, chainHops, isMonumentNodeId } from 'src/shared/ruleset'
+import { OBELISK_NODE_ID_BASE, chainHops, isObeliskNodeId } from 'src/shared/ruleset'
 
 
 // MARK: Tuning
@@ -119,9 +113,9 @@ let installed = false
 /** Cell key -> links whose glow band covers it (heat-path warmth lookup). */
 const warmIndex = new Map<number, Set<GlowLink>>()
 
-/** Charge link (fire -> monument): everything flows from the fire end (a) only. */
+/** Charge link (fire -> obelisk): everything flows from the fire end (a) only. */
 function isChargeLink(l: GlowLink): boolean {
-	return isMonumentNodeId(l.b)
+	return isObeliskNodeId(l.b)
 }
 /** Distance of t from where the melt front starts (both fires, or the fire end only). */
 function meltDist(l: GlowLink, t: number): number {
@@ -136,15 +130,12 @@ function meltReach(l: GlowLink, age: number): number {
 function shownAt(l: GlowLink, t: number, now: number): boolean {
 	const age = (now - l.t0Ms) / 1000
 	if (l.state === 1) return meltDist(l, t) <= meltReach(l, age)
-	if (!NETWORK_PATH_REFREEZE_ENABLED) return false
-	const u = Math.min(1, age / NETWORK_REFREEZE_S)
-	const fromDead = l.deadA && l.deadB ? Math.min(t, l.L - t) / (l.L / 2) : l.deadA ? t / l.L : (l.L - t) / l.L
-	return fromDead > u
+	return false
 }
 
 /** Heat path: is world (x, z) within NETWORK_PATH_WARM_RADIUS_M of a glowing path cell? */
 export function isOnHeatPath(x: number, z: number): boolean {
-	if (!NETWORK_PATH_WARM_ENABLED || warmIndex.size === 0) return false
+	if (warmIndex.size === 0) return false
 	const now = Date.now()
 	let hit = false
 	forEachCellInDisc(x, z, NETWORK_PATH_WARM_RADIUS_M + SNOW_CELL_M / 2, (key) => {
@@ -157,16 +148,16 @@ export function isOnHeatPath(x: number, z: number): boolean {
 }
 
 /** Live glow entities (debug / perf). */
-/** Crystal release: one big pulse races down every charge link into monument `index` (held lit until it lands). */
+/** Crystal release: one big pulse races down every charge link into obelisk `index` (held lit until it lands). */
 export function fireFinalChargePulse(index: number): void {
-	const id = MONUMENT_NODE_ID_BASE + index
+	const id = OBELISK_NODE_ID_BASE + index
 	const at = Date.now() + NETWORK_FINAL_PULSE_DELAY_S * 1000
 	for (const l of glow.values()) if (l.b === id) l.finalMs = at
 }
 
-/** True while monument `index` has at least one live (lit) charge link. */
-export function monumentHasChargeLink(index: number): boolean {
-	const id = MONUMENT_NODE_ID_BASE + index
+/** True while obelisk `index` has at least one live (lit) charge link. */
+export function obeliskHasChargeLink(index: number): boolean {
+	const id = OBELISK_NODE_ID_BASE + index
 	// Only once the trail is fully drawn (matches the server's charge gate).
 	const now = Date.now()
 	for (const l of glow.values()) if (l.b === id && l.state === 1 && now - l.t0Ms >= linkFullyVisibleS(true) * 1000) return true
@@ -176,12 +167,6 @@ export function monumentHasChargeLink(index: number): boolean {
 /** Calls fn(x, z) for every live path piece (oasis vegetation keeps clear of the fire paths). */
 export function forEachGlowPoint(fn: (x: number, z: number) => void): void {
 	for (const l of glow.values()) for (const p of l.pieces) fn(p.pos.x, p.pos.z)
-}
-
-export function getGlowEntityCount(): number {
-	let n = 0
-	for (const l of glow.values()) n += l.pieces.length
-	return n
 }
 
 /** Orb material at brightness k (0..1). */
@@ -277,14 +262,6 @@ function buildTiles(map: TerrainMap, runs: Parameters<typeof rasterizeRuns>[1], 
 }
 
 
-/** Distinct fires in held links (help panel). */
-export function getLinkedFireCount(): number {
-	const ids = new Set<number>()
-	for (const l of glow.values()) if (l.state === 1) { ids.add(l.a); ids.add(l.b) }
-	return ids.size
-}
-
-
 function removeLink(k: string): void {
 	const l = glow.get(k)
 	if (!l) return
@@ -294,11 +271,11 @@ function removeLink(k: string): void {
 }
 
 
-/** Pieces stay clear of each end: a fire's log pile, but only a hair around a monument end (the trail runs up to the obelisk). */
+/** Pieces stay clear of each end: a fire's log pile, but only a hair around an obelisk end (the trail runs up to the obelisk). */
 function glowEnds(ax: number, az: number, a: number, bx: number, bz: number, b: number): { x: number; z: number; r: number }[] {
 	return [
-		{ x: ax, z: az, r: isMonumentNodeId(a) ? NETWORK_TILE_MONUMENT_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
-		{ x: bx, z: bz, r: isMonumentNodeId(b) ? NETWORK_TILE_MONUMENT_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
+		{ x: ax, z: az, r: isObeliskNodeId(a) ? NETWORK_TILE_OBELISK_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
+		{ x: bx, z: bz, r: isObeliskNodeId(b) ? NETWORK_TILE_OBELISK_CLEAR_M : NETWORK_TILE_FIRE_CLEAR_M },
 	]
 }
 
@@ -348,7 +325,7 @@ function onLinkState(m: { a: number; b: number; ax: number; az: number; bx: numb
 	const k = linkKey(m.a, m.b)
 	let l = glow.get(k)
 	// Same ids but different end positions (a slot reused by a new fire
-	// elsewhere, or a moved monument end): the old orbs belong to the old
+	// elsewhere, or a moved obelisk end): the old orbs belong to the old
 	// route. Let them fade out under a ghost key and build the new route,
 	// instead of re-showing the stale trail (it ran past the new fire).
 	if (l && (Math.abs(l.ax - m.ax) > 0.05 || Math.abs(l.az - m.az) > 0.05 || Math.abs(l.bx - m.bx) > 0.05 || Math.abs(l.bz - m.bz) > 0.05)) {
@@ -383,7 +360,6 @@ function onLinkState(m: { a: number; b: number; ax: number; az: number; bx: numb
 export function networkFeedRoom(id: number): number {
 	const fuelOf = (i: number) => (i === 0 ? getMainFireFuel() : getHiddenFireFuel(i - 1))
 	let room = Math.max(0, FUEL_MAX - fuelOf(id))
-	if (!NETWORK_SHARED_FUEL_ENABLED) return room
 	const depth = new Map<number, number>([[id, 0]])
 	const q = [id]
 	while (q.length) {
@@ -393,7 +369,7 @@ export function networkFeedRoom(id: number): number {
 		for (const l of glow.values()) {
 			if (l.state !== 1) continue
 			const o = l.a === c ? l.b : l.b === c ? l.a : -1
-			if (o < 0 || isMonumentNodeId(o) || depth.has(o) || fuelOf(o) <= 0) continue
+			if (o < 0 || isObeliskNodeId(o) || depth.has(o) || fuelOf(o) <= 0) continue
 			depth.set(o, dc + 1)
 			q.push(o)
 			room += Math.max(0, FUEL_MAX - fuelOf(o))
@@ -405,8 +381,8 @@ export function networkFeedRoom(id: number): number {
 // MARK: fire strength
 /** 0..1 strength of fire id (0 = hearth, i + 1 = hidden i) from its synced fuel. */
 function fireStrength(id: number): number {
-	// Monument end of a charge link: not a fuel node, full strength.
-	if (isMonumentNodeId(id)) return 1
+	// Obelisk end of a charge link: not a fuel node, full strength.
+	if (isObeliskNodeId(id)) return 1
 	const fuel = id === 0 ? getMainFireFuel() : getHiddenFireFuel(id - 1)
 	return Math.max(0, Math.min(1, fuel / Math.max(1, NETWORK_ORB_FULL_FUEL_S)))
 }
@@ -481,8 +457,8 @@ function tick(dt: number): void {
 		const pAmp = finalOn ? (fin >= 0 ? NETWORK_FINAL_PULSE_AMP : 0) : NETWORK_CHARGE_PULSE_AMP
 		if (l.finalMs !== undefined && !finalOn) l.finalMs = undefined
 		if (lod && l.state === 1) updateStrengthTargets(l)
-		// Chain link toward a charging monument: same pulse, flowing from the
-		// higher-hop fire to the lower (cascades hop by hop into the monument).
+		// Chain link toward a charging obelisk: same pulse, flowing from the
+		// higher-hop fire to the lower (cascades hop by hop into the obelisk).
 		const chainFromA = chainDir.get(l)
 		const flowing = charge || chainFromA !== undefined
 		for (const p of l.pieces) {
@@ -490,9 +466,8 @@ function tick(dt: number): void {
 			if (l.state === 1) {
 				want = meltDist(l, p.t) <= meltReach(l, age) ? 1 : 0
 			} else {
-				const u = NETWORK_PATH_REFREEZE_ENABLED ? Math.min(1, age / NETWORK_REFREEZE_S) : 1
 				const fromDead = l.deadA && l.deadB ? Math.min(p.t, l.L - p.t) / (l.L / 2) : l.deadA ? p.t / l.L : (l.L - p.t) / l.L
-				want = fromDead <= u ? 0 : 1
+				want = fromDead <= 1 ? 0 : 1
 				if (finalOn) want = 1 // hold the trail lit until the final pulse lands
 			}
 			if (lod && me) {
@@ -512,7 +487,7 @@ function tick(dt: number): void {
 				if (pulsing) {
 					// sin(w*t - k*s): crests travel toward larger s = from fire A
 					// toward B. Charge links get a stronger, faster flow into the
-					// monument (the monument end never emits).
+					// obelisk (the obelisk end never emits).
 					k *= flowing
 						? 1 + pAmp * Math.exp(-((((chainFromA === false ? l.L - p.t : p.t) - front) / pw) ** 2))
 						: 1 + NETWORK_CUBE_PULSE_AMP * Math.sin(pulseW * now / 1000 - p.t * 0.6)
@@ -572,8 +547,8 @@ function linkPath(from: number, to: number): { l: GlowLink; fwd: boolean }[] | n
 			if (l.state !== 1) continue
 			const o = l.a === c ? l.b : l.b === c ? l.a : -1
 			if (o < 0 || seen.has(o)) continue
-			// A monument is only ever a wave's destination, never a relay.
-			if (isMonumentNodeId(o) && o !== to) continue
+			// An obelisk is only ever a wave's destination, never a relay.
+			if (isObeliskNodeId(o) && o !== to) continue
 			seen.add(o); prev.set(o, { id: c, l }); q.push(o)
 		}
 	}
@@ -585,7 +560,7 @@ function linkPath(from: number, to: number): { l: GlowLink; fwd: boolean }[] | n
 
 function onShare(m: { from: number; ids: number[] }): void {
 	const now = Date.now() / 1000
-	if (isMonumentNodeId(m.from)) return // the monument never emits a wave
+	if (isObeliskNodeId(m.from)) return // the obelisk never emits a wave
 	for (const to of m.ids) {
 		if (to === m.from) continue
 		const path = linkPath(m.from, to)

@@ -29,7 +29,7 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { isReadyToIgniteHidden, requestHiddenIgnite } from 'src/client/hiddenCampfire'
-import { getMonumentPromptText, isReadyToIgniteMonument, requestMonumentIgnite } from 'src/client/stationMarkers'
+import { getObeliskPromptText, isReadyToIgniteObelisk, requestObeliskIgnite } from 'src/client/stationMarkers'
 import { UI_THEME }                                   from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { getBuildPromptText, isBuildReady, tryBuildFire } from 'src/client/buildFire'
@@ -65,16 +65,16 @@ const PADDING_X_DT    = 14
 // MARK: shouldShowPrompt
 function shouldShowPrompt(): boolean {
 	if (isItemInputBlocked()) return false
-	return isReadyToIgniteHidden() || getMonumentPromptText() !== null || getBuildPromptText() !== null
+	return isReadyToIgniteHidden() || getObeliskPromptText() !== null || getBuildPromptText() !== null
 }
 
 
 // MARK: onPromptPress
 function onPromptPress(): void {
 	if (isReadyToIgniteHidden()) { requestHiddenIgnite(); return }
-	// Monument ice melts by proximity; the bubble ignites once it is gone
-	// ("IGNITE MONUMENT"), otherwise it is just a status readout.
-	if (isReadyToIgniteMonument()) { requestMonumentIgnite(); return }
+	// Obelisk ice melts by proximity; the bubble ignites once it is gone
+	// ("IGNITE OBELISK"), otherwise it is just a status readout.
+	if (isReadyToIgniteObelisk()) { requestObeliskIgnite(); return }
 	// Build Your Own Fire: tapping the bubble builds (mobile friendly).
 	if (isBuildReady()) tryBuildFire()
 }
@@ -109,7 +109,7 @@ class HiddenCampfirePromptLayer extends Layer {
 		const padX     = mobile ? PADDING_X_MB   : PADDING_X_DT
 		const fontPx   = mobile ? fontSizes.md * 2 : fontSizes.md * 1.25
 		const labelH   = Math.round(fontPx * 1.6)
-		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : (getMonumentPromptText() ?? getBuildPromptText() ?? '')
+		const text     = isReadyToIgniteHidden() ? 'LIGHT CAMPFIRE' : (getObeliskPromptText() ?? getBuildPromptText() ?? '')
 
 		return (
 			<UiEntity

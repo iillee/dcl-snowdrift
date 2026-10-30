@@ -6,22 +6,36 @@ Running log. Each line: `date · decision · why`.
 
 ---
 
+## 2026-10-28 (later) / 10-29 - compact playtest profile, New Expedition, mobile HUD (7c61c9a .. ee078cd + cleanup)
+
+Shipped state and constants: [`../docs/HANDOFF.md`](../docs/HANDOFF.md) (sections 9-11, compact_3, Later fixes). These entries override the matching ones below.
+
+- **2026-10-28 - `compact_3` is the active playtest profile.** 15 players, ~30 min: 3 obelisks (an introduction one ~41 m out, an exploration one, an expedition one), no volcano, a 34 x 34 parcel playfield inside the unchanged 52 x 52 scene, its own leaderboard (`.compact3` key suffix). One switch (`WORLD_PROFILE`); `playtest_52` and `full_100` stay as the standard game.
+- **2026-10-28 - Ending reworked (supersedes the corridor entry below).** All ring beams draw at the same time, then every obelisk releases one synchronized pulse that thaws a much larger area (64 m; snow in 12 s, permafrost and plants over 60 s) and grows the warm radius with the snow. No snow corridors. Title "THE WORLD BEGINS TO THAW" (was "WORLD THAWS"). Cost is unmeasured on phones.
+- **2026-10-28 - New Expedition replaces the idea of an automatic new winter.** After the world is restored (~65 s after the ending starts) any player can press an on-screen BEGIN NEW EXPEDITION button; one shared 60 s countdown, only the starter can cancel, then a fresh seed and Day 1. Nothing resets the world on its own after the ending.
+- **2026-10-28 - Crowd burn is a profile setting.** Fire decay is `1 + c * log2(players)`; c is 0.5 in the standard profiles and 0.25 in `compact_3` (15 players: 1.98x instead of 2.95x).
+- **2026-10-28 - Socket lava is a torch relight source only.** A released obelisk leaves a lava pool in its socket; it relights torches, but is not living flame (never keeps the world from ending) and does not wake frozen players.
+- **2026-10-28 - Fire links route around obelisks** (arc radius 6.8 m). Top-down camera pan / drag removed; zoom, key 1 and auto-rotate stay.
+- **2026-10-28 - Mobile HUD and zoom.** Mute / star / ? as rounded squares in the top row, one right-hand column (zoom, rotate, eye) above jump, native action slots hidden, a VIEW MAP button at the summit tablet; mobile zoom is 4 steps (5 / 11.67 / 18.33 / 25).
+- **2026-10-28 - Leaderboard saves are throttled** (45 s, flushed on key events); one snow send per join.
+- **2026-10-29 - Code cleanup, no behaviour change.** `monument` renamed to `obelisk` in code, UI, docs and file names. Kept on purpose because they are wire / stored formats: the messages `monumentCharge`, `monumentIceMelt`, `monumentIceState` and the leaderboard board key `monuments`. Removed dead code and stuck-off switches (organic / reconnect / drop / cluster / avoid / warm / shared-fuel toggles, `NETWORK_TOPOLOGY` rng / gabriel / legacy, the stepped trench gradient, path refreeze, charge decay and shake, the old finale beams, ice refreeze). Kept parked: the obelisk gem look (`GEM_ENABLED`), the downward-laser release (`CRYSTAL_LASER_ENABLED`), the hearth fuel bar (`SHOW_HEARTH_FUEL_BAR`).
+
 ## 2026-10-27 / 10-28 session - floating crystals (branch `floating-crystals`, fffbc4f .. f22ee9e)
 
 Shipped state and constants: [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Entries below this one from 2026-10-07 to 2026-10-26 describe the classic volcano ruleset unless they say otherwise (`RULESET = 'floating-crystals'` is now active).
 
 - **2026-10-27 - Fires are built from logs only; sticks/branches removed.** Logs (120 s) are the only wood; `branch.glb` / `branch.png` deleted. Why: one wood, one cost to read.
 - **2026-10-27 - Building a fire is an emote.** Squat + strike clip (2.57 s), movement locked while it plays; the fire spawns 1.2 m in front of the player (validated server side from position + yaw). The torch-light emote idea was dropped.
-- **2026-10-27 - Dense fire links + cluster links.** Every pair within 140 m links except near-duplicates; the fires feeding a monument also link 1-2 of their nearest neighbours so the cluster visibly supports itself. Monument link ends sit ~0.3 m off the obelisk face (were ~5 m out; the link-end change was owner-directed).
-- **2026-10-27 - Monument release rework.** 2 s charge with no colour change, FOV 60 cinematic. `monument.mp3` plays once when the monument starts to rise, the looping `crystal.mp3` starts when the sky beam lands, burst/pulse cue cut to 0.22 (was 0.45). `release_burst` clip dropped.
-- **2026-10-27 - Charging hum comes from the monument, quietly - owner-directed.** `hum.mp3` at 0.25 (was 0.4), distance measured from the monument only (it used to be loudest at the linked fires, 40 m out), silent by 160 m.
+- **2026-10-27 - Dense fire links + cluster links.** Every pair within 140 m links except near-duplicates; the fires feeding an obelisk also link 1-2 of their nearest neighbours so the cluster visibly supports itself. Obelisk link ends sit ~0.3 m off the obelisk face (were ~5 m out; the link-end change was owner-directed).
+- **2026-10-27 - Obelisk release rework.** 2 s charge with no colour change, FOV 60 cinematic. `obelisk.mp3` plays once when the obelisk starts to rise, the looping `crystal.mp3` starts when the sky beam lands, burst/pulse cue cut to 0.22 (was 0.45). `release_burst` clip dropped.
+- **2026-10-27 - Charging hum comes from the obelisk, quietly - owner-directed.** `hum.mp3` at 0.25 (was 0.4), distance measured from the obelisk only (it used to be loudest at the linked fires, 40 m out), silent by 160 m.
 - **2026-10-27 - Oasis instead of a flat thaw disc.** Inner 12 m melts at once, the rest over 60 s to a ragged ~32 m clearing (was a 47 m disc, then smaller after playtest). Spans every terrace and wall top in reach; bare earth first, grass / bushes / rocks / pines regrow; pine trunks and rocks get colliders; grass merges only per floor height (fixed grass floating at the top level's height). Terrain base raised 0.1 m (0.35) so the earth stays above the ground plane.
-- **2026-10-27 - Near-spawn monument ~41 m from the hearth** (a 25 m first try in this ruleset was too close to spawn; the classic ruleset used ~120 m).
+- **2026-10-27 - Near-spawn obelisk ~41 m from the hearth** (a 25 m first try in this ruleset was too close to spawn; the classic ruleset used ~120 m).
 - **2026-10-28 - Spent fires are one-use - owner-directed.** Free relighting undercut the wood loop. A fire that runs out turns to ash (no logs, no relight, no feed), vanishes after 60 s, drops its links. Ash never counts for the 18 m spacing or the 40-fire cap; building on/next to ash clears it. The hearth is exempt.
-- **2026-10-28 - Ending: World Thaws - owner-directed.** On the sixth release, beams link the monument tips in a ring, a ~10 m snow corridor under each beam thaws (snow only, no grass, to keep entity count down), a high cinematic follows, the title "WORLD THAWS" shows, play continues. Replaces the classic 3/3 volcano thaw + "WORLD THAWED" + "Winter Approaches" flow for this ruleset.
-- **2026-10-28 - Desktop gets one more zoom-out step** (118; steps 7 / 29 / 60 / 84 / 118).
-- **Leaderboard tabs:** Longest, Fastest, Monuments, Biggest Firenet (storage key v2). Dev-shortcut runs are tainted.
-- **Open:** automatic new winter after World Thaws (not built; the run only resets when all flame is out). Entity-count readout before adding plants under the finale beams. Ladders ~0.27 m off on oasis-lowered terraces.
+- **2026-10-28 - Ending: World Thaws - owner-directed.** On the last release, beams link the obelisk tips in a ring, a ~10 m snow corridor under each beam thaws (snow only, no grass, to keep entity count down), a high cinematic follows, the title "WORLD THAWS" shows, play continues. **[Superseded 2026-10-28: simultaneous beams, then a pulse around every obelisk, no corridors, title "THE WORLD BEGINS TO THAW"; see the section above.]** Replaces the classic 3/3 volcano thaw + "WORLD THAWED" + "Winter Approaches" flow for this ruleset.
+- **2026-10-28 - Desktop gets one more zoom-out step** (118; steps 7 / 29 / 60 / 84 / 118). Mobile later moved to 4 steps (5 / 11.67 / 18.33 / 25).
+- **Leaderboard tabs:** Fastest Run, Longest Run, Obelisks, Biggest Firenet (storage key v2). Dev-shortcut runs are tainted.
+- **Open:** automatic new winter after the ending (not built; before the ending the run resets when all flame is out, after it only by New Expedition). Entity-count readout before adding plants under the finale beams. Ladders ~0.27 m off on oasis-lowered terraces.
 ## 2026-10-26 session - fire network (branch `fire-network`, 2e202ec / 67f6758 / 3d5e7ea + uncommitted)
 
 - **Links:** NETWORK_LINK_RANGE_M 140, NETWORK_MAX_ROUTE_M 260; A* routes may use ladders (NETWORK_LADDER_COST 3), path ends at ladder base and lip. Server holds links; clients re-route with shared code for identical paths.
@@ -30,9 +44,9 @@ Shipped state and constants: [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Entries
 - **Shared fuel:** fed fire keeps 50% (SHARE_KEEP), rest to lowest-fuel lit fire within 2 hops; share wave swells existing orbs (no new entities). A full linked fire accepts wood and passes it all on (uncommitted).
 - **Fire out:** orbs + warmth vanish immediately; path stays dug until snowfall (PATH_REFREEZE_ENABLED false); fire model kept. Path warmth = Low tier (PATH_WARM_FUEL 100).
 - **Overlapping paths:** per-cell hold counts, so a dying fire never frees cells another lit path holds (uncommitted).
-- **Stepped trench gradient:** built, owner disliked the look; OFF via NETWORK_PATH_GRADIENT_ENABLED (code kept).
-- **Tuning:** log 120 s, branch 60 s; drainMul day 0.5, dusk/night 1.5 (was 2.0); cliff cap LOD CAP_KEEP_M 200; NEAR_STATION_PULL 0.75 (nearest monument ~120 m from spawn).
-- **Monument:** ice keeps melt progress (MONUMENT_ICE_REFREEZE_ENABLED false); guaranteed campfire 25-60 m from the frozen monument; ignite caption name in gold.
+- **Stepped trench gradient:** built, owner disliked the look; removed (flat trench only).
+- **Tuning:** log 120 s, branch 60 s; drainMul day 0.5, dusk/night 1.5 (was 2.0); cliff cap LOD CAP_KEEP_M 200; NEAR_STATION_PULL 0.75 (nearest obelisk ~120 m from spawn).
+- **Obelisk:** ice keeps melt progress (no refreeze); guaranteed campfire 25-60 m from the frozen obelisk; ignite caption name in gold.
 - **UI:** respawn text pulses (0.08 / 1.2 s); help panel drops the phase countdown and linked-fires lines.
 
 ## 2026-10-26 session - staged volcano, world end, overview zoom, first-load fix
@@ -41,25 +55,25 @@ Shipped state and constants: [`../docs/HANDOFF.md`](../docs/HANDOFF.md). Entries
 - **Staged volcano** (`src/shared/volcanoStages.ts`): stations 1/2/3 give thaw + heat radius 40 / 80 / 260 m; each wave starts THAW_STAGE_START_DELAY_S = 12.5 s after activation. Lava covers 40% / 72% / 100% of the lake and brightens; smoke ramps per stage. Debug: DEBUG_THAW_BUTTON, DEBUG_VOLCANO_STAGE_OVERRIDE (both off).
 - **Lava torch relight:** from stage 1 a torch can be relit at the lava (LAVA_RELIGHT_REACH_M); lava is also a wake point for frozen players.
 - **World end** (`src/server/worldFlame.ts`): the world ends when no campfire and no torch is lit for 4 s. Lava does NOT count (Luke). Disabled after victory (stage 3) and post-win days; frozen players no longer drive it.
-- **Isometric overview:** cliff auto-rotate (occlusion ray vs 16 m cells every 0.25 s, turn 90 deg to a clear yaw after 0.4 s blocked, 2 s hold), flag ISO_AUTO_ROTATE_ENABLED; key 4 rotates by hand. Zoom now uses pixelwars' steps: desktop 7 / 29 / 60 (opens at 29), mobile 5 / 15 / 25 (opens at closest), lens widens up to 80 deg past the bounds/ceiling clamp. Pan, snap-back and the off-screen avatar hint kept.
-- **Monument gem look** built but disabled (GEM_ENABLED = false); obelisks stay matte black.
+- **Isometric overview:** cliff auto-rotate (occlusion ray vs 16 m cells every 0.25 s, turn 90 deg to a clear yaw after 0.4 s blocked, 2 s hold); key 4 rotates by hand. Zoom now uses pixelwars' steps: desktop 7 / 29 / 60 (opens at 29), mobile 5 / 15 / 25 (opens at closest) [since changed: desktop 5 steps, mobile 4 steps], lens widens up to 80 deg past the bounds/ceiling clamp. Pan, snap-back and the off-screen avatar hint kept.
+- **Obelisk gem look** built but disabled (GEM_ENABLED = false); obelisks stay matte black.
 - **First-load fix:** the cold-open min hold started at module load, so it often elapsed behind the explorer loading screen and the hearth card + Day 1 card were never seen. Now the hold starts at first UI render, also waits for the avatar, then holds COLD_OPEN_READY_HOLD_MS 1.5 s; the day card waits SPLASH_AFTER_COVER_MS 0.6 s after uncover.
 
-## 2026-10-18 session — Monuments rework, ignition cinematic, isometric overview
+## 2026-10-18 session — Obelisks rework, ignition cinematic, isometric overview
 
-Shipped state: [`session-2026-10-18-monuments-cinematic.md`](./session-2026-10-18-monuments-cinematic.md) (`main` `7cfaf4b` + `cinematic` branch, not merged).
+Shipped state: [`session-2026-10-18-obelisks-cinematic.md`](./session-2026-10-18-obelisks-cinematic.md) (`main` `7cfaf4b` + `cinematic` branch, not merged).
 
-- **2026-10-18 · Monuments are socketed obelisks · owner-directed** — no pit steps; flush dark border; invisible collider fills the socket; seated so the top pyramid's base is flush with the ground (only the 4 m pyramid shows).
-- **2026-10-18 · Only one monument has the ice test, never the near one · owner-directed** — 4 corner blocks, 6 s each with a lit torch; chosen by seed among the far stations.
-- **2026-10-18 · One prompt only: IGNITE MONUMENT, needs no ice + a lit torch · owner-directed** — melt prompt and torch hints removed.
-- **2026-10-18 · Near monument on the side away from the volcano, visible from the campfire · owner-directed** — ~160 m out (band 136–192 m), within 75° of "away", campfire→tip terrain LOS required except in the logged last-resort passes. Old scoring had a facing term that pulled it toward the volcano. No station needs volcano LOS any more (hover + beam lift instead).
-- **2026-10-18 · Monuments hover higher and move more · owner-directed** — rise 10 s (was 6); bottom tip max(volcano aim + 35, ground + 70) (was +20 / +50); bob ±2.5 m over 10 s, spin 5°/s.
+- **2026-10-18 · Obelisks are socketed obelisks · owner-directed** — no pit steps; flush dark border; invisible collider fills the socket; seated so the top pyramid's base is flush with the ground (only the 4 m pyramid shows).
+- **2026-10-18 · Only one obelisk has the ice test, never the near one · owner-directed** — 4 corner blocks, 6 s each with a lit torch; chosen by seed among the far stations.
+- **2026-10-18 · One prompt only: IGNITE OBELISK, needs no ice + a lit torch · owner-directed** — melt prompt and torch hints removed.
+- **2026-10-18 · Near obelisk on the side away from the volcano, visible from the campfire · owner-directed** — ~160 m out (band 136–192 m), within 75° of "away", campfire→tip terrain LOS required except in the logged last-resort passes. Old scoring had a facing term that pulled it toward the volcano. No station needs volcano LOS any more (hover + beam lift instead).
+- **2026-10-18 · Obelisks hover higher and move more · owner-directed** — rise 10 s (was 6); bottom tip max(volcano aim + 35, ground + 70) (was +20 / +50); bob ±2.5 m over 10 s, spin 5°/s.
 - **2026-10-18 · Volcano beam endpoint fixed in the world · owner-directed** — re-aimed from the bobbing bottom tip every frame.
 - **2026-10-18 · Crystal hum from the ground + gaze hum · owner-directed** — positional loop from 2 m above the socket; soft 2D loop while looking at a lit obelisk.
 - **2026-10-18 · Frost bar: no dark-blue shift while frozen · owner-directed.**
 - **2026-10-18 · Local-only ignition cinematic · owner-directed** — ~19 s of shots for the igniting player only, letterbox + HUD hidden, skippable; phase stretches are client-side only. On the `cinematic` branch.
 - **2026-10-18 · Overview camera becomes angled isometric · owner-directed** — pitch 35.26°, yaw 45°, FOV 30°, distant camera; pan follows the rotated frame. On the `cinematic` branch.
-- **Open:** is a lit torch at night safe enough with monuments giving no heat? Partial volcano thaw per beam (instead of only at 3/3)?
+- **Open:** is a lit torch at night safe enough with obelisks giving no heat? Partial volcano thaw per beam (instead of only at 3/3)?
 
 ---
 
@@ -68,23 +82,23 @@ Shipped state: [`session-2026-10-18-monuments-cinematic.md`](./session-2026-10-1
 Shipped state: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
 
 - **2026-10-07 · Playtest on `playtest_52`, keep `full_100` · owner-directed** — smaller 52×52 envelope for a dense, completable loop.
-- **2026-10-07 · Tablet is knowledge, not a gate · owner-directed** — monuments can be lit in any order without reading the map.
-- **2026-10-07 · Monuments ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE MONUMENT within 3.5 m; lit monuments are eternal Warm fires. **[Superseded:** monuments give no heat / melt; prompt range is now the 5.5 m monument radius; see 2026-10-18.]
-- **2026-10-07 · 3rd monument auto-thaws, no return-to-peak · owner-directed.**
+- **2026-10-07 · Tablet is knowledge, not a gate · owner-directed** — obelisks can be lit in any order without reading the map.
+- **2026-10-07 · Obelisks ignite from a carried flame · owner-directed** — fits the fire loop; E / IGNITE OBELISK within 3.5 m; lit obelisks are eternal Warm fires. **[Superseded:** obelisks give no heat / melt; prompt range is now the 5.5 m obelisk radius; see 2026-10-18.]
+- **2026-10-07 · 3rd obelisk auto-thaws, no return-to-peak · owner-directed.**
 - **2026-10-07 · Thaw is a 45 s radial wave, rate-limited · bugfix** — melting all 2,704 tiles in one frame froze clients.
 - **2026-10-07 · No night cold after thaw; 3 warm days then new winter · owner-directed** — "Winter Approaches in N Days" replaces DAY X. **[Revised same day:** `POST_THAW_DAYS = 1`; no night cold only inside the thaw ring.]
 - **2026-10-07 · Thaw covers a ring, not the whole map · owner-directed** — the volcano becomes a giant campfire; the wave stops at a radius covering `THAW_AREA_FRACTION = 0.55` of the map with a 48 m warm edge fade. Snow, cliff ice caps and scatter wood go inside; outside stays wintry. No global clear-weather lock.
-- **2026-10-07 · Lit monuments: no red tint for now; tablet X turns red instead · owner-directed.**
+- **2026-10-07 · Lit obelisks: no red tint for now; tablet X turns red instead · owner-directed.**
 - **2026-10-07 · Smoke: faint wisp at 1/3 and 2/3, big eruption plume at 3/3 · owner-directed.**
 - **2026-10-07 · Volcano lower ladder may sit on any of the 3 exposed sides, by seed · owner-directed.**
-- **2026-10-07 · Monuments burning out over time · parked** until after the playtest.
+- **2026-10-07 · Obelisks burning out over time · parked** until after the playtest.
 - **2026-10-07 · Torch readability dropped for V1 · owner-directed.**
 
 ---
 
 ## 2026-10-05 session — 100×100 authoring, fuel sync, mobile parcel clamp
 
-Shipped / investigated state: [`session-2026-10-05.md`](./session-2026-10-05.md).
+Shipped / investigated state: [`session-2026-10-05.md`](./archive/session-2026-10-05.md).
 
 - **2026-10-05 · Authored envelope is 100 × 100; do not shrink to hide a client bug · owner-directed** — `scene.json` / settings / Worlds content server carry the full 10 000 parcels and hearth at ~800. Mobile Explorer reports only 51 × 51 via `getSceneInformation` while desktop sees 100 × 100 on the same World. Shrinking to 64 × 64 would centre the hearth again but abandons the v1 size for an Explorer clamp. Stay at 100 × 100 and wait on the DCL report (**H1-07**).
 - **2026-10-05 · CLI deploy remains the parcel source of truth · owner-directed** — Creator Hub Layout in `main.composite` was still 64 × 64 while `scene.json` was 100 × 100. Hub Publish can stomp parcels. Prefer CLI for Worlds deploys; sync Hub Layout to 100 × 100 when using the editor.
@@ -96,7 +110,7 @@ Shipped / investigated state: [`session-2026-10-05.md`](./session-2026-10-05.md)
 
 ## 2026-10-04 — Geography & Migration checkpoint (target Wed 10/07)
 
-Plan: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md). Playtest loop stays; geography is the work.
+Plan: [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md). Playtest loop stays; geography is the work.
 
 - **2026-10-04 · Next slice is migration geography, not new verbs · owner-directed (playtest + sketch)** — Small multiplayer (~1 h, ≤3) validated freeze, rescue, wood pressure, and multi-fire cost. Failure mode: nowhere to migrate when local wood is gone. Goal: *"we ran out of wood, so we moved."* No quests; destinations must be readable in the landscape.
 - **2026-10-04 · World size stays configurable; 100×100 is not this week's ship target · owner-directed** — Live is 64×64. Knobs must allow ~80×80 experiments. A full torch must not casually reach the edge — wilderness, not arena.
@@ -110,7 +124,7 @@ Plan: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-g
 
 ## 2026-10-04 session — 64×64 World, coarse snow, ice + overhead
 
-Shipped state: [`session-2026-10-04.md`](./session-2026-10-04.md).
+Shipped state: [`session-2026-10-04.md`](./archive/session-2026-10-04.md).
 
 - **2026-10-04 · Playtest World grows to 64 × 64 · owner-directed** — Same 16 m pad as 512 / 480 (now 1024 / 992). Hearth stays at playfield centre. Tree / wood / fire scatter density left alone until mobile and desktop hold the new size (H1-06). v1 ambition stays 100 × 100 after that gate.
 - **2026-10-04 · Far snow uses larger multi-tile sheets · owner-directed** — Coalesce pristine roots far from melt into 32 / 64 / 128 m thick boxes (edge keep + melt pad). Fine quadtree stays near the player and melt lips (max 4 m at a lip). Paper far planes retired after they read as purple sheets from the pit.
@@ -122,7 +136,7 @@ Shipped state: [`session-2026-10-04.md`](./session-2026-10-04.md).
 
 ## 2026-09-30 session — layout, phone HUD, fresh seeds
 
-Shipped state: [`session-2026-09-30.md`](./session-2026-09-30.md).
+Shipped state: [`session-2026-09-30.md`](./archive/session-2026-09-30.md).
 
 - **2026-09-30 · Hidden fires grow in generations, not rings · owner-directed** — Six pits. The first three step 48–80 m off the hearth. Each later three steps off the group before it, never back off the hearth. Nothing closer than 48 m to the hearth or another pit. Cliffs and trunks are refused. A larger world keeps walking outward the same way.
 - **2026-09-30 · Buried wood reaches the far trees and misses cliffs · owner-directed** — The 15–35 m and 35–80 m belts stay. Twelve more live pieces sit at 80–160 m, densest near 110 m. About 12% logs. A piece whose body would cross a cliff cell is skipped. No in-run respawn.
@@ -138,7 +152,7 @@ Shipped state: [`session-2026-09-30.md`](./session-2026-09-30.md).
 
 ## 2026-09-29 session — wood loop in the playtest build
 
-Shipped state: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.md). The 9/25 plan's "logs buried under the tree" and "drop the log at the corpse" did not ship.
+Shipped state: [`session-2026-09-29-playtest.md`](./archive/session-2026-09-29-playtest.md). The 9/25 plan's "logs buried under the tree" and "drop the log at the corpse" did not ship.
 
 - **2026-09-29 · Trees are chopped, not a pile of logs · owner-directed** — Six `tree_4` around the hearth (64 / 96 / 144 / 88 / 168 / 104 m). Four logs each, no meshes at the trunk. Empty F slot within 5 m shows Chop Wood. Each chop shrinks the tree by a quarter until it hides. Replaces the 9/25 "logs under the model" pass and is the playtest form of tree-mining. Hold-torch-to-fell is not in this build.
 - **2026-09-29 · Two wood values, one slot · owner-directed** — Branch 30 s, log 60 s. Branches and a few logs hide under snow until the cell is melted. No hearth log that grows back.
@@ -150,7 +164,7 @@ Shipped state: [`session-2026-09-29-playtest.md`](./session-2026-09-29-playtest.
 
 ## 2026-09-24 session — phase clock + last-fire wipe
 
-Playtest day/night loop on `feat/phase-clock`. Handoff: [`session-2026-09-24-phase-clock.md`](./session-2026-09-24-phase-clock.md).
+Playtest day/night loop on `feat/phase-clock`. Handoff: [`session-2026-09-24-phase-clock.md`](./archive/session-2026-09-24-phase-clock.md).
 
 - **2026-09-24 · Spawn hearth is fully mortal · owner-directed** — Fuel can reach zero. The livable-floor experiment is retired. Urgency to keep the fire lit is the 2026-09-29 playtest.
 - **2026-09-24 · Last fire out = fade-to-black + new seed for everyone in the scene · owner-directed** — **[SUPERSEDED 2026-09-30.]** The fade, the reseed while the scene is live, and the cold-open splash rule still hold. The trigger does not: the run no longer ends the moment the last fire goes out. The three-card copy (after N nights / centuries in the dark / a new civilization) is retired. Sleeping-ember (60 s) and dormancy are still the v1 *per-fire* target; they did not ship. Empty-server persistence is still not built.
@@ -174,7 +188,7 @@ Playtest day/night loop on `feat/phase-clock`. Handoff: [`session-2026-09-24-pha
 | **SNOWMELT** | Not chosen | Names the core verb. Risked skewing too cozy; likely Steam collision. |
 | **CRYOGENIA** | Retired | Prior working title. Playtest flagged "-genia" as medical / wart-cream vibe. |
 
-**Rename scope executed 2026-09-23:** GDD title + all body copy, README, `design/summary.md`, `design/decisions.md`, all other design docs, `scene.json` display title, `package.json` description, code comments across `src/client` and `src/server`, and Discord join notification copy in `src/server/analytics.ts`. **Not renamed** (deliberate — infrastructure identifiers): repo directory `dcl-snowdrift`, `package.json` `name` field, deploy URL `snowdrift.dcl.eth` (would require a new DCL NAME migration), CRDT component IDs `snowdrift::*` (renaming breaks live scene state on redeploy), image asset filenames (`snowdrift.png`). Historical mentions of "Snow Drift" in `docs/archive/` left intact as history.
+**Rename scope executed 2026-09-23:** GDD title + all body copy, README, `design/summary.md`, `design/decisions.md`, all other design docs, `scene.json` display title, `package.json` description, code comments across `src/client` and `src/server`, and Discord join notification copy in `src/server/analytics.ts`. **Not renamed** (deliberate — infrastructure identifiers): repo directory `dcl-snowdrift`, `package.json` `name` field, deploy URL `snowdrift.dcl.eth` (would require a new DCL NAME migration), CRDT component IDs `snowdrift::*` (renaming breaks live scene state on redeploy), image asset filenames (`snowdrift.png`). Historical mentions of "Snow Drift" in `docs/archive/` left intact as history (that folder is now `design/archive/`).
 
 ---
 

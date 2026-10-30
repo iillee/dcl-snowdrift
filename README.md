@@ -10,30 +10,31 @@ Cryocene is a co-op survival scene where fires are islands of warmth in a hostil
 
 **Deploy target:** [`snowdrift.dcl.eth`](https://play.decentraland.org/?realm=snowdrift.dcl.eth) (Decentraland World)
 **Runtime:** SDK7 (`@dcl/sdk` 7.26.x, pinned exact) with authoritative headless server
-**Scene (playtest):** profile **`playtest_52`** - **52 x 52 parcels** (832 m, 0 pad; `scene.json` has 2704 parcels). `full_100` (100 x 100, 16 m pad) is kept as an alternate. **`compact_3`** (3 monuments, no volcano, 34 x 34 parcel playfield inside the same 52 x 52 scene, own leaderboard) is the 15-player playtest profile: flip `WORLD_PROFILE` in `src/shared/settings.ts`, nothing else; see the end of [`docs/HANDOFF.md`](docs/HANDOFF.md). Portrait-friendly mobile-first UI. **Known blocker (H1-07):** mobile Explorer reported only **51 x 51** parcels for the 100 x 100 World (not re-tested at 52 x 52) - see [`design/session-2026-10-05.md`](design/session-2026-10-05.md).
+**Scene (playtest):** the scene is **52 x 52 parcels** (832 m; `scene.json` has 2704 parcels). The active world profile is **`compact_3`** (`WORLD_PROFILE` in `src/shared/settings.ts`): the 15-player ~30 min playtest, **3 obelisks, no volcano**, a centred 34 x 34 parcel playfield (544 m) with 144 m of padding behind the mountain band, its own leaderboard, and a lower crowd burn coefficient (0.25). The standard profiles are one edit away: **`playtest_52`** (52 x 52, 0 pad, 6 obelisks + volcano) and **`full_100`** (100 x 100, 16 m pad, 6 obelisks + volcano; needs a 100 x 100 `scene.json`). Details in [`docs/HANDOFF.md`](docs/HANDOFF.md) (compact_3 section). Statements below that say "6 obelisks", the volcano or the summit tablet describe the standard profiles; in `compact_3` there are 3 obelisks and no volcano or tablet. Portrait-friendly mobile-first UI. **Known blocker (H1-07):** mobile Explorer reported only **51 x 51** parcels for the 100 x 100 World (not re-tested at 52 x 52) - see [`design/archive/session-2026-10-05.md`](design/archive/session-2026-10-05.md).
 
 ---
 
 ## Status
 
-**Current build (2026-10-28, branch `floating-crystals`, `f22ee9e`): the *floating-crystals* ruleset** (`RULESET` in `src/shared/ruleset.ts`). Full change log, constants, tests and known issues: [`docs/HANDOFF.md`](docs/HANDOFF.md).
+**Current build (2026-10-29, branch `main`, last commit `ee078cd` plus an uncommitted dead-code / doc cleanup): the *floating-crystals* ruleset** (`RULESET` in `src/shared/ruleset.ts`). Full change log, constants, tests and known issues: [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-The loop: wake at the permanent hearth -> light a torch -> gather **logs** (the only wood) -> **build your own fires** with a log and a lit torch -> fires within 140 m link into a network -> fires within 40 m of one of the **6 monuments** charge it -> a full charge releases the monument (rise, sky beam, 2 s charge, burst) and melts a 50 m heat zone plus an **oasis** that regrows grass, bushes, rocks and pines -> releasing the last monument starts the **"THE WORLD BEGINS TO THAW"** ending (all beams link the monument tips at once, then every monument releases a pulse that thaws a much larger area) -> play continues. A fire that runs out turns to ash and vanishes; it cannot be relit, so a new fire always costs a log.
+The loop: wake at the permanent hearth -> light a torch -> gather **logs** (the only wood) -> **build your own fires** with a log and a lit torch -> fires within 140 m link into a network -> fires within 40 m of one of the **obelisks** (6 in the standard profiles, 3 in `compact_3`) charge it -> a full charge releases the obelisk (rise, sky beam, 2 s charge, burst) and melts a 50 m heat zone plus an **oasis** that regrows grass, bushes, rocks and pines -> releasing the last obelisk starts the **"THE WORLD BEGINS TO THAW"** ending (all beams link the obelisk tips at once, then every obelisk releases a pulse that thaws a much larger area) -> play continues until a player presses **BEGIN NEW EXPEDITION** (shared 60 s countdown, then a fresh world on Day 1). A fire that runs out turns to ash and vanishes; it cannot be relit, so a new fire always costs a log.
 
 **In the current build**
 
-- **Building fires:** carry a log with a lit torch, press E (or the torch button) away from other fires. The avatar plays a squat-and-strike emote (2.6 s, movement locked); the fire appears 1.2 m ahead. Min 18 m from any burning fire, max 40 burning built fires, no steep, deep-snow, lava or monument spots.
+- **Building fires:** carry a log with a lit torch, press E (or the torch button) away from other fires. The avatar plays a squat-and-strike emote (2.6 s, movement locked); the fire appears 1.2 m ahead. Min 18 m from any burning fire, max 40 burning built fires, no steep, deep-snow, lava or obelisk spots.
 - **Spent fires:** a fire that runs out of fuel turns to cold ash (no logs, no relight, no feed), disappears after 60 s and drops its network links. Ash never blocks building or counts toward the cap. The hearth is exempt (a lit torch can still spark a dead hearth to Ember).
-- **Wood:** logs only (120 s of fuel each). Branches / sticks are gone. Logs come from choppable trees and loose logs in the snow, with six extra loose logs near every monument.
-- **Fire network:** dense topology (every pair within 140 m links except near-duplicates), per-monument trees plus **cluster links** between the fires feeding a monument, link ends ~0.3 m from the obelisk, orb trails, shared fuel (50 % stays, rest to the hungriest fire within 2 hops).
-- **Monuments:** 6 per world, charged by linked fires (full charge in about a minute with 3 fires at 20 m; `CHARGE_TARGET_S = 60` is a playtest value). Near-spawn monument ~41 m from the hearth. Release: hold 2 s, rise 4 s, sky beam, 2 s charge, burst. Letterboxed cinematic (FOV 60) for viewers who can watch. Sounds: `monument.mp3` at rise start, looping `crystal.mp3` from the beam hit, quiet burst cue, and a charging `hum.mp3` that fades with distance from the monument only.
+- **Wood:** logs only (120 s of fuel each). Branches / sticks are gone. Logs come from choppable trees and loose logs in the snow, with six extra loose logs near every obelisk.
+- **Fire network:** dense topology (every pair within 140 m links except near-duplicates), per-obelisk trees plus **cluster links** between the fires feeding an obelisk, link ends ~0.3 m from the obelisk, orb trails, shared fuel (50 % stays, rest to the hungriest fire within 2 hops).
+- **Obelisks:** 6 per world (3 in `compact_3`), charged by linked fires (full charge in about a minute with 3 fires at 20 m; `CHARGE_TARGET_S = 60` is a playtest value). Near-spawn obelisk ~41 m from the hearth. Release: hold 2 s, rise 4 s, sky beam, 2 s charge, burst. Letterboxed cinematic (FOV 60) for viewers who can watch. Sounds: `obelisk.mp3` at rise start, looping `crystal.mp3` from the beam hit, quiet burst cue, and a charging `hum.mp3` that fades with distance from the obelisk only.
 - **Oasis:** the 12 m centre melts instantly, the rest melts outward over 60 s to a ragged ~32 m clearing across every terrace and wall top in reach; bare earth (0.27 m lower), then grass, bushes, rocks and pines (pine trunks and rocks are solid). Synced from the server release age, so late joiners see the same state.
-- **Ending ("THE WORLD BEGINS TO THAW"):** 14.5 s after the last release (6th, or 3rd in the compact profile), all beams link the monument tips in a closed ring at the same time, then every monument releases a synchronized pulse: the snow, ground and vegetation around each monument thaw out to ~64 m (the first oasis is 32 m). The snow melts in ~12 s, the permafrost cap and plants open gradually over ~60 s, and each monument's warm area grows with the snow. A high cinematic frames the whole ring, the title shows, and play carries on. About a minute later a small **BEGIN NEW EXPEDITION** button appears on screen (and in the Help panel, key 4): any player can start a shared 60 s countdown (only the starter sees CANCEL) that ends in a fresh world on Day 1. No new winter starts automatically (see below).
-- **Leaderboard:** star button / key 3, four tabs: Longest, Fastest, Monuments, **Biggest Firenet**. Dev-shortcut runs are tainted and not recorded.
-- **Monument lava:** a released monument leaves a pool of lava in its socket; light your torch there (E / torch button) like at a campfire. It never goes out.
-- **Also:** Dawn / Day / Dusk / Night, frost bar, freeze in ice and torch thaw, run-end cards (only when no campfire and no torch is lit for 4 s) and fresh seed, Day N, flame variety per fire, desktop zoom steps 7 / 29 / 60 / 84 / 118 (mobile 5 / 15 / 25), isometric overview camera, server-restart resync, invisible perimeter wall, summit tablet map.
+- **Ending ("THE WORLD BEGINS TO THAW"):** 14.5 s after the last release (6th, or 3rd in the compact profile), all beams link the obelisk tips in a closed ring at the same time, then every obelisk releases a synchronized pulse: the snow, ground and vegetation around each obelisk thaw out to ~64 m (the first oasis is 32 m). The snow melts in ~12 s, the permafrost cap and plants open gradually over ~60 s, and each obelisk's warm area grows with the snow. A high cinematic frames the whole ring, the title shows, and play carries on. About a minute later a small **BEGIN NEW EXPEDITION** button appears on screen (and in the Help panel, key 4): any player can start a shared 60 s countdown (only the starter sees CANCEL) that ends in a fresh world on Day 1. No new winter starts automatically (see below).
+- **Leaderboard:** star button / key 3, four tabs: Fastest Run, Longest Run, Obelisks, **Biggest Firenet** (10 rows each, 300 players stored). `compact_3` has its own board (storage key suffix `.compact3`, heading "PLAYTEST BOARD - 3 OBELISKS"). Dev-shortcut runs are tainted and not recorded.
+- **Obelisk lava:** a released obelisk leaves a pool of lava in its socket (it rises over 2.5 s); light your torch there (E / torch button, within 4 m of the pool edge) like at a campfire. It never goes out, but it is not living flame: it does not keep the world from ending and does not wake frozen players.
+- **Fire burn:** fuel burns at the crowd rate `1 + c * log2(players)` times the phase multiplier (dawn / day 0.5, dusk / night 1.5), times 1.5 while the fire charges an obelisk. `c` is 0.5 in the standard profiles and 0.25 in `compact_3`. A 120 s log lasts 240 s (day) / 80 s (night) with one player; with 15 players 81 s / 27 s in the standard profiles and 121 s / 40 s in `compact_3`.
+- **Also:** Dawn / Day / Dusk / Night, frost bar, freeze in ice and torch thaw, run-end cards (only when no campfire and no torch is lit for 4 s) and fresh seed, Day N, flame variety per fire, desktop zoom steps 7 / 29 / 60 / 84 / 118 (mobile 4 steps: 5 / 11.67 / 18.33 / 25), isometric overview camera, a touch HUD (mute / star / ? squares in the top row, one right-hand column above jump with the eye, rotate and zoom buttons, a VIEW MAP button at the summit tablet), server-restart resync, invisible perimeter wall, summit tablet map (standard profiles only; `compact_3` has no volcano).
 
-**Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine fuel, kiln, a communal wood pile, an automatic new winter after the ending. The classic volcano flow (ignite 3 monuments with E, volcano beams, 45 s thaw wave, "WORLD THAWED", "Winter Approaches" countdown) is still in the code behind `RULESET = 'classic'` / `'build-your-own-fire'` but is **not active** in this ruleset. Hidden campfires and torch relighting of spent fires are gone. Geography destinations for migration (Oct 7 checkpoint) are not built.
+**Not in this build:** seasons, solstice, sleeping-ember, empty-server persistence, return screens, pine fuel, kiln, a communal wood pile, an automatic new winter after the ending. The classic volcano flow (ignite 3 obelisks with E, volcano beams, 45 s thaw wave, "WORLD THAWED", "Winter Approaches" countdown) is still in the code behind `RULESET = 'classic'` / `'build-your-own-fire'` but is **not active** in this ruleset. Hidden campfires and torch relighting of spent fires are gone. Geography destinations for migration (Oct 7 checkpoint) are not built.
 
 Full vision [`design/gdd.md`](design/gdd.md) (long-term spec; the status header says where it lags the build). The major v1 design decisions are locked (see [`design/gdd.md`](design/gdd.md) \S0.1):
 
@@ -43,27 +44,28 @@ Full vision [`design/gdd.md`](design/gdd.md) (long-term spec; the status header 
 
 ## Design documentation
 
-- [`docs/HANDOFF.md`](docs/HANDOFF.md) - current handoff: what changed since `520cc6b`, constants, files, how to test, known issues. **Start here.**
+- [`docs/HANDOFF.md`](docs/HANDOFF.md) - current handoff: what changed since `520cc6b`, constants, files, how to test, the check list, known issues, the `compact_3` profile and the New Expedition reset. **Start here.**
 - [`design/decisions.md`](design/decisions.md) - running log of design decisions and rationale (newest first).
 - [`design/gdd.md`](design/gdd.md) - full GDD (long-term vision; sections written before 2026-10-27 describe earlier rulesets).
 - [`design/summary.md`](design/summary.md) - plain-English overview.
 - [`design/ideas.md`](design/ideas.md) - parked ideas.
 - [`design/hypothesis-log.md`](design/hypothesis-log.md) - hypotheses (`H1-xx`) referenced from the GDD.
 - [`design/spatialization-plan.md`](design/spatialization-plan.md) - procgen biome + fire archetype spec (older plan).
-- Dated session notes, each a snapshot of its day (the ones from 2026-10-07 on describe the classic volcano ruleset and carry a note saying so): `session-2026-10-26-volcano-stages-world-end.md`, `session-2026-10-18-monuments-cinematic.md` (+ `review-2026-10-18-monuments-cinematic.md`), `session-2026-10-07-v1-loop.md`, `session-2026-10-05.md`, `session-2026-10-04.md`, `session-2026-09-30.md`, `session-2026-09-29-playtest.md`, `session-2026-09-24-phase-clock.md`, `checkpoint-2026-10-07-geography-migration.md`.
-- `docs/archive/` and `design/archive/` are old plans and handoffs, kept for history. `docs/bug-reports/` holds platform bug reports.
+- Dated session notes, each a snapshot of its day (the ones from 2026-10-07 on describe the classic volcano ruleset and carry a note saying so): `session-2026-10-26-volcano-stages-world-end.md`, `session-2026-10-18-obelisks-cinematic.md` (+ `review-2026-10-18-obelisks-cinematic.md`), `session-2026-10-07-v1-loop.md`. Older notes (2026-09-24 to 2026-10-05, the geography checkpoint, the 52x52 world-gen plan, the optimization handoff) are in `design/archive/`.
+- [`design/paint-rewrite.md`](design/paint-rewrite.md) and [`design/terrain-plan.md`](design/terrain-plan.md) - the snow-layer and terrain plans from September / October; both shipped and carry a "superseded by the code" status header.
+- `design/archive/` holds old plans, session notes and handoffs, kept for history, plus the paused avatar-locomotion bug report. `docs/bug-reports/` holds the remaining platform bug report.
 
 ## How it plays
 
 **Playable now**
 
-- Spawn laid down by the hearth under a black screen: **A new hearth is kindled.** / **Don't let the fire die.** The day title shows the world's current day. The ? panel shows **Day N**, **n/6 monuments activated** and **Don't let the fire die**. Every sunrise shows the day again.
-- Light a torch at a fire. Heat comes from *your* lit torch, a campfire, a charging monument's heat or a released crystal's heat zone. Standing near another player does not warm you.
+- Spawn laid down by the hearth under a black screen: **A new hearth is kindled.** / **Don't let the fire die.** The day title shows the world's current day. The ? panel shows **Day N**, **n/N obelisks activated** (N = 6, or 3 in `compact_3`) and **Don't let the fire die**. Every sunrise shows the day again.
+- Light a torch at a fire. Heat comes from *your* lit torch, a campfire, a charging obelisk's heat or a released crystal's heat zone. Standing near another player does not warm you.
 - The fire's size is its health. A smaller flame warms a smaller circle, more slowly. Ember still heats. From dusk it loses to the cold. Wood is what makes a fire safe. Feeding a burning fire with a log works as before; a fire that runs out is gone for good.
 - Melt snow, pick up a log, or chop a tree. One thing in the F slot. Feed a fire, or **build a new one** (carry a log, lit torch, E). Night starts at dusk: heavier weather, weaker flame, faster drain. The torch still melts 3-wide.
-- Link fires into a network. Fires linked to a monument within 40 m charge it faster the more they are (and the closer, and through up to 3 hops of relay fires); charging fires burn 1.5x faster. A full charge releases the monument automatically.
+- Link fires into a network. Fires linked to an obelisk within 40 m charge it faster the more they are (and the closer, and through up to 3 hops of relay fires); charging fires burn 1.5x faster. A full charge releases the obelisk automatically.
 - A full frost bar freezes you in the ice where you stand. Another player's lit torch can thaw you. If a fire is still lit, frozen players wake at it. The run ends only when no campfire and no torch is lit for 4 s. The cards are: **After N day/days, the world's flame goes out.** **Centuries pass in the cold.** **A new hearth is kindled.** / **Don't let the fire die.** Then a fresh seed, and dawn under that last card.
-- Find the volcano and read the stone tablet on its inner rim: a B&W engraved map (volcano, spawn, monument marks). A monument with ice around it (the ice-locked one, which has a guaranteed log cluster nearby) loses its ice chunk by chunk as it charges; it is fully clear at 90 % charge.
+- Standard profiles: find the volcano and read the stone tablet on its inner rim: a B&W engraved map (volcano, spawn, obelisk marks). An obelisk with ice around it (the ice-locked one, which has a guaranteed log cluster nearby) loses its ice chunk by chunk as it charges; it is fully clear at 90 % charge.
 - Each release thaws a 50 m zone and opens an oasis. After the last one, the **THE WORLD BEGINS TO THAW** ending plays.
 
 **Still the v1 target, not in this build**
@@ -94,9 +96,9 @@ npm start              # preview client
 npm run auth-server    # (separate terminal) local authoritative server
 ```
 
-Logic checks (headless, no preview needed): `node scripts/<name>.mjs`, for example `node scripts/oasisCheck.mjs`, `finaleCheck`, `spentFireCheck`, `topologyCheck`, `leaderboardCheck`. The list, and what each covers, is in [`docs/HANDOFF.md`](docs/HANDOFF.md).
+Logic checks (headless, no preview needed): `node scripts/<name>.mjs`, for example `node scripts/oasisCheck.mjs`, `finaleCheck`, `spentFireCheck`, `topologyCheck`, `leaderboardCheck`, `expeditionCheck`. There are 34 (`scripts/*Check.mjs`); the list, and what each covers, is in [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-Debug toggles live in `src/client/devFlags.ts` (all `false` in a committed build; flip back before deploying). For example `DEBUG_FINALE_BUTTON` adds an **END** button that plays the ending without activating every monument.
+Debug toggles live in `src/client/devFlags.ts` (all `false` in a committed build; flip back before deploying). For example `DEBUG_FINALE_BUTTON` adds an **END** button that plays the ending without activating every obelisk.
 
 ## Deploying
 
@@ -106,7 +108,7 @@ Prefer **CLI** when changing parcel layout - Creator Hub Publish rewrites parcel
 npm run deploy -- --target-content https://worlds-content-server.decentraland.org
 ```
 
-Keep Creator Hub **Layout** matching `scene.json` (currently **52 x 52** for `playtest_52`; 100 x 100 for `full_100`) so the composite and CLI stay aligned. If the CLI proxy errors out on Node 24, Creator Hub Publish still works for content - just confirm Layout matches before publishing. Before deploying: all `devFlags.ts` toggles off, and check `CHARGE_TARGET_S` (60 is a playtest value).
+Keep Creator Hub **Layout** matching `scene.json` (currently **52 x 52**, which fits `compact_3` and `playtest_52`; `full_100` needs 100 x 100) so the composite and CLI stay aligned. If the CLI proxy errors out on Node 24, Creator Hub Publish still works for content - just confirm Layout matches before publishing. Before deploying: all `devFlags.ts` toggles off, check `WORLD_PROFILE` (`compact_3` is the playtest profile; the standard game is `playtest_52`) and `CHARGE_TARGET_S` (60 is a playtest value; design target 210).
 
 **Mobile note:** the 51 x 51 parcel clamp (H1-07) was observed on the 100 x 100 World; it has not been re-checked on the 52 x 52 profile. The **xy** debug chip was removed from the build.
 
@@ -115,12 +117,12 @@ Keep Creator Hub **Layout** matching `scene.json` (currently **52 x 52** for `pl
 ```
 src/
   client/    # rendering, input, UI, VFX, audio, frost, terrain, props
-  server/    # authoritative state, roster, fires, monuments, leaderboard, cycle, weather
+  server/    # authoritative state, roster, fires, obelisks, leaderboard, cycle, weather
   shared/    # components, messages, pure logic shared by both (ruleset, fire network, oasis, finale)
 assets/      # models, images, audio, animations, source files
 scripts/     # headless check scripts (*Check.mjs) and asset generators
 design/      # GDD, summary, decisions, hypotheses, dated session notes
-docs/        # HANDOFF.md (current), bug reports, archived plans
+docs/        # HANDOFF.md (current), bug reports
 ```
 
 Entry point routing (`src/index.ts`) uses the **async** `isServer` from `~system/EngineApi` - the sync helper starts as `false` and would cause the headless server to take the client branch and crash. Do not change this.

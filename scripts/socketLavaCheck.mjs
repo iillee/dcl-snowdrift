@@ -1,4 +1,4 @@
-// Bundles and runs socketLavaCheckEntry.ts (lava in a released monument's socket: geometry, appearance timing, late-join determinism, relight range, wiring).
+// Bundles and runs socketLavaCheckEntry.ts (lava in a released obelisk's socket: geometry, appearance timing, late-join determinism, relight range, wiring).
 // Usage: node scripts/socketLavaCheck.mjs
 import { build } from 'esbuild'
 import { join, dirname } from 'path'

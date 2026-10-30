@@ -56,16 +56,6 @@ export const FROST_TIME_SNOW_STAGE_S: Record<0 | 1 | 2 | 3, number> = {
 }
 
 
-// MARK: Warmth recovery
-/**
- * Seconds the Warm tier takes to clear a full bar at night on bare
- * ground. The live rate is TIER_WARMTH_PER_S in hearthFuel.ts, which
- * nets against the cold instead of cancelling it. Kept so that 45s
- * target stays next to the freeze times it was chosen against.
- */
-export const FROST_TIME_TO_THAW_S = 45
-
-
 // MARK: Sampling cadence
 /**
  * How often the accumulation system polls player position + snow depth.

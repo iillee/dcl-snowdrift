@@ -7,7 +7,7 @@
  *  - `newExpeditionRequest` (any connected player) is accepted only when the expedition is complete AND the world is restored; it starts
  *    ONE shared countdown (NEW_EXPEDITION_COUNTDOWN_S), repeated presses change nothing. `newExpeditionCancel`: initiator's wallet only.
  *    If the initiator leaves, nothing listens for it: the countdown simply continues.
- *  - At zero: rollCycle() - the same path as the dev roll: fresh seed, Day 1, monuments / finale / oasis / fires / snow / wood /
+ *  - At zero: rollCycle() - the same path as the dev roll: fresh seed, Day 1, obelisks / finale / oasis / fires / snow / wood /
  *    torches reset by their own onCycleRoll handlers, the leaderboard's contributor list and run taint cleared. This module never calls
  *    the leaderboard's record functions and never taints the run, so a reset neither writes a record nor spoils the next run.
  */

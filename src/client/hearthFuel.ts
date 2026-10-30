@@ -241,11 +241,6 @@ export function getMainFireTier(): number {
 	return hearthTierFromFuel(currentFuel)
 }
 
-/** Live melt radius in meters, interpolated across tier anchors. */
-export function getMainFireMeltRadius(): number {
-	return hearthRadiusFromFuel(currentFuel)
-}
-
 /** Live melt radius SQUARED (m^2) - hot-loop convenience so callers
  *  don't multiply per frame. */
 export function getMainFireMeltRadiusSq(): number {

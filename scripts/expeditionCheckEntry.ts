@@ -6,7 +6,7 @@
  *  - cancel: initiator only (wallet case-insensitive), others and a cancel without a countdown change nothing, BEGIN is back after a cancel;
  *  - deadline sync: the clients derive a local deadline from the broadcast ONCE; clients with different clock skews / latencies and a late
  *    joiner agree on the time left to the second, the clock never jumps, it ends exactly at the server deadline;
- *  - reset at zero: one roll (fresh seed, Day 1, finale / monuments reset, button hidden), no countdown left, a late joiner after it gets
+ *  - reset at zero: one roll (fresh seed, Day 1, finale / obelisks reset, button hidden), no countdown left, a late joiner after it gets
  *    the idle state; the initiator leaving changes nothing (nothing listens for it);
  *  - wiring (source facts): no automatic winter after the ending, the roll is the existing rollCycle path, the reset never touches the
  *    leaderboard's record functions or the run taint (and the roll clears contributors + taint), Help panel / HUD / messages exist.
@@ -97,7 +97,7 @@ function run(): void {
 		seed: () => world.seed,
 		finaleStartMs: () => world.finaleStartMs,
 		roll: () => {
-			// = cycle.rollCycle: fresh seed, every subsystem's onCycleRoll (Day 1, finale / monuments reset), then the expedition handler
+			// = cycle.rollCycle: fresh seed, every subsystem's onCycleRoll (Day 1, finale / obelisks reset), then the expedition handler
 			world.rolls++; world.seed = (world.seed * 7 + 13) % 1_000_003; world.day = 1; world.finaleStartMs = 0; world.taint = false; world.contributors = 0
 			core.onRolled()
 		},

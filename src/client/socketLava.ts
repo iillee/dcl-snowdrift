@@ -1,5 +1,5 @@
 /**
- * socketLava.ts (client) - the lava pool on the floor of a released monument's socket (rules and numbers: shared/socketLava.ts).
+ * socketLava.ts (client) - the lava pool on the floor of a released obelisk's socket (rules and numbers: shared/socketLava.ts).
  *
  * stationMarkers feeds it each frame with the crystal's bottom-tip height; the pool fills in once the crystal has cleared it and
  * stays for the rest of the world. It paints through lavaLook (the volcano lava material), has no collider (the socket's
@@ -29,7 +29,7 @@ const pools = new Map<number, Pool>()
 
 // MARK: updateSocketLava
 /**
- * Advance monument `index`'s pool. `released` = the monument is released (server state); `bottomY` = the crystal's bottom-tip
+ * Advance obelisk `index`'s pool. `released` = the obelisk is released (server state); `bottomY` = the crystal's bottom-tip
  * world Y (the pool appears once it is clear of it).
  */
 export function updateSocketLava(index: number, x: number, z: number, groundY: number, released: boolean, bottomY: number, dt: number): void {

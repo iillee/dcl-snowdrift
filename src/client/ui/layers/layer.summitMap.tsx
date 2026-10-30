@@ -7,7 +7,7 @@
  * Opened from the summit map table. North = world +Z (top of map),
  * east = world +X (right). Knowledge only — Close to dismiss.
  *
- * Station marks turn red once that monument is lit (read every render).
+ * Station marks turn red once that obelisk is lit (read every render).
  * Flat black-and-white engraving: volcano ▲, spawn ○, stations ✕.
  * No world borders, groves, or color terrain.
  */
@@ -39,7 +39,7 @@ const PANEL_BG    = Color4.create(0.18, 0.17, 0.15, 0.96)
 const MAP_BG      = Color4.create(0.62, 0.58, 0.52, 1)
 const INK         = Color4.create(0.06, 0.05, 0.04, 1)
 const STONE_LIGHT = Color4.create(0.78, 0.74, 0.68, 1)
-/** Station X once that monument is lit. */
+/** Station X once that obelisk is lit. */
 const INK_LIT     = Color4.create(0.85, 0.08, 0.05, 1)
 
 const MAP_SIZE_PX    = 520

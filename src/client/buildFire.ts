@@ -37,7 +37,7 @@ import { consumeCarriedForBuild, getCarriedKind, hasLogs, restoreRejectedFeed } 
 import { getSnowStageAtWorld } from 'src/client/snow/snowQuery'
 import { isEmberFailing } from 'src/client/emberFail'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
-import { isReadyToIgniteMonument } from 'src/client/stationMarkers'
+import { isReadyToIgniteObelisk } from 'src/client/stationMarkers'
 import { isTorchEquipped, isTorchLit } from 'src/client/torchEquip'
 
 
@@ -65,8 +65,8 @@ function evaluate(): void {
 	if (!isBuildYourOwnFire()) return
 	if (!isTorchEquipped() || !isTorchLit() || isItemInputBlocked()) return
 	if (Date.now() < pendingUntil) return
-	// At a fire E keeps its old meaning (relight / ignite / monument).
-	if (isReadyToIgniteHidden() || isReadyToIgniteMonument() || isInHiddenRelightRange()) return
+	// At a fire E keeps its old meaning (relight / ignite / obelisk).
+	if (isReadyToIgniteHidden() || isReadyToIgniteObelisk() || isInHiddenRelightRange()) return
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	const map = activeTerrain()
 	if (t === null || map === null) return

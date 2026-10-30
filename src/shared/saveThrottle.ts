@@ -3,7 +3,7 @@
  *
  * Every board change used to save on the next tick (a write of the whole board every few seconds while players built fires). Now:
  *   - a normal change waits until SAVE_MIN_INTERVAL_S have passed since the last write (the dirty flag stays, the latest state is written);
- *   - an URGENT change (a monument release / completion, a new player record, a cycle roll) is written on the next tick regardless;
+ *   - an URGENT change (an obelisk release / completion, a new player record, a cycle roll) is written on the next tick regardless;
  *   - a failed write retries after SAVE_RETRY_S (Storage.set resolves false rather than throwing), urgent or not;
  *   - nothing is ever dropped: the data written is always the full current board.
  */

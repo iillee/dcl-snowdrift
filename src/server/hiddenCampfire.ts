@@ -131,13 +131,6 @@ function isPermanentSlot(i: number): boolean {
 	return BUILT_FIRE_PERMANENT && built[i]
 }
 
-/** Number of player-built fires placed this cycle (lit or dead). */
-export function builtFireCount(): number {
-	let n = 0
-	for (let i = 0; i < HIDDEN_CAMPFIRE_COUNT; i++) if (built[i]) n++
-	return n
-}
-
 /** Same tuning as main hearth. Broadcast on fuel delta > 3s, tier
  *  change, or 2s heartbeat while lit. */
 const BROADCAST_FUEL_DELTA  = 3
@@ -493,7 +486,7 @@ export function setupHiddenCampfireServer(): void {
 			const prevTier         = hearthTierFromFuel(prev)
 			const netMul           = NETWORK_BURN_MUL !== 1 && isFireLinked(i + 1) ? NETWORK_BURN_MUL : 1
 			// Permanent built fires (ruleset Test 2) hold their fuel.
-			// Floating crystals: a fire charging a monument burns faster.
+			// Floating crystals: a fire charging an obelisk burns faster.
 			const chargeMul        = isSlotCharging(i) ? CHARGE_FIRE_DRAIN_MUL : 1
 			const burn             = isPermanentSlot(i) ? 0 : drainRate * netMul * chargeMul * dt
 			fuel[i]                = Math.max(FUEL_HIDDEN_FLOOR, prev - burn)
@@ -563,7 +556,7 @@ export function setupHiddenCampfireServer(): void {
 		const add      = fuelSecondsForKind(clampWoodKind(kind))
 		const prev     = fuel[target]
 		noteSlotTouched(target, from)
-		// Charge visual: the share wave runs fire -> monument (no fuel moves).
+		// Charge visual: the share wave runs fire -> obelisk (no fuel moves).
 		const mons = chargeTargetsOf(target)
 		if (mons.length) room.send('fireNetworkShare', { from: target + 1, ids: mons })
 		const share = tryShareFeed(target + 1, add, from)

@@ -24,16 +24,8 @@ import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 import { feedFire, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { UI_THEME }                         from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
-import { getUVsForAtlasTile }               from 'src/client/ui/utils/atlas'
 
 
-// Same atlas the relight prompt uses so the mobile hand glyph stays
-// consistent across proximity affordances.
-const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
-const ATLAS_COLS    = 16
-const ATLAS_ROWS    = 16
-const HAND_TILE_COL = 2
-const HAND_TILE_ROW = 11
 
 
 const { fontSizes, borderRadius } = UI_THEME

@@ -1,7 +1,7 @@
 /**
  * thawWave.ts - shared geometry + timing for the staged volcano thaw zone.
  *
- * Each activated monument (stage 1..3 = active count) grows the volcano's
+ * Each activated obelisk (stage 1..3 = active count) grows the volcano's
  * eternal-campfire zone: a melt wave runs from the current radius out to
  * THAW_STAGE_RADIUS_M[stage] and stops there. Inside the radius snow,
  * cliff ice caps and scatter wood are gone, snowfall cannot refill, and
@@ -37,9 +37,6 @@ import {
 
 // Stage radii / timing live in src/shared/volcanoStages.ts (one place).
 export { THAW_STAGE_RADIUS_M, THAW_STAGE_WAVE_S, THAW_STAGE_START_DELAY_S }
-
-/** Legacy name: the stage 3 (victory) wave length. */
-export const THAW_WAVE_DURATION_S = THAW_STAGE_WAVE_S[3]
 
 /**
  * Full in-game days of warmth after the thaw day. The rest of the thaw
@@ -138,7 +135,7 @@ export function thawSegmentRadiusM(seg: ThawSegment, nowMs: number): number {
  * Plan the wave for reaching `stage` when the server accepted it at
  * `acceptedMs`. Starts THAW_STAGE_START_DELAY_S later from wherever the
  * previous wave will be then, so steps chain without jumps even when
- * monuments are lit in quick succession. Never shrinks.
+ * obelisks are lit in quick succession. Never shrinks.
  */
 export function planThawSegment(
 	centre    : ThawWaveCentre,

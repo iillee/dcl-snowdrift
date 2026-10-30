@@ -6,7 +6,7 @@
  *   - no player still in the scene holding a lit torch (frozen players'
  *     torches are dark anyway and are ignored; leavers drop out via the
  *     frostLife presence heartbeat).
- * Lava, monuments and the thaw stage do NOT count as flame. Lava is still
+ * Lava, obelisks and the thaw stage do NOT count as flame. Lava is still
  * a torch relight source, so relighting there inside the grace creates a
  * lit torch and cancels the end. Freezing no longer matters.
  *

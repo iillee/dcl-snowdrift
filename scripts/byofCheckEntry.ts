@@ -1,13 +1,13 @@
 /**
  * byofCheck.ts - Build Your Own Fire seed sanity check. Per seed: hidden
- * pits (expect 0), frontier wood per band, logs near the frozen monument,
- * and how many points along each hearth->monument line are valid build
+ * pits (expect 0), frontier wood per band, logs near the frozen obelisk,
+ * and how many points along each hearth->obelisk line are valid build
  * spots (snow assumed cleared). Bundled by scripts/byofCheck.mjs.
  */
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { pickHiddenCampfires } from 'src/shared/hiddenCampfire'
-import { icedStationIndex } from 'src/shared/monumentIce'
+import { icedStationIndex } from 'src/shared/obeliskIce'
 import { RULESET, validateBuiltFireSpot } from 'src/shared/ruleset'
 import { WORLD_PROFILE } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
@@ -61,4 +61,4 @@ for (let s = 0; s < SEEDS; s++) {
 		`iced=${iced.length} @${icedDist.toFixed(0)}m  buildable-along-routes=${valid.join(' ')}`,
 	)
 }
-say(`  seeds with no iced-monument cluster: ${noIced}`)
+say(`  seeds with no iced-obelisk cluster: ${noIced}`)

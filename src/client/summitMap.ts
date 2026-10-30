@@ -32,7 +32,3 @@ export function closeSummitMap(): void {
 }
 
 
-export function toggleSummitMap(): void {
-	if (open) closeSummitMap()
-	else openSummitMap()
-}

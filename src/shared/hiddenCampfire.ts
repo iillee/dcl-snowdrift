@@ -18,7 +18,7 @@
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
-import { icedStationIndex } from 'src/shared/monumentIce'
+import { icedStationIndex } from 'src/shared/obeliskIce'
 import { isBuildYourOwnFire } from 'src/shared/ruleset'
 import { trunkDiscs } from 'src/shared/props/scatter'
 import {
@@ -117,13 +117,12 @@ export const HIDDEN_WORLD_MIN_SEP_M = 80
 const HIDDEN_HEARTH_KEEP_M = 40
 
 /**
- * Frozen (iced) monument: guarantee one hidden pit on the monument's own
- * level within this band (m, from the monument cell centre). If none is
- * placed there naturally, the world-scatter pit nearest the monument is
+ * Frozen (iced) obelisk: guarantee one hidden pit on the obelisk's own
+ * level within this band (m, from the obelisk cell centre). If none is
+ * placed there naturally, the world-scatter pit nearest the obelisk is
  * moved into the band (or a spare slot is used); spacing to other pits is
- * HIDDEN_ICED_FIRE_SEP_M (the home/grove link minimum). false = off.
+ * HIDDEN_ICED_FIRE_SEP_M (the home/grove link minimum).
  */
-export const HIDDEN_ICED_FIRE_ENABLED = true
 export const HIDDEN_ICED_FIRE_MIN_M   = 25
 export const HIDDEN_ICED_FIRE_MAX_M   = 60
 const HIDDEN_ICED_FIRE_SEP_M          = HIDDEN_LINK_MIN_M
@@ -224,7 +223,7 @@ export function pickHiddenCampfires(
 	seed: number,
 ): HiddenCampfireSpot[] {
 	// Build Your Own Fire: no hidden pits at all (the guaranteed iced-
-	// monument pit included). Slots stay free for player-built fires.
+	// obelisk pit included). Slots stay free for player-built fires.
 	if (isBuildYourOwnFire()) return []
 	const rand     = mulberry32(seed)
 	const mazeSeed = cycleMazeSeed(seed)
@@ -245,7 +244,7 @@ export function pickHiddenCampfires(
 	const groveN = placeGroveClusters(rand, map, nodes, blocked, trees, picks, TRIES)
 	const worldStart = picks.length
 	const worldN = placeWorldScatter(rand, map, nodes, blocked, trees, picks)
-	if (HIDDEN_ICED_FIRE_ENABLED) ensureIcedMonumentFire(map, nodes, blocked, trees, picks, worldStart)
+	ensureIcedObeliskFire(map, nodes, blocked, trees, picks, worldStart)
 
 	console.log(
 		`hiddenCampfire: pickHiddenCampfires: placed ${picks.length}/` +
@@ -411,7 +410,6 @@ function placeGroveClusters(
 				const spot        = stepFrom(rand, hubNode, i >= TRIES / 2)
 				if (spot === null) continue
 				if (!spotClear(spot.x, spot.z, nodes, blocked, trees, map, preferLevel, HIDDEN_LINK_MIN_M)) continue
-				const level = levelAt(map, spot.x, spot.z)
 				const y     = groundYAtWorld(map, spot.x, spot.z)
 				nodes.push({ x: spot.x, z: spot.z })
 				picks.push({ x: spot.x, y, z: spot.z, tx: spot.tx, tz: spot.tz })
@@ -460,7 +458,6 @@ function placeDestinationHub(
 		if (cell === null) continue
 		if (i < TRIES * 0.7 && map.regions[cellIndex(cell.tx, cell.tz)] !== dest.region) continue
 		if (!spotClear(x, z, nodes, blocked, trees, map, dest.level, HIDDEN_LINK_MIN_M)) continue
-		const level = levelAt(map, x, z)
 		return {
 			x,
 			y : groundYAtWorld(map, x, z),
@@ -545,14 +542,14 @@ function placeWorldScatter(
 }
 
 
-// MARK: ensureIcedMonumentFire
+// MARK: ensureIcedObeliskFire
 /**
- * One pit near the frozen monument (see HIDDEN_ICED_FIRE_*). Deterministic:
+ * One pit near the frozen obelisk (see HIDDEN_ICED_FIRE_*). Deterministic:
  * no PRNG, fixed ring scan (radius outward, then angle). Never touches
  * volcano / home / grove pits; replaces a world-scatter pit in its slot
  * (or appends while under HIDDEN_CAMPFIRE_COUNT). Same spotClear rules.
  */
-function ensureIcedMonumentFire(
+function ensureIcedObeliskFire(
 	map       : TerrainMap,
 	nodes     : { x: number; z: number }[],
 	blocked   : ReadonlySet<string>,
@@ -571,12 +568,12 @@ function ensureIcedMonumentFire(
 		return d >= HIDDEN_ICED_FIRE_MIN_M && d <= HIDDEN_ICED_FIRE_MAX_M && map.levels[cellIndex(p.tx, p.tz)] === lv
 	}
 	if (picks.some(inBand)) return
-	// Slot to use: spare slot if any, else the world pit nearest the monument.
+	// Slot to use: spare slot if any, else the world pit nearest the obelisk.
 	let slot = picks.length < HIDDEN_CAMPFIRE_COUNT ? -1 : -2
 	if (slot === -2) {
 		let best = Infinity
 		for (let i = worldStart; i < picks.length; i++) { const d = dist(picks[i]); if (d < best) { best = d; slot = i } }
-		if (slot < 0) { console.log('hiddenCampfire: iced monument: no world pit to move'); return }
+		if (slot < 0) { console.log('hiddenCampfire: iced obelisk: no world pit to move'); return }
 	}
 	// nodes = hearth + every pick in order; drop the slot being replaced.
 	const others = slot >= 0 ? nodes.filter((n) => !(n.x === picks[slot].x && n.z === picks[slot].z)) : nodes
@@ -603,16 +600,16 @@ function ensureIcedMonumentFire(
 				const ni = nodes.findIndex((n) => n.x === old.x && n.z === old.z)
 				if (ni >= 0) nodes[ni] = { x, z }
 				picks[slot] = spot
-				console.log('hiddenCampfire: iced monument ' + k + ': moved world pit ' + slot + ' to ' + rad + 'm')
+				console.log('hiddenCampfire: iced obelisk ' + k + ': moved world pit ' + slot + ' to ' + rad + 'm')
 			} else {
 				nodes.push({ x, z })
 				picks.push(spot)
-				console.log('hiddenCampfire: iced monument ' + k + ': added pit at ' + rad + 'm')
+				console.log('hiddenCampfire: iced obelisk ' + k + ': added pit at ' + rad + 'm')
 			}
 			return
 		}
 	}
-	console.log('hiddenCampfire: iced monument ' + k + ': no valid spot within ' + HIDDEN_ICED_FIRE_MAX_M + 'm (kept layout)')
+	console.log('hiddenCampfire: iced obelisk ' + k + ': no valid spot within ' + HIDDEN_ICED_FIRE_MAX_M + 'm (kept layout)')
 }
 
 

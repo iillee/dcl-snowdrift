@@ -1,17 +1,17 @@
 /**
  * finaleCheck - the floating-crystals ending ("The world begins to thaw", src/shared/finale.ts) per seed, for the ACTIVE profile
- * (3 monuments in compact_3, 6 in the standard one; scripts/finaleCheck.mjs runs every profile):
- *  - ring topology: deterministic (same layout -> same ring, also from a copied point list and for every start monument),
- *    one closed counter-clockwise cycle through every monument, no crossing beams, edges through the volcano disc counted;
+ * (3 obelisks in compact_3, 6 in the standard one; scripts/finaleCheck.mjs runs every profile):
+ *  - ring topology: deterministic (same layout -> same ring, also from a copied point list and for every start obelisk),
+ *    one closed counter-clockwise cycle through every obelisk, no crossing beams, edges through the volcano disc counted;
  *  - timeline: ALL beams in step (same start / progress), connected before the pulse, pulse then title, a late joiner sees every
- *    beam complete, the whole shot fits its cap; beam thickness = the vertical monument beam; no thaw corridors left in the module;
- *  - pulse (shared oasis clock): the enlarged oasis of EVERY monument grows GRADUALLY (OASIS_FINALE_MELT_S, much slower than the
+ *    beam complete, the whole shot fits its cap; beam thickness = the vertical obelisk beam; no thaw corridors left in the module;
+ *  - pulse (shared oasis clock): the enlarged oasis of EVERY obelisk grows GRADUALLY (OASIS_FINALE_MELT_S, much slower than the
  *    FINALE_PULSE_S snow melt, no jump for an oasis still melting at the pulse start) from the first oasis to
  *    OASIS_FINALE_RADIUS_M (cells only ever open, never ahead of the front, final set = the ragged disc rule, pit / lava / crown
  *    untouched, every opened mountain cell has a cap), is hydrated identically for a late joiner, never changes the pre-pulse state,
  *    and the vegetation plan for the new ring is deterministic, never touches planned cells and stays under the scaled caps;
  *    entity / piece / snow-cell costs are reported;
- *  - warmth: every released monument's warm radius grows with the pulse's snow front to FINALE_WARM_RADIUS_M (covers the enlarged
+ *  - warmth: every released obelisk's warm radius grows with the pulse's snow front to FINALE_WARM_RADIUS_M (covers the enlarged
  *    melted area at all times, pure function of the pulse time = late-join deterministic, crystalHeatAt uses it);
  *  - camera: the static framing pose stays under the ceiling and the shot is finite.
  * Bundled by scripts/finaleCheck.mjs.
@@ -41,7 +41,7 @@ import { titleFit } from 'src/shared/titleFit'
 import { readFileSync } from 'node:fs'
 import { getTerrain } from 'src/shared/terrain/terrainCache'
 import { mergeLevelRects } from 'src/shared/terrain/terrainGen'
-import { MONUMENT_PIT_SIZE_M, TERRAIN_ORIGIN_M, TerrainMap, groundYAtWorld, isLavaAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
+import { OBELISK_PIT_SIZE_M, TERRAIN_ORIGIN_M, TerrainMap, groundYAtWorld, isLavaAtWorld, levelAtWorld } from 'src/shared/terrain/terrainMap'
 
 const SEEDS = Number(process.argv[2] ?? 12)
 const g0 = globalThis as { __realLog?: typeof console.log }
@@ -81,19 +81,19 @@ for (let s = 0; s < SEEDS; s++) {
 	const map = getTerrain(cycleMazeSeed(seed))
 	const pts = finalePoints(map)
 	const n = pts.length
-	if (n < 3) { fail(`seed ${s}: only ${n} monuments`); continue }
+	if (n < 3) { fail(`seed ${s}: only ${n} obelisks`); continue }
 	const avoid = finaleAvoidZone(map)
 
 	// --- topology ---
 	const e0 = finaleEdges(pts, avoid, 0)
 	const again = finaleEdges(pts.map((p) => ({ x: p.x, z: p.z })), avoid ? { ...avoid } : null, 0)
 	if (JSON.stringify(e0) !== JSON.stringify(again)) fail(`seed ${s}: ring not deterministic`)
-	if (e0.length !== n) fail(`seed ${s}: ${e0.length} edges for ${n} monuments`)
+	if (e0.length !== n) fail(`seed ${s}: ${e0.length} edges for ${n} obelisks`)
 	const outDeg = new Array<number>(n).fill(0), inDeg = new Array<number>(n).fill(0)
 	for (const [a, b] of e0) { outDeg[a]++; inDeg[b]++ }
 	if (outDeg.some((v) => v !== 1) || inDeg.some((v) => v !== 1)) fail(`seed ${s}: not a ring`)
 	const order = finaleOrder(pts, avoid, 0)
-	if (order.length !== n || new Set(order).size !== n) fail(`seed ${s}: ring does not visit every monument once`)
+	if (order.length !== n || new Set(order).size !== n) fail(`seed ${s}: ring does not visit every obelisk once`)
 	for (let k = 0; k < n; k++) if (e0[k][0] !== order[k] || e0[k][1] !== order[(k + 1) % n]) fail(`seed ${s}: edges are not in ring order`)
 	let area = 0
 	for (const [a, b] of e0) area += pts[a].x * pts[b].z - pts[b].x * pts[a].z
@@ -102,7 +102,7 @@ for (let s = 0; s < SEEDS; s++) {
 	for (let first = 0; first < n; first++) {
 		const ef = finaleEdges(pts, avoid, first)
 		if (ef[0][0] !== first) fail(`seed ${s}: ring from ${first} starts at ${ef[0][0]}`)
-		if (und(ef) !== und(e0)) fail(`seed ${s}: ring edge set depends on the start monument (${first})`)
+		if (und(ef) !== und(e0)) fail(`seed ${s}: ring edge set depends on the start obelisk (${first})`)
 	}
 	if (finaleCycleCost(order, pts, avoid) >= 1e6) fail(`seed ${s}: ring has crossing beams`)
 	let hits = 0
@@ -209,7 +209,7 @@ for (let s = 0; s < SEEDS; s++) {
 			}
 			if (Math.abs(tt - Math.round(tt / 10) * 10) < 1e-9 || tt >= OASIS_FINALE_MELT_S) stepsAt.set(tt, now)
 			lowCount.push([tt, now.size - S0.size])
-			// warmth covers the ground that is already open (cell centre inside the monument's warm radius)
+			// warmth covers the ground that is already open (cell centre inside the obelisk's warm radius)
 			const warmR = finaleWarmRadiusM(pulseT, pulseT + tt * 1000 + 1)
 			for (const k of now) {
 				if (S0.has(k)) continue
@@ -234,11 +234,11 @@ for (let s = 0; s < SEEDS; s++) {
 		oasisEvents += events; oasisEventsMax = Math.max(oasisEventsMax, events)
 		const fin = prev
 		lowAfter += fin.size; piecesAfter += pieces()
-		// final set = the ragged-disc rule, union over the monuments
+		// final set = the ragged-disc rule, union over the obelisks
 		const want = (px: number, pz: number): boolean => {
 			for (const c of centres) {
 				const d = Math.hypot(px - c.x, pz - c.z)
-				if (Math.abs(px - c.x) < MONUMENT_PIT_SIZE_M / 2 && Math.abs(pz - c.z) < MONUMENT_PIT_SIZE_M / 2) continue
+				if (Math.abs(px - c.x) < OBELISK_PIT_SIZE_M / 2 && Math.abs(pz - c.z) < OBELISK_PIT_SIZE_M / 2) continue
 				if (oasisExcludedLevel(levelAtWorld(map, px, pz)) || isLavaAtWorld(map, px, pz)) continue
 				if (d <= OASIS_INNER_M) return true
 				const jit = (oasisHash01(oasisCellIndex(px), oasisCellIndex(pz), Math.round(c.x * 4), Math.round(c.z * 4)) - 0.5) * 2 * OASIS_JITTER_M
@@ -322,7 +322,7 @@ for (let s = 0; s < SEEDS; s++) {
 		oasisClear()
 	}
 
-	// --- last monument still melting when the pulse starts: continuous, then gradual; late joiner agrees ---
+	// --- last obelisk still melting when the pulse starts: continuous, then gradual; late joiner agrees ---
 	if (s < 14) {
 		const T0 = 1_000_000_000_000
 		const pulseT = T0 + 200_000
@@ -367,7 +367,7 @@ for (let s = 0; s < SEEDS; s++) {
 		oasisClear(); oasisSetFinalePulse(Number.POSITIVE_INFINITY)
 	}
 
-	// --- warmth: the monuments' warm radius grows with the pulse (pure function of the pulse time) ---
+	// --- warmth: the obelisks' warm radius grows with the pulse (pure function of the pulse time) ---
 	{
 		const P = 5_000_000
 		if (finaleWarmRadiusM(Number.POSITIVE_INFINITY, P) !== CRYSTAL_HEAT_RADIUS_M) fail('warm radius changes without a pulse')
@@ -411,9 +411,9 @@ if (FINALE_TITLE !== 'THE WORLD BEGINS TO THAW') fail(`FINALE_TITLE is "${FINALE
 for (const k of Object.keys(finaleModule)) if (/orridor|thaw(Begin|End|Start|Dur)|TravelS|RingPoint/i.test(k)) fail(`finale module still exports the old ${k}`)
 {
 	const src = readFileSync('src/client/stationMarkers.ts', 'utf8')
-	if (!/const SKY_BEAM_XZ_M = FINALE_BEAM_XZ_M/.test(src)) fail('the vertical monument beam thickness is not the finale beam thickness')
+	if (!/const SKY_BEAM_XZ_M = FINALE_BEAM_XZ_M/.test(src)) fail('the vertical obelisk beam thickness is not the finale beam thickness')
 	const fsrc = readFileSync('src/client/crystalFinale.ts', 'utf8')
-	if (!/paintFinaleBeam\(e\)/.test(fsrc) || !/FINALE_BEAM_XZ_M/.test(fsrc)) fail('finale beams are not built with the shared thickness + monument beam material')
+	if (!/paintFinaleBeam\(e\)/.test(fsrc) || !/FINALE_BEAM_XZ_M/.test(fsrc)) fail('finale beams are not built with the shared thickness + obelisk beam material')
 	if (!/finaleWarmRadiusM\(oasisFinalePulseMs\(\), Date\.now\(\)\)/.test(src) || !/Math\.sqrt\(d2\) \/ warmR/.test(src)) fail('crystalHeatAt (warmth / frost safety) does not use the pulse-grown warm radius')
 	if (FINALE_BEAM_XZ_M !== 0.42) fail(`finale beam thickness ${FINALE_BEAM_XZ_M} (the sky beam is 0.42)`)
 }

@@ -747,12 +747,6 @@ let recycleNext = -1
 export function getRecycleNextIndex(): number {
 	return recycleNext >= 0 && slots.isPlaced(recycleNext) && !litLocal[recycleNext] ? recycleNext : -1
 }
-/** Position of that slot (spacing exemption), or null. */
-export function getRecycleNextPos(): { x: number; z: number } | null {
-	const i = getRecycleNextIndex()
-	return i < 0 ? null : { x: slots.x[i], z: slots.z[i] }
-}
-
 /** Recycled pits sinking out at their old spot (cheap fade). */
 const sinking: { e: Entity; t: number; y0: number; kids?: Entity[] }[] = []
 const SINK_S = 1.2

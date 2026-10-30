@@ -30,17 +30,6 @@ import { getTorchFuelFraction, isTorchEquipped, isTorchLit }               from 
 import { isTorchRelightOnCooldown, tryRelightAtFire }                      from 'src/client/torchInput'
 import { UI_THEME }                                                      from 'src/client/ui/theme/settings'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
-import { getUVsForAtlasTile }                                            from 'src/client/ui/utils/atlas'
-
-
-// Font-awesome atlas from the UI component kit — same asset the mobile
-// pointer-button glyph uses. Kept in sync so the tooltip icon reads as
-// the same affordance the player is meant to tap.
-const ATLAS_SRC     = 'assets/images/ui-component-kit/atlas-icons-font-awesome.png'
-const ATLAS_COLS    = 16
-const ATLAS_ROWS    = 16
-const HAND_TILE_COL = 2
-const HAND_TILE_ROW = 11
 
 
 const { fontSizes, borderRadius } = UI_THEME

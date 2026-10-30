@@ -1,15 +1,15 @@
 /**
  * finale.ts - the floating-crystals ENDING ("The world begins to thaw"), pure + shared by server and client.
  *
- * When the LAST monument is released (any monument count: 3 in the compact profile, 6 in the standard one):
- *   1. a short beat, then ALL ring beams connect AT ONCE (every beam draws in parallel between the monuments' top tips: a closed ring);
- *   2. a short beat after the ring is closed, every monument releases the same larger PULSE (flash + expanding energy sphere, existing burst sound);
- *   3. the pulse melts a much larger area around each monument (OASIS_FINALE_RADIUS_M instead of OASIS_RADIUS_M): the SNOW melts fast
- *      (server heat front, held melted, FINALE_PULSE_S) and the monument's warmth / frost-safe radius grows with it (finaleWarmRadiusM),
+ * When the LAST obelisk is released (any obelisk count: 3 in the compact profile, 6 in the standard one):
+ *   1. a short beat, then ALL ring beams connect AT ONCE (every beam draws in parallel between the obelisks' top tips: a closed ring);
+ *   2. a short beat after the ring is closed, every obelisk releases the same larger PULSE (flash + expanding energy sphere, existing burst sound);
+ *   3. the pulse melts a much larger area around each obelisk (OASIS_FINALE_RADIUS_M instead of OASIS_RADIUS_M): the SNOW melts fast
+ *      (server heat front, held melted, FINALE_PULSE_S) and the obelisk's warmth / frost-safe radius grows with it (finaleWarmRadiusM),
  *      while the permafrost cap -> earth and the grass / pines / bushes / rocks open up GRADUALLY over OASIS_FINALE_MELT_S (~60 s) like the
  *      first oasis, with the same ragged edge / cell / earth / vegetation rules (shared/terrain/oasis.ts);
  *   4. the title card shows (FINALE_TITLE) while the pulse spreads; the cinematic camera holds the high framing of the whole ring.
- * Everything is a function of the server's start time + the (deterministic) monument layout, so the server melts the snow, every
+ * Everything is a function of the server's start time + the (deterministic) obelisk layout, so the server melts the snow, every
  * client draws the same beams / pulse and a late joiner lands on the finished state. There are NO thaw corridors under the beams any more.
  * Timeline (s since the finale start; the start is FINALE_START_DELAY_S after the last release so the release cinematic finishes first):
  *   beams      FINALE_BEAM_BEAT_S, then every beam grows over FINALE_BEAM_DRAW_S (all together)
@@ -24,7 +24,7 @@ import { SCENE_WORLD_SIZE_X_METERS, SCENE_WORLD_SIZE_Z_METERS, WORLD_IS_COMPACT 
 import { TerrainMap, cellCenterWorld } from 'src/shared/terrain/terrainMap'
 
 // MARK: Tuning
-/** Finale start after the last monument's release (s): its own release cinematic (hold 2 + rise 4 + charge 2 + burst 3 + hold 2 + blend-out 1) is over by then. */
+/** Finale start after the last obelisk's release (s): its own release cinematic (hold 2 + rise 4 + charge 2 + burst 3 + hold 2 + blend-out 1) is over by then. */
 export const FINALE_START_DELAY_S = 14.5
 /** Start delay for the debug trigger (no release cinematic to wait for). */
 export const FINALE_DEBUG_DELAY_S = 3
@@ -33,19 +33,19 @@ export const FINALE_BEAM_BEAT_S = 1.5
 export const FINALE_BEAM_DRAW_S = 2.5
 /** Beat between the ring closing and the synchronized pulse (s). */
 export const FINALE_PULSE_GAP_S = 0.8
-/** The pulse: nominal radius (m) it melts to around every monument, the seconds it takes to spread there (shared with the oasis), the snow disc it melts (covers the ragged edge). */
+/** The pulse: nominal radius (m) it melts to around every obelisk, the seconds it takes to spread there (shared with the oasis), the snow disc it melts (covers the ragged edge). */
 export const FINALE_PULSE_RADIUS_M = OASIS_FINALE_RADIUS_M
 /** Seconds the pulse's snow melt (and the visual flash / warmth radius) takes. The permafrost cap / earth / plants open much slower (OASIS_FINALE_MELT_S). */
 export const FINALE_PULSE_S = 12
 export const FINALE_SNOW_RADIUS_M = OASIS_FINALE_RADIUS_M + OASIS_JITTER_M
 export const FINALE_TEXT_AFTER_PULSE_S = 2
-/** Warmth / frost-safe radius (m) of a released monument once the pulse is done: it covers the whole enlarged melted area (snow disc incl. ragged edge). */
+/** Warmth / frost-safe radius (m) of a released obelisk once the pulse is done: it covers the whole enlarged melted area (snow disc incl. ragged edge). */
 export const FINALE_WARM_RADIUS_M = FINALE_SNOW_RADIUS_M
 export const FINALE_CINE_AFTER_PULSE_S = 3.5
 /** Title card length: thawSplash FADE_S 0.8 + HOLD_S 3 + FADE_S 0.8. */
 export const FINALE_TEXT_TOTAL_S = 4.6
 export const FINALE_TITLE = 'THE WORLD BEGINS TO THAW'
-/** Beam thickness (m): the same as the vertical monument (sky) beam (stationMarkers SKY_BEAM_XZ_M). */
+/** Beam thickness (m): the same as the vertical obelisk (sky) beam (stationMarkers SKY_BEAM_XZ_M). */
 export const FINALE_BEAM_XZ_M = 0.42
 /** Cinematic framing: vertical FOV (deg), letterbox bar fraction (each), fraction of the half-frame kept clear. */
 export const FINALE_FOV_DEG = 60
@@ -58,7 +58,7 @@ export type FinaleEdge = [number, number]
 export interface FinaleAvoid { x: number; z: number; r: number }
 
 /**
- * Warmth / frost-safe radius (m) of every released monument at local epoch `nowMs`: CRYSTAL_HEAT_RADIUS_M until the finale pulse
+ * Warmth / frost-safe radius (m) of every released obelisk at local epoch `nowMs`: CRYSTAL_HEAT_RADIUS_M until the finale pulse
  * (`pulseMs`, Infinity = none), then it grows linearly to FINALE_WARM_RADIUS_M with the pulse's snow front (FINALE_PULSE_S), so
  * the warm area always covers the snow that has melted. A function of the pulse time only: every client (and a late joiner) agrees.
  */
@@ -78,7 +78,7 @@ export function finaleRestoredS(): number {
 }
 
 // MARK: Layout
-/** World XZ of every monument socket, station order. */
+/** World XZ of every obelisk socket, station order. */
 export function finalePoints(map: TerrainMap): FinalePoint[] {
 	return map.stations.map((st) => cellCenterWorld(st.cx, st.cz))
 }
@@ -112,7 +112,7 @@ function segsCross(a: FinalePoint, b: FinalePoint, c: FinalePoint, d: FinalePoin
 
 const CROSS_PENALTY = 1e6
 const AVOID_PENALTY = 1e5
-/** Brute-force tour search up to this many monuments (7! = 5040 orders); the angular ring above it. */
+/** Brute-force tour search up to this many obelisks (7! = 5040 orders); the angular ring above it. */
 const FINALE_BRUTE_MAX = 8
 
 /** Total length of the closed ring `order` plus the penalties (crossing edges, edges through the avoid disc). */
@@ -141,9 +141,9 @@ function signedArea(order: number[], pts: FinalePoint[]): number {
 }
 
 /**
- * Closed ring through every monument, starting at `first` and running counter-clockwise (x right, z up). It is the
+ * Closed ring through every obelisk, starting at `first` and running counter-clockwise (x right, z up). It is the
  * shortest tour (no self-crossing, and no edge through the `avoid` disc when any alternative exists) for up to
- * FINALE_BRUTE_MAX monuments, else the angular order around the centroid. Deterministic: same points, same ring.
+ * FINALE_BRUTE_MAX obelisks, else the angular order around the centroid. Deterministic: same points, same ring.
  */
 export function finaleOrder(pts: FinalePoint[], avoid: FinaleAvoid | null, first = 0): number[] {
 	const n = pts.length
@@ -181,7 +181,7 @@ export function finaleOrder(pts: FinalePoint[], avoid: FinaleAvoid | null, first
 	return [...best.slice(k), ...best.slice(0, k)]
 }
 
-/** Beam edges in draw order along the ring from `first` (a, b = monument indices). */
+/** Beam edges in draw order along the ring from `first` (a, b = obelisk indices). */
 export function finaleEdges(pts: FinalePoint[], avoid: FinaleAvoid | null, first = 0): FinaleEdge[] {
 	const order = finaleOrder(pts, avoid, first)
 	const n = order.length
@@ -267,9 +267,9 @@ export function finaleFrameMetric(pts: FinaleV3[], cam: FinaleV3, bearing: numbe
 	return worst
 }
 
-/** Steep pitches (deg) the pose search tries; the standard (6-monument) finale uses exactly these. */
+/** Steep pitches (deg) the pose search tries; the standard (6-obelisk) finale uses exactly these. */
 export const FINALE_POSE_PITCHES: readonly number[] = [55, 62, 70, 78, 85]
-/** Shallower pitches for the compact (3-monument) profile: a camera pulled back horizontally under the same ceiling can frame the whole triangle. */
+/** Shallower pitches for the compact (3-obelisk) profile: a camera pulled back horizontally under the same ceiling can frame the whole triangle. */
 export const FINALE_POSE_PITCHES_COMPACT: readonly number[] = [26, 32, 38, 46, 55, 62, 70, 78, 85]
 export interface FinalePoseOpts {
 	/** Pitches (deg) to try; default FINALE_POSE_PITCHES. */
@@ -289,7 +289,7 @@ export function finalePoseOpts(): FinalePoseOpts | undefined {
 }
 
 /**
- * High oblique pose that frames every point in `pts` (monument tips + sockets) around `look`: over 12 bearings and 5
+ * High oblique pose that frames every point in `pts` (obelisk tips + sockets) around `look`: over 12 bearings and 5
  * steep pitches the NEAREST camera that keeps the points inside FINALE_FRAME_FILL of the (letterboxed) frame and under
  * `maxCamH`. If the ceiling blocks every pose it takes the highest steep pose with the smallest overflow. Pure.
  */
@@ -340,9 +340,9 @@ export function finaleCameraPose(pts: FinaleV3[], look: FinaleV3, aspect: number
 
 // MARK: Camera shot
 /**
- * Camera for the ending at `ageS` since the finale start: the high framing `wide` of the whole ring (monument tips + sockets, from
+ * Camera for the ending at `ageS` since the finale start: the high framing `wide` of the whole ring (obelisk tips + sockets, from
  * finaleCameraPose) from the first frame to the end - the beams connect, the pulse spreads and the title shows inside one steady shot
- * (monumentCinematic blends in from the player camera and out again). Pure; kept as a function of time so the cinematic API is unchanged.
+ * (obeliskCinematic blends in from the player camera and out again). Pure; kept as a function of time so the cinematic API is unchanged.
  */
 export function finaleCameraAt(_times: FinaleTimes, _ageS: number, wide: { cam: FinaleV3; look: FinaleV3 }): { pos: FinaleV3; look: FinaleV3 } {
 	return { pos: { x: wide.cam.x, y: wide.cam.y, z: wide.cam.z }, look: { x: wide.look.x, y: wide.look.y, z: wide.look.z } }

@@ -3,15 +3,15 @@
  * network prototype (branch `fire-network`).
  *
  * Two lit campfires (hearth + hidden/satellite pits; not torches, not
- * monuments, not lava) within NETWORK_LINK_RANGE_M that are neighbours in
+ * obelisks, not lava) within NETWORK_LINK_RANGE_M that are neighbours in
  * the relative-neighbourhood graph (RNG) of the currently lit fires, and
  * that have a walkable terrain route within the detour budget, link. The
  * route is A* on the 16 m terrain grid (same level walking, 8-way where
  * both orthogonal cells agree, ladders both ways), string-pulled into
  * straight runs, then rasterised to 1 m snow cells NETWORK_PATH_WIDTH_M wide.
  *
- * Near monuments the links form a forest (monument -> direct fires ->
- * relay parents, see pruneMonumentTrees), not the RNG web.
+ * Near obelisks the links form a forest (obelisk -> direct fires ->
+ * relay parents, see pruneObeliskTrees), not the RNG web.
  *
  * Both server (melts / protects the cells) and client (draws the glow)
  * call routeFireLink with the same inputs, so only fire ids and positions
@@ -19,7 +19,7 @@
  */
 
 import { TERRAIN_GRID_H, TERRAIN_GRID_W, isMountainLevel } from 'src/shared/settings'
-import { CLIFF_HALF_TAPER_M, LADDER_FOOT_M, LADDER_LAND_M, STATION_CLEAR_M } from 'src/shared/terrain/terrainMap'
+import { CLIFF_HALF_TAPER_M, LADDER_FOOT_M, LADDER_LAND_M } from 'src/shared/terrain/terrainMap'
 import { cellCenterWorld as snowCellCenter, forEachCellInDisc } from 'src/shared/snowGrid'
 import {
 	LANDFORM_LAVA,
@@ -38,8 +38,6 @@ export const NETWORK_LINK_RANGE_M      = 140
 export const NETWORK_DETOUR_MAX        = 1.6
 /** Hard cap on route length (m). */
 export const NETWORK_MAX_ROUTE_M       = 260
-/** Organic routes: smooth corners + gentle seeded meander (shared, so server melt == client glow). false = straight string-pulled routes. */
-export const NETWORK_ORGANIC_ENABLED     = true
 /** Chaikin corner-cut passes (more = wider, rounder turns). */
 export const NETWORK_SMOOTH_ITERS        = 4
 /** Meander: max sideways offset (m), base wavelength (m, +/-20% per link), fade-in distance from each run end (fire / ladder) (m), resample step (m). */
@@ -56,24 +54,8 @@ export const NETWORK_MEANDER_FADE_M      = 10
 export const NETWORK_ORGANIC_STEP_M      = 2
 /** Cleared path width (m). */
 export const NETWORK_PATH_WIDTH_M      = 4
-/**
- * Terraced trench: centre fully clear, then snow steps up toward the
- * sides (stage caps 1 = 1/3 depth, 2 = 2/3 depth), then full snow.
- * false = old flat NETWORK_PATH_WIDTH_M strip with sheer walls.
- */
-export const NETWORK_PATH_GRADIENT_ENABLED = false
-/** Fully clear half-width (m) around the centreline (1 = ~2 m walkable). */
-export const NETWORK_PATH_CLEAR_HALF_M  = 1.0
-/** Width (m) of each step band outward from the clear centre: [1/3-depth band, 2/3-depth band]. */
-export const NETWORK_PATH_STEP_WIDTHS_M: readonly number[] = [1.0, 1.0]
-/** Snow stage cap per step band (stage 1 = 0.5 m = 1/3, stage 2 = 1.0 m = 2/3 of full 1.5 m). */
-export const NETWORK_PATH_STEP_STAGES: readonly number[] = [1, 2]
 /** Seconds for the melt to run from both fires to the middle. */
 export const NETWORK_MELT_S            = 6
-/** Seconds for protection to retreat along a broken link (from the dead end). Snow then regrows at the normal weather rate. */
-export const NETWORK_REFREEZE_S        = 20
-/** false (default): a broken link drops its hold at once; cells refill with normal snowfall like any cleared snow, and glow + warmth go instantly. true = old timed retreat over NETWORK_REFREEZE_S. */
-export const NETWORK_PATH_REFREEZE_ENABLED = false
 /** Extra A* cost (in 16 m cell steps) for using a ladder. */
 export const NETWORK_LADDER_COST       = 3
 /** Hidden-fire / hearth burn multiplier while a fire is linked. 1 = off. */
@@ -124,12 +106,10 @@ export const NETWORK_TILE_THICK_M      = 0.04
 export const NETWORK_TILE_MERGE_MAX    = 1
 /** Tiles: no glow tiles within this radius (m) of either endpoint fire's centre (log pile / pit footprint ~2 m). */
 export const NETWORK_TILE_FIRE_CLEAR_M = 1.35 // Fireplace_base.glb: �0.79 � �0.86 m (0.01 node scale) ? 0.86 m half-extent + 0.5 m tile half
-/** Glow pieces: clear radius (m) around a monument end of a charge link (the trail runs right up to the obelisk). */
-export const NETWORK_TILE_MONUMENT_CLEAR_M = 0.5
+/** Glow pieces: clear radius (m) around an obelisk end of a charge link (the trail runs right up to the obelisk). */
+export const NETWORK_TILE_OBELISK_CLEAR_M = 0.5
 /** Tiles: per-tile scale-in / scale-out time (s), ease-out, from the tile centre. */
 export const NETWORK_TILE_SCALE_S      = 0.35
-/** Heat path: standing on a shown path cell warms like a small (Low tier) campfire. */
-export const NETWORK_PATH_WARM_ENABLED = true
 /** Heat path: counts as "on the path" within this distance (m) of a shown path cell. */
 export const NETWORK_PATH_WARM_RADIUS_M = 1
 /** Heat path: fuel value whose tier sets the warmth. 100 = Low (tier 2, fuel 60-150): 6 frost/s, same as a small campfire (no Ember floor). */
@@ -139,23 +119,18 @@ export const FIRE_NETWORK_DEBUG        = false
 /** Node id of the hearth. Hidden fire i is i + 1. */
 export const NETWORK_HEARTH_ID         = 0
 
-/** Route ends: the last leg into each fire / monument end is straight for this far (m), so trails never overshoot or hook around the pit. */
+/** Route ends: the last leg into each fire / obelisk end is straight for this far (m), so trails never overshoot or hook around the pit. */
 export const NETWORK_END_STRAIGHT_M = 12 // >= half a 16 m cell diagonal (11.3 m)
 
-/** Charge links (fire -> monument): a swell of orb scale races fire -> monument every PERIOD s while charging (amp = extra scale at the crest, width m = gaussian half-width). Drawn within DIST m of the player. */
+/** Charge links (fire -> obelisk): a swell of orb scale races fire -> obelisk every PERIOD s while charging (amp = extra scale at the crest, width m = gaussian half-width). Drawn within DIST m of the player. */
 export const NETWORK_CHARGE_PULSE_AMP = 0.9
 export const NETWORK_CHARGE_PULSE_PERIOD_S = 1.5
 export const NETWORK_CHARGE_PULSE_WIDTH_M = 2.5
 export const NETWORK_CHARGE_PULSE_DIST_M = 160
-/** Crystal release: one final, bigger pulse fire -> monument (amp, seconds to travel, delay after the release message). */
+/** Crystal release: one final, bigger pulse fire -> obelisk (amp, seconds to travel, delay after the release message). */
 export const NETWORK_FINAL_PULSE_AMP = 1.8
 export const NETWORK_FINAL_PULSE_S = 1.2
 export const NETWORK_FINAL_PULSE_DELAY_S = 0.3
-/** Legacy sine flow (unused since the travelling pulse). */
-export const NETWORK_CHARGE_FLOW_AMP = 0.35
-export const NETWORK_CHARGE_FLOW_PERIOD_S = 1.2
-export const NETWORK_CHARGE_FLOW_WAVELENGTH_M = 6
-
 // MARK: Link crossfade (client visual only)
 /** Orbs of a removed link shrink + dim to nothing over this many seconds (server state / warmth switch at once). */
 export const NETWORK_LINK_FADE_OUT_S = 2.5
@@ -175,56 +150,37 @@ export function linkFullyVisibleS(chargeLink: boolean): number {
 export const NETWORK_LINK_DIM_WRITE_S = 0.2
 
 // MARK: Topology tunables (pruneNetwork)
-/**
- * Which links the lit nodes form:
- *   'rng'     relative-neighbourhood graph (sparse, tidy; fires rarely get 3+ links)
- *   'gabriel' Gabriel graph (more meshes, fires can link 3+ neighbours)
- *   'dense'   (default) every pair in NETWORK_DENSE_RANGE_M links except near-duplicates (see
- *             topologyBlocked); the parallel-route drop still removes overlapping paths
- *   'legacy'  old behaviour: RNG + keep-every-held-link hysteresis, and
- *             every charging fire links its monument directly
- */
-export const NETWORK_TOPOLOGY: 'rng' | 'gabriel' | 'dense' | 'legacy' = 'dense'
-/** dense: fires farther apart than this (m) only link when needed to join two pieces (<= NETWORK_LINK_RANGE_M). */
+/** Fires farther apart than this (m) only link when needed to join two pieces (<= NETWORK_LINK_RANGE_M). */
 export const NETWORK_DENSE_RANGE_M = 140
-/** dense: a link is a near-duplicate (dropped) when a closer third fire leaves both ends within this angle (deg) of it. Lower = more links kept. */
+/** A link is a near-duplicate (dropped) when a closer third fire leaves both ends within this angle (deg) of it. Lower = more links kept. */
 export const NETWORK_DENSE_COLLINEAR_DEG = 25
-/** After pruning, re-add the shortest routable link joining split components (MST-safe). */
-export const NETWORK_RECONNECT_ENABLED = true
 /**
- * Monument trees (floating crystals, default): near a monument the network
- * is a forest. Fires with a charge link link ONLY to the monument; relay
+ * Obelisk trees (floating crystals, default): near an obelisk the network
+ * is a forest. Fires with a charge link link ONLY to the obelisk; relay
  * fires out of range link to exactly one parent one hop closer. See
- * pruneMonumentTrees. false = the flat RNG network below.
+ * pruneObeliskTrees. false = the flat RNG network below.
  */
-export const NETWORK_MONUMENT_TREE_ENABLED = true
+export const NETWORK_OBELISK_TREE_ENABLED = true
 /**
- * Fire-link rule (old, only used when NETWORK_MONUMENT_TREE_ENABLED is off):
- * a fire linked to a monument always keeps at least one fire-to-fire link
- * when any routable fire candidate exists (monument-only = network of one).
- * It tangled the heat paths around monuments (every ring fire linked the
- * monument AND its neighbours), so it is off by default. false = off.
+ * Fire-link rule (old, only used when NETWORK_OBELISK_TREE_ENABLED is off):
+ * a fire linked to an obelisk always keeps at least one fire-to-fire link
+ * when any routable fire candidate exists (obelisk-only = network of one).
+ * It tangled the heat paths around obelisks (every ring fire linked the
+ * obelisk AND its neighbours), so it is off by default. false = off.
  */
 export const NETWORK_FIRE_LINK_RULE_ENABLED = false
 /**
- * Monument links (fire -> monument) skip the prune and the parallel drop:
- * every routable fire in MONUMENT_LINK_RANGE_M links (and so charges).
+ * Obelisk links (fire -> obelisk) skip the prune and the parallel drop:
+ * every routable fire in OBELISK_LINK_RANGE_M links (and so charges).
  * They still count as third nodes when pruning fire-to-fire links.
  */
-export const NETWORK_MONUMENT_LINKS_KEEP_ALL = true
-/** Node ids at or above this are monuments (= ruleset MONUMENT_NODE_ID_BASE; kept here to avoid an import cycle). */
-export const NETWORK_MONUMENT_ID_MIN = 1000
-/** Drop a link whose route mostly runs beside another kept route (never a bridge). */
-export const NETWORK_PARALLEL_DROP_ENABLED = true
+export const NETWORK_OBELISK_LINKS_KEEP_ALL = true
+/** Node ids at or above this are obelisks (= ruleset OBELISK_NODE_ID_BASE; kept here to avoid an import cycle). */
+export const NETWORK_OBELISK_ID_MIN = 1000
 /** "Beside": a route sample within this distance (m) of another kept route. */
 export const NETWORK_PARALLEL_NEAR_M   = 4
 /** Drop when more than this fraction of the link's samples are beside another route. */
 export const NETWORK_PARALLEL_FRAC     = 0.5
-/**
- * Also drop the longer of two kept links whose routes cross (never a bridge, never a monument or tree link),
- * so a dense mesh does not become a tangle. Crossings next to a shared fire do not count (NETWORK_CROSS_END_SKIP_M).
- */
-export const NETWORK_CROSS_DROP_ENABLED = true
 /** Samples this close (m) to the link's own end nodes are ignored (paths always meet at fires). */
 export const NETWORK_PARALLEL_END_SKIP_M = 6
 
@@ -286,30 +242,26 @@ function walkable(map: TerrainMap, i: number): boolean {
 	return !isMountainLevel(map.levels[i]) && map.landforms[i] !== LANDFORM_LAVA
 }
 
-// MARK: monument avoidance
+// MARK: obelisk avoidance
 /**
- * Fire-to-fire links never cross a monument. A leg that would pass within NETWORK_MONUMENT_TRIGGER_M of a monument centre
- * (pit corner 4.2 m + a little) is rerouted along an arc of radius NETWORK_MONUMENT_ARC_M around it (tangent in, tangent out,
- * the shorter side that stays on the level). The link to a monument itself (its own node) is exempt and still ends at the
- * charge-link end; every OTHER monument is avoided.
+ * Fire-to-fire links never cross an obelisk. A leg that would pass within NETWORK_OBELISK_TRIGGER_M of an obelisk centre
+ * (pit corner 4.2 m + a little) is rerouted along an arc of radius NETWORK_OBELISK_ARC_M around it (tangent in, tangent out,
+ * the shorter side that stays on the level). The link to an obelisk itself (its own node) is exempt and still ends at the
+ * charge-link end; every OTHER obelisk is avoided.
  */
-export const NETWORK_MONUMENT_ARC_M     = 6.8 // inside the monument's own 16 m cell (inscribed radius 8 m), so the arc stays on its level
-/** A leg whose interior comes closer than this to a monument centre is rerouted. */
-export const NETWORK_MONUMENT_TRIGGER_M = 5.5
-/** Final centrelines (excluding the first/last NETWORK_MONUMENT_END_SKIP_M of a run) never come closer than this to a monument centre. */
-export const NETWORK_MONUMENT_HARD_M    = 4.6
-export const NETWORK_MONUMENT_END_SKIP_M = 3
+export const NETWORK_OBELISK_ARC_M     = 6.8 // inside the obelisk's own 16 m cell (inscribed radius 8 m), so the arc stays on its level
+/** A leg whose interior comes closer than this to an obelisk centre is rerouted. */
+export const NETWORK_OBELISK_TRIGGER_M = 5.5
+/** Final centrelines (excluding the first/last NETWORK_OBELISK_END_SKIP_M of a run) never come closer than this to an obelisk centre. */
+export const NETWORK_OBELISK_HARD_M    = 4.6
+export const NETWORK_OBELISK_END_SKIP_M = 3
 
 type Pt = { x: number; z: number }
 
-/** false = the old behaviour (links may run through monuments); kept as a switch for A/B checks. */
-export const NETWORK_MONUMENT_AVOID_ENABLED = true
-
-function monumentCentres(map: TerrainMap, a: FireNode, b: FireNode): Pt[] {
-	if (!NETWORK_MONUMENT_AVOID_ENABLED) return []
+function obeliskCentres(map: TerrainMap, a: FireNode, b: FireNode): Pt[] {
 	const skip = new Set<number>()
-	if (a.id >= NETWORK_MONUMENT_ID_MIN) skip.add(a.id - NETWORK_MONUMENT_ID_MIN)
-	if (b.id >= NETWORK_MONUMENT_ID_MIN) skip.add(b.id - NETWORK_MONUMENT_ID_MIN)
+	if (a.id >= NETWORK_OBELISK_ID_MIN) skip.add(a.id - NETWORK_OBELISK_ID_MIN)
+	if (b.id >= NETWORK_OBELISK_ID_MIN) skip.add(b.id - NETWORK_OBELISK_ID_MIN)
 	const out: Pt[] = []
 	map.stations.forEach((s, i) => { if (!skip.has(i)) out.push(cellCenterWorld(s.cx, s.cz)) })
 	return out
@@ -334,13 +286,13 @@ export function minDistToCentre(pts: Pt[], c: Pt, skipM: number): number {
 	return best
 }
 
-function monumentsClear(pts: Pt[], centres: Pt[]): boolean {
-	for (const c of centres) if (minDistToCentre(pts, c, NETWORK_MONUMENT_END_SKIP_M) < NETWORK_MONUMENT_HARD_M - 1e-6) return false
+function obelisksClear(pts: Pt[], centres: Pt[]): boolean {
+	for (const c of centres) if (minDistToCentre(pts, c, NETWORK_OBELISK_END_SKIP_M) < NETWORK_OBELISK_HARD_M - 1e-6) return false
 	return true
 }
 
 function arcDetour(map: TerrainMap, level: number, p: Pt, q: Pt, c: Pt): Pt[] | null {
-	const R = NETWORK_MONUMENT_ARC_M
+	const R = NETWORK_OBELISK_ARC_M
 	const dP = Math.hypot(p.x - c.x, p.z - c.z), dQ = Math.hypot(q.x - c.x, q.z - c.z)
 	const thP = Math.atan2(p.z - c.z, p.x - c.x), thQ = Math.atan2(q.z - c.z, q.x - c.x)
 	const eP = dP > R ? Math.acos(R / dP) : 0, eQ = dQ > R ? Math.acos(R / dQ) : 0
@@ -365,17 +317,17 @@ function arcDetour(map: TerrainMap, level: number, p: Pt, q: Pt, c: Pt): Pt[] | 
 	return best
 }
 
-/** Reroute every leg of `pts` that comes too close to a monument; null when a detour can't stay on the level. */
-function detourMonuments(map: TerrainMap, level: number, pts: Pt[], centres: Pt[]): Pt[] | null {
+/** Reroute every leg of `pts` that comes too close to an obelisk; null when a detour can't stay on the level. */
+function detourObelisks(map: TerrainMap, level: number, pts: Pt[], centres: Pt[]): Pt[] | null {
 	let cur = pts
 	for (const c of centres) {
-		// The A* chain runs through 16 m cell centres, and a monument sits on one: drop interior vertices inside the trigger radius.
+		// The A* chain runs through 16 m cell centres, and an obelisk sits on one: drop interior vertices inside the trigger radius.
 		const last = cur.length - 1
-		cur = cur.filter((p, k) => k === 0 || k === last || Math.hypot(p.x - c.x, p.z - c.z) >= NETWORK_MONUMENT_TRIGGER_M)
+		cur = cur.filter((p, k) => k === 0 || k === last || Math.hypot(p.x - c.x, p.z - c.z) >= NETWORK_OBELISK_TRIGGER_M)
 		for (let guard = 0; guard < 8; guard++) {
 			let hit = -1
 			for (let k = 1; k < cur.length && hit < 0; k++) {
-				if (minDistToCentre([cur[k - 1], cur[k]], c, 0.75) < NETWORK_MONUMENT_TRIGGER_M) hit = k
+				if (minDistToCentre([cur[k - 1], cur[k]], c, 0.75) < NETWORK_OBELISK_TRIGGER_M) hit = k
 			}
 			if (hit < 0) break
 			const d = arcDetour(map, level, cur[hit - 1], cur[hit], c)
@@ -485,11 +437,11 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	// comes straight in (only if that leg stays on clear walkable ground).
 	trimEnd(map, runs[0], true, a)
 	trimEnd(map, runs[runs.length - 1], false, b)
-	// Never through a monument: arc around every monument that is not an end of this link (before smoothing).
-	const centres = monumentCentres(map, a, b)
+	// Never through an obelisk: arc around every obelisk that is not an end of this link (before smoothing).
+	const centres = obeliskCentres(map, a, b)
 	if (centres.length > 0) {
 		for (const r of runs) {
-			const d = detourMonuments(map, r.level, r.pts, centres)
+			const d = detourObelisks(map, r.level, r.pts, centres)
 			if (!d) return null
 			r.pts = d
 		}
@@ -501,16 +453,12 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 	// Organic shape: smoothed + meandering centreline, per run, with a
 	// per-run fallback to the straight route if it leaves walkable cells;
 	// whole-route fallback if the curves push it past the budget.
-	if (NETWORK_ORGANIC_ENABLED) {
-		const lo = Math.min(a.id, b.id), hi = Math.max(a.id, b.id)
-		const curved = runs.map((r, i) => ({ level: r.level, pts: organicRun(map, r, lo * 7919 + hi * 104729 + i * 31, i === 0, i === runs.length - 1) }))
-		if (runsLen(curved) <= budget) for (let i = 0; i < runs.length; i++) runs[i].pts = curved[i].pts
-		else runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) }) // rounding only shortens
-	} else {
-		runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) })
-	}
-	// Smoothing / meander / fillets may cut a corner back toward a monument: such a run falls back to the plain detour.
-	if (centres.length > 0) runs.forEach((r, i) => { if (!monumentsClear(r.pts, centres)) r.pts = rawPts[i] })
+	const lo = Math.min(a.id, b.id), hi = Math.max(a.id, b.id)
+	const curved = runs.map((r, i) => ({ level: r.level, pts: organicRun(map, r, lo * 7919 + hi * 104729 + i * 31, i === 0, i === runs.length - 1) }))
+	if (runsLen(curved) <= budget) for (let i = 0; i < runs.length; i++) runs[i].pts = curved[i].pts
+	else runs.forEach((r, i) => { r.pts = filletRun(map, r.level, r.pts, i === 0, i === runs.length - 1) }) // rounding only shortens
+	// Smoothing / meander / fillets may cut a corner back toward an obelisk: such a run falls back to the plain detour.
+	if (centres.length > 0) runs.forEach((r, i) => { if (!obelisksClear(r.pts, centres)) r.pts = rawPts[i] })
 	const lengthM = runsLen(runs)
 
 	return { runs, lengthM, cells: pathCells(map, runs) }
@@ -520,20 +468,7 @@ export function routeFireLink(map: TerrainMap, a: FireNode, b: FireNode): FireLi
 // MARK: pathCells
 /** Snow cells the link holds, each with its max snow stage (0 = clear). */
 function pathCells(map: TerrainMap, runs: LinkRun[]): { key: number; t: number; cap: number }[] {
-	if (!NETWORK_PATH_GRADIENT_ENABLED) return rasterizeRuns(map, runs, NETWORK_PATH_WIDTH_M / 2).map((c) => ({ key: c.key, t: c.t, cap: 0 }))
-	let outer = NETWORK_PATH_CLEAR_HALF_M
-	for (const w of NETWORK_PATH_STEP_WIDTHS_M) outer += w
-	return rasterizeRuns(map, runs, outer).map((c) => {
-		let edge = NETWORK_PATH_CLEAR_HALF_M, cap = 0
-		if (c.d > edge) {
-			cap = 3
-			for (let i = 0; i < NETWORK_PATH_STEP_WIDTHS_M.length; i++) {
-				edge += NETWORK_PATH_STEP_WIDTHS_M[i]
-				if (c.d <= edge) { cap = NETWORK_PATH_STEP_STAGES[i] ?? 2; break }
-			}
-		}
-		return { key: c.key, t: c.t, cap: Math.max(0, Math.min(2, cap)) }
-	})
+	return rasterizeRuns(map, runs, NETWORK_PATH_WIDTH_M / 2).map((c) => ({ key: c.key, t: c.t, cap: 0 }))
 }
 
 // MARK: rasterizeRuns
@@ -715,9 +650,6 @@ function clearLine(map: TerrainMap, level: number, p: { x: number; z: number }, 
 }
 
 
-// MARK: shared fuel
-/** Shared fuel: wood fed to a linked fire is split across every lit fire in its network. */
-export const NETWORK_SHARED_FUEL_ENABLED = true
 /** Shared fuel: fraction of the piece the fed fire keeps. */
 export const NETWORK_SHARE_KEEP          = 0.5
 /** Shared fuel: the rest goes to lit fires within this many link hops (not the whole network). */
@@ -776,7 +708,7 @@ export function splitFuelKeepShare(fedFuel: number, others: number[], cap: numbe
 /**
  * Fuel follows heat (chain charging): like splitFuelKeepShare, but the
  * shared part (and any fed-fire overflow) first fills the others with a
- * chain hop > 0 in ascending hop order (closest to the monument first, each
+ * chain hop > 0 in ascending hop order (closest to the obelisk first, each
  * up to the cap); what is left water-fills all others (lowest fuel first).
  * hops[k] = chain hop of others[k] (0 = not preferred).
  */
@@ -858,22 +790,22 @@ export function parallelFraction(r: FireLinkRoute, a: FireNode, b: FireNode, o: 
  */
 export interface KeptLink { cand: NetCand; route: FireLinkRoute }
 export interface PruneOptions {
-	/** Monument trees on/off (default NETWORK_MONUMENT_TREE_ENABLED). */
+	/** Obelisk trees on/off (default NETWORK_OBELISK_TREE_ENABLED). */
 	tree?: boolean
 	/** Old fire-link rule, flat network only (default NETWORK_FIRE_LINK_RULE_ENABLED). */
 	fireRule?: boolean
 	/** Keys of links that are live now: preferred as a relay's parent (no re-parenting flicker when a fire is added). */
 	held?: ReadonlySet<string>
-	/** Monument node id + centre, for "closer to a monument" (default: mean of the link ends seen per monument). */
-	monuments?: ReadonlyArray<{ id: number; x: number; z: number }>
+	/** Obelisk node id + centre, for "closer to an obelisk" (default: mean of the link ends seen per obelisk). */
+	obelisks?: ReadonlyArray<{ id: number; x: number; z: number }>
 }
 export function pruneNetwork(
 	cands: NetCand[],
 	route: (c: NetCand) => FireLinkRoute | null,
 	opts: PruneOptions = {},
 ): KeptLink[] {
-	const tree = opts.tree ?? NETWORK_MONUMENT_TREE_ENABLED
-	if (tree && cands.some((c) => c.a.id >= NETWORK_MONUMENT_ID_MIN || c.b.id >= NETWORK_MONUMENT_ID_MIN)) return pruneMonumentTrees(cands, route, opts)
+	const tree = opts.tree ?? NETWORK_OBELISK_TREE_ENABLED
+	if (tree && cands.some((c) => c.a.id >= NETWORK_OBELISK_ID_MIN || c.b.id >= NETWORK_OBELISK_ID_MIN)) return pruneObeliskTrees(cands, route, opts)
 	return pruneFlat(cands, route, opts.fireRule ?? NETWORK_FIRE_LINK_RULE_ENABLED)
 }
 
@@ -881,31 +813,28 @@ export function pruneNetwork(
  * Topology prune for one fire-fire pair a-b (ab = squared length). `na` / `nb` map each
  * node's candidate neighbours to squared distance. true = the link is not kept (it may
  * still come back through the reconnect step if it is needed to join two pieces).
- *   rng / gabriel: some third fire c blocks it (lune / circle rule, see NETWORK_TOPOLOGY)
- *   dense: every pair within NETWORK_DENSE_RANGE_M links, except a near-duplicate: a third
- *     fire c closer to both ends that sits (nearly) on the way, so a-c and c-b leave the
- *     ends within NETWORK_DENSE_COLLINEAR_DEG of the a-b line (a-b would just run beside them).
+ * Every pair within NETWORK_DENSE_RANGE_M links, except a near-duplicate: a third
+ * fire c closer to both ends that sits (nearly) on the way, so a-c and c-b leave the
+ * ends within NETWORK_DENSE_COLLINEAR_DEG of the a-b line (a-b would just run beside them).
  */
 function topologyBlocked(
 	a: FireNode, b: FireNode, ab: number,
 	na: ReadonlyMap<number, number>, nb: ReadonlyMap<number, number>,
 	posOf: (id: number) => FireNode | undefined,
 ): boolean {
-	if (NETWORK_TOPOLOGY === 'dense' && ab > NETWORK_DENSE_RANGE_M ** 2) return true
+	if (ab > NETWORK_DENSE_RANGE_M ** 2) return true
 	for (const [k, ac] of na) {
 		if (k === b.id) continue
 		const bc = nb.get(k)
 		if (bc === undefined) continue
-		if (NETWORK_TOPOLOGY === 'dense') {
-			if (ac >= ab || bc >= ab) continue
-			const c = posOf(k)
-			if (!c || ac < 1e-6 || bc < 1e-6 || ab < 1e-6) continue
-			const ux = b.x - a.x, uz = b.z - a.z
-			const cosA = ((c.x - a.x) * ux + (c.z - a.z) * uz) / Math.sqrt(ac * ab)
-			const cosB = ((c.x - b.x) * -ux + (c.z - b.z) * -uz) / Math.sqrt(bc * ab)
-			const cosT = Math.cos((NETWORK_DENSE_COLLINEAR_DEG * Math.PI) / 180)
-			if (cosA > cosT && cosB > cosT) return true
-		} else if (NETWORK_TOPOLOGY === 'gabriel' ? ac + bc < ab : Math.max(ac, bc) < ab) return true
+		if (ac >= ab || bc >= ab) continue
+		const c = posOf(k)
+		if (!c || ac < 1e-6 || bc < 1e-6 || ab < 1e-6) continue
+		const ux = b.x - a.x, uz = b.z - a.z
+		const cosA = ((c.x - a.x) * ux + (c.z - a.z) * uz) / Math.sqrt(ac * ab)
+		const cosB = ((c.x - b.x) * -ux + (c.z - b.z) * -uz) / Math.sqrt(bc * ab)
+		const cosT = Math.cos((NETWORK_DENSE_COLLINEAR_DEG * Math.PI) / 180)
+		if (cosA > cosT && cosB > cosT) return true
 	}
 	return false
 }
@@ -932,7 +861,7 @@ function pruneFlat(	cands: NetCand[],
 	for (const c of sorted) {
 		const ab = d2(c)
 		const na = adj.get(c.a.id)!, nb = adj.get(c.b.id)!
-		if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (c.a.id >= NETWORK_MONUMENT_ID_MIN || c.b.id >= NETWORK_MONUMENT_ID_MIN)) { pruned.push(c); continue }
+		if (NETWORK_OBELISK_LINKS_KEEP_ALL && (c.a.id >= NETWORK_OBELISK_ID_MIN || c.b.id >= NETWORK_OBELISK_ID_MIN)) { pruned.push(c); continue }
 		if (!topologyBlocked(c.a, c.b, ab, na, nb, (k) => pos.get(k))) pruned.push(c)
 	}
 	// 2. route
@@ -944,19 +873,17 @@ function pruneFlat(	cands: NetCand[],
 	const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p) } return p }
 	const unite = (x: number, y: number) => parent.set(find(x), find(y))
 	for (const k of kept) unite(k.cand.a.id, k.cand.b.id)
-	if (NETWORK_RECONNECT_ENABLED) {
-		for (const c of sorted) {
-			if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
-			const r = route(c)
-			if (!r) continue
-			kept.push({ cand: c, route: r }); keptKeys.add(c.key)
-			unite(c.a.id, c.b.id)
-		}
+	for (const c of sorted) {
+		if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
+		const r = route(c)
+		if (!r) continue
+		kept.push({ cand: c, route: r }); keptKeys.add(c.key)
+		unite(c.a.id, c.b.id)
 	}
-	// 3b. Fire-link rule: a fire whose only kept links go to monuments gets
+	// 3b. Fire-link rule: a fire whose only kept links go to obelisks gets
 	// its shortest routable fire-to-fire candidate back (a fire may be
-	// monument-only only when it is a network of one). Hearth counts.
-	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	// obelisk-only only when it is a network of one). Hearth counts.
+	const isMon = (id: number) => id >= NETWORK_OBELISK_ID_MIN
 	const fireLinksOf = (id: number, list: typeof kept) => list.filter((k) => (k.cand.a.id === id || k.cand.b.id === id) && !isMon(k.cand.a.id) && !isMon(k.cand.b.id)).length
 	if (fireRule) {
 		const ids = new Set<number>()
@@ -978,9 +905,9 @@ function pruneFlat(	cands: NetCand[],
 
 /** Step 4: parallel drop (bridge-safe). Links in `protect` (tree links) are never dropped. */
 function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<string>): KeptLink[] {
-	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	const isMon = (id: number) => id >= NETWORK_OBELISK_ID_MIN
 	const fireLinksOf = (id: number, list: typeof kept) => list.filter((k) => (k.cand.a.id === id || k.cand.b.id === id) && !isMon(k.cand.a.id) && !isMon(k.cand.b.id)).length
-	if (NETWORK_PARALLEL_DROP_ENABLED && kept.length > 1) {
+	if (kept.length > 1) {
 		const order = [...kept].sort((p, q) => q.route.lengthM - p.route.lengthM || (p.cand.key < q.cand.key ? -1 : 1))
 		const alive = new Set(kept)
 		const connectedWithout = (skip: typeof kept[number]): boolean => {
@@ -997,7 +924,7 @@ function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<
 			}
 			return false
 		}
-		// Never drop a fire's last fire-to-fire link while it also feeds a monument.
+		// Never drop a fire's last fire-to-fire link while it also feeds an obelisk.
 		const fireRuleNeeds = (e: typeof kept[number]): boolean => {
 			if (!fireRule || isMon(e.cand.a.id) || isMon(e.cand.b.id)) return false
 			const left = [...alive].filter((k) => k !== e)
@@ -1015,7 +942,7 @@ function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<
 		const boxes = new Map(kept.map((k) => [k, bbox(k.route)]))
 		const pad = NETWORK_PARALLEL_NEAR_M
 		for (const e of order) {
-			if (NETWORK_MONUMENT_LINKS_KEEP_ALL && (isMon(e.cand.a.id) || isMon(e.cand.b.id))) continue
+			if (NETWORK_OBELISK_LINKS_KEEP_ALL && (isMon(e.cand.a.id) || isMon(e.cand.b.id))) continue
 			if (protect.has(e.cand.key)) continue
 			const be = boxes.get(e)!
 			let worst = 0, crosses = false
@@ -1024,7 +951,7 @@ function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<
 				const bo = boxes.get(o)!
 				if (bo.x0 - pad > be.x1 || be.x0 - pad > bo.x1 || bo.z0 - pad > be.z1 || be.z0 - pad > bo.z1) continue
 				worst = Math.max(worst, parallelFraction(e.route, e.cand.a, e.cand.b, o.route))
-				if (NETWORK_CROSS_DROP_ENABLED && routesCross(e.cand, e.route, o.cand, o.route)) crosses = true
+				if (routesCross(e.cand, e.route, o.cand, o.route)) crosses = true
 				if (worst > NETWORK_PARALLEL_FRAC || crosses) break
 			}
 			if ((worst > NETWORK_PARALLEL_FRAC || crosses) && connectedWithout(e) && !fireRuleNeeds(e)) alive.delete(e)
@@ -1034,20 +961,20 @@ function dropParallel(kept: KeptLink[], fireRule: boolean, protect: ReadonlySet<
 	return kept
 }
 
-// MARK: Monument trees
+// MARK: Obelisk trees
 /**
- * Monument trees (floating crystals). Near a monument the network is a
+ * Obelisk trees (floating crystals). Near an obelisk the network is a
  * forest, never a web:
- *   hop 1  fires with a routable charge link (fire -> monument, all kept).
- *          They link ONLY to the monument: no fire-fire link to another
+ *   hop 1  fires with a routable charge link (fire -> obelisk, all kept).
+ *          They link ONLY to the obelisk: no fire-fire link to another
  *          hop-1 fire.
- *   hop 2+ a fire out of monument range links to exactly ONE parent: the
- *          nearest routable fire that is closer to a monument and keeps it
+ *   hop 2+ a fire out of obelisk range links to exactly ONE parent: the
+ *          nearest routable fire that is closer to an obelisk and keeps it
  *          within the charge chain (hop <= 1 + NETWORK_TREE_FIRE_HOPS), so
  *          its tree depth equals its chain-charging hop. RNG neighbours are
  *          tried first and a parent whose route would cross an already-kept
  *          route loses to one that does not (when one is among the nearest
- *          few). Closer-to-a-monument makes cycles impossible.
+ *          few). Closer-to-a-obelisk makes cycles impossible.
  *   rest   fires outside every tree (hearth, too far from the chain, far
  *          fires) keep the RNG + reconnect network, and join a tree only
  *          through the reconnect step (union-find: never closes a cycle).
@@ -1058,14 +985,6 @@ export const NETWORK_TREE_FIRE_HOPS = 2
 export const NETWORK_TREE_PARENT_TRIES = 6
 /** Crossings this close (m) to a node both routes end at are not counted (routes always meet at fires). */
 export const NETWORK_CROSS_END_SKIP_M = 5
-/**
- * Monument clusters (Luke: the fires that feed a monument must visibly support one another). Every fire with a charge link
- * (hop 1, within MONUMENT_LINK_RANGE_M of its monument) also links to its nearest OTHER fires of the same monument: at least 1
- * and up to NETWORK_CLUSTER_LINKS_WANT, whenever a valid route exists at all. These links skip the dense-topology near-duplicate
- * prune, the parallel drop and the cross drop (a crossing-free route is only preferred), but still use routeFireLink (walls, lava,
- * ladders, detour budget). They only join hop-1 fires, so chain hops (and charging) never change. false = trees only.
- */
-export const NETWORK_CLUSTER_LINKS_ENABLED = true
 export const NETWORK_CLUSTER_LINKS_WANT = 2
 /** Neighbours routed (nearest first, held links first) per fire while looking for crossing-free cluster links. */
 export const NETWORK_CLUSTER_TRIES = 6
@@ -1110,13 +1029,13 @@ export function countRouteCrossings(kept: ReadonlyArray<{ cand: NetCand; route: 
 	return n
 }
 
-function pruneMonumentTrees(
+function pruneObeliskTrees(
 	cands: NetCand[],
 	route: (c: NetCand) => FireLinkRoute | null,
 	opts: PruneOptions,
 ): KeptLink[] {
 	const held = opts.held
-	const isMon = (id: number) => id >= NETWORK_MONUMENT_ID_MIN
+	const isMon = (id: number) => id >= NETWORK_OBELISK_ID_MIN
 	const d2 = (c: NetCand) => (c.a.x - c.b.x) ** 2 + (c.a.z - c.b.z) ** 2
 	const sorted = [...cands].sort((p, q) => d2(p) - d2(q) || (p.key < q.key ? -1 : 1))
 	const kept: KeptLink[] = []
@@ -1127,10 +1046,10 @@ function pruneMonumentTrees(
 		if (tree) protect.add(c.key)
 	}
 
-	// Monument centres: given, else the mean of the link ends seen for that monument.
+	// Obelisk centres: given, else the mean of the link ends seen for that obelisk.
 	const centre = new Map<number, { x: number; z: number; n: number }>()
-	for (const m of opts.monuments ?? []) centre.set(m.id, { x: m.x, z: m.z, n: 1 })
-	if (!opts.monuments) {
+	for (const m of opts.obelisks ?? []) centre.set(m.id, { x: m.x, z: m.z, n: 1 })
+	if (!opts.obelisks) {
 		for (const c of cands) {
 			const e = isMon(c.a.id) ? c.a : isMon(c.b.id) ? c.b : null
 			if (!e) continue
@@ -1144,7 +1063,7 @@ function pruneMonumentTrees(
 		return best
 	}
 
-	// 1. Monument links: every routable one (hop 1).
+	// 1. Obelisk links: every routable one (hop 1).
 	const hop = new Map<number, number>()
 	for (const c of sorted) {
 		if (!isMon(c.a.id) && !isMon(c.b.id)) continue
@@ -1176,8 +1095,8 @@ function pruneMonumentTrees(
 		if (!topologyBlocked(c.a, c.b, ab, na, nb, (k) => firesById.get(k))) rng.add(c.key)
 	}
 
-	// 2. Relays: closest-to-the-monument first, each links ONE parent: the nearest fire
-	// that is closer to a monument and still inside the chain (hop <= 1 + NETWORK_TREE_FIRE_HOPS
+	// 2. Relays: closest-to-the-obelisk first, each links ONE parent: the nearest fire
+	// that is closer to an obelisk and still inside the chain (hop <= 1 + NETWORK_TREE_FIRE_HOPS
 	// once this fire joins). Closer-than-me makes cycles impossible. Candidates on the RNG come
 	// first, then the nearest crossing-free route of the first few (else the nearest).
 	// The hearth never relays charge, so it is never a tree node.
@@ -1214,66 +1133,62 @@ function pruneMonumentTrees(
 	}
 	// Reconnect split components (shortest first). Tree-to-tree joins are not made: a
 	// link needs a fire outside the trees at one end, and union-find never closes a cycle.
-	if (NETWORK_RECONNECT_ENABLED) {
-		const parent = new Map<number, number>()
-		const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p) } return p }
-		const unite = (x: number, y: number) => parent.set(find(x), find(y))
-		for (const k of kept) unite(k.cand.a.id, k.cand.b.id)
-		for (const allowCross of [false, true]) for (const c of ff) {
-			if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
-			if (hop.has(c.a.id) && hop.has(c.b.id)) continue
-			const r = route(c)
-			if (!r || (!allowCross && crossesKept(c, r))) continue
-			add(c, r, false)
-			unite(c.a.id, c.b.id)
+	const parent = new Map<number, number>()
+	const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p) } return p }
+	const unite = (x: number, y: number) => parent.set(find(x), find(y))
+	for (const k of kept) unite(k.cand.a.id, k.cand.b.id)
+	for (const allowCross of [false, true]) for (const c of ff) {
+		if (keptKeys.has(c.key) || find(c.a.id) === find(c.b.id)) continue
+		if (hop.has(c.a.id) && hop.has(c.b.id)) continue
+		const r = route(c)
+		if (!r || (!allowCross && crossesKept(c, r))) continue
+		add(c, r, false)
+		unite(c.a.id, c.b.id)
+	}
+	// 4. Obelisk clusters: every hop-1 fire links its nearest other hop-1 fires of the same obelisk (>= 1, ideally 2).
+	// Protected (never dropped by the forest / parallel / cross rules). Held links first so lighting a fire never re-links a working pair.
+	const groups = new Map<number, FireNode[]>()
+	const fireLinks = new Map<number, number>()
+	for (const k of kept) {
+		const am = isMon(k.cand.a.id), bm = isMon(k.cand.b.id)
+		if (am || bm) {
+			const m = am ? k.cand.a : k.cand.b, f = am ? k.cand.b : k.cand.a
+			const l = groups.get(m.id); if (l) l.push(f); else groups.set(m.id, [f])
+		} else if (hop.get(k.cand.a.id) === 1 && hop.get(k.cand.b.id) === 1) {
+			// only links between two charging fires count (a relay child does not make a ring)
+			fireLinks.set(k.cand.a.id, (fireLinks.get(k.cand.a.id) ?? 0) + 1)
+			fireLinks.set(k.cand.b.id, (fireLinks.get(k.cand.b.id) ?? 0) + 1)
 		}
 	}
-	// 4. Monument clusters: every hop-1 fire links its nearest other hop-1 fires of the same monument (>= 1, ideally 2).
-	// Protected (never dropped by the forest / parallel / cross rules). Held links first so lighting a fire never re-links a working pair.
-	if (NETWORK_CLUSTER_LINKS_ENABLED) {
-		const groups = new Map<number, FireNode[]>()
-		const fireLinks = new Map<number, number>()
-		for (const k of kept) {
-			const am = isMon(k.cand.a.id), bm = isMon(k.cand.b.id)
-			if (am || bm) {
-				const m = am ? k.cand.a : k.cand.b, f = am ? k.cand.b : k.cand.a
-				const l = groups.get(m.id); if (l) l.push(f); else groups.set(m.id, [f])
-			} else if (hop.get(k.cand.a.id) === 1 && hop.get(k.cand.b.id) === 1) {
-				// only links between two charging fires count (a relay child does not make a ring)
-				fireLinks.set(k.cand.a.id, (fireLinks.get(k.cand.a.id) ?? 0) + 1)
-				fireLinks.set(k.cand.b.id, (fireLinks.get(k.cand.b.id) ?? 0) + 1)
+	const bump = (c: NetCand) => { fireLinks.set(c.a.id, (fireLinks.get(c.a.id) ?? 0) + 1); fireLinks.set(c.b.id, (fireLinks.get(c.b.id) ?? 0) + 1) }
+	for (const [mid, fires] of [...groups].sort((p, q) => p[0] - q[0])) {
+		const inGroup = new Set(fires.map((f) => f.id))
+		const mc = centre.get(mid)
+		const dm = (f: FireNode) => (mc ? Math.hypot(f.x - mc.x / mc.n, f.z - mc.z / mc.n) : 0)
+		for (const f of [...fires].sort((p, q) => dm(p) - dm(q) || p.id - q.id)) {
+			let need = NETWORK_CLUSTER_LINKS_WANT - (fireLinks.get(f.id) ?? 0)
+			if (need <= 0) continue
+			const ps = (nbr.get(f.id) ?? [])
+				.filter((e) => inGroup.has(e.o.id) && !keptKeys.has(e.c.key))
+				.sort((p, q) => isHeld(q) - isHeld(p) || d2(p.c) - d2(q.c) || (p.c.key < q.c.key ? -1 : 1))
+			let tried = 0
+			let fallback: { c: NetCand; r: FireLinkRoute } | null = null
+			for (const e of ps) {
+				if (need <= 0 || tried >= NETWORK_CLUSTER_TRIES) break
+				const r = route(e.c)
+				if (!r) continue
+				tried++
+				if (crossesKept(e.c, r)) { if (!fallback) fallback = { c: e.c, r }; continue }
+				add(e.c, r, true); bump(e.c); need--
 			}
-		}
-		const bump = (c: NetCand) => { fireLinks.set(c.a.id, (fireLinks.get(c.a.id) ?? 0) + 1); fireLinks.set(c.b.id, (fireLinks.get(c.b.id) ?? 0) + 1) }
-		for (const [mid, fires] of [...groups].sort((p, q) => p[0] - q[0])) {
-			const inGroup = new Set(fires.map((f) => f.id))
-			const mc = centre.get(mid)
-			const dm = (f: FireNode) => (mc ? Math.hypot(f.x - mc.x / mc.n, f.z - mc.z / mc.n) : 0)
-			for (const f of [...fires].sort((p, q) => dm(p) - dm(q) || p.id - q.id)) {
-				let need = NETWORK_CLUSTER_LINKS_WANT - (fireLinks.get(f.id) ?? 0)
-				if (need <= 0) continue
-				const ps = (nbr.get(f.id) ?? [])
-					.filter((e) => inGroup.has(e.o.id) && !keptKeys.has(e.c.key))
-					.sort((p, q) => isHeld(q) - isHeld(p) || d2(p.c) - d2(q.c) || (p.c.key < q.c.key ? -1 : 1))
-				let tried = 0
-				let fallback: { c: NetCand; r: FireLinkRoute } | null = null
-				for (const e of ps) {
-					if (need <= 0 || tried >= NETWORK_CLUSTER_TRIES) break
-					const r = route(e.c)
-					if (!r) continue
-					tried++
-					if (crossesKept(e.c, r)) { if (!fallback) fallback = { c: e.c, r }; continue }
-					add(e.c, r, true); bump(e.c); need--
-				}
-				// At least one fire-fire link: accept a crossing route when nothing crossing-free was found.
-				if ((fireLinks.get(f.id) ?? 0) === 0 && fallback) { add(fallback.c, fallback.r, true); bump(fallback.c) }
-			}
+			// At least one fire-fire link: accept a crossing route when nothing crossing-free was found.
+			if ((fireLinks.get(f.id) ?? 0) === 0 && fallback) { add(fallback.c, fallback.r, true); bump(fallback.c) }
 		}
 	}
 
-	// Any component that holds a monument or a tree fire is made a forest: its non-tree links
+	// Any component that holds an obelisk or a tree fire is made a forest: its non-tree links
 	// (RNG / reconnect, shortest first) only stay if they join two separate pieces, so a relay
-	// that also sits in a loop of outside links never closes a cycle near a monument.
+	// that also sits in a loop of outside links never closes a cycle near an obelisk.
 	const comp = new Map<number, number>()
 	const cf = (x: number): number => { let p = comp.get(x) ?? x; if (p !== x) { p = cf(p); comp.set(x, p) } return p }
 	for (const k of kept) comp.set(cf(k.cand.a.id), cf(k.cand.b.id))

@@ -1,6 +1,8 @@
 # Snow Layer Rewrite — implementer spec
 
-*Written 2026-09-23. Supersedes §6 of [`optimization-branch-handoff.md`](optimization-branch-handoff.md). Branch: `optimization`. Revert point: tag `pre-paint-rewrite`.*
+> **Status 2026-10-29: implemented and superseded by the code.** This is the 2026-09-23 plan for the snow-layer rewrite (then called "paint"). The rewrite shipped and the modules were renamed: the spec's `paint*`, `maze/*`, `palette` and `team` files no longer exist. The current snow code is `src/shared/snowGrid.ts`, `snowJoin.ts`, `src/server/snowState.ts`, `snowSync.ts` and `src/client/snow/*` (`snowRenderer.ts`, `snowModel.ts`, `snowBrush.ts`, `snowQuery.ts`). The world is now the 52 x 52 parcel scene with profiles (`src/shared/settings.ts`, [`../docs/HANDOFF.md`](../docs/HANDOFF.md)), not the 992 m grid in section 3. Kept for the reasoning behind the design; where it disagrees with the code, the code wins.
+
+*Written 2026-09-23. Supersedes §6 of [`optimization-branch-handoff.md`](archive/optimization-branch-handoff.md). Branch: `optimization`. Revert point: tag `pre-paint-rewrite`.*
 
 ---
 

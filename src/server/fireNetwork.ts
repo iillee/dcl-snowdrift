@@ -5,8 +5,8 @@
  * RNG pairs within range (src/shared/fireNetwork.ts), route each pair on
  * the terrain grid. New links melt + path-protect their snow cells outward
  * from both fires over NETWORK_MELT_S. A link whose fire went out (or that
- * the graph dropped) retreats its protection over NETWORK_REFREEZE_S from
- * the dead end; released cells keep their stage and regrow with weather.
+ * the graph dropped) releases its protection at once; released cells keep their
+ * stage and regrow with weather.
  *
  * Broadcast: fireLinkState { a, b, ax, az, bx, bz, state, ageMs, deadA, deadB }
  * per change; joiners get every live / retreating link.
@@ -21,15 +21,11 @@ import {
 	FireNode,
 	NETWORK_HEARTH_ID,
 	NETWORK_MELT_S,
-	NETWORK_REFREEZE_S,
-	NETWORK_PATH_REFREEZE_ENABLED,
 	NETWORK_TICK_S,
 	NETWORK_LINK_RANGE_M,
-	NETWORK_TOPOLOGY,
 	NetCand,
 	linkFullyVisibleS,
 	linkKey,
-	pickLinkPairs,
 	pruneNetwork,
 	routeFireLink,
 } from 'src/shared/fireNetwork'
@@ -42,9 +38,9 @@ import { getMainFireFuel } from 'src/server/hearthFuel'
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
 import { meltPathCell, releasePathCell } from 'src/server/snowState'
 import { setLinkedEdges, setLinkedFireIds, setVisibleEdges } from 'src/server/fireNetworkLinks'
-import { getChargePairs, setMonumentLinks } from 'src/server/chargeLinks'
+import { getChargePairs, setObeliskLinks } from 'src/server/chargeLinks'
 import { recordFireNetworks } from 'src/server/leaderboard'
-import { MONUMENT_NODE_ID_BASE, isMonumentNodeId } from 'src/shared/ruleset'
+import { OBELISK_NODE_ID_BASE, isObeliskNodeId } from 'src/shared/ruleset'
 import { cellCenterWorld } from 'src/shared/terrain/terrainMap'
 
 
@@ -68,7 +64,7 @@ const links = new Map<string, Link>()
 /** Route cache by pair key (terrain is fixed for a cycle). null = no route. */
 const routeCache = new Map<string, FireLinkRoute | null>()
 let litSig = ''
-/** Charge links: chosen monument end per pair key (null = none routes). */
+/** Charge links: chosen obelisk end per pair key (null = none routes). */
 const chargeEndCache = new Map<string, FireNode | null>()
 /** Route cache key: ids + end positions (slots are reused by new fires elsewhere). */
 function routeKey(a: FireNode, b: FireNode): string {
@@ -107,29 +103,29 @@ function litNodes(): FireNode[] {
 
 function publishLinkedIds(): void {
 	const ids: number[] = []
-	// Charge links (fire -> monument) are visual + snow + warmth only:
+	// Charge links (fire -> obelisk) are visual + snow + warmth only:
 	// never in shared fuel or the linked-fire burn multiplier.
-	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id)) ids.push(l.a.id, l.b.id)
+	for (const l of links.values()) if (l.brokeMs === 0 && !isObeliskNodeId(l.b.id)) ids.push(l.a.id, l.b.id)
 	setLinkedFireIds(ids)
 	const pairs: [number, number][] = []
-	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id)) pairs.push([l.a.id, l.b.id])
+	for (const l of links.values()) if (l.brokeMs === 0 && !isObeliskNodeId(l.b.id)) pairs.push([l.a.id, l.b.id])
 	setLinkedEdges(pairs)
 	// Charging only counts links whose trail is fully drawn on clients
-	// (connectedAt = startMs + linkFullyVisibleS): monument links + chain edges.
+	// (connectedAt = startMs + linkFullyVisibleS): obelisk links + chain edges.
 	const now = Date.now()
-	const shown = (l: Link) => now - l.startMs >= linkFullyVisibleS(isMonumentNodeId(l.b.id)) * 1000
+	const shown = (l: Link) => now - l.startMs >= linkFullyVisibleS(isObeliskNodeId(l.b.id)) * 1000
 	const vis: [number, number][] = []
-	for (const l of links.values()) if (l.brokeMs === 0 && !isMonumentNodeId(l.b.id) && shown(l)) vis.push([l.a.id, l.b.id])
+	for (const l of links.values()) if (l.brokeMs === 0 && !isObeliskNodeId(l.b.id) && shown(l)) vis.push([l.a.id, l.b.id])
 	setVisibleEdges(vis)
 	recordFireNetworks(litNodes().map((n) => n.id), vis) // leaderboard: biggest connected network
 	const mon = new Map<number, Set<number>>()
 	for (const l of links.values()) {
-		if (l.brokeMs !== 0 || !isMonumentNodeId(l.b.id) || !shown(l)) continue
+		if (l.brokeMs !== 0 || !isObeliskNodeId(l.b.id) || !shown(l)) continue
 		let s = mon.get(l.b.id)
 		if (!s) { s = new Set(); mon.set(l.b.id, s) }
 		s.add(l.a.id - 1)
 	}
-	setMonumentLinks(mon)
+	setObeliskLinks(mon)
 }
 
 
@@ -155,10 +151,10 @@ function evaluate(): void {
 	const map = activeTerrain()
 	if (!map) return
 	const nodes = litNodes()
-	// Floating crystals: each charging fire also links to its monument
+	// Floating crystals: each charging fire also links to its obelisk
 	// (end node on the pit edge facing that fire). pruneNetwork keeps every
 	// routable one and builds a tree under it (direct fires link only the
-	// monument; relays link one parent), see pruneMonumentTrees.
+	// obelisk; relays link one parent), see pruneObeliskTrees.
 	const charge = getChargePairs()
 	const sig = nodes.map((n) => `${n.id}@${n.x.toFixed(1)},${n.z.toFixed(1)}`).join(',') + '|' + charge.map((p) => `${p.slot}>${p.mon}`).join(',')
 	const litIds = new Set(nodes.map((n) => n.id))
@@ -169,7 +165,7 @@ function evaluate(): void {
 		// Links already held stay while both fires are lit (hysteresis):
 		// the RNG only decides NEW links, so lighting a third fire never
 		// drops a working path (the old V-shape bug).
-		// Charge pairs: first candidate monument end that routes (cached).
+		// Charge pairs: first candidate obelisk end that routes (cached).
 		const chargeNodes: [FireNode, FireNode][] = []
 		for (const p of charge) {
 			if (!litIds.has(p.slot + 1)) continue
@@ -191,44 +187,34 @@ function evaluate(): void {
 		capCache(routeCache)
 		capCache(chargeEndCache)
 		let pairs: [FireNode, FireNode][]
-		if (NETWORK_TOPOLOGY === 'legacy') {
-			// Old: RNG on fires + hysteresis + every charging fire -> monument.
-			pairs = pickLinkPairs(nodes)
-			const have = new Set(pairs.map(([p, q]) => linkKey(p.id, q.id)))
-			for (const cp of chargeNodes) { pairs.push(cp); have.add(linkKey(cp[0].id, cp[1].id)) }
-			for (const l of links.values()) {
-				if (l.brokeMs !== 0 || !litIds.has(l.a.id) || !litIds.has(l.b.id)) continue
-				if (!have.has(linkKey(l.a.id, l.b.id))) { pairs.push([l.a, l.b]); have.add(linkKey(l.a.id, l.b.id)) }
-			}
-		} else {
-			// Streamlined: prune all in-range fire pairs + charge pairs together
-			// (monuments are nodes), reconnect, drop parallel duplicates.
-			const cands: NetCand[] = []
-			const r2 = NETWORK_LINK_RANGE_M * NETWORK_LINK_RANGE_M
-			for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
-				const a = nodes[i], b = nodes[j]
-				if ((a.x - b.x) ** 2 + (a.z - b.z) ** 2 <= r2) cands.push({ a, b, key: linkKey(a.id, b.id) })
-			}
-			for (const [a, b] of chargeNodes) cands.push({ a, b, key: linkKey(a.id, b.id) })
-			const routeOf = (c: NetCand) => {
-				const rk = routeKey(c.a, c.b)
-				let r = routeCache.get(rk)
-				if (r === undefined) { r = routeFireLink(map, c.a, c.b); routeCache.set(rk, r) }
-				return r
-			}
-			// Monument trees: held links are preferred as a relay's parent, so lighting
-			// another fire never re-parents (and re-melts) a working chain.
-			const held = new Set<string>()
-			for (const [hk, hl] of links) if (hl.brokeMs === 0) held.add(hk)
-			const monuments: { id: number; x: number; z: number }[] = []
-			for (const id of new Set(chargeNodes.map((c) => c[1].id))) {
-				const st = map.stations[id - MONUMENT_NODE_ID_BASE]
-				if (st) { const mc = cellCenterWorld(st.cx, st.cz); monuments.push({ id, x: mc.x, z: mc.z }) }
-			}
-			const kept = pruneNetwork(cands, routeOf, { held, monuments: monuments.length ? monuments : undefined })
-			pairs = kept.map((k) => [k.cand.a, k.cand.b])
-			console.log(`[Server] fireNetwork: topology ${NETWORK_TOPOLOGY}: ${nodes.length} fires + ${new Set(chargeNodes.map((c) => c[1].id)).size} monuments, ${cands.length} candidates -> ${pairs.length} links`)
-		}		for (const [a, b] of pairs) {
+		// Streamlined: prune all in-range fire pairs + charge pairs together
+		// (obelisks are nodes), reconnect, drop parallel duplicates.
+		const cands: NetCand[] = []
+		const r2 = NETWORK_LINK_RANGE_M * NETWORK_LINK_RANGE_M
+		for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+			const a = nodes[i], b = nodes[j]
+			if ((a.x - b.x) ** 2 + (a.z - b.z) ** 2 <= r2) cands.push({ a, b, key: linkKey(a.id, b.id) })
+		}
+		for (const [a, b] of chargeNodes) cands.push({ a, b, key: linkKey(a.id, b.id) })
+		const routeOf = (c: NetCand) => {
+			const rk = routeKey(c.a, c.b)
+			let r = routeCache.get(rk)
+			if (r === undefined) { r = routeFireLink(map, c.a, c.b); routeCache.set(rk, r) }
+			return r
+		}
+		// Obelisk trees: held links are preferred as a relay's parent, so lighting
+		// another fire never re-parents (and re-melts) a working chain.
+		const held = new Set<string>()
+		for (const [hk, hl] of links) if (hl.brokeMs === 0) held.add(hk)
+		const obelisks: { id: number; x: number; z: number }[] = []
+		for (const id of new Set(chargeNodes.map((c) => c[1].id))) {
+			const st = map.stations[id - OBELISK_NODE_ID_BASE]
+			if (st) { const mc = cellCenterWorld(st.cx, st.cz); obelisks.push({ id, x: mc.x, z: mc.z }) }
+		}
+		const kept = pruneNetwork(cands, routeOf, { held, obelisks: obelisks.length ? obelisks : undefined })
+		pairs = kept.map((k) => [k.cand.a, k.cand.b])
+		console.log(`[Server] fireNetwork: topology dense: ${nodes.length} fires + ${new Set(chargeNodes.map((c) => c[1].id)).size} obelisks, ${cands.length} candidates -> ${pairs.length} links`)
+		for (const [a, b] of pairs) {
 			const k = linkKey(a.id, b.id)
 			const rk = routeKey(a, b)
 			let r = routeCache.get(rk)
@@ -238,13 +224,13 @@ function evaluate(): void {
 			want.add(k)
 			const cur = links.get(k)
 			// Same ids AND same end positions = the same link (keep it). A slot
-			// reused by a new built fire elsewhere, or a monument end that moved,
+			// reused by a new built fire elsewhere, or an obelisk end that moved,
 			// is a NEW link (the old route would end at the old spot).
 			if (cur && cur.brokeMs === 0 && sameEnds(cur, a, b)) continue
 			// New link (or a retreating one relit): restart the melt.
 			const L = r.lengthM
-			// Charge links (fire -> monument): melt only from the fire end.
-			const oneWay = isMonumentNodeId(b.id)
+			// Charge links (fire -> obelisk): melt only from the fire end.
+			const oneWay = isObeliskNodeId(b.id)
 			const md = (t: number) => (oneWay ? t : Math.min(t, L - t))
 			const order = r.cells.map((_, i) => i).sort((i, j) => md(r!.cells[i].t) - md(r!.cells[j].t))
 			const l: Link = { a, b, route: r, startMs: Date.now(), brokeMs: 0, deadA: false, deadB: false, meltOrder: order, melted: 0, released: new Set(), held: new Set() }
@@ -276,8 +262,8 @@ function step(): void {
 		const L = Math.max(1, l.route.lengthM)
 		if (l.brokeMs === 0) {
 			// Melt outward from both fires; keep re-asserting held cells cheaply.
-			// Charge links run one way (fire end -> monument) at the same speed.
-			const oneWay = isMonumentNodeId(l.b.id)
+			// Charge links run one way (fire end -> obelisk) at the same speed.
+			const oneWay = isObeliskNodeId(l.b.id)
 			const reach = (oneWay ? L : L / 2) * Math.min(1, (now - l.startMs) / (NETWORK_MELT_S * (oneWay ? 2000 : 1000)))
 			while (l.melted < l.meltOrder.length) {
 				const c = cells[l.meltOrder[l.melted]]
@@ -289,12 +275,11 @@ function step(): void {
 			continue
 		}
 		// Retreat from the dead end(s).
-		const u = NETWORK_PATH_REFREEZE_ENABLED ? Math.min(1, (now - l.brokeMs) / (NETWORK_REFREEZE_S * 1000)) : 1
 		for (let i = 0; i < cells.length; i++) {
 			if (l.released.has(i)) continue
 			const c = cells[i]
 			const fromDead = l.deadA && l.deadB ? Math.min(c.t, L - c.t) / (L / 2) : l.deadA ? c.t / L : (L - c.t) / L
-			if (fromDead <= u) { if (l.held.has(i)) releasePathCell(c.key, c.cap); l.released.add(i) }
+			if (fromDead <= 1) { if (l.held.has(i)) releasePathCell(c.key, c.cap); l.released.add(i) }
 		}
 		if (l.released.size >= cells.length) links.delete(k)
 	}

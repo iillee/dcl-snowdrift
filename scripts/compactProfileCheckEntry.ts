@@ -1,8 +1,8 @@
 /**
- * compactProfileCheck - the world-profile envelope (settings.WORLD_PROFILE_SPEC): monument count, no volcano, role distances
+ * compactProfileCheck - the world-profile envelope (settings.WORLD_PROFILE_SPEC): obelisk count, no volcano, role distances
  * (A introduction / B exploration / C expedition), wood, travel times, the 3-node finale (ring, camera framing, late joiner),
  * the 3/3 charge + release model, leaderboard separation per profile and dev-trigger safety. Runs for every profile: the
- * compact_3 assertions fire only for compact_3; the standard profiles assert they are UNCHANGED (6 monuments, a volcano, the
+ * compact_3 assertions fire only for compact_3; the standard profiles assert they are UNCHANGED (6 obelisks, a volcano, the
  * standard board key). Bundled by scripts/compactProfileCheck.mjs. Usage: node scripts/compactProfileCheck.mjs [seedCount]
  */
 import { readFileSync } from 'fs'
@@ -15,18 +15,18 @@ import { crystalFloatBottomY } from 'src/shared/crystalFloat'
 import {
 	FINALE_PULSE_RADIUS_M, finaleAvoidZone, finaleBeamProgress, finaleCameraPose, finaleEdgeLengths, finaleEdges, finaleFrameMetric, finaleOrder, finalePoints, finalePoseOpts, finaleTimes,
 } from 'src/shared/finale'
-import { NETWORK_LINK_RANGE_M, NETWORK_MONUMENT_HARD_M, NETWORK_MONUMENT_END_SKIP_M, minDistToCentre, routeFireLink } from 'src/shared/fireNetwork'
+import { NETWORK_LINK_RANGE_M, NETWORK_OBELISK_HARD_M, NETWORK_OBELISK_END_SKIP_M, minDistToCentre, routeFireLink } from 'src/shared/fireNetwork'
 import { HIDDEN_CAMPFIRE_COUNT } from 'src/shared/hiddenCampfire'
 import {
 	LEADERBOARD_BASE_KEY, LEADERBOARD_HEADING, LEADERBOARD_STORAGE_KEY, leaderboardKeyFor, newPlayer, parseStoredBoard, serializeBoard, storedBoardTag,
 } from 'src/shared/leaderboard'
 import {
-	BUILT_FIRE_MAX, CHARGE_REF_DIST_M, CHARGE_RING_M, CHARGE_REF_FIRES, CHARGE_TARGET_S, MONUMENT_COUNT, MONUMENT_DISTANCE_BANDS, MONUMENT_MIN_ANGLE_DEG,
+	BUILT_FIRE_MAX, CHARGE_REF_DIST_M, OBELISK_LINK_RANGE_M, CHARGE_REF_FIRES, CHARGE_TARGET_S, OBELISK_COUNT, OBELISK_DISTANCE_BANDS, OBELISK_MIN_ANGLE_DEG,
 	WOOD_FRONTIER_RING_ACTIVE, WOOD_FRONTIER_ROUTE_ACTIVE, chargeRatePerS,
 } from 'src/shared/ruleset'
 import { hearthDecayRate } from 'src/shared/hearthFuel'
 import {
-	WORLD_CROWD_BURN_COEF, TERRAIN_CELL_M, WORLD_BOARD_SUFFIX, WORLD_HAS_VOLCANO, WORLD_IS_COMPACT, WORLD_MONUMENT_COUNT, WORLD_PROFILE, WORLD_PROFILE_SPEC, WorldProfile,
+	WORLD_CROWD_BURN_COEF, TERRAIN_CELL_M, WORLD_BOARD_SUFFIX, WORLD_HAS_VOLCANO, WORLD_IS_COMPACT, WORLD_OBELISK_COUNT, WORLD_PROFILE, WORLD_PROFILE_SPEC, WorldProfile,
 	TERRAIN_LEVEL_HIGH, TERRAIN_LEVEL_MOUNTAIN, groundYForLevel, isCrownLevel, isMountainLevel, isInsidePlayfield, sceneHeightLimitM,
 } from 'src/shared/settings'
 import { getTerrain, offHearthCellsForMazeSeed } from 'src/shared/terrain/terrainCache'
@@ -55,21 +55,21 @@ const stat = (a: number[]): string => {
 /** Source text with // and block comments removed (for the no-hardcoded-count lint). */
 const code = (path: string): string => readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 
-say(`[${WORLD_PROFILE}] compactProfileCheck seeds=${SEEDS} monuments=${MONUMENT_COUNT} volcano=${WORLD_HAS_VOLCANO} board='${LEADERBOARD_STORAGE_KEY}'`)
+say(`[${WORLD_PROFILE}] compactProfileCheck seeds=${SEEDS} obelisks=${OBELISK_COUNT} volcano=${WORLD_HAS_VOLCANO} board='${LEADERBOARD_STORAGE_KEY}'`)
 
 // ---------- 1. profile spec + standard profiles unchanged ----------
 const spec = WORLD_PROFILE_SPEC[WORLD_PROFILE]
-expect(MONUMENT_COUNT === WORLD_MONUMENT_COUNT && MONUMENT_COUNT === spec.monuments, 'MONUMENT_COUNT does not come from the profile spec')
+expect(OBELISK_COUNT === WORLD_OBELISK_COUNT && OBELISK_COUNT === spec.obelisks, 'OBELISK_COUNT does not come from the profile spec')
 expect(WORLD_HAS_VOLCANO === spec.volcano, 'WORLD_HAS_VOLCANO does not come from the profile spec')
 expect(WORLD_IS_COMPACT === (WORLD_PROFILE === 'compact_3'), 'WORLD_IS_COMPACT wrong')
 expect(WORLD_BOARD_SUFFIX === spec.boardSuffix, 'board suffix does not come from the profile spec')
 if (!WORLD_IS_COMPACT) {
-	expect(MONUMENT_COUNT === 6, `standard profile must keep 6 monuments (got ${MONUMENT_COUNT})`)
+	expect(OBELISK_COUNT === 6, `standard profile must keep 6 obelisks (got ${OBELISK_COUNT})`)
 	expect(WORLD_HAS_VOLCANO, 'standard profile must keep its volcano')
-	expect(MONUMENT_DISTANCE_BANDS.length === 5 && MONUMENT_MIN_ANGLE_DEG === 35, 'standard monument bands / min angle changed')
+	expect(OBELISK_DISTANCE_BANDS.length === 5 && OBELISK_MIN_ANGLE_DEG === 35, 'standard obelisk bands / min angle changed')
 	expect(LEADERBOARD_STORAGE_KEY === 'cryocene.leaderboard.v2' && LEADERBOARD_HEADING === '', 'standard leaderboard key / heading changed')
 } else {
-	expect(MONUMENT_COUNT === 3 && !WORLD_HAS_VOLCANO, 'compact_3 must be 3 monuments, no volcano')
+	expect(OBELISK_COUNT === 3 && !WORLD_HAS_VOLCANO, 'compact_3 must be 3 obelisks, no volcano')
 	expect(CHARGE_TARGET_S === 60, `CHARGE_TARGET_S must stay 60 (got ${CHARGE_TARGET_S})`)
 }
 
@@ -119,13 +119,13 @@ if (!WORLD_IS_COMPACT) {
 	expect(!DEBUG_FINALE_BUTTON && !DEBUG_THAW_BUTTON && !debugFinaleAllowed('0x0000000000000000000000000000000000000001'), 'a dev finale/thaw flag is ON in this build')
 }
 
-// ---------- 3. no hardcoded monument count in finale / progression code ----------
+// ---------- 3. no hardcoded obelisk count in finale / progression code ----------
 {
 	const files = ['src/shared/finale.ts', 'src/client/crystalFinale.ts', 'src/server/stations.ts', 'src/server/snowState.ts', 'src/server/leaderboard.ts', 'src/shared/leaderboard.ts', 'src/client/ui/layers/layer.helpPanel.tsx', 'src/client/ui/layers/layer.leaderboard.tsx']
-	const lit = /\b(released|lit|active|stations?|monuments?|total|count)\w*\s*(>=|===|<=|!==|<|>)\s*[3-9]\b|\b[3-9]\s*(<=|>=|===|!==)\s*(released|lit|stationTotal|getActiveStationCount)\w*/g
+	const lit = /\b(released|lit|active|stations?|obelisks?|total|count)\w*\s*(>=|===|<=|!==|<|>)\s*[3-9]\b|\b[3-9]\s*(<=|>=|===|!==)\s*(released|lit|stationTotal|getActiveStationCount)\w*/g
 	for (const f of files) {
 		const m = code(f).match(lit)
-		expect(!m, `${f}: hard-coded monument count in a comparison: ${m?.slice(0, 3).join(' | ')}`)
+		expect(!m, `${f}: hard-coded obelisk count in a comparison: ${m?.slice(0, 3).join(' | ')}`)
 	}
 }
 
@@ -139,11 +139,11 @@ if (!WORLD_IS_COMPACT) {
 
 // ---------- 4. charge + release + completion model (compact only the real count differs) ----------
 {
-	// 3 fires at the reference distance light a monument in exactly CHARGE_TARGET_S.
+	// 3 fires at the reference distance light an obelisk in exactly CHARGE_TARGET_S.
 	const rate = chargeRatePerS(new Array(CHARGE_REF_FIRES).fill(CHARGE_REF_DIST_M))
 	expect(Math.abs(1 / rate - CHARGE_TARGET_S) < 0.5, `3 reference fires charge in ${(1 / rate).toFixed(1)} s, want ${CHARGE_TARGET_S}`)
-	// Replay of src/server/stations.ts: charge integrates per tick, release at 1, finale only when every monument of the layout is released.
-	const total = MONUMENT_COUNT
+	// Replay of src/server/stations.ts: charge integrates per tick, release at 1, finale only when every obelisk of the layout is released.
+	const total = OBELISK_COUNT
 	const charge = new Array<number>(total).fill(0)
 	const released: boolean[] = new Array<boolean>(total).fill(false)
 	let finaleAt = -1
@@ -156,7 +156,7 @@ if (!WORLD_IS_COMPACT) {
 		}
 		if (released.filter(Boolean).length >= total) finaleAt = t
 		const n = released.filter(Boolean).length
-		if (n < total) expect(finaleAt < 0, 'finale armed before every monument was released')
+		if (n < total) expect(finaleAt < 0, 'finale armed before every obelisk was released')
 	}
 	expect(finaleAt >= 0 && released.every(Boolean), `${total}/${total} never completed`)
 	// partial: released count total-1 must NOT complete
@@ -180,7 +180,7 @@ for (let s = 0; s < SEEDS; s++) {
 	const ms = cycleMazeSeed(seed)
 	const map = getTerrain(ms)
 	const st = map.stations
-	if (st.length !== MONUMENT_COUNT) { seedsShort.push(seed); fail(`seed ${seed}: ${st.length}/${MONUMENT_COUNT} monuments placed`); continue }
+	if (st.length !== OBELISK_COUNT) { seedsShort.push(seed); fail(`seed ${seed}: ${st.length}/${OBELISK_COUNT} obelisks placed`); continue }
 	if (!WORLD_HAS_VOLCANO) {
 		if (map.volcano) { volcanoFound++; fail(`seed ${seed}: volcano present in a no-volcano profile`) }
 		let crown = 0
@@ -197,8 +197,8 @@ for (let s = 0; s < SEEDS; s++) {
 	for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) minSep = Math.min(minSep, Math.hypot(pos[i].x - pos[j].x, pos[i].z - pos[j].z))
 	spacing.push(minSep)
 	for (let i = 0; i < pos.length; i++) {
-		if (!isInsidePlayfield(pos[i].x, pos[i].z)) fail(`seed ${seed}: monument ${i} outside the playfield`)
-		if (map.routeDist[st[i].cz * map.w + st[i].cx] < 0) fail(`seed ${seed}: monument ${i} unreachable from the hearth`)
+		if (!isInsidePlayfield(pos[i].x, pos[i].z)) fail(`seed ${seed}: obelisk ${i} outside the playfield`)
+		if (map.routeDist[st[i].cz * map.w + st[i].cx] < 0) fail(`seed ${seed}: obelisk ${i} unreachable from the hearth`)
 	}
 	// Wood sits ON the terrain, in every profile: scatter Y == the terrain surface == the snow tile base the renderer uses
 	// (groundYForLevel(level), snowRenderer.baseYForTile), never on a wall / outside the playfield, and the snow grid is
@@ -215,8 +215,8 @@ for (let s = 0; s < SEEDS; s++) {
 		}
 		if (buried + onWall + outside > 0) fail(`seed ${seed}: wood chunks off the surface: ${buried} buried/floating, ${onWall} on a wall, ${outside} outside the playfield (of ${total})`)
 	}
-	// Fire-to-fire links go AROUND monuments: fires on opposite sides of each monument (ring distance 9..20 m) must route with the
-	// centreline >= NETWORK_MONUMENT_HARD_M from EVERY monument (own included), except the first / last few metres at the fires.
+	// Fire-to-fire links go AROUND obelisks: fires on opposite sides of each obelisk (ring distance 9..20 m) must route with the
+	// centreline >= NETWORK_OBELISK_HARD_M from EVERY obelisk (own included), except the first / last few metres at the fires.
 	if (s < 16) {
 		for (let mi = 0; mi < pos.length; mi++) {
 			const c = pos[mi]
@@ -231,11 +231,11 @@ for (let s = 0; s < SEEDS; s++) {
 				netPairs++
 				if (!route) { netNull++; continue }
 				tested = true
-				const wouldCross = minDistToCentre([A, B], c, 0) < NETWORK_MONUMENT_HARD_M
+				const wouldCross = minDistToCentre([A, B], c, 0) < NETWORK_OBELISK_HARD_M
 				if (wouldCross) netCrossing++
 				for (const m of pos) for (const r of route.runs) {
-					const d = minDistToCentre(r.pts, m, NETWORK_MONUMENT_END_SKIP_M)
-					if (d < NETWORK_MONUMENT_HARD_M - 1e-6) fail(`seed ${seed}: fire link passes ${d.toFixed(1)} m from a monument centre (hard ${NETWORK_MONUMENT_HARD_M} m) A=${A.x.toFixed(1)},${A.z.toFixed(1)} B=${B.x.toFixed(1)},${B.z.toFixed(1)} mon=${m.x.toFixed(1)},${m.z.toFixed(1)} mi=${mi} run=${JSON.stringify(r.pts.map((q) => [Math.round(q.x * 10) / 10, Math.round(q.z * 10) / 10]))}`)
+					const d = minDistToCentre(r.pts, m, NETWORK_OBELISK_END_SKIP_M)
+					if (d < NETWORK_OBELISK_HARD_M - 1e-6) fail(`seed ${seed}: fire link passes ${d.toFixed(1)} m from an obelisk centre (hard ${NETWORK_OBELISK_HARD_M} m) A=${A.x.toFixed(1)},${A.z.toFixed(1)} B=${B.x.toFixed(1)},${B.z.toFixed(1)} mon=${m.x.toFixed(1)},${m.z.toFixed(1)} mi=${mi} run=${JSON.stringify(r.pts.map((q) => [Math.round(q.x * 10) / 10, Math.round(q.z * 10) / 10]))}`)
 				}
 			}
 		}
@@ -254,14 +254,14 @@ for (let s = 0; s < SEEDS; s++) {
 	if (C.d < 120 || C.r < B.r) fail(`seed ${seed}: C (${C.d.toFixed(0)} m, route ${C.r.toFixed(0)}) is not the expedition (B ${B.d.toFixed(0)} m, route ${B.r.toFixed(0)})`)
 	if (C.d >= B.d) cFarther++
 	if (C.r > 800) fail(`seed ${seed}: C route ${C.r.toFixed(0)} m`)
-	if (minSep < 100) fail(`seed ${seed}: monuments only ${minSep.toFixed(0)} m apart (separate networks need room)`)
+	if (minSep < 100) fail(`seed ${seed}: obelisks only ${minSep.toFixed(0)} m apart (separate networks need room)`)
 	if (C.d > 330) fail(`seed ${seed}: C at ${C.d.toFixed(0)} m is a bottleneck`)
 	// spread of directions (triangle, not a line)
 	const ang = (m: { p: { x: number; z: number } }): number => Math.atan2(m.p.z - hz, m.p.x - hx)
 	const angs = [ang(A), ang(B), ang(C)].sort((a, b) => a - b)
 	const gaps = [angs[1] - angs[0], angs[2] - angs[1], angs[0] + 2 * Math.PI - angs[2]].map((g) => g * 180 / Math.PI)
 	spread.push(Math.min(...gaps))
-	if (Math.min(...gaps) < 50) fail(`seed ${seed}: monuments only ${Math.min(...gaps).toFixed(0)} deg apart as seen from the hearth`)
+	if (Math.min(...gaps) < 50) fail(`seed ${seed}: obelisks only ${Math.min(...gaps).toFixed(0)} deg apart as seen from the hearth`)
 
 	// wood: expected ACTIVE logs (replays server/wood.ts: shuffleTake counts per band / pool size)
 	const wood = computeWoodScatter(seed, offHearthCellsForMazeSeed(ms))
@@ -269,7 +269,7 @@ for (let s = 0; s < SEEDS; s++) {
 	for (const c of wood) pool[c.band] = (pool[c.band] ?? 0) + 1
 	const act: Record<number, number> = {
 		[WOOD_BAND_NEAR]: WOOD_NEAR_ACTIVE, [WOOD_BAND_FAR]: WOOD_FAR_ACTIVE, [WOOD_BAND_OUTER]: WOOD_OUTER_ACTIVE, [WOOD_BAND_DEST]: destWoodActiveTarget(ms),
-		[WOOD_BAND_FRONTIER_ROUTE]: WOOD_FRONTIER_ROUTE_ACTIVE * MONUMENT_COUNT, [WOOD_BAND_FRONTIER_RING]: WOOD_FRONTIER_RING_ACTIVE,
+		[WOOD_BAND_FRONTIER_ROUTE]: WOOD_FRONTIER_ROUTE_ACTIVE * OBELISK_COUNT, [WOOD_BAND_FRONTIER_RING]: WOOD_FRONTIER_RING_ACTIVE,
 	}
 	const w = (band: number): number => (band === WOOD_BAND_TREE || band === WOOD_BAND_ICED_CLUSTER ? 1 : Math.min(1, (act[band] ?? 0) / Math.max(1, pool[band] ?? 1)))
 	const near = (x: number, z: number, r: number): number => wood.reduce((a, c) => a + (Math.hypot(c.worldX - x, c.worldZ - z) <= r ? w(c.band) : 0), 0)
@@ -307,11 +307,11 @@ for (let s = 0; s < SEEDS; s++) {
 }
 
 if (WORLD_IS_COMPACT) {
-	expect(seedsShort.length === 0, `${seedsShort.length}/${SEEDS} seeds did not place 3/3 monuments`)
+	expect(seedsShort.length === 0, `${seedsShort.length}/${SEEDS} seeds did not place 3/3 obelisks`)
 	expect(volcanoFound === 0, 'volcano found')
-	// every role keeps its band over all seeds; A is the most wood-rich on average, C the least rich per monument
+	// every role keeps its band over all seeds; A is the most wood-rich on average, C the least rich per obelisk
 	const mean = (a: number[]): number => a.reduce((p, v) => p + v, 0) / Math.max(1, a.length)
-	expect(Math.min(...woodGuar) >= 5, `a monument has only ${Math.min(...woodGuar)} guaranteed logs within 45 m`)
+	expect(Math.min(...woodGuar) >= 5, `an obelisk has only ${Math.min(...woodGuar)} guaranteed logs within 45 m`)
 	expect(Math.min(...woodA) >= 6 && Math.min(...woodB) >= 4 && Math.min(...woodC) >= 4, `expected active logs within 60 m: min A ${Math.min(...woodA).toFixed(1)} B ${Math.min(...woodB).toFixed(1)} C ${Math.min(...woodC).toFixed(1)}`)
 	expect(mean(woodA) > mean(woodC), `wood roles: A (${mean(woodA).toFixed(1)}) should be richer than C (${mean(woodC).toFixed(1)})`)
 	// camera: the whole triangle (tips + sockets) must be inside the frame (metric <= 1) at every tested aspect on every seed
@@ -327,17 +327,17 @@ if (WORLD_IS_COMPACT) {
 		const mEu = eu.reduce((p, v) => p + v, 0) / eu.length, mRt = arr.reduce((p, v) => p + v, 0) / arr.length
 		say(`  one-way ${lbl} (mean ${mEu.toFixed(0)} m straight .. ${mRt.toFixed(0)} m route): ${spd.map((v) => `${mins(mEu, v)}..${mins(mRt, v)} min @${v} m/s`).join(' | ')}`)
 	}
-	say(`  expected ACTIVE logs within 60 m of monument: A ${stat(woodA)} | B ${stat(woodB)} | C ${stat(woodC)} | guaranteed cluster within 45 m ${stat(woodGuar)}`)
+	say(`  expected ACTIVE logs within 60 m of obelisk: A ${stat(woodA)} | B ${stat(woodB)} | C ${stat(woodC)} | guaranteed cluster within 45 m ${stat(woodGuar)}`)
 	say(`  expected active logs within 80 m of the hearth ${stat(woodHearth)} | whole world ${stat(woodTotal)} | per player (15) ${(mean(woodTotal) / 15).toFixed(1)} avg`)
 	say(`  finale: ring length ${stat(ringLen)} m, longest beam ${stat(edgeMax)} m | camera frame metric (<=1 inside, <=0.8 is the fill target) 1:1 ${stat(camMetric['1.00'].map((v) => v * 100))}% 16:9 ${stat(camMetric['1.78'].map((v) => v * 100))}% 2.4:1 ${stat(camMetric['2.40'].map((v) => v * 100))}%, fills target in ${camFits}/${camN}`)
-	const relays = (d: number): number => Math.max(0, Math.ceil((d - CHARGE_RING_M) / NETWORK_LINK_RANGE_M) - 1)
+	const relays = (d: number): number => Math.max(0, Math.ceil((d - OBELISK_LINK_RANGE_M) / NETWORK_LINK_RANGE_M) - 1)
 	const relayTotal = relays(mean(dB)) + relays(mean(dC)) + relays(mean(dA))
-	say(`  C is farther than B in straight line on ${cFarther}/${SEEDS} seeds (roles are ordered by route length); min fires to light all 3 = ${3 * CHARGE_REF_FIRES} ring + ~${relayTotal} relay (mean distances, link range ${NETWORK_LINK_RANGE_M} m, ring ${CHARGE_RING_M} m) = ~${3 * CHARGE_REF_FIRES + relayTotal}`)
-	say(`  fire cap: BUILT_FIRE_MAX ${BUILT_FIRE_MAX} (global, burning fires only), ${HIDDEN_CAMPFIRE_COUNT} fire slots; 3 fires light a monument in ${CHARGE_TARGET_S} s`)
+	say(`  C is farther than B in straight line on ${cFarther}/${SEEDS} seeds (roles are ordered by route length); min fires to light all 3 = ${3 * CHARGE_REF_FIRES} ring + ~${relayTotal} relay (mean distances, link range ${NETWORK_LINK_RANGE_M} m, ring ${OBELISK_LINK_RANGE_M} m) = ~${3 * CHARGE_REF_FIRES + relayTotal}`)
+	say(`  fire cap: BUILT_FIRE_MAX ${BUILT_FIRE_MAX} (global, burning fires only), ${HIDDEN_CAMPFIRE_COUNT} fire slots; 3 fires light an obelisk in ${CHARGE_TARGET_S} s`)
 } else {
-	say(`  seeds ${SEEDS - seedsShort.length}/${SEEDS} placed ${MONUMENT_COUNT}/${MONUMENT_COUNT} | min spacing ${stat(spacing)} m`)
+	say(`  seeds ${SEEDS - seedsShort.length}/${SEEDS} placed ${OBELISK_COUNT}/${OBELISK_COUNT} | min spacing ${stat(spacing)} m`)
 }
-say(`  fire links around monuments: ${netPairs} pairs routed (${netNull} no route), ${netCrossing} would have crossed a monument if straight, 0 do now`)
+say(`  fire links around obelisks: ${netPairs} pairs routed (${netNull} no route), ${netCrossing} would have crossed an obelisk if straight, 0 do now`)
 // ---------- crowd burn coefficient (fire decay 1 + c * log2(players)): 0.5 standard, 0.25 compact_3, one path for every fire ----------
 {
 	expect(WORLD_PROFILE_SPEC.playtest_52.crowdBurnCoef === 0.5 && WORLD_PROFILE_SPEC.full_100.crowdBurnCoef === 0.5, 'standard profiles must keep the crowd burn coefficient 0.5')

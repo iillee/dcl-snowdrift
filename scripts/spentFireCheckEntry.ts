@@ -1,7 +1,7 @@
 /**
  * spentFireCheck.ts - spent (out) fires: never relightable, removed after SPENT_FIRE_REMOVE_S,
  * ash never limits building (spacing / cap / ghost), freed slot rebuildable, fire network and
- * world flame only see burning fires, hearth + monuments exempt. Pure helpers + source
+ * world flame only see burning fires, hearth + obelisks exempt. Pure helpers + source
  * assertions (the server / client modules need the DCL runtime). scripts/spentFireCheck.mjs.
  */
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
@@ -97,7 +97,7 @@ expect(has(CH, /if \(spentLocal\[i\]\) continue/), 'client never offers an ignit
 expect(has('src/client/buildFire.ts', /getLiveFirePositions\(\)/) && !has('src/client/buildFire.ts', /getPlacedFirePositions\(\)/), 'client build ghost ignores ash')
 expect(has(CH, /fireRemoved/) && has(CH, /sinking\.push\(/), 'client removes pit + ash entities (sink) on fireRemoved')
 expect(!has('src/server/hearthFuel.ts', /markSpent|removeFire|spentAge|spent\[/) && !has('src/server/hearthFuel.ts', /from 'src\/server\/hiddenCampfire'/), 'main hearth keeps its own behaviour (exempt)')
-expect(!has('src/server/stations.ts', /markSpent|removeFire|spentAge/), 'monuments / eternal heat untouched')
+expect(!has('src/server/stations.ts', /markSpent|removeFire|spentAge/), 'obelisks / eternal heat untouched')
 
 say(fail === 0 ? '  ALL PASS' : `  ${fail} FAILED`)
 if (fail) process.exit(1)

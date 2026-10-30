@@ -1,22 +1,22 @@
 /**
- * stationMarkers.ts - monument activation sequence (client visuals +
+ * stationMarkers.ts - obelisk activation sequence (client visuals +
  * melt / ignite interaction). Server state lives in src/server/stations.ts.
  *
- * Sequence per monument (Luke's diagram):
+ * Sequence per obelisk (Luke's diagram):
  *   1. DISCOVER: a huge dark slate obelisk (square prism with a pyramid
  *      on each end) is seated in a square socket in the floor of a
- *      shallow one-step recess (terrainRenderer addMonumentPit,
- *      MONUMENT_PIT_* / MONUMENT_SOCKET_* in terrainMap). The recess holds
- *      a mound of ice chunks rising MONUMENT_ICE_TOP_M above the ground
+ *      shallow one-step recess (terrainRenderer addObeliskPit,
+ *      OBELISK_PIT_* / OBELISK_SOCKET_* in terrainMap). The recess holds
+ *      a mound of ice chunks rising OBELISK_ICE_TOP_M above the ground
  *      (a wall: too tall to step onto). Snow falls on the ice top like
  *      anywhere else (the snow renderer raises those cells by the ice
  *      height, setSnowCellOffsets), so it reads as a snowy mound and only
  *      the black pyramid tip (seated with its base flush with the ground,
  *      FROZEN_SHAFT_ABOVE_GROUND_M) pokes out of the top of the mound.
- *   2. MELT: the ice is a grid of MONUMENT_ICE_CHUNK_M columns
- *      (src/shared/monumentIce.ts). A LIT torch melts every chunk whose
- *      centre is within MONUMENT_ICE_MELT_RADIUS_M of the player: each
- *      sinks top-down over MONUMENT_ICE_CHUNK_MELT_S (local), then drops
+ *   2. MELT: the ice is a grid of OBELISK_ICE_CHUNK_M columns
+ *      (src/shared/obeliskIce.ts). A LIT torch melts every chunk whose
+ *      centre is within OBELISK_ICE_MELT_RADIUS_M of the player: each
+ *      sinks top-down over OBELISK_ICE_CHUNK_MELT_S (local), then drops
  *      away and the client sends monumentIceMelt. The server owns the
  *      melted-chunk bitmask (monumentIceState: broadcast + late-join
  *      hydration) and clears the snow that lay on each melted chunk.
@@ -24,13 +24,13 @@
  *      (fading out when nothing is melting); other players nearby hear a
  *      positional icemelt hit when the server confirms each chunk.
  *   3. IGNITE: once the server says every chunk is gone, stand near it
- *      with a LIT torch and press E / tap the gold IGNITE MONUMENT bubble
+ *      with a LIT torch and press E / tap the gold IGNITE OBELISK bubble
  *      (or the torch button on mobile) -> stationActivate. With the torch
  *      out nothing about ignite is shown and E / tap do nothing. The
  *      server refuses while any ice remains. First wins.
  *   4. RISE: the obelisk slowly rises straight out of its socket (no
- *      rotation) to hover high up: bottom tip MONUMENT_HOVER_ABOVE_TARGET_M
- *      above the beam's volcano target (monumentHoverBottomY), so the
+ *      rotation) to hover high up: bottom tip OBELISK_HOVER_ABOVE_TARGET_M
+ *      above the beam's volcano target (obeliskHoverBottomY), so the
  *      volcano beam always angles slightly DOWN. Only once it is fully up do the very slow bob and spin
  *      ease in from zero (HOVER_EASE_IN_S). The crystal hum loops from a
  *      fixed point on the ground at the socket (not the obelisk).
@@ -45,8 +45,8 @@
  *      count is pushed to volcano smoke / 3/3 thaw.
  *
  * Everyone else (and late joiners) sees the server's active flag: fresh =
- * full rise + beams + monument.mp3, hydration = snap to hovering with both
- * beams. Monuments give no heat and melt no snow.
+ * full rise + beams + obelisk.mp3, hydration = snap to hovering with both
+ * beams. Obelisks give no heat and melt no snow.
  */
 import {
 	AudioSource,
@@ -65,7 +65,7 @@ import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
 import { onCycleSeedChange, getCurrentCycleSeed } from 'src/client/cycle'
-import { playBeamSfx, playIceMeltSfxAt, playMonumentSfxAt, unlockAudio } from 'src/client/audio'
+import { playBeamSfx, playIceMeltSfxAt, playObeliskSfxAt, unlockAudio } from 'src/client/audio'
 import { isItemInputBlocked } from 'src/client/frost/frozenState'
 import { paintIce as paintPlayerIce } from 'src/client/frost/rescue'
 import { predictHeatFrontMelt, releaseHeatFrontPrediction, setOptimisticStage } from 'src/client/snow/snowModel'
@@ -77,10 +77,10 @@ import {
 	CINE_SETTLE_S,
 	CINE_SKY_DROP_S,
 	CINE_VOLCANO_DRAW_S,
-	abortMonumentCinematic,
-	startMonumentCinematic,
-} from 'src/client/monumentCinematic'
-import { GEM_ALPHA_REST, GEM_ENABLED, MONUMENT_GEM_FADE_S, MONUMENT_MATTE_PBR, gemDipAt, monumentGemPbr } from 'src/client/monumentMaterial'
+	abortObeliskCinematic,
+	startObeliskCinematic,
+} from 'src/client/obeliskCinematic'
+import { GEM_ALPHA_REST, GEM_ENABLED, OBELISK_GEM_FADE_S, OBELISK_MATTE_PBR, gemDipAt, obeliskGemPbr } from 'src/client/obeliskMaterial'
 import { isTorchLit } from 'src/client/torchEquip'
 import { clearSocketLava, updateSocketLava } from 'src/client/socketLava'
 import { setVolcanoLavaStage } from 'src/client/volcanoCrown'
@@ -88,10 +88,6 @@ import { DEBUG_VOLCANO_STAGE_OVERRIDE } from 'src/client/devFlags'
 import { Billboard, BillboardMode } from '@dcl/sdk/ecs'
 import {
 	CHARGE_PRE_GLOW,
-	CHARGE_PRE_LIFT_M,
-	CHARGE_RING_M,
-	CHARGE_SHAKE_ENABLED,
-	CHARGE_SHAKE_FROM,
 	CRYSTAL_HEAT_RADIUS_M,
 	CRYSTAL_WARMTH_EDGE_FRAC,
 	isFloatingCrystals,
@@ -99,7 +95,6 @@ import {
 	CRYSTAL_RELEASE_HOLD_S,
 	CRYSTAL_RISE_S,
 	CRYSTAL_LASER_DRAW_S,
-	CRYSTAL_FINALE_BEAMS_ENABLED,
 	CRYSTAL_LASER_ENABLED,
 	CRYSTAL_SKY_IDLE_PULSE_PERIOD_S,
 	CRYSTAL_SKY_IDLE_PULSE_AMP,
@@ -115,27 +110,24 @@ import {
 } from 'src/shared/ruleset'
 import { setVolcanoSmokeBoost } from 'src/client/volcanoSmoke'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
-import { fireFinalChargePulse, monumentHasChargeLink } from 'src/client/fireNetworkGlow'
-import { clearMonumentChargeHums, stopMonumentChargeHum, updateMonumentChargeHum } from 'src/client/monumentChargeHum'
+import { fireFinalChargePulse, obeliskHasChargeLink } from 'src/client/fireNetworkGlow'
+import { clearObeliskChargeHums, stopObeliskChargeHum, updateObeliskChargeHum } from 'src/client/obeliskChargeHum'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
 import { crystalFloatAboveGround } from 'src/shared/crystalFloat'
-import { announceCinematic, announceWithoutCinematic, igniterName } from 'src/client/monumentAnnounce'
+import { announceCinematic, announceWithoutCinematic, igniterName } from 'src/client/obeliskAnnounce'
 import { isFrostDying } from 'src/client/frost/death'
 import { isEmberFailing } from 'src/client/emberFail'
 import { isWorldCovered } from 'src/client/ui/layers/layer.loadingSplash'
 import { TERRAIN_CELL_M, sceneHeightLimitM } from 'src/shared/settings'
-import { SNOW_CELL_M, SNOW_STAGE_HEIGHT_M, STAGE_PRISTINE, worldToCellKey } from 'src/shared/snowGrid'
+import { SNOW_CELL_M, worldToCellKey } from 'src/shared/snowGrid'
 import {
-	MONUMENT_ICE_CHUNK_M,
-	MONUMENT_ICE_CHUNK_MELT_S,
-	MONUMENT_ICE_CHUNK_REFREEZE_S,
-	MONUMENT_ICE_REFREEZE_ENABLED,
-	MONUMENT_ICE_FULL_MASK,
-	MONUMENT_ICE_MELT_RADIUS_M,
-	MONUMENT_ICE_SLOTS,
-	MONUMENT_ICE_TOP_M,
-	MONUMENT_MOUND_TOP_M,
+	OBELISK_ICE_CHUNK_M,
+	OBELISK_ICE_CHUNK_MELT_S,
+	OBELISK_ICE_FULL_MASK,
+	OBELISK_ICE_MELT_RADIUS_M,
+	OBELISK_ICE_SLOTS,
+	OBELISK_ICE_TOP_M,
 	iceChunkAt,
 	iceChunkDepth,
 	iceChunkHeight,
@@ -144,19 +136,18 @@ import {
 	isIceChunk,
 	stationHasIce,
 	pitDepthAtRing,
-} from 'src/shared/monumentIce'
+} from 'src/shared/obeliskIce'
 import { activeGroundYAt, activeTerrain } from 'src/shared/terrain/terrainCache'
 import { groundYForLevel } from 'src/shared/settings'
 import {
-	MONUMENT_HOVER_BOTTOM_H_M,
-	MONUMENT_OBELISK_WIDTH_M,
-	MONUMENT_PIT_SIZE_M,
-	MONUMENT_SOCKET_DEPTH_M,
-	monumentSocketDepth,
-	MONUMENT_SOCKET_SIZE_M,
+	OBELISK_WIDTH_M,
+	OBELISK_PIT_SIZE_M,
+	OBELISK_SOCKET_DEPTH_M,
+	obeliskSocketDepth,
+	OBELISK_SOCKET_SIZE_M,
 	TerrainMap,
 	cellCenterWorld,
-	monumentHoverBottomY,
+	obeliskHoverBottomY,
 } from 'src/shared/terrain/terrainMap'
 import {
 	volcanoLavaCentroid,
@@ -170,7 +161,7 @@ import {
 const OB_PYRAMID_MODEL = 'assets/models/obelisk_pyramid.glb'
 const OB_SHAFT_MODEL   = 'assets/models/obelisk_shaft.glb'
 /** Square cross-section width of the shaft = pyramid base (m). */
-export const OB_WIDTH_M = MONUMENT_OBELISK_WIDTH_M
+export const OB_WIDTH_M = OBELISK_WIDTH_M
 /** Straight shaft length (m). */
 export const OB_SHAFT_M = 14
 /** Height of each end pyramid (m). */
@@ -181,8 +172,8 @@ const OB_TOTAL_M = OB_SHAFT_M + 2 * OB_TIP_M
  * Seated (un-risen) obelisk, iced or not: how far the top of the square
  * shaft (= base of the top pyramid) sits above the surrounding ground (m).
  * 0 = flush with the ground and the black border, so only the 4 m top
- * pyramid shows: tip OB_TIP_M above the ground. On the iced monument the
- * 1.5 m mound (MONUMENT_MOUND_TOP_M: 1 m ice + 0.5 m snow) hides the lower
+ * pyramid shows: tip OB_TIP_M above the ground. On the iced obelisk the
+ * 1.5 m mound (OBELISK_MOUND_TOP_M: 1 m ice + 0.5 m snow) hides the lower
  * 1.5 m of the pyramid, leaving its top 2.5 m above the snow. The shaft runs
  * down through the 1.5 m socket and the dark socket slab (to 14 m below
  * ground, bottom tip 18 m down), hidden inside the terrain. The rise starts
@@ -192,31 +183,23 @@ export const FROZEN_SHAFT_ABOVE_GROUND_M = 0
 /** Top tip height above ground while seated (m). */
 const FROZEN_TIP_Y_M = OB_TIP_M + FROZEN_SHAFT_ABOVE_GROUND_M
 
-/**
- * Minimum hovering bottom-tip height above local ground (m). The actual
- * hover is target-relative: bottom tip = max(aim Y +
- * MONUMENT_HOVER_ABOVE_TARGET_M, ground + this) + beamLiftM, capped under
- * the scene ceiling (monumentHoverBottomY in terrainMap, shared with
- * terrain gen's beam check). Tune the margin there.
- */
-export const HOVER_BOTTOM_H_M = MONUMENT_HOVER_BOTTOM_H_M
 /** Keep the hovering top tip at least this far under the height limit (m). */
 const HOVER_CEILING_MARGIN_M = 24
 
 
 // MARK: Tuning - discover / melt / ignite
-// Chunk melt timing + torch radius live in src/shared/monumentIce.ts.
+// Chunk melt timing + torch radius live in src/shared/obeliskIce.ts.
 /**
- * XZ distance (m) from the monument centre that counts as "at the
- * monument" for the prompts and the ignite: the whole ice mound plus
+ * XZ distance (m) from the obelisk centre that counts as "at the
+ * obelisk" for the prompts and the ignite: the whole ice mound plus
  * room to stand beside it (you melt it from the side).
  */
-export const NEAR_RADIUS_M = MONUMENT_PIT_SIZE_M / 2 + 2.5
+export const NEAR_RADIUS_M = OBELISK_PIT_SIZE_M / 2 + 2.5
 const NEAR_RADIUS_SQ_M = NEAR_RADIUS_M * NEAR_RADIUS_M
 /** Player must be within this height of the station ground to melt / ignite (m). */
 const NEAR_HEIGHT_M = 4
 /** Ice chunk XZ: tiny inset so neighbours / walls never z-fight. */
-const ICE_CHUNK_XZ_M = MONUMENT_ICE_CHUNK_M - 0.02
+const ICE_CHUNK_XZ_M = OBELISK_ICE_CHUNK_M - 0.02
 /** A melted chunk drops away over this long (s), like a snow leaf. */
 const ICE_DROP_S = 0.3
 /** Resend an unconfirmed chunk melt after this long (ms). */
@@ -224,7 +207,7 @@ const ICE_RESEND_MS = 3000
 
 // MARK: Tuning - rise / hover
 /** Rise out of the ground (s). Applies to every client's rise animation. Was 6. */
-export const MONUMENT_RISE_S = 10
+export const OBELISK_RISE_S = 10
 // Floating crystals release timing (hold / rise / laser) lives in src/shared/ruleset.ts (server thaw timing shares it).
 /** Laser retracts into the crystal over this many seconds once the thaw ring is full. */
 const CRYSTAL_LASER_RETRACT_S = 1.2
@@ -233,9 +216,9 @@ const CRYSTAL_FLASH_LEAD_S = 0.25
 const CRYSTAL_FLASH_S = 0.45
 const CRYSTAL_FLASH_MAX_M = 7
 function riseHoldS(): number { return isFloatingCrystals() ? CRYSTAL_RELEASE_HOLD_S : 0 }
-function riseDurS(): number { return isFloatingCrystals() ? CRYSTAL_RISE_S : MONUMENT_RISE_S }
+function riseDurS(): number { return isFloatingCrystals() ? CRYSTAL_RISE_S : OBELISK_RISE_S }
 /** Pause once stationary before the sky beam drops (s). */
-export const MONUMENT_SETTLE_S = 0.6
+export const OBELISK_SETTLE_S = 0.6
 /** Hover bob amplitude (m) and period (s): barely noticeable. Was 2.5 m (before that 0.6 m / 12 s). */
 export const HOVER_BOB_M = 0.3
 export const HOVER_BOB_PERIOD_S = 10
@@ -285,7 +268,7 @@ const SKY_BEAM_CEILING_MARGIN_M = 4
  */
 const BEAM_JOINT_INSIDE_TIP_M = 0.4
 const BEAM_XZ_M = 0.5
-/** The vertical (sky) monument beam; the finale ring beams use the very same thickness (shared FINALE_BEAM_XZ_M). */
+/** The vertical (sky) obelisk beam; the finale ring beams use the very same thickness (shared FINALE_BEAM_XZ_M). */
 const SKY_BEAM_XZ_M = FINALE_BEAM_XZ_M
 const BEAM_SEGMENTS = 10
 const SKY_BEAM_SEGMENTS = 10
@@ -300,7 +283,7 @@ const CRYSTAL_HUM_SRC = 'assets/sounds/crystal.mp3'
 export const CRYSTAL_HUM_VOLUME = 0.7
 /** The hum plays from a fixed invisible point this high above the socket (m). */
 const CRYSTAL_HUM_HEIGHT_M = 2
-/** The buried-monument charge hum emitter sits this high above the ground (m). */
+/** The buried-obelisk charge hum emitter sits this high above the ground (m). */
 const CHARGE_HUM_HEIGHT_M = 2
 
 // MARK: Tuning - gaze hum
@@ -324,7 +307,7 @@ const COLOR_BEAM    = Color4.create(0.55, 0.8, 1.0, 1)
 const BEAM_EMISSIVE = Color3.create(0.45, 0.72, 1.0)
 const BEAM_EMISSIVE_INTENSITY = 5
 
-const STATION_COUNT_MAX = 8 // array capacity; live count = map.stations.length (3 classic, MONUMENT_COUNT crystals)
+const STATION_COUNT_MAX = 8 // array capacity; live count = map.stations.length (3 classic, OBELISK_COUNT crystals)
 
 
 // MARK: Types
@@ -347,7 +330,7 @@ type Beam = {
 }
 
 type Slot = {
-	/** True for the one monument with the ice test (icedStationIndex). */
+	/** True for the one obelisk with the ice test (icedStationIndex). */
 	iced: boolean,
 	/** True while the local ignite cinematic runs for this slot (stretched beam phases). */
 	cine: boolean,
@@ -412,10 +395,6 @@ let lastMap: TerrainMap | null = null
 let currentSeed = 0
 let installed = false
 let mobile = false
-/** Slot whose ice the local player is at with a lit torch (-1 none). */
-let meltingIndex = -1
-/** Slot whose ice the local player stands at without a lit torch (-1 none). */
-let needTorchIndex = -1
 /** Ice-free, unlit slot the local player can ignite now (-1 none). */
 let readyIgniteIndex = -1
 /** Camera-parented looping melt voice (0 until first used). */
@@ -456,7 +435,7 @@ export function getActiveStationCount(): number {
 
 
 /**
- * Count of monuments whose volcano beam has landed (drives smoke/lava so
+ * Count of obelisks whose volcano beam has landed (drives smoke/lava so
  * the volcano reacts when the beam arrives, not at the click).
  */
 function landedCount(): number {
@@ -487,30 +466,30 @@ function syncVolcanoFromStations(): void {
 
 // MARK: Melt prompt API
 /**
- * Text for the hotbar-flush prompt near an unlit monument, else null.
+ * Text for the hotbar-flush prompt near an unlit obelisk, else null.
  * Ice left: nothing (no melt / torch hints).
- * Ice gone: "IGNITE MONUMENT" only while the torch is lit; with the torch
+ * Ice gone: "IGNITE OBELISK" only while the torch is lit; with the torch
  * out nothing at all (no ignite hint).
  */
-export function getMonumentPromptText(): string | null {
+export function getObeliskPromptText(): string | null {
 	const lit = isTorchLit()
-	if (readyIgniteIndex >= 0) return lit ? 'IGNITE MONUMENT' : null
+	if (readyIgniteIndex >= 0) return lit ? 'IGNITE OBELISK' : null
 	// No melt / torch hints: only IGNITE once all ice is server-confirmed gone.
 	return null
 }
 
 
-// MARK: isReadyToIgniteMonument
-/** True when E / the prompt / the torch button should ignite a monument. */
-export function isReadyToIgniteMonument(): boolean {
+// MARK: isReadyToIgniteObelisk
+/** True when E / the prompt / the torch button should ignite an obelisk. */
+export function isReadyToIgniteObelisk(): boolean {
 	return readyIgniteIndex >= 0 && !isItemInputBlocked() && isTorchLit()
 }
 
 
-// MARK: requestMonumentIgnite
-/** Ignite the ice-free monument the player is at with a lit torch. */
-export function requestMonumentIgnite(): void {
-	if (!isReadyToIgniteMonument()) return
+// MARK: requestObeliskIgnite
+/** Ignite the ice-free obelisk the player is at with a lit torch. */
+export function requestObeliskIgnite(): void {
+	if (!isReadyToIgniteObelisk()) return
 	const i = readyIgniteIndex
 	readyIgniteIndex = -1
 	requestActivate(i)
@@ -519,7 +498,7 @@ export function requestMonumentIgnite(): void {
 
 function chunkCount(mask: number): number {
 	let n = 0
-	for (let i = 0; i < MONUMENT_ICE_SLOTS; i++) if (isIceChunk(i) && (mask & (1 << i)) !== 0) n++
+	for (let i = 0; i < OBELISK_ICE_SLOTS; i++) if (isIceChunk(i) && (mask & (1 << i)) !== 0) n++
 	return n
 }
 
@@ -559,7 +538,7 @@ let gemWriteClock = 0
 
 /** Push the slot's gem blend + opacity into every obelisk part (global node modifier). */
 function applyGem(slot: Slot): void {
-	const pbr = monumentGemPbr(slot.index, slot.gemK, slot.gemAlpha)
+	const pbr = obeliskGemPbr(slot.index, slot.gemK, slot.gemAlpha)
 	for (const e of slot.parts) {
 		GltfNodeModifiers.createOrReplace(e, {
 			modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...pbr } } } }],
@@ -576,7 +555,7 @@ function startGem(slot: Slot): void {
 	if (!isFloatingCrystals()) slot.gemK = 0
 }
 
-/** Already-lit monument (late join / hydration): straight to the gem. */
+/** Already-lit obelisk (late join / hydration): straight to the gem. */
 function snapGem(slot: Slot): void {
 	if (!GEM_ENABLED) return
 	slot.gemOn = true
@@ -598,7 +577,7 @@ function gemSystem(dt: number): void {
 	for (const slot of slots) {
 		if (!slot || !slot.gemOn) continue
 		if (slot.gemK < 1) {
-			slot.gemK = Math.min(1, slot.gemK + dt / MONUMENT_GEM_FADE_S)
+			slot.gemK = Math.min(1, slot.gemK + dt / OBELISK_GEM_FADE_S)
 			slot.gemAlpha = GEM_ALPHA_REST
 			if (write || slot.gemK >= 1) applyGem(slot)
 			continue
@@ -632,7 +611,7 @@ function part(parent: Entity, src: string, pos: Vector3, scale: Vector3, flip: b
 	// Matte deep black, no reflectivity: override every node's glb material
 	// (path '' = global modifier) so it matches the socket border exactly.
 	GltfNodeModifiers.create(e, {
-		modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...MONUMENT_MATTE_PBR } } } }],
+		modifiers: [{ path: '', material: { material: { $case: 'pbr', pbr: { ...OBELISK_MATTE_PBR } } } }],
 	})
 	return e
 }
@@ -678,7 +657,7 @@ function hoverTipH(slot: Slot): number {
 	const targetY = slot.aim ? slot.aim.y : volcanoLavaTopY()
 	// Never let the top tip (plus bob) climb past the height limit margin.
 	const capTopAbs = sceneHeightLimitM() - HOVER_CEILING_MARGIN_M - HOVER_BOB_M
-	const bottomY = monumentHoverBottomY(slot.groundY, targetY, slot.lift, capTopAbs - OB_TOTAL_M)
+	const bottomY = obeliskHoverBottomY(slot.groundY, targetY, slot.lift, capTopAbs - OB_TOTAL_M)
 	return Math.max(OB_TOTAL_M + FROZEN_TIP_Y_M + 1, bottomY + OB_TOTAL_M - slot.groundY)
 }
 
@@ -734,7 +713,7 @@ function chunkCentre(slot: Slot, i: number): { x: number; z: number } {
 }
 
 /**
- * Pose chunk i: a column from the recess floor up to MONUMENT_ICE_TOP_M
+ * Pose chunk i: a column from the recess floor up to OBELISK_ICE_TOP_M
  * above the ground, sinking top-down with its local heat (like a frozen
  * player's cube melting) while the bottom stays put.
  */
@@ -753,7 +732,7 @@ function applyChunk(slot: Slot, i: number): void {
 }
 
 function buildChunks(slot: Slot): void {
-	for (let i = 0; i < MONUMENT_ICE_SLOTS; i++) {
+	for (let i = 0; i < OBELISK_ICE_SLOTS; i++) {
 		if (!isIceChunk(i) || (slot.iceMask & (1 << i)) !== 0) continue
 		const e = engine.addEntity()
 		Transform.create(e)
@@ -783,7 +762,7 @@ function meltChunk(slot: Slot, i: number, animate: boolean): void {
 	const c = chunkCentre(slot, i)
 	const h0 = tr ? tr.scale.y : 0.5
 	drops.push({ e, x: c.x, z: c.z, bottomY: slot.groundY - iceChunkDepth(i), h0, t: 0 })
-	const half = MONUMENT_ICE_CHUNK_M / 2
+	const half = OBELISK_ICE_CHUNK_M / 2
 	for (let dz = -half + SNOW_CELL_M / 2; dz < half; dz += SNOW_CELL_M) {
 		for (let dx = -half + SNOW_CELL_M / 2; dx < half; dx += SNOW_CELL_M) {
 			const key = worldToCellKey(c.x + dx, c.z + dz)
@@ -794,10 +773,10 @@ function meltChunk(slot: Slot, i: number, animate: boolean): void {
 
 /** Remove every remaining chunk (activation / hydration). */
 function removeAllIce(slot: Slot): void {
-	for (let i = 0; i < MONUMENT_ICE_SLOTS; i++) {
+	for (let i = 0; i < OBELISK_ICE_SLOTS; i++) {
 		if (slot.chunks[i]) meltChunk(slot, i, false)
 	}
-	slot.iceMask = MONUMENT_ICE_FULL_MASK
+	slot.iceMask = OBELISK_ICE_FULL_MASK
 }
 
 /** True while any ice chunk is still frozen locally. */
@@ -807,8 +786,8 @@ function hasIce(slot: Slot): boolean {
 
 /** Apply a server mask: melt newly-confirmed chunks (dropping), keep local pendings. */
 function applyServerIce(slot: Slot, mask: number, animate: boolean): void {
-	slot.serverMask = mask & MONUMENT_ICE_FULL_MASK
-	for (let i = 0; i < MONUMENT_ICE_SLOTS; i++) {
+	slot.serverMask = mask & OBELISK_ICE_FULL_MASK
+	for (let i = 0; i < OBELISK_ICE_SLOTS; i++) {
 		const bit = 1 << i
 		if ((slot.serverMask & bit) === 0) continue
 		slot.sentAt[i] = 0
@@ -843,12 +822,12 @@ function iceDropSystem(dt: number): void {
  * reporting many chunks at once) so joining is not a burst of sounds.
  */
 function playRemoteMeltCue(slot: Slot, beforeMask: number): void {
-	const fresh = (slot.iceMask & ~beforeMask) & MONUMENT_ICE_FULL_MASK
+	const fresh = (slot.iceMask & ~beforeMask) & OBELISK_ICE_FULL_MASK
 	if (fresh === 0 || chunkCount(fresh) > 2) return
 	const t = Transform.getOrNull(engine.PlayerEntity)
 	if (!t) return
 	let chunk = -1
-	for (let i = 0; i < MONUMENT_ICE_SLOTS; i++) if ((fresh & (1 << i)) !== 0) { chunk = i; break }
+	for (let i = 0; i < OBELISK_ICE_SLOTS; i++) if ((fresh & (1 << i)) !== 0) { chunk = i; break }
 	if (chunk < 0) return
 	const c = chunkCentre(slot, chunk)
 	const dx = t.position.x - c.x
@@ -1089,18 +1068,18 @@ function finishActivate(index: number, animate: boolean): void {
 
 
 // MARK: playIgnitionSfx
-/** One-shot monument.mp3 at the monument. Only on a fresh activation. */
+/** One-shot obelisk.mp3 at the obelisk. Only on a fresh activation. */
 function playIgnitionSfx(index: number): void {
 	const slot = slots[index]
 	if (slot) {
-		playMonumentSfxAt(Vector3.create(slot.x, slot.groundY + FROZEN_TIP_Y_M, slot.z))
+		playObeliskSfxAt(Vector3.create(slot.x, slot.groundY + FROZEN_TIP_Y_M, slot.z))
 		return
 	}
 	const map = activeTerrain()
 	const st  = map?.stations[index]
 	if (!st) return
 	const c = cellCenterWorld(st.cx, st.cz)
-	playMonumentSfxAt(Vector3.create(c.x, activeGroundYAt(c.x, c.z) + FROZEN_TIP_Y_M, c.z))
+	playObeliskSfxAt(Vector3.create(c.x, activeGroundYAt(c.x, c.z) + FROZEN_TIP_Y_M, c.z))
 }
 
 
@@ -1129,7 +1108,7 @@ export function canWatchCinematic(): boolean {
 
 // MARK: startIgniteCinematic
 /**
- * Local-only cinematic for the player who just ignited monument `index`.
+ * Local-only cinematic for the player who just ignited obelisk `index`.
  * Never called from stationState (remote ignites / hydration), so late
  * joiners and reloads never replay it. Stretches this slot's settle /
  * sky-beam / volcano-beam phases (client-side only) until it ends.
@@ -1145,7 +1124,7 @@ function startIgniteCinematic(index: number): boolean {
 		: slot.aim ?? (map ? volcanoBeamTarget(map) : null)
 	if (!aim) return false
 	slot.cine = true
-	startMonumentCinematic({
+	startObeliskCinematic({
 		x           : slot.x,
 		z           : slot.z,
 		groundY     : slot.groundY,
@@ -1169,16 +1148,16 @@ function startIgniteCinematic(index: number): boolean {
 }
 
 
-// MARK: getLitMonumentCount
-/** Monuments lit this cycle (server stationState + local optimistic). */
-export function getLitMonumentCount(): number {
+// MARK: getLitObeliskCount
+/** Obelisks lit this cycle (server stationState + local optimistic). */
+export function getLitObeliskCount(): number {
 	let n = 0
 	for (let i = 0; i < STATION_COUNT_MAX; i++) if (isStationLit(i)) n++
 	return n
 }
 
-/** Monuments in this layout (3 normally). */
-export function getMonumentTotal(): number {
+/** Obelisks in this layout (3 normally). */
+export function getObeliskTotal(): number {
 	const map = activeTerrain()
 	return map ? Math.min(map.stations.length, STATION_COUNT_MAX) : STATION_COUNT_MAX
 }
@@ -1186,11 +1165,11 @@ export function getMonumentTotal(): number {
 
 // MARK: clearAll
 function clearAll(): void {
-	abortMonumentCinematic()
+	abortObeliskCinematic()
 	oasisClear()
 	clearSocketLava()
 	clearFinalePulses()
-	clearMonumentChargeHums()
+	clearObeliskChargeHums()
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots[i]
 		if (!s) continue
@@ -1212,8 +1191,6 @@ function clearAll(): void {
 	}
 	for (const d of drops) engine.removeEntity(d.e)
 	drops.length = 0
-	meltingIndex = -1
-	needTorchIndex = -1
 	readyIgniteIndex = -1
 	setMeltSfx(false, 0)
 	stopGazeSfx()
@@ -1243,11 +1220,11 @@ function buildForMap(map: TerrainMap | null): void {
 			iced: stationHasIce(map, i),
 			cine: false,
 			beamSfx: false,
-			chunks: new Array<Entity | null>(MONUMENT_ICE_SLOTS).fill(null),
-			heat: new Array<number>(MONUMENT_ICE_SLOTS).fill(0),
+			chunks: new Array<Entity | null>(OBELISK_ICE_SLOTS).fill(null),
+			heat: new Array<number>(OBELISK_ICE_SLOTS).fill(0),
 			iceMask: 0,
 			serverMask: 0,
-			sentAt: new Array<number>(MONUMENT_ICE_SLOTS).fill(0),
+			sentAt: new Array<number>(OBELISK_ICE_SLOTS).fill(0),
 			rig,
 			parts: [],
 			gemK: 0,
@@ -1278,8 +1255,8 @@ function buildForMap(map: TerrainMap | null): void {
 			snapDone(slot)
 			continue
 		}
-		// Non-iced monuments start ice-free: no chunks, ignitable at once.
-		slot.iceMask = slot.iced ? pendingIce[i] & MONUMENT_ICE_FULL_MASK : MONUMENT_ICE_FULL_MASK
+		// Non-iced obelisks start ice-free: no chunks, ignitable at once.
+		slot.iceMask = slot.iced ? pendingIce[i] & OBELISK_ICE_FULL_MASK : OBELISK_ICE_FULL_MASK
 		slot.serverMask = slot.iceMask
 		buildChunks(slot)
 		applyRig(slot, frozenCentreY(slot))
@@ -1288,24 +1265,22 @@ function buildForMap(map: TerrainMap | null): void {
 	}
 	syncVolcanoFromStations()
 	console.log(
-		`stationMarkers: seed ${map.usedSeed}: ${n} frozen monuments, active=${getActiveStationCount()}`,
+		`stationMarkers: seed ${map.usedSeed}: ${n} frozen obelisks, active=${getActiveStationCount()}`,
 	)
 }
 
 
 // MARK: meltSystem
 /**
- * Local chunk melt + prompt state. Near an unlit monument (NEAR_RADIUS_M,
+ * Local chunk melt + prompt state. Near an unlit obelisk (NEAR_RADIUS_M,
  * within NEAR_HEIGHT_M of its ground):
  *   - ice left, lit torch: every chunk centre within
- *     MONUMENT_ICE_MELT_RADIUS_M of the player heats up; at full heat it
+ *     OBELISK_ICE_MELT_RADIUS_M of the player heats up; at full heat it
  *     melts (drops away) and monumentIceMelt goes to the server.
  *   - ice gone (server-confirmed): offer the ignite.
- * Chunks out of reach cool back down over MONUMENT_ICE_CHUNK_REFREEZE_S.
+ * Heated chunks keep their heat when out of reach (no refreeze).
  */
 function meltSystem(dt: number): void {
-	meltingIndex = -1
-	needTorchIndex = -1
 	readyIgniteIndex = -1
 	if (isFloatingCrystals()) {
 		// Charge (server) melts the ice; no torch melt or ignite prompt.
@@ -1317,8 +1292,8 @@ function meltSystem(dt: number): void {
 	const blocked = isItemInputBlocked()
 	const lit = isTorchLit()
 	const now = Date.now()
-	const r2 = MONUMENT_ICE_MELT_RADIUS_M * MONUMENT_ICE_MELT_RADIUS_M
-	// Nearest unlit monument in range.
+	const r2 = OBELISK_ICE_MELT_RADIUS_M * OBELISK_ICE_MELT_RADIUS_M
+	// Nearest unlit obelisk in range.
 	let near = -1
 	let bestD2 = NEAR_RADIUS_SQ_M
 	if (t && !blocked) {
@@ -1336,7 +1311,7 @@ function meltSystem(dt: number): void {
 		const s = slots[i]
 		if (!s || s.active) continue
 		const melting = i === near && lit && hasIce(s)
-		for (let c = 0; c < MONUMENT_ICE_SLOTS; c++) {
+		for (let c = 0; c < OBELISK_ICE_SLOTS; c++) {
 			// Unconfirmed optimistic melt: nudge the server again.
 			if (s.sentAt[c] > 0 && (s.serverMask & (1 << c)) === 0 && now - s.sentAt[c] > ICE_RESEND_MS) {
 				s.sentAt[c] = now
@@ -1352,10 +1327,8 @@ function meltSystem(dt: number): void {
 				inReach = dx * dx + dz * dz <= r2
 			}
 			if (inReach) {
-				s.heat[c] = Math.min(1, s.heat[c] + dt / MONUMENT_ICE_CHUNK_MELT_S)
+				s.heat[c] = Math.min(1, s.heat[c] + dt / OBELISK_ICE_CHUNK_MELT_S)
 				anyHeating = true
-			} else if (MONUMENT_ICE_REFREEZE_ENABLED && s.heat[c] > 0) {
-				s.heat[c] = Math.max(0, s.heat[c] - dt / MONUMENT_ICE_CHUNK_REFREEZE_S)
 			}
 			if (s.heat[c] >= 1) {
 				meltChunk(s, c, true)
@@ -1369,10 +1342,7 @@ function meltSystem(dt: number): void {
 	setMeltSfx(anyHeating, dt)
 	if (near < 0) return
 	const s = slots[near]!
-	if (hasIce(s) || !iceFullyMelted(s.serverMask)) {
-		if (lit) meltingIndex = near
-		else needTorchIndex = near
-	} else if (lit) {
+	if (lit && !hasIce(s) && iceFullyMelted(s.serverMask)) {
 		// Ignite is offered only with a lit torch; unlit = no prompt.
 		readyIgniteIndex = near
 	}
@@ -1512,25 +1482,25 @@ function setMeltSfx(on: boolean, dt: number): void {
 }
 
 
-// MARK: Monument snow offsets
+// MARK: Obelisk snow offsets
 /**
  * Depth (m) of the empty recess under the 1 m snow cell whose centre is
  * (dx, dz) from the pit centre: the single recess step, plus the socket
  * depth for cells reaching over the socket (deepest point under them).
  */
-function pitCellDepth(dx: number, dz: number, socketDepth: number = MONUMENT_SOCKET_DEPTH_M): number {
+function pitCellDepth(dx: number, dz: number, socketDepth: number = OBELISK_SOCKET_DEPTH_M): number {
 	const ring = Math.max(Math.abs(dx), Math.abs(dz))
 	// Outer cells: normal ground (pitDepthAtRing is 0 with no recess).
 	let d = pitDepthAtRing(ring)
 	// Cells over the socket: snow refills it to ground level.
-	if (ring - SNOW_CELL_M / 2 < MONUMENT_SOCKET_SIZE_M / 2) d += socketDepth
+	if (ring - SNOW_CELL_M / 2 < OBELISK_SOCKET_SIZE_M / 2) d += socketDepth
 	return d
 }
 
 /**
- * Push the per-cell snow base offsets for every monument to the snow
+ * Push the per-cell snow base offsets for every obelisk to the snow
  * renderer (cell key -> signed m):
- *   - frozen, ice left: +MONUMENT_ICE_TOP_M on every cell of a chunk still
+ *   - frozen, ice left: +OBELISK_ICE_TOP_M on every cell of a chunk still
  *     frozen locally (snow lies on the ice), and on the obelisk column
  *     (none on the obelisk column: no collar round the tip).
  *   - ACTIVE: -recess depth on every recess cell (snow refills the step).
@@ -1551,7 +1521,7 @@ function syncSnowOffsets(): void {
 	const out = new Map<number, number>()
 	if (map) {
 		const n = Math.min(map.stations.length, STATION_COUNT_MAX)
-		const half = MONUMENT_PIT_SIZE_M / 2
+		const half = OBELISK_PIT_SIZE_M / 2
 		for (let i = 0; i < n; i++) {
 			const slot = slots[i]
 			const active = slot?.active || pendingActive[i]
@@ -1570,7 +1540,7 @@ function syncSnowOffsets(): void {
 						// so the pit looked open with the tip poking out. A released
 						// crystal's 50 m heat zone keeps it clear anyway.
 						if (isFloatingCrystals()) continue
-						const d = pitCellDepth(dx, dz, monumentSocketDepth(groundYForLevel(map.levels[st.cz * map.w + st.cx])))
+						const d = pitCellDepth(dx, dz, obeliskSocketDepth(groundYForLevel(map.levels[st.cz * map.w + st.cx])))
 						if (d > 0) out.set(key, -d)
 						continue
 					}
@@ -1583,7 +1553,7 @@ function syncSnowOffsets(): void {
 					// Cells under the obelisk where the four blocks meet: no collar.
 					if (Math.abs(dx) < OB_WIDTH_M / 2 && Math.abs(dz) < OB_WIDTH_M / 2) continue
 					const frozen = (slot!.iceMask & (1 << chunk)) === 0
-					if (frozen) out.set(key, MONUMENT_ICE_TOP_M)
+					if (frozen) out.set(key, OBELISK_ICE_TOP_M)
 				}
 			}
 		}
@@ -1593,7 +1563,7 @@ function syncSnowOffsets(): void {
 
 // MARK: socketLavaSystem
 /**
- * Released monuments leave lava on the floor of their socket (client/socketLava.ts, shared/socketLava.ts): a permanent torch relight
+ * Released obelisks leave lava on the floor of their socket (client/socketLava.ts, shared/socketLava.ts): a permanent torch relight
  * source. Driven only by the server-synced release (slot.active) and the crystal's own pose, so late joiners and every other client agree.
  */
 function socketLavaSystem(dt: number): void {
@@ -1634,7 +1604,7 @@ function animSystem(dt: number): void {
 				revealBeam(slot.sky, (slot.phaseT - (hold + riseDurS() - CRYSTAL_SKY_DROP_S)) / CRYSTAL_SKY_DROP_S, SKY_BEAM_SEGMENTS)
 			}
 			if (slot.cine && !isFloatingCrystals()) {
-				const dropT0 = MONUMENT_RISE_S - CINE_SKY_DROP_S
+				const dropT0 = OBELISK_RISE_S - CINE_SKY_DROP_S
 				if (slot.phaseT >= dropT0) {
 					ensureBeams(slot, map)
 					revealBeam(slot.sky, (slot.phaseT - dropT0) / CINE_SKY_DROP_S, SKY_BEAM_SEGMENTS)
@@ -1659,7 +1629,7 @@ function animSystem(dt: number): void {
 		applyHover(slot)
 
 		if (slot.phase === 'settle') {
-			if (isFloatingCrystals() || slot.phaseT >= (slot.cine ? CINE_SETTLE_S : MONUMENT_SETTLE_S)) {
+			if (isFloatingCrystals() || slot.phaseT >= (slot.cine ? CINE_SETTLE_S : OBELISK_SETTLE_S)) {
 				// Floating crystals: the laser fires straight down to the ground point
 				// (thaw front starts server-side at the same moment), then done.
 				if (isFloatingCrystals()) { crystalAfterRise(slot, i, dt); continue }
@@ -1714,14 +1684,13 @@ function resetForSeed(seed: number): void {
 	currentSeed = seed
 	oasisClear()
 	for (let i = 0; i < STATION_COUNT_MAX; i++) { pendingActive[i] = false; pendingIce[i] = 0; pendingCharge[i] = 0 }
-	finaleT = -1
 	// Markers rebuild via activeTerrain watcher when layout changes
 	// (clearAll also removes the ground crystal hum emitters).
 }
 
 
 // MARK: setupStationMarkers
-/** Install monuments, melt interaction, anim, and network sync. Idempotent. */
+/** Install obelisks, melt interaction, anim, and network sync. Idempotent. */
 export function setupStationMarkers(): void {
 	if (installed) return
 	installed = true
@@ -1752,7 +1721,7 @@ export function setupStationMarkers(): void {
 	room.onMessage('monumentIceState', ({ seed, index, mask }) => {
 		if (!cycleSeedsEqual(seed, currentSeed)) return
 		if (index < 0 || index >= STATION_COUNT_MAX) return
-		pendingIce[index] = mask & MONUMENT_ICE_FULL_MASK
+		pendingIce[index] = mask & OBELISK_ICE_FULL_MASK
 		const slot = slots[index]
 		if (!slot || slot.active || !slot.iced) return
 		const before = slot.iceMask
@@ -1794,16 +1763,12 @@ export function setupStationMarkers(): void {
 
 
 // MARK: Floating crystals - charge visuals
-/** Charge 0..1 per monument from the server (monumentCharge). */
+/** Charge 0..1 per obelisk from the server (monumentCharge). */
 const pendingCharge: number[] = new Array<number>(8).fill(0)
 /** Seconds since all three crystals were up (finale beams), -1 = not yet. */
-let finaleT = -1
-const FINALE_BEAM_DRAW_S = 4
-const RING_POSTS = 32
 const BAR_W_M = 4
 const BAR_H_M = 0.35
 const BAR_Y_M = 7
-const SHAKE_M = 0.06
 const CHARGE_COL = Color4.create(1.0, 0.55, 0.15, 1)
 const CHARGE_EMI = Color3.create(1.0, 0.5, 0.1)
 
@@ -1838,27 +1803,22 @@ function buildCrystalFx(slot: Slot): CrystalFx {
 }
 
 function crystalSystem(dt: number): void {
-	const nowS = Date.now() / 1000
-	let up = 0
-	let total = 0
 	for (let i = 0; i < slots.length; i++) {
 		const slot = slots[i]
 		if (!slot) continue
-		total++
 		if (slot.active) {
-			stopMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt) // fade out on release
+			stopObeliskChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt) // fade out on release
 			removeCrystalFx(i)
-			if (slot.phase === 'done') up++
 			continue
 		}
 		const ch = pendingCharge[i] ?? 0
 		let f = fx[i]
 		// Looping 3D hum while buried and receiving heat from the fire network (live charge link, not full, not released).
-		if (ch >= 1 || pendingActive[i]) stopMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt)
-		else updateMonumentChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, monumentHasChargeLink(i), dt)
+		if (ch >= 1 || pendingActive[i]) stopObeliskChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, dt)
+		else updateObeliskChargeHum(i, slot.x, slot.groundY + CHARGE_HUM_HEIGHT_M, slot.z, obeliskHasChargeLink(i), dt)
 		// Bar hidden until charging starts (charge > 0 or a live charge link);
 		// once it has charge it stays until release.
-		const started = ch > 0 || monumentHasChargeLink(i)
+		const started = ch > 0 || obeliskHasChargeLink(i)
 		if (!started) { if (f) removeCrystalFx(i); continue }
 		if (!f) { f = buildCrystalFx(slot); fx[i] = f }
 		// Progress bar fill grows from the left.
@@ -1876,50 +1836,17 @@ function crystalSystem(dt: number): void {
 			const k = ch * CHARGE_PRE_GLOW
 			if (Math.abs(k - slot.gemK) > 0.01) { slot.gemK = k; applyGem(slot) }
 		}
-		// Near full: vibrate + lift slightly out of the socket.
-		if (CHARGE_SHAKE_ENABLED && ch >= CHARGE_SHAKE_FROM) {
-			const u = (ch - CHARGE_SHAKE_FROM) / (1 - CHARGE_SHAKE_FROM)
-			const tr = Transform.getMutableOrNull(slot.rig)
-			if (tr) {
-				const j = SHAKE_M * (0.4 + u)
-				tr.position = Vector3.create(
-					slot.x + Math.sin(nowS * 61) * j,
-					frozenCentreY(slot) + CHARGE_PRE_LIFT_M * u + Math.sin(nowS * 47) * j * 0.5,
-					slot.z + Math.cos(nowS * 53) * j,
-				)
-			}
-		}
-	}
-	// Finale: once all three float, each beams to the next.
-	if (CRYSTAL_FINALE_BEAMS_ENABLED && total >= 3 && up >= total) {
-		if (finaleT < 0) {
-			finaleT = 0
-			for (let i = 0; i < total; i++) {
-				const a = slots[i]
-				const b = slots[(i + 1) % total]
-				if (!a || !b || a.volcano) continue
-				const end = bottomBeamJoint(b)
-				a.volcano = buildBeam(a.beamRoot, bottomBeamJoint(a), end, BEAM_SEGMENTS, BEAM_XZ_M, BEAM_FADE_START, false)
-				aimVolcanoBeam(a, hoverBob(a))
-			}
-			playBeamSfx(BEAM_SFX_VOLUME, BEAM_SFX_FADE_IN_S)
-			console.log('stationMarkers: all crystals released - finale beams')
-		}
-		if (finaleT <= FINALE_BEAM_DRAW_S) {
-			finaleT += dt
-			for (const s of slots) if (s) revealBeam(s.volcano, finaleT / FINALE_BEAM_DRAW_S, BEAM_SEGMENTS)
-		}
 	}
 }
 
-// MARK: monumentChargeHeatAt
+// MARK: obeliskChargeHeatAt
 /**
- * Campfire-equivalent fuel of the strongest CHARGING monument whose tier
+ * Campfire-equivalent fuel of the strongest CHARGING obelisk whose tier
  * ring (hearthRadiusFromFuel) covers (x, z); 0 = none. Charge comes from
  * the server (monumentCharge, also sent to late joiners). Released
- * monuments hand over to crystalHeatAt.
+ * obelisks hand over to crystalHeatAt.
  */
-export function monumentChargeHeatAt(x: number, z: number): number {
+export function obeliskChargeHeatAt(x: number, z: number): number {
 	if (!isFloatingCrystals()) return 0
 	let best = 0
 	for (let i = 0; i < slots.length; i++) {
@@ -1935,7 +1862,7 @@ export function monumentChargeHeatAt(x: number, z: number): number {
 
 // MARK: Finale hooks (crystalFinale.ts)
 /**
- * Every monument's top-tip beam joint (the sky beam's origin, mean hover height) and socket ground point, station
+ * Every obelisk's top-tip beam joint (the sky beam's origin, mean hover height) and socket ground point, station
  * order; null until every slot exists (map / layout not built yet).
  */
 export function finaleAnchors(): Array<{ tip: Vector3; ground: Vector3 }> | null {
@@ -1950,7 +1877,7 @@ export function finaleAnchors(): Array<{ tip: Vector3; ground: Vector3 }> | null
 	return out
 }
 
-/** The monument beam look (same glow colour / emissive) on a finale beam entity. */
+/** The obelisk beam look (same glow colour / emissive) on a finale beam entity. */
 export function paintFinaleBeam(e: Entity): void {
 	paintGlow(e, COLOR_BEAM, BEAM_EMISSIVE, BEAM_EMISSIVE_INTENSITY)
 }
@@ -2020,15 +1947,12 @@ function flashSystem(dt: number): void {
 
 
 // MARK: Crystal laser (floating crystals release)
-/** Seconds since the laser hit the ground per monument (-1 = none / gone). */
+/** Seconds since the laser hit the ground per obelisk (-1 = none / gone). */
 const laserHitT: number[] = new Array<number>(8).fill(-1)
-/** Downward laser per monument (the sky beam lives in slot.sky). */
+/** Downward laser per obelisk (the sky beam lives in slot.sky). */
 const lasers: Array<Beam | null> = new Array<Beam | null>(8).fill(null)
-/** Sky beam pulse scale reset after charging (per monument). */
+/** Sky beam pulse scale reset after charging (per obelisk). */
 const skyCalm: boolean[] = new Array<boolean>(8).fill(false)
-/** Sky-beam charge pulse: crest period (s) and extra XZ scale at the crest. */
-const SKY_PULSE_PERIOD_S = 0.9
-const SKY_PULSE_AMP = 1.2
 
 /** Same sky beam as the classic activation: from high above down into the top tip. */
 function buildSkyBeam(slot: Slot): void {
@@ -2101,7 +2025,7 @@ function crystalAfterRise(slot: Slot, i: number, _dt: number): void {
 }
 
 // MARK: Release sphere + burst
-/** Burst per monument: entity + seconds since release (-1 = none). */
+/** Burst per obelisk: entity + seconds since release (-1 = none). */
 const bursts: Array<{ e: Entity; t: number; endR: number; cx: number; cz: number; h: number; doneR: number; stepAcc: number } | null> = new Array(8).fill(null)
 /** Predicted-melt step (s): the client melts the cells the sphere edge has newly crossed this often. */
 const BURST_MELT_STEP_S = 0.05
@@ -2176,7 +2100,7 @@ function burstSystem(dt: number): void {
 }
 // MARK: Finale pulse
 /**
- * The ending's synchronized pulse: every monument releases the same larger energy flash at once (the release burst's look: a bright
+ * The ending's synchronized pulse: every obelisk releases the same larger energy flash at once (the release burst's look: a bright
  * translucent sphere that grows from the crystal and fades, existing burst sound). The ground / snow / vegetation follow the same radial
  * front through the oasis (shared/terrain/oasis.ts finale pulse) and the server heat front; this is only the visual.
  */

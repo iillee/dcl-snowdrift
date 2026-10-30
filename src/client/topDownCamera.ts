@@ -78,8 +78,6 @@ export const DESKTOP_ZOOM_SCALES  = [7, 29, 60, Math.round(60 * DESKTOP_ZOOM_FAR
 export const DESKTOP_ZOOM_DEFAULT = 29
 /** Past the bounds/ceiling clamp, widen the lens up to this to keep the framing (pixelwars). */
 const ISO_FOV_MAX_DEG = 80
-/** Cliff auto-rotate. Pixelwars drops it (flat tiles); Cryocene keeps it for its 16 m terrain cliffs. */
-export const ISO_AUTO_ROTATE_ENABLED = true
 const CAM_ALTITUDE_DEFAULT = DESKTOP_ZOOM_DEFAULT
 
 /** Reference FOV the zoom scale was tuned against (old overhead camera, deg). */
@@ -312,7 +310,6 @@ function updateYaw(dt: number): void {
 		}
 		return
 	}
-	if (!ISO_AUTO_ROTATE_ENABLED) return
 	occludeClock += dt
 	if (occludeClock < ISO_OCCLUDE_SAMPLE_S) return
 	const step = occludeClock

@@ -6,7 +6,7 @@
  * summit map UI. Rebuilds when activeTerrain() changes.
  *
  * Flat black-and-white engraving: volcano = triangle, spawn = circle,
- * stations = X (red once that monument is lit, live + late join, reset
+ * stations = X (red once that obelisk is lit, live + late join, reset
  * on cycle roll). Slate footprint matches the map face size.
  */
 
@@ -51,7 +51,6 @@ const MARKER_H_M = 0.045
 
 const CLICK_MAX_DIST_M = 8
 
-const COLOR_STONE = Color4.create(0.42, 0.40, 0.36, 1)
 const COLOR_SLATE = Color4.create(0.55, 0.52, 0.46, 1)
 const COLOR_INK   = Color4.create(0.08, 0.07, 0.06, 1)
 const COLOR_LIT_X = Color4.create(0.85, 0.08, 0.05, 1)

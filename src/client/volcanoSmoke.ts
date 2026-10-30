@@ -4,7 +4,7 @@
  *
  * Native SDK ParticleSystem (same pattern as campfireSmoke.ts): one
  * upward Cone emitter, buoyant rise, puffs grow and fade into the sky.
- * Visual only. Three stages by landed monuments (0 dormant / no plume,
+ * Visual only. Three stages by landed obelisks (0 dormant / no plume,
  * 1 small low thin, 2 medium, 3 the full eruption plume): rate, puff
  * size, launch speed, buoyancy and opacity all come from the stage
  * tables in src/shared/volcanoStages.ts and blend over
@@ -312,7 +312,7 @@ function smokeBlendSystem(dt: number): void {
 
 // MARK: setVolcanoSmokeBoost
 /**
- * Plume stage from landed monuments (0–3).
+ * Plume stage from landed obelisks (0–3).
  *   0 → stopped (dormant volcano), 1 → small, 2 → medium, 3 → eruption.
  * Blends over SMOKE_STAGE_BLEND_S. Safe before the emitter exists;
  * placeForMap seats it with the live parameters.

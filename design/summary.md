@@ -1,6 +1,6 @@
 # Cryocene — the plain-English version
 
-*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-28 (floating-crystals ruleset; see [`../docs/HANDOFF.md`](../docs/HANDOFF.md)). Sections written before 2026-10-27 describe earlier rulesets where marked.*
+*A short read of the current design. Full source of truth is [`gdd.md`](gdd.md); this is the reader on-ramp. Last synced 2026-10-29 (floating-crystals ruleset, `compact_3` active profile; see [`../docs/HANDOFF.md`](../docs/HANDOFF.md)). Sections written before 2026-10-27 describe earlier rulesets where marked.*
 
 > **Title locked 2026-09-23:** *Cryocene* (pivoted from *Snow Drift* — IP conflict). Repo, package name, deploy URL (`snowdrift.dcl.eth`), and CRDT component IDs still use `snowdrift` — these are infrastructure identifiers that would break live state or require a new DCL NAME to change. All user-facing surfaces now say Cryocene.
 
@@ -53,7 +53,7 @@ Same verb at three scales: tend the torch through the night, tend the network th
 
 - **World state survives an empty server.** Log off Day 17, come back to a later day. A personal "while you were gone" summary. Offline advance at full rate.
 - **Oldest surviving fire becomes the new home** if the hearth falls and another fire is still lit. That migration is not built. What is built is simpler: any lit fire is a way back for the frozen.
-- **A new seed rerolls the long-term geography** (biomes, discoveries, hazards). The playtest already rerolls trees, buried wood and the six monument sites (hidden fires were removed).
+- **A new seed rerolls the long-term geography** (biomes, discoveries, hazards). The playtest already rerolls trees, buried wood and the obelisk sites (six in the standard profiles, three in `compact_3`; hidden fires were removed).
 
 ## Geography is the tech tree
 
@@ -79,7 +79,7 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 ## What's *not* in the game
 
 - No combat, no mobs, no NPCs.
-- No personal power progression, no gear tiers. (There is a per-player leaderboard: Longest, Fastest, Monuments, Biggest Firenet.)
+- No personal power progression, no gear tiers. (There is a per-player leaderboard: Longest, Fastest, Obelisks, Biggest Firenet.)
 - No inventory beyond torch + one carry slot.
 - No world map, no minimap, no crafting menu, no unlock notifications.
 - No hunger/thirst/cooking. Cold is the only survival axis.
@@ -92,21 +92,21 @@ Three fire types anchor the network: the central **spawn hearth**, **biome ancho
 
 No individual gets stronger. Everyone shares the same starting capabilities. The story is what changes.
 
-## Where the build is (2026-10-28) - floating crystals
+## Where the build is (2026-10-29) - floating crystals
 
-Ruleset `floating-crystals` (`src/shared/ruleset.ts`), branch `floating-crystals`, commit `f22ee9e`, profile `playtest_52` (52 x 52 parcels). Full detail, constants, tests and known issues: [`../docs/HANDOFF.md`](../docs/HANDOFF.md).
+Ruleset `floating-crystals` (`src/shared/ruleset.ts`), branch `main` (last commit `ee078cd`), active profile **`compact_3`** (3 obelisks, no volcano, own leaderboard, in the 52 x 52 parcel scene); `playtest_52` and `full_100` (6 obelisks + volcano) are one edit of `WORLD_PROFILE` away. Full detail, constants, tests and known issues: [`../docs/HANDOFF.md`](../docs/HANDOFF.md).
 
-The loop: wake at the permanent hearth, light a torch, gather logs (the only wood), **build your own fires** (carry a log, lit torch, E; the fire appears 1.2 m ahead, at least 18 m from any burning fire), and link them. Fires within 140 m form a network (dense topology, orb trails, shared fuel). Fires within 40 m of one of the **6 monuments** charge it; a full charge releases it: it rises, a sky beam lands in its tip, 2 s charge, burst. The release melts a 50 m heat zone and an **oasis**: the centre 12 m melts at once, then a ragged ~32 m clearing opens outward over 60 s across every terrace and wall top in reach, bare earth first, then grass, bushes, rocks and pines grow back. Releasing the sixth monument starts the **World Thaws** ending: beams link the monument tips in a ring, the snow under each beam thaws, a high cinematic follows, the title shows, and play carries on.
+The loop: wake at the permanent hearth, light a torch, gather logs (the only wood), **build your own fires** (carry a log, lit torch, E; the fire appears 1.2 m ahead, at least 18 m from any burning fire), and link them. Fires within 140 m form a network (dense topology, orb trails, shared fuel). Fires within 40 m of one of the **obelisks** (6 standard, 3 in `compact_3`) charge it; a full charge releases it: it rises, a sky beam lands in its tip, 2 s charge, burst. The release melts a 50 m heat zone and an **oasis**: the centre 12 m melts at once, then a ragged ~32 m clearing opens outward over 60 s across every terrace and wall top in reach, bare earth first, then grass, bushes, rocks and pines grow back. Releasing the last obelisk starts the **"THE WORLD BEGINS TO THAW"** ending: beams link the obelisk tips in a ring all at once, then every obelisk releases a pulse that thaws the snow around it out to ~64 m (snow in ~12 s, permafrost and plants over ~60 s), a high cinematic follows, the title shows, and play carries on. About a minute later any player can press **BEGIN NEW EXPEDITION**: a shared 60 s countdown ends in a fresh world on Day 1.
 
 **Fires die for good.** A fire that runs out becomes cold ash, cannot be relit, and disappears after 60 s. The hearth is exempt. Ash never blocks building or counts toward the 40-fire cap.
 
-Also: Biggest Firenet leaderboard tab, per-fire flame variety, sounds per monument (`monument.mp3` at rise, looping `crystal.mp3` from the beam hit, a quiet charging hum that fades with distance from the monument), desktop zoom steps 7 / 29 / 60 / 84 / 118.
+Also: Biggest Firenet leaderboard tab, per-fire flame variety, a lava pool in every released obelisk's socket that relights torches, a crowd burn coefficient per profile (0.5 standard, 0.25 `compact_3`), a touch HUD, sounds per obelisk (`obelisk.mp3` at rise, looping `crystal.mp3` from the beam hit, a quiet charging hum that fades with distance from the obelisk), desktop zoom steps 7 / 29 / 60 / 84 / 118 (mobile 5 / 11.67 / 18.33 / 25).
 
-**Not built:** automatic new winter after World Thaws (the run resets only when all flame is out, or by the dev roll), seasons, solstice, empty-server persistence, return screens, kiln. **Untested:** mobile entity counts, the ash visual, the finale on small screens.
+**Not built:** automatic new winter after the ending (the world resets only when all flame is out before the ending, by a player's New Expedition, or by the dev roll), seasons, solstice, empty-server persistence, return screens, kiln. **Untested:** mobile entity counts, the ash visual, the finale on small screens.
 
 ## Where the build was (2026-10-07, classic volcano loop - superseded) — V1 MVP loop
 
-Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 monuments** in any order (E / **IGNITE MONUMENT** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s melt wave from the volcano over a ring covering ~55% of the map (ground snow, cliff ice caps, scatter wood) → eruption plume, lava, **WORLD THAWED**, no night cold inside the ring → 1 day of **Winter Approaches in 1 Day** → new winter. Lit monuments are eternal Warm fires (grey stone + flame; their tablet X turns red). The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
+Playtest profile **`playtest_52`** (52 × 52; `full_100` kept). The loop: survive → explore → climb the volcano → read the summit tablet (knowledge, not a gate) → carry a lit torch to **ignite 3 obelisks** in any order (E / **IGNITE OBELISK** within 3.5 m) → smoke at 1/3 and 2/3 → the 3rd sends a 45 s melt wave from the volcano over a ring covering ~55% of the map (ground snow, cliff ice caps, scatter wood) → eruption plume, lava, **WORLD THAWED**, no night cold inside the ring → 1 day of **Winter Approaches in 1 Day** → new winter. Lit obelisks are eternal Warm fires (grey stone + flame; their tablet X turns red). The crater is always Warm. Invisible perimeter wall; the xy debug chip is gone; wood, fires and trees no longer float or hang off cliffs. Full handoff: [`session-2026-10-07-v1-loop.md`](./session-2026-10-07-v1-loop.md).
 
 ## Where the build was (2026-10-05)
 
@@ -114,9 +114,9 @@ Phase 1 **Systems** is underway. The authored / deployed World is **100 × 100 p
 
 **Playable now:** Dawn / Day / Dusk / Night; night pressure from dusk; mortal spawn hearth; fuel tiers from Ember to Roaring (flame, ring, and warmth move together; wire path coerces fuel to Number so clients stay in sync); melt-to-reveal branches and logs; choppable trees; home teaching fires + per-grove pits + generation-grown world finds; one carry slot; freeze in ice, torch thaw with ice-melt SFX (desktop elevates ice on mobile peers); a lit fire wakes the frozen; run-end cards + fresh seed; Day N; black cold open; ? menu; phone mute / overhead zoom / face finder; coarse far snow sheets; opt-in **xy** bounds debug chip beside the heat bar (removed 2026-10-07).
 
-**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. Reliable **mobile** play on 100 × 100 (H1-07). Geography / migration destinations — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).
+**Not yet:** seasons, solstice, sleeping-ember / dormancy, oldest-fire-becomes-home, empty-server persistence, return-screens, pine, kiln, communal pile, hold-torch-to-fell. Reliable **mobile** play on 100 × 100 (H1-07). Geography / migration destinations — **next:** [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md).
 
-**Handoff:** [`session-2026-10-05.md`](./session-2026-10-05.md). Prior: [`session-2026-10-04.md`](./session-2026-10-04.md). Next checkpoint: [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md).
+**Handoff:** [`session-2026-10-05.md`](./archive/session-2026-10-05.md). Prior: [`session-2026-10-04.md`](./archive/session-2026-10-04.md). Next checkpoint: [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md).
 
 ## v1 build plan — at a glance
 

@@ -24,17 +24,17 @@
 import { computeVolcanoCrownCells, crownLevelFor } from 'src/shared/terrain/volcanoCrown'
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z, SPAWN_LOOK_COMPASS_DEG } from 'src/shared/campfire'
 import {
-	MONUMENT_COUNT,
-	MONUMENT_DISTANCE_BANDS,
-	MONUMENT_MIN_ANGLE_DEG,
-	MONUMENT_EDGE_PREF_M,
-	MONUMENT_EDGE_MIN_MUL,
-	MONUMENT_RELAX_SEP_FRAC,
+	OBELISK_COUNT,
+	OBELISK_DISTANCE_BANDS,
+	OBELISK_MIN_ANGLE_DEG,
+	OBELISK_EDGE_PREF_M,
+	OBELISK_EDGE_MIN_MUL,
+	OBELISK_RELAX_SEP_FRAC,
 	isFloatingCrystals,
-	CRYSTAL_NEAR_MONUMENT_TARGET_M,
-	CRYSTAL_NEAR_MONUMENT_MIN_M,
-	CRYSTAL_NEAR_MONUMENT_MAX_M,
-	CRYSTAL_NEAR_MONUMENT_RELAX_MAX_M,
+	CRYSTAL_NEAR_OBELISK_TARGET_M,
+	CRYSTAL_NEAR_OBELISK_MIN_M,
+	CRYSTAL_NEAR_OBELISK_MAX_M,
+	CRYSTAL_NEAR_OBELISK_RELAX_MAX_M,
 } from 'src/shared/ruleset'
 import {
 	MAJOR_GROVE_COUNT,
@@ -72,7 +72,7 @@ import {
 	TerrainLadder,
 	TerrainMap,
 	TerrainVolcano,
-	monumentHoverBottomY,
+	obeliskHoverBottomY,
 	cellCenterWorld,
 	groundYForLevel,
 } from 'src/shared/terrain/terrainMap'
@@ -179,12 +179,12 @@ const VOLCANO_MIN_SEP_CELLS  = Math.round(sc(10))
 /** Prefer opposite half of the map from the farther grove (radians). */
 const VOLCANO_OPPOSITE_RAD   = Math.PI / 2
 
-// Ignition stations (monuments) — three exploration sockets. They rise to
+// Ignition stations (obelisks) — three exploration sockets. They rise to
 // hover ~20 m above the crater rim and beam down from the bottom tip, so the socket itself needs
 // no line of sight: low ground and canyons are valid (and preferred).
 // Not groves. Scaled so playtest_52 and full_100 share the same feel.
-const STATION_COUNT            = isFloatingCrystals() ? MONUMENT_COUNT : 3
-/** World gen accepts the map with at least this many (crystals: fewer than MONUMENT_COUNT is logged, not a reroll). */
+const STATION_COUNT            = isFloatingCrystals() ? OBELISK_COUNT : 3
+/** World gen accepts the map with at least this many (crystals: fewer than OBELISK_COUNT is logged, not a reroll). */
 const STATION_MIN_VALID        = 3
 /** Min Chebyshev cells between any two stations. */
 const STATION_MIN_SEP_CELLS    = Math.round(sc(12))
@@ -207,14 +207,14 @@ const STATION_LOS_CLEAR_M      = 1.0
 /** Last N cells before the target ignore blockers (crater lip / crown). */
 const STATION_LOS_NEAR_TARGET  = 2
 
-// Near-spawn monument: one station always sits on the OUTER side of the
+// Near-spawn obelisk: one station always sits on the OUTER side of the
 // starting grove: the far side of the hearth from the volcano, ~160 m out
 // at the outer edge of the starting grove (tip visible from the campfire).
 // The grove is the hearth tree ring (catalog radiiM 64 / 88 / 96 / 104 m
 // core, 144 / 168 m far trees) on the forced hearth terrace
 // (HEARTH_FORCE_R 4.5 cells = 72 m, blended to 9 cells = 144 m).
-// Floating crystals override this: the near monument sits ~25 m from the hearth
-// (CRYSTAL_NEAR_MONUMENT_TARGET_M, the first cell ring, always on the flat hearth
+// Floating crystals override this: the near obelisk sits ~25 m from the hearth
+// (CRYSTAL_NEAR_OBELISK_TARGET_M, the first cell ring, always on the flat hearth
 // terrace) in front of the spawn view (SPAWN_LOOK_COMPASS_DEG), so any fire built
 // near spawn links to it.
 /** Preferred distance from the hearth (m): between the two far hearth trees (144 / 168 m). */
@@ -235,7 +235,7 @@ export const NEAR_STATION_AWAY_RELAX_DEG = 110
 const NEAR_W_AWAY = 2
 const NEAR_W_DIST = 1.5
 /**
- * Pull the near monument toward spawn AFTER the far two are placed:
+ * Pull the near obelisk toward spawn AFTER the far two are placed:
  * the preferred band (target / min / max) is scaled by this and the best
  * valid socket that keeps spacing + angle to the (unchanged) far two is
  * used; else the original spot stays. 1 = old placement. 0.75 = ~25% closer.
@@ -243,9 +243,9 @@ const NEAR_W_DIST = 1.5
 export const NEAR_STATION_PULL: number = 0.75
 /** Ranked near sockets tried in turn when one blocks the far picks. */
 const NEAR_STATION_TRIES = 8
-/** Effective pull: crystals mode aims the near monument at CRYSTAL_NEAR_MONUMENT_TARGET_M. */
+/** Effective pull: crystals mode aims the near obelisk at CRYSTAL_NEAR_OBELISK_TARGET_M. */
 function nearPull(): number {
-	return isFloatingCrystals() ? CRYSTAL_NEAR_MONUMENT_TARGET_M / NEAR_STATION_TARGET_M : NEAR_STATION_PULL
+	return isFloatingCrystals() ? CRYSTAL_NEAR_OBELISK_TARGET_M / NEAR_STATION_TARGET_M : NEAR_STATION_PULL
 }
 /** Hearth line of sight: eye height above the hearth ground (m). */
 export const NEAR_LOS_EYE_M = 1.7
@@ -253,17 +253,17 @@ export const NEAR_LOS_EYE_M = 1.7
  * Hearth line of sight: aim point above the socket ground (m) = the
  * seated pyramid tip (4 m pyramid, base flush with the ground; see
  * stationMarkers FROZEN_TIP_Y_M). Kept local so terrainGen does not
- * import the client / monumentIce chain.
+ * import the client / obeliskIce chain.
  */
 export const NEAR_LOS_TIP_M = 4
 /** Ray samples per cell (16 m cells -> one sample every 2 m). */
 const NEAR_LOS_SAMPLES_PER_CELL = 8
 /**
  * Extra hover heights tried, smallest first (m on top of
- * monumentHoverBottomY), until the bottom-tip beam to a rim point
+ * obeliskHoverBottomY), until the bottom-tip beam to a rim point
  * clears terrain. If none clears the socket is still valid (last step).
  */
-const MONUMENT_LIFT_STEPS_M: readonly number[] = [0, 10, 20]
+const OBELISK_LIFT_STEPS_M: readonly number[] = [0, 10, 20]
 /** Chebyshev radius (cells) for the canyon / enclosure score. */
 const STATION_ENCLOSE_R = 2
 /** Beam aims this far above a rim cell's surface (m). */
@@ -319,12 +319,12 @@ export function generateTerrain(seed: number): TerrainMap {
 	const rejected: string[] = []
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		const usedSeed = attempt === 0 ? seed >>> 0 : (Math.imul(seed ^ attempt, 0x9E3779B1) + attempt) >>> 0
-		nearMonumentLog = ''
+		nearObeliskLog = ''
 		const map      = buildOnce(seed, usedSeed, attempt + 1)
 		const failure  = validate(map)
 		if (failure === '') {
-			// ONE summary per generated layout (the near-monument pick used to be logged by every rejected attempt).
-			console.log(`terrainGen: seed ${seed}: layout ${usedSeed} after ${attempt + 1} attempt(s)${rejected.length ? ' (rejected: ' + rejected.join('; ') + ')' : ''}${nearMonumentLog ? '; ' + nearMonumentLog : ''}`)
+			// ONE summary per generated layout (the near-obelisk pick used to be logged by every rejected attempt).
+			console.log(`terrainGen: seed ${seed}: layout ${usedSeed} after ${attempt + 1} attempt(s)${rejected.length ? ' (rejected: ' + rejected.join('; ') + ')' : ''}${nearObeliskLog ? '; ' + nearObeliskLog : ''}`)
 			return map
 		}
 		rejected.push(failure)
@@ -335,8 +335,8 @@ export function generateTerrain(seed: number): TerrainMap {
 	return last!
 }
 
-/** The near-monument pick of the attempt being built (buildOnce writes it; generateTerrain prints it once for the accepted attempt). */
-let nearMonumentLog = ''
+/** The near-obelisk pick of the attempt being built (buildOnce writes it; generateTerrain prints it once for the accepted attempt). */
+let nearObeliskLog = ''
 
 
 // MARK: buildOnce
@@ -427,7 +427,7 @@ function buildOnce(
 	// Stations need the final heights (crown extruded) so the hover beam
 	// check matches what the player sees. Empty when the volcano is
 	// missing or no three sockets clear separation.
-	// Floating crystals: pick the near monument at its target up front so the
+	// Floating crystals: pick the near obelisk at its target up front so the
 	// far picks are built around it (a late pull often loses to their angles).
 	const nearPicks = pickNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, isFloatingCrystals() ? nearPull() : 1)
 	let stations: TerrainStation[] = []
@@ -436,16 +436,16 @@ function buildOnce(
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [nearPicks[k].station])
 		if (stations.length > best.length) best = stations
 		if (stations.length >= STATION_COUNT) {
-			nearMonumentLog = nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : '')
+			nearObeliskLog = nearPicks[k].log + (k > 0 ? ' (alt ' + k + ')' : '')
 			break
 		}
 	}
 	stations = best
 	if (stations.length < STATION_COUNT && stations.length < STATION_MIN_VALID) {
-		console.log('terrainGen: near monument blocked the far picks - falling back to far-only stations')
+		console.log('terrainGen: near obelisk blocked the far picks - falling back to far-only stations')
 		stations = pickStations(work, regions, routeDist, destinations, volcano, ladders, [])
 	}
-	if (stations.length < STATION_COUNT) console.log(`terrainGen: only ${stations.length}/${STATION_COUNT} monuments placed`)
+	if (stations.length < STATION_COUNT) console.log(`terrainGen: only ${stations.length}/${STATION_COUNT} obelisks placed`)
 	if (!isFloatingCrystals() && nearPull() !== 1 && stations.length >= STATION_MIN_VALID && stations[0].near) {
 		stations = pullNearStation(work, regions, routeDist, volcano, ladders, hearthRegion, stations)
 	}
@@ -909,16 +909,9 @@ function stampRidge(
 // where a ladder needs standing room.
 const VOLCANO_RIM_W_CELLS     = 1.0
 const VOLCANO_TERRACE_W_CELLS = 1.0
-const VOLCANO_HIGH_W_CELLS    = 1.0
 const VOLCANO_APRON_W_CELLS   = 1.0
 /** Lava lake = ellipse t below this (was 0.40); keeps the cone tight. */
 const VOLCANO_CRATER_T        = 0.30
-/**
- * Per-side jitter: extra width (cells) added to the terrace and High
- * rings by a smooth noise of bearing, so the rings are not perfectly
- * concentric and the cone reads as a lumpy peak.
- */
-const VOLCANO_SIDE_JITTER_CELLS = 0.35
 /** Side noise below this drops a level on that face (32 m cliff there). */
 const VOLCANO_RING_SKIP_BELOW = 0.38
 /** Side noise above this widens the level into a shoulder. */
@@ -960,7 +953,6 @@ function stampVolcano(
 
 	const wRim   = Math.max(1, sc(VOLCANO_RIM_W_CELLS))
 	const tw     = Math.max(1, sc(VOLCANO_TERRACE_W_CELLS))
-	const wHigh  = Math.max(1.1, sc(VOLCANO_HIGH_W_CELLS))
 	const wApron = Math.max(1, sc(VOLCANO_APRON_W_CELLS))
 	const eT1    = wRim + VOLCANO_EXTRA_TERRACES * tw
 	// Widest possible ring stack (every level at its widest).
@@ -2134,7 +2126,7 @@ type RimPoint = { cx: number; cz: number; fx: number; fz: number; endY: number }
 // MARK: stationBeam
 /**
  * Hover beam for a socket: from the hovering bottom tip
- * (monumentHoverBottomY: rim aim + MONUMENT_HOVER_ABOVE_TARGET_M + lift) to the closest crater
+ * (obeliskHoverBottomY: rim aim + OBELISK_HOVER_ABOVE_TARGET_M + lift) to the closest crater
  * rim point the line clears, smallest lift first. `clear` false means no
  * lift cleared; the highest lift + nearest rim is returned anyway.
  */
@@ -2149,23 +2141,23 @@ function stationBeam(
 	const byDist = rimPts.slice().sort((a, b) =>
 		Math.hypot(a.fx - cx - 0.5, a.fz - cz - 0.5) - Math.hypot(b.fx - cx - 0.5, b.fz - cz - 0.5)
 		|| a.cx - b.cx || a.cz - b.cz)
-	for (const lift of MONUMENT_LIFT_STEPS_M) {
+	for (const lift of OBELISK_LIFT_STEPS_M) {
 		for (const p of byDist) {
 			const groundY = groundYForLevel(levels[cz * W + cx])
-			const startClear = monumentHoverBottomY(groundY, p.endY, lift) - groundY
+			const startClear = obeliskHoverBottomY(groundY, p.endY, lift) - groundY
 			if (hasStationLos(levels, cx, cz, p.fx, p.fz, p.endY, startClear)) {
 				return { lift, rim: p, clear: true }
 			}
 		}
 	}
-	return { lift: MONUMENT_LIFT_STEPS_M[MONUMENT_LIFT_STEPS_M.length - 1], rim: byDist[0], clear: false }
+	return { lift: OBELISK_LIFT_STEPS_M[OBELISK_LIFT_STEPS_M.length - 1], rim: byDist[0], clear: false }
 }
 
 
 // MARK: nearStationHasHearthLos
 /**
  * True when a player standing at the spawn campfire (eye NEAR_LOS_EYE_M
- * above the hearth ground) can see the frozen monument tip
+ * above the hearth ground) can see the frozen obelisk tip
  * (NEAR_LOS_TIP_M above the socket cell's ground). Terrain only: the ray
  * is sampled NEAR_LOS_SAMPLES_PER_CELL times per cell and blocked where a
  * cell's surface (groundYForLevel: terraces, cliffs, mountains, volcano
@@ -2195,7 +2187,7 @@ export function nearStationHasHearthLos(levels: Uint8Array, cx: number, cz: numb
 
 // MARK: pickNearStation
 /**
- * Ranked sockets for the one monument near spawn (best first, up to
+ * Ranked sockets for the one obelisk near spawn (best first, up to
  * NEAR_STATION_TRIES). It belongs on the outer side of the starting
  * grove: the hearth->socket bearing within NEAR_STATION_AWAY_MAX_DEG of
  * directly away from the volcano, at about NEAR_STATION_TARGET_M.
@@ -2226,14 +2218,14 @@ function pickNearStation(
 	const rimPts  = volcano ? volcanoRimPoints(work, volcano) : []
 	const centre  = volcano ? stationLosTarget(work.landforms, volcano) : { fx: HEARTH_FX, fz: HEARTH_FZ, endY: 0 }
 	const volcAng = Math.atan2(centre.fz - HEARTH_FZ, centre.fx - HEARTH_FX)
-	// Floating crystals: the near monument is ~25 m from the hearth, so "away
+	// Floating crystals: the near obelisk is ~25 m from the hearth, so "away
 	// from the volcano" no longer matters; it goes in FRONT of the spawn view
 	// instead (the player arrives on the pad behind the fire looking along
 	// SPAWN_LOOK_COMPASS_DEG: forward = (sin, cos) in x / z).
 	const crystals = isFloatingCrystals()
 	const lookRad  = (SPAWN_LOOK_COMPASS_DEG * Math.PI) / 180
 	const awayAng  = crystals ? Math.atan2(Math.cos(lookRad), Math.sin(lookRad)) : volcAng + Math.PI
-	const candMinM = crystals ? CRYSTAL_NEAR_MONUMENT_MIN_M : NEAR_STATION_RELAX_MIN_M
+	const candMinM = crystals ? CRYSTAL_NEAR_OBELISK_MIN_M : NEAR_STATION_RELAX_MIN_M
 	const ladderCells = new Set<number>()
 	for (const l of ladders) {
 		ladderCells.add(l.lowCz * W + l.lowCx)
@@ -2292,8 +2284,8 @@ function pickNearStation(
 		// ring on the forced-flat hearth terrace), any side, best view first; then
 		// the next rings out; the classic passes below stay as a last resort.
 		...(crystals ? [
-			{ name: 'close+front+los',    minM: CRYSTAL_NEAR_MONUMENT_MIN_M, maxM: CRYSTAL_NEAR_MONUMENT_MAX_M,       maxOffDeg: 180, clear: false, los: true },
-			{ name: 'close+relaxed+los',  minM: CRYSTAL_NEAR_MONUMENT_MIN_M, maxM: CRYSTAL_NEAR_MONUMENT_RELAX_MAX_M, maxOffDeg: 180, clear: false, los: true },
+			{ name: 'close+front+los',    minM: CRYSTAL_NEAR_OBELISK_MIN_M, maxM: CRYSTAL_NEAR_OBELISK_MAX_M,       maxOffDeg: 180, clear: false, los: true },
+			{ name: 'close+relaxed+los',  minM: CRYSTAL_NEAR_OBELISK_MIN_M, maxM: CRYSTAL_NEAR_OBELISK_RELAX_MAX_M, maxOffDeg: 180, clear: false, los: true },
 		] : []),
 		{ name: 'band+away+los',        minM: Math.max(NEAR_STATION_RELAX_MIN_M, NEAR_STATION_MIN_M * distScale), maxM: NEAR_STATION_MAX_M * distScale,       maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
 		{ name: 'relaxed+away+los',     minM: NEAR_STATION_RELAX_MIN_M, maxM: NEAR_STATION_RELAX_MAX_M, maxOffDeg: NEAR_STATION_AWAY_MAX_DEG,   clear: false, los: true  },
@@ -2324,7 +2316,7 @@ function pickNearStation(
 						aimZ: TERRAIN_ORIGIN_M + beam.rim.fz * TERRAIN_CELL_M,
 					} : {}),
 				},
-				log: 'near monument pass=' + p.name + ' cell=(' + c.cx + ',' + c.cz + ') dist=' +
+				log: 'near obelisk pass=' + p.name + ' cell=(' + c.cx + ',' + c.cz + ') dist=' +
 					c.distM.toFixed(0) + 'm offAway=' + c.offDeg.toFixed(0) + 'deg lift=' + beam.lift +
 					'm beamClear=' + beam.clear + ' sameTerrace=' + c.sameTerrace +
 					(p.los ? ' hearthLos=true' : ' hearthLos=false (LAST RESORT: no campfire line of sight)'),
@@ -2332,7 +2324,7 @@ function pickNearStation(
 		}
 	}
 	if (out.length === 0) {
-		console.log('terrainGen: near monument: no cell within ' + NEAR_STATION_RELAX_MAX_M + 'm - far-only stations')
+		console.log('terrainGen: near obelisk: no cell within ' + NEAR_STATION_RELAX_MAX_M + 'm - far-only stations')
 	}
 	return out
 }
@@ -2340,7 +2332,7 @@ function pickNearStation(
 
 // MARK: pullNearStation
 /**
- * Move ONLY the near monument closer to spawn (NEAR_STATION_PULL). The
+ * Move ONLY the near obelisk closer to spawn (NEAR_STATION_PULL). The
  * far stations are kept exactly; a candidate must be strictly closer
  * than today's and keep STATION_MIN_SEP_CELLS / STATION_MIN_ANGLE_RAD to
  * them (same rules pickStations applied with the near pick as preset).
@@ -2373,10 +2365,10 @@ function pullNearStation(
 			if (diff < STATION_MIN_ANGLE_RAD) { ok = false; break }
 		}
 		if (!ok) continue
-		console.log('terrainGen: near monument pulled x' + nearPull().toFixed(2) + ': ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm -> ' + p.log)
+		console.log('terrainGen: near obelisk pulled x' + nearPull().toFixed(2) + ': ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm -> ' + p.log)
 		return [c, ...far]
 	}
-	console.log('terrainGen: near monument pull: no valid closer socket, kept at ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm')
+	console.log('terrainGen: near obelisk pull: no valid closer socket, kept at ' + (curD * TERRAIN_CELL_M).toFixed(0) + 'm')
 	return stations
 }
 
@@ -2386,7 +2378,7 @@ function pullNearStation(
  * Place STATION_COUNT ignition sockets on walkable Low/Mid/High cells
  * with reachability and separation from each other / hearth / volcano /
  * grove cores / ladder ends. No line of sight needed: the obelisk
- * hovers above the rim (monumentHoverBottomY) and the hover height is raised
+ * hovers above the rim (obeliskHoverBottomY) and the hover height is raised
  * (beamLiftM) until the beam clears; sockets whose beam never clears
  * are only used as a last resort. Prefers low ground, hollows and
  * canyons, one socket per elevation, fanned out around the hearth.
@@ -2465,9 +2457,9 @@ function pickStations(
 
 	type Cand = TerrainStation & { ang: number; score: number; i: number }
 	const cands: Cand[] = []
-	// Soft outer-wall bias (crystals): score x lerp(MONUMENT_EDGE_MIN_MUL..1)
-	// as the wall distance goes 0..MONUMENT_EDGE_PREF_M. Near-edge sockets stay legal.
-	const wallD = isFloatingCrystals() && MONUMENT_EDGE_PREF_M > 0 ? outerWallDistanceM(work.levels) : null
+	// Soft outer-wall bias (crystals): score x lerp(OBELISK_EDGE_MIN_MUL..1)
+	// as the wall distance goes 0..OBELISK_EDGE_PREF_M. Near-edge sockets stay legal.
+	const wallD = isFloatingCrystals() && OBELISK_EDGE_PREF_M > 0 ? outerWallDistanceM(work.levels) : null
 	for (let i = 0; i < N; i++) {
 		const route = routeDist[i]
 		if (route < STATION_MIN_ROUTE) continue
@@ -2496,7 +2488,7 @@ function pickStations(
 		// money shot now that it no longer has to see the volcano.
 		const enclose = stationEnclosure(work.levels, cx, cz, lv) / 24
 		const levelBias = lv === LOW ? 1.3 : lv === MID ? 1.15 : 1
-		const edgeMul = wallD ? MONUMENT_EDGE_MIN_MUL + (1 - MONUMENT_EDGE_MIN_MUL) * Math.min(1, wallD[i] / MONUMENT_EDGE_PREF_M) : 1
+		const edgeMul = wallD ? OBELISK_EDGE_MIN_MUL + (1 - OBELISK_EDGE_MIN_MUL) * Math.min(1, wallD[i] / OBELISK_EDGE_PREF_M) : 1
 		const score = route * (1 + enclose * 0.8) * levelBias * edgeMul
 		cands.push({ cx, cz, i, level: lv, region: regions[i], route, ang, score })
 	}
@@ -2513,7 +2505,7 @@ function pickStations(
 	const out: TerrainStation[] = preset.slice()
 	const oAng = (st: TerrainStation): number =>
 		Math.atan2(st.cz + 0.5 - HEARTH_FZ, st.cx + 0.5 - HEARTH_FX)
-	const minAngle = isFloatingCrystals() ? (MONUMENT_MIN_ANGLE_DEG * Math.PI) / 180 : STATION_MIN_ANGLE_RAD
+	const minAngle = isFloatingCrystals() ? (OBELISK_MIN_ANGLE_DEG * Math.PI) / 180 : STATION_MIN_ANGLE_RAD
 	const angOk = (ang: number): boolean => {
 		for (const o of out) {
 			let diff = Math.abs(ang - oAng(o)) % (Math.PI * 2)
@@ -2544,14 +2536,14 @@ function pickStations(
 	}
 
 	// Floating crystals: the hover beam is unused (crystals float at a
-	// fixed height), and monuments fan out over distance bands from the
+	// fixed height), and obelisks fan out over distance bands from the
 	// hearth so some are near, some far (fractions of the farthest route).
 	const crystals = isFloatingCrystals()
 	const beamOk = (c: Cand): boolean => crystals || beamOf(c).clear
 	if (crystals) {
 		let maxRoute = 1
 		for (const c of cands) maxRoute = Math.max(maxRoute, c.route)
-		for (const [lo, hi] of MONUMENT_DISTANCE_BANDS) {
+		for (const [lo, hi] of OBELISK_DISTANCE_BANDS) {
 			if (out.length >= STATION_COUNT) break
 			// Best-scoring candidate whose route falls in the band.
 			for (const c of cands) {
@@ -2590,7 +2582,7 @@ function pickStations(
 	}
 	// Pass 4 (crystals): relax separation for a crowded small map.
 	if (crystals) {
-		const sep = Math.max(2, Math.round(STATION_MIN_SEP_CELLS * MONUMENT_RELAX_SEP_FRAC))
+		const sep = Math.max(2, Math.round(STATION_MIN_SEP_CELLS * OBELISK_RELAX_SEP_FRAC))
 		for (const c of cands) {
 			if (out.length >= STATION_COUNT) break
 			if (taken(c) || !sepOkAt(c, sep)) continue
@@ -2658,7 +2650,7 @@ function validate(map: TerrainMap): string {
 		return `stations ${map.stations.length}/${STATION_COUNT}`
 	}
 	{
-		// No line-of-sight rule: monuments hover above the rim and beam from
+		// No line-of-sight rule: obelisks hover above the rim and beam from
 		// there (terrain gen raises beamLiftM until it clears).
 		const seen = new Set<string>()
 		for (const s of map.stations) {
@@ -2675,7 +2667,7 @@ function validate(map: TerrainMap): string {
 			for (let b = a + 1; b < map.stations.length; b++) {
 				const A = map.stations[a]
 				const B = map.stations[b]
-				const minSep = isFloatingCrystals() ? Math.max(2, Math.round(STATION_MIN_SEP_CELLS * MONUMENT_RELAX_SEP_FRAC)) : STATION_MIN_SEP_CELLS
+				const minSep = isFloatingCrystals() ? Math.max(2, Math.round(STATION_MIN_SEP_CELLS * OBELISK_RELAX_SEP_FRAC)) : STATION_MIN_SEP_CELLS
 				if (Math.max(Math.abs(A.cx - B.cx), Math.abs(A.cz - B.cz)) < minSep) {
 					return 'stations too close'
 				}

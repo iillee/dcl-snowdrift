@@ -6,7 +6,7 @@
  * fireNetwork.ts (which imports them) — no server import cycle.
  */
 
-import { NETWORK_SHARED_FUEL_ENABLED, NETWORK_SHARE_HOPS, NETWORK_SHARE_KEEP, splitFuelChainFirst, splitFuelKeepShare } from 'src/shared/fireNetwork'
+import { NETWORK_SHARE_HOPS, NETWORK_SHARE_KEEP, splitFuelChainFirst, splitFuelKeepShare } from 'src/shared/fireNetwork'
 import { chainHopOf } from 'src/server/chargeLinks'
 import { FUEL_MAX } from 'src/shared/hearthFuel'
 import { room } from 'src/shared/messages'
@@ -67,13 +67,13 @@ function nearby(id: number, hops: number): number[] {
  * take the whole piece (caller refuses, like the normal cap).
  */
 export function tryShareFeed(id: number, add: number, from: string): 'none' | 'shared' | 'full' {
-	if (!NETWORK_SHARED_FUEL_ENABLED || !linked.has(id)) return 'none'
+	if (!linked.has(id)) return 'none'
 	const fed = fuelOf.get(id)
 	if (!fed) return 'none'
 	const ids = nearby(id, NETWORK_SHARE_HOPS).filter((i) => fuelOf.has(i))
 	if (ids.length < 1) return 'none'
 	// Fuel follows heat: a fed chain fire sends its shared part first to the
-	// chain fires closer to the monument (lower hop), then the normal rule.
+	// chain fires closer to the obelisk (lower hop), then the normal rule.
 	const fedHop = id > 0 ? chainHopOf(id - 1) : 0
 	const hops = ids.map((i) => { const h = i > 0 ? chainHopOf(i - 1) : 0; return fedHop > 0 && h > 0 && h < fedHop ? h : 0 })
 	const r = hops.some((h) => h > 0)

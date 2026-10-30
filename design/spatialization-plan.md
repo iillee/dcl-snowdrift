@@ -3,10 +3,11 @@
 *Working doc for the Spatialize + Fun phase of v1. When the design converges here, it folds back into GDD §3 (Pillars 5–6, Core Loop, Reveal table, Seasonal cadence, Scale and traversal).*
 
 **Status:** draft v2 · 2026-09-22 · planned Spatialize layout, not the playtest map  
-**Immediate geography work (2026-10-04 → 2026-10-07):** [`checkpoint-2026-10-07-geography-migration.md`](./checkpoint-2026-10-07-geography-migration.md) — prove migration on 64×64 with destinations, routes, and repositioned fixed fires. That checkpoint does **not** implement biomes / Kiln / pine yet; it should leave sockets and vocabulary (pass, ridge, grove) that this plan can inherit.  
+**Immediate geography work (2026-10-04 → 2026-10-07):** [`checkpoint-2026-10-07-geography-migration.md`](./archive/checkpoint-2026-10-07-geography-migration.md) — prove migration on 64×64 with destinations, routes, and repositioned fixed fires. That checkpoint does **not** implement biomes / Kiln / pine yet; it should leave sockets and vocabulary (pass, ridge, grove) that this plan can inherit.  
 **Related:** [`gdd.md`](gdd.md) §3, [`decisions.md`](decisions.md)  
-**Extinction line below is superseded (2026-09-30).** The run ends when everyone still connected is frozen and no fire is left. See [`session-2026-09-30.md`](./session-2026-09-30.md). This file is still the planned biome layout. It is not what the playtest world generates.  
+**Extinction line below is superseded (2026-09-30).** The run ends when everyone still connected is frozen and no fire is left. See [`session-2026-09-30.md`](./archive/session-2026-09-30.md). This file is still the planned biome layout. It is not what the playtest world generates.  
 **Supersedes:** the 2026-09-22 v1 draft of this doc (which proposed torch tiers, meadow/scrub as biomes, and a mixed density/biome model — all replaced).
+**Status 2026-10-29:** still a long-term plan. The pine fuel tier, the Cabin / Charcoal Kiln and the Ancient Station are not built (wood is logs only); the current build is described in [`../docs/HANDOFF.md`](../docs/HANDOFF.md) (player-built log fires, linked fire network, obelisks, oasis, `compact_3`). Where this plan and the code disagree, the code wins.  
 
 ---
 
@@ -182,7 +183,7 @@ Retained here as scope-fence. Split by the biome/discovery vocabulary so future 
 - **Ancient fuel cache** (v1.5 companion to coal). Small rare ruin-flavoured sites; pre-processed premium fuel, no torch-melt-fell required. Ties directly into the §7 lore.
 - **Watchtower, mine entrance, ancient storehouse, weather station** (v1.5+ functional discoveries).
 - **Ancient ignition station** (v2, the volcano-network endpoint).
-- **Frozen expedition, ancient marker, buried settlement, strange monument, ancient machine** (v1.5+ mystery/lore discoveries).
+- **Frozen expedition, ancient marker, buried settlement, strange obelisk, ancient machine** (v1.5+ mystery/lore discoveries).
 
 **Deferred infrastructure:**
 - Portable compass (v2, volcano-station pointer)

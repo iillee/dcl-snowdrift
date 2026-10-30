@@ -2,7 +2,7 @@
  * crystalFloat.ts - shared absolute float height for released crystals.
  *
  * Every released crystal's bottom tip sits at the SAME world Y:
- * highest monument ground on the map + CRYSTAL_FLOAT_HEIGHT_M. Client
+ * highest obelisk ground on the map + CRYSTAL_FLOAT_HEIGHT_M. Client
  * (rise / idle / late join / sphere + burst centre) and server (thaw
  * front height) both use this so they stay in sync.
  */

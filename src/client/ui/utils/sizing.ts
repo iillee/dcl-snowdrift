@@ -36,19 +36,6 @@ export function getCurrentCanvasSize(): { height: number; width: number } {
 	return readCanvasDimensions()
 }
 
-export function vhAsPixels(vh: number, min: number = 0, max: number = 99999): number {
-	const height = readCanvasDimensions().height
-	const value = Math.max(min, Math.min(max, (vh / 100) * height))
-	return value
-}
-
-export function vwAsPixels(vw: number, min: number = 0, max: number = 99999): number {
-	const width = readCanvasDimensions().width
-	const value = Math.max(min, Math.min(max, (vw / 100) * width))
-	return value
-}
-
-
 // MARK: pixelsScaledRelative
 export function pixelsScaledRelative(
 	value      : number,

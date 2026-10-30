@@ -1,5 +1,5 @@
 /**
- * layer.cinematic.tsx — letterbox bars for the monument cinematic.
+ * layer.cinematic.tsx — letterbox bars for the obelisk cinematic.
  *
  * Two full-width black bars (CINE_BAR_FRAC of the screen height each)
  * slide in from the top / bottom edges over CINE_BAR_SLIDE_S when the
@@ -13,8 +13,8 @@ import { Color4 } from '@dcl/sdk/math'
 
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
-import { getCinematicBarFrac, isCinematicSkippable, skipMonumentCinematic } from 'src/client/monumentCinematic'
-import { getIgnitionCaption } from 'src/client/monumentAnnounce'
+import { getCinematicBarFrac, isCinematicSkippable, skipObeliskCinematic } from 'src/client/obeliskCinematic'
+import { getIgnitionCaption } from 'src/client/obeliskAnnounce'
 
 /** Caption font and the min bottom strip (px) kept while it lingers after the bars leave. */
 const CAPTION_FONT    = 26
@@ -93,7 +93,7 @@ class CinematicLayer extends Layer {
 							padding      : { left: 16, right: 16, top: 8, bottom: 8 },
 							pointerFilter: isCinematicSkippable() ? 'block' : 'none',
 						}}
-						onMouseDown = {() => { if (isCinematicSkippable()) skipMonumentCinematic() }}
+						onMouseDown = {() => { if (isCinematicSkippable()) skipObeliskCinematic() }}
 					/>
 				</UiEntity>
 			</UiEntity>

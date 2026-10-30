@@ -17,7 +17,7 @@
  *   - First-joiner init (roll seed if none is synced after grace period)
  *
  * These will move to client/index.ts in a future commit alongside a
- * proper waitForLoad gate (sky-chaser pattern).
+ * proper startup gate (sky-chaser pattern).
  */
 
 import { engine } from '@dcl/sdk/ecs'

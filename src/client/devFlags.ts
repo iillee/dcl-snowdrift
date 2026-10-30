@@ -46,15 +46,15 @@ export const DEV_KEEP_TORCH_LIT = false
 // MARK: Thaw debug (TEMPORARY)
 /**
  * TEMPORARY 'THAW' button right of the frost bar (desktop + mobile).
- * Lights all 3 monuments server-side and runs the real 3/3 thaw path.
+ * Lights all 3 obelisks server-side and runs the real 3/3 thaw path.
  * The server handler is gated on this same flag. SET false BEFORE DEPLOY.
  */
 export const DEBUG_THAW_BUTTON = false
 
 /**
  * TEMPORARY 'END' button right of the frost bar (desktop + mobile), floating-crystals ruleset: fires the ENDING
- * ("The world begins to thaw": beams link the monument tips, every monument pulses and melts a large area, the title shows) without activating all
- * monuments (3 in the compact_3 playtest profile, 6 in the standard one). Releases every unreleased monument silently,
+ * ("The world begins to thaw": beams link the obelisk tips, every obelisk pulses and melts a large area, the title shows) without activating all
+ * obelisks (3 in the compact_3 playtest profile, 6 in the standard one). Releases every unreleased obelisk silently,
  * then the ending starts ~3 s later. Taints the run (no leaderboard record is ever written for that run). The server
  * handler is gated on this same flag. SET false BEFORE DEPLOY.
  *
@@ -74,8 +74,8 @@ export function debugFinaleAllowed(address: string): boolean {
 
 /**
  * Local preview of the volcano lava + smoke stage (0..3); -1 = off (use
- * landed monuments). Visual only: thaw radius / heat stay server-driven.
+ * landed obelisks). Visual only: thaw radius / heat stay server-driven.
  * For server-side staging use DEBUG_THAW_BUTTON ('+1' lights the next
- * monument). Keep -1 in commits.
+ * obelisk). Keep -1 in commits.
  */
 export const DEBUG_VOLCANO_STAGE_OVERRIDE: number = -1

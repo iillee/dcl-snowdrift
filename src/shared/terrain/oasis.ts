@@ -9,7 +9,7 @@
  * earth under it shows, OASIS_DROP_M lower. The oasis is a blocky circle of
  * OASIS_CELL_M cells on EVERY walkable terrace within reach (each cell keeps its own terrace height; cliff walls are
  * untouched; melt timing is by horizontal distance), never on lava or the volcano crown (mountain wall blocks inside the circle melt like terraces), never on the
- * monument's own pit square. The hearth is not special: its cell melts like any other and the hearth objects re-seat
+ * obelisk's own pit square. The hearth is not special: its cell melts like any other and the hearth objects re-seat
  * (client/hearthSeat.ts).
  *
  * Timing (all derived from the release time, so late joiners see the same state):
@@ -29,9 +29,9 @@
  */
 
 import { isCrownLevel, isMountainLevel } from 'src/shared/settings'
-import { CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_DELAY_S, CRYSTAL_THAW_SPREAD_S } from 'src/shared/ruleset'
+import { CRYSTAL_THAW_DELAY_S, CRYSTAL_THAW_SPREAD_S } from 'src/shared/ruleset'
 import {
-	MONUMENT_PIT_SIZE_M,
+	OBELISK_PIT_SIZE_M,
 	TERRAIN_ORIGIN_M,
 	TerrainMap,
 	cellCenterWorld,
@@ -114,7 +114,7 @@ let mapRef: TerrainMap | null = null
 let version = 0
 type Listener = (wasLowered: (x: number, z: number) => boolean) => void
 const listeners: Listener[] = []
-/** Server release times (local epoch ms) noted per monument position before the oasis registers. */
+/** Server release times (local epoch ms) noted per obelisk position before the oasis registers. */
 let notes: Array<{ x: number; z: number; ms: number }> = []
 /** Local epoch ms the finale pulse starts at (Infinity = none scheduled this cycle). Survives oasisClear (the finale owns it). */
 let pulseMs = Number.POSITIVE_INFINITY
@@ -146,9 +146,6 @@ export function oasisVersion(): number { return version }
 
 /** Live entries (read only). */
 export function oasisEntries(): readonly OasisEntry[] { return entries }
-
-/** True when at least one crystal has an oasis registered. */
-export function oasisAny(): boolean { return entries.length > 0 }
 
 function findAt<T extends { x: number; z: number }>(list: readonly T[], x: number, z: number): T | undefined {
 	for (const e of list) if (Math.abs(e.x - x) < 0.5 && Math.abs(e.z - z) < 0.5) return e
@@ -224,7 +221,7 @@ export function oasisTimedReveal(meltStartMs: number, nowMs: number): number {
 	return OASIS_INNER_M + (OASIS_RADIUS_M - OASIS_INNER_M) * (t / OASIS_MELT_S)
 }
 
-/** Note when monument (x, z) was released (local epoch ms). Call before oasisRelease; the earliest note wins. */
+/** Note when obelisk (x, z) was released (local epoch ms). Call before oasisRelease; the earliest note wins. */
 export function oasisNoteRelease(x: number, z: number, releaseMs: number): void {
 	const n = findAt(notes, x, z)
 	if (n) n.ms = Math.min(n.ms, releaseMs)
@@ -324,8 +321,8 @@ function cellOf(e: OasisEntry, map: TerrainMap | null, x: number, z: number): nu
 	const iz = oasisCellIndex(z)
 	const cx = oasisCellCentre(ix)
 	const cz = oasisCellCentre(iz)
-	const half = MONUMENT_PIT_SIZE_M / 2
-	if (Math.abs(x - e.x) < half && Math.abs(z - e.z) < half) return Number.POSITIVE_INFINITY // the monument pit square keeps its height
+	const half = OBELISK_PIT_SIZE_M / 2
+	if (Math.abs(x - e.x) < half && Math.abs(z - e.z) < half) return Number.POSITIVE_INFINITY // the obelisk pit square keeps its height
 	const dx = cx - e.x
 	const dz = cz - e.z
 	const d = Math.sqrt(dx * dx + dz * dz)
@@ -392,7 +389,7 @@ export function oasisCellInfo(map: TerrainMap, x: number, z: number): { ms: numb
 		if (msP < ms) ms = msP
 		// Only the ring beyond the first patch is a "finale" cell (own vegetation group); inner cells keep their group.
 		const fin = need > OASIS_RADIUS_M
-		// Earliest melt wins; ties (e.g. both already open) go to the nearer monument, then the earlier entry.
+		// Earliest melt wins; ties (e.g. both already open) go to the nearer obelisk, then the earlier entry.
 		const d = Math.hypot(cx - e.x, cz - e.z)
 		if (owner === null || ms < best || (ms === best && d < ownerD)) { best = ms; owner = e; ownerD = d; ownerFin = fin }
 	}

@@ -187,13 +187,6 @@ function stepThawFill(): void {
 }
 
 
-/** True while a world-thaw fill or a tile backlog is still publishing. */
-export function snowPublishBacklog(): number {
-	return dirtyTiles.size + (thawQueue.length - thawQueueHead)
-}
-
-
-
 // MARK: queueThawTiles
 /**
  * Staged thaw: queue every not-yet-melted snow tile within `toTiles` of

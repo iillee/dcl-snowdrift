@@ -17,20 +17,20 @@ import { onCycleRoll, getCurrentCycleSeed, rollCycle } from 'src/server/cycle'
 import { getDayNumber, onPhaseChange } from 'src/server/phase'
 import { cycleSeedsEqual } from 'src/shared/cycleMazeSeed'
 import { room } from 'src/shared/messages'
-import { meltMonumentIceSquare, meltThawZone, publishCoverageIfDirty, releaseMonumentPitSquare } from 'src/server/snowState'
+import { meltObeliskIceSquare, meltThawZone, publishCoverageIfDirty, releaseObeliskPitSquare } from 'src/server/snowState'
 import { clearWeatherThawLock } from 'src/server/weather'
 import {
-	MONUMENT_ICE_CHUNK_M,
-	MONUMENT_ICE_FULL_MASK,
+	OBELISK_ICE_CHUNK_M,
+	OBELISK_ICE_FULL_MASK,
 	iceChunkOffset,
 	iceFullyMelted,
 	isIceChunk,
 	stationHasIce,
-} from 'src/shared/monumentIce'
+} from 'src/shared/obeliskIce'
 import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { crystalFloatAboveGround } from 'src/shared/crystalFloat'
 import { groundYAtWorld } from 'src/shared/terrain/terrainMap'
-import { MONUMENT_PIT_SIZE_M, MONUMENT_SOCKET_SIZE_M, cellCenterWorld } from 'src/shared/terrain/terrainMap'
+import { OBELISK_PIT_SIZE_M, OBELISK_SOCKET_SIZE_M, cellCenterWorld } from 'src/shared/terrain/terrainMap'
 import { SNOW_TILE_M } from 'src/shared/snowGrid'
 import {
 	POST_THAW_DAYS,
@@ -42,10 +42,8 @@ import {
 
 import { engine } from '@dcl/sdk/ecs'
 import {
-	CHARGE_DECAY_ENABLED,
-	CHARGE_DECAY_PER_S,
 	CHARGE_ICE_GONE_AT,
-	MONUMENT_LINK_RANGE_M,
+	OBELISK_LINK_RANGE_M,
 	CRYSTAL_HEAT_RADIUS_M,
 	CRYSTAL_THAW_SPREAD_S,
 	CRYSTAL_THAW_DELAY_S,
@@ -58,26 +56,26 @@ import {
 import { getHiddenFireNodes } from 'src/server/hiddenCampfire'
 import { noteContributor, recordRunProgress } from 'src/server/leaderboard'
 import { markRunTainted } from 'src/server/runIntegrity'
-import { ChargePair, monumentLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
+import { ChargePair, obeliskLinkedSlots, setChainHops, setChargePairs, setChargingSlots, slotToucher } from 'src/server/chargeLinks'
 import { getVisibleEdges } from 'src/server/fireNetworkLinks'
-import { CHARGE_LINK_END_HALF_M, MONUMENT_NODE_ID_BASE } from 'src/shared/ruleset'
+import { CHARGE_LINK_END_HALF_M, OBELISK_NODE_ID_BASE } from 'src/shared/ruleset'
 import { heatZoneCellCount, meltDisc, releaseDiscOutside, startHeatZoneFront, tickHeatFronts } from 'src/server/snowState'
 import { oasisClear, oasisNoteRelease, oasisRelease, oasisSetFinalePulse, oasisTick } from 'src/shared/terrain/oasis'
 import { hearthRadiusFromFuel } from 'src/shared/hearthFuel'
 import { chargeHeatFuel } from 'src/shared/ruleset'
 
-/** Array capacity (MONUMENT_COUNT max 8). The live count is stationTotal(). */
+/** Array capacity (OBELISK_COUNT max 8). The live count is stationTotal(). */
 const STATION_CAP = 8
-/** Monuments in the current layout (3 classic, MONUMENT_COUNT crystals). */
+/** Obelisks in the current layout (3 classic, OBELISK_COUNT crystals). */
 function stationTotal(): number {
 	const n = activeTerrain()?.stations.length ?? 3
 	return Math.max(1, Math.min(STATION_CAP, n))
 }
-/** Floating crystals: charge 0..1 per monument (server-authoritative). */
+/** Floating crystals: charge 0..1 per obelisk (server-authoritative). */
 const charge: number[] = new Array<number>(STATION_CAP).fill(0)
-/** Last charge value broadcast per monument. */
+/** Last charge value broadcast per obelisk. */
 const sentCharge: number[] = new Array<number>(STATION_CAP).fill(-1)
-/** Last player to build/feed a fire that charged monument i. */
+/** Last player to build/feed a fire that charged obelisk i. */
 const chargeBy: string[] = new Array<string>(STATION_CAP).fill('')
 const CHARGE_TICK_S = 0.25
 const CHARGE_SEND_STEP = 0.004
@@ -87,9 +85,9 @@ let currentSeed = 0
 const active: boolean[] = new Array<boolean>(STATION_CAP).fill(false)
 /** Server epoch ms each crystal was released (0 = not released this cycle). Sent as ageMs so clients time the oasis melt + regrowth. */
 const releasedAtMs: number[] = new Array<number>(STATION_CAP).fill(0)
-/** Melted ice-chunk bitmask per monument (src/shared/monumentIce.ts). */
+/** Melted ice-chunk bitmask per obelisk (src/shared/obeliskIce.ts). */
 const iceMask: number[] = new Array<number>(STATION_CAP).fill(0)
-/** Charging-monument heat ring (m) currently melted/protected per monument (0 = none). */
+/** Charging-obelisk heat ring (m) currently melted/protected per obelisk (0 = none). */
 const monHeatR: number[] = new Array<number>(STATION_CAP).fill(0)
 let worldThawed = false
 /**
@@ -104,7 +102,7 @@ let thawStage = 0
 let thawSeg: ThawSegment | null = null
 /** Date.now() when the first lava appears (stage 1 wave start = beam landing); 0 = none. */
 let lavaLitAtMs = 0
-/** Ending (src/shared/finale.ts): Date.now() of its start (0 = not scheduled this cycle), the monument its ring starts at, the last one released. */
+/** Ending (src/shared/finale.ts): Date.now() of its start (0 = not scheduled this cycle), the obelisk its ring starts at, the last one released. */
 let finaleStartMs = 0
 let finaleFirst = 0
 let lastReleased = 0
@@ -172,7 +170,7 @@ function broadcastIce(index: number, to?: string): void {
 
 
 /**
- * Clear + protect the snow lying on ice chunk `chunk` of monument
+ * Clear + protect the snow lying on ice chunk `chunk` of obelisk
  * `index` (it melted with the ice; clients drop it from the ice top
  * to nothing). Once the whole mound is free, the obelisk column too, so
  * the empty recess stays snow-free until activation.
@@ -182,15 +180,15 @@ function clearSnowOverChunk(index: number, chunk: number): void {
 	if (!st) return
 	const c = cellCenterWorld(st.cx, st.cz)
 	const o = iceChunkOffset(chunk)
-	meltMonumentIceSquare(c.x + o.dx, c.z + o.dz, MONUMENT_ICE_CHUNK_M)
+	meltObeliskIceSquare(c.x + o.dx, c.z + o.dz, OBELISK_ICE_CHUNK_M)
 	if (iceFullyMelted(iceMask[index])) {
-		meltMonumentIceSquare(c.x, c.z, Math.ceil(MONUMENT_SOCKET_SIZE_M))
+		meltObeliskIceSquare(c.x, c.z, Math.ceil(OBELISK_SOCKET_SIZE_M))
 	}
 }
 
 
 /**
- * Monument `index` activated (the obelisk rose out): stop keeping its
+ * Obelisk `index` activated (the obelisk rose out): stop keeping its
  * empty recess snow-free so snowfall buries it again. The cells keep
  * their melted stage and regrow normally; clients draw them from the
  * recess floor so the shallow step fills back to ground level.
@@ -200,7 +198,7 @@ function releasePitSnow(index: number): void {
 	const st = activeTerrain()?.stations[index]
 	if (!st) return
 	const c = cellCenterWorld(st.cx, st.cz)
-	const n = releaseMonumentPitSquare(c.x, c.z, MONUMENT_PIT_SIZE_M)
+	const n = releaseObeliskPitSquare(c.x, c.z, OBELISK_PIT_SIZE_M)
 	console.log(`[Server] stations[${index}]: pit snow released (${n} cells regrow)`)
 }
 
@@ -223,10 +221,10 @@ function finalePayload(fresh: boolean): { seed: number; running: number; first: 
 }
 
 /**
- * The last monument was released: schedule the ending `delayS` from now (its release cinematic finishes first). Beams link the
- * monument tips (client, from the shared ring) all at once, then every monument releases the same pulse: the oasis registry grows every
+ * The last obelisk was released: schedule the ending `delayS` from now (its release cinematic finishes first). Beams link the
+ * obelisk tips (client, from the shared ring) all at once, then every obelisk releases the same pulse: the oasis registry grows every
  * oasis to the larger finale radius (oasisSetFinalePulse, same clock on every client) and the snow in that area melts with it
- * (one held heat front per monument, FINALE_PULSE_S). No thaw corridors. Idempotent per cycle. The game goes on afterwards.
+ * (one held heat front per obelisk, FINALE_PULSE_S). No thaw corridors. Idempotent per cycle. The game goes on afterwards.
  */
 function startFinale(first: number, delayS: number, reason: string): void {
 	if (!isFloatingCrystals() || finaleStartMs > 0) return
@@ -241,7 +239,7 @@ function startFinale(first: number, delayS: number, reason: string): void {
 	oasisSetFinalePulse(finaleStartMs + times.pulseAtS * 1000)
 	for (const p of pts) startHeatZoneFront(p.x, p.z, FINALE_SNOW_RADIUS_M, FINALE_PULSE_S, delayS + times.pulseAtS, 0)
 	console.log(
-		`[Server] stations: FINALE scheduled (${reason}) in ${delayS.toFixed(1)} s, ${pts.length} monuments, ring from monument ${first}: ` +
+		`[Server] stations: FINALE scheduled (${reason}) in ${delayS.toFixed(1)} s, ${pts.length} obelisks, ring from obelisk ${first}: ` +
 		edges.map(([a, b]) => `${a}>${b}`).join(' ') + ` beams ${times.beamStartS.toFixed(1)}-${times.beamsDoneS.toFixed(1)} s, pulse ${times.pulseAtS.toFixed(1)}-${times.pulseEndS.toFixed(1)} s (r ${FINALE_SNOW_RADIUS_M} m)`,
 	)
 	room.send('crystalFinaleState', finalePayload(true))
@@ -261,7 +259,7 @@ function advanceThawStage(reason: string): void {
 		return
 	}
 	const lit = Math.min(stationTotal(), getActiveStationCount())
-	// Thaw stages are 0..3 (THAW_STAGE_RADIUS_M); with more monuments
+	// Thaw stages are 0..3 (THAW_STAGE_RADIUS_M); with more obelisks
 	// (floating crystals) the full-world stage 3 comes with the last one.
 	const n = lit >= stationTotal() ? 3 : Math.min(3, lit)
 	if (n <= thawStage) return
@@ -362,7 +360,7 @@ export function setupStationsServer(): void {
 	resetCharges()
 	console.log(`[Server] stations: setup seed=${currentSeed}`)
 	if (isFloatingCrystals()) {
-		engine.addSystem(chargeSystem, undefined, 'monumentChargeSystem')
+		engine.addSystem(chargeSystem, undefined, 'obeliskChargeSystem')
 		// Crystal heat fronts at ~8 Hz (ring batches), coverage published per tick.
 		let frontAcc = 0
 		engine.addSystem((dt: number) => {
@@ -390,7 +388,7 @@ export function setupStationsServer(): void {
 			broadcastIce(index, context?.from)
 			return
 		}
-		iceMask[index] = (iceMask[index] | bit) & MONUMENT_ICE_FULL_MASK
+		iceMask[index] = (iceMask[index] | bit) & OBELISK_ICE_FULL_MASK
 		clearSnowOverChunk(index, chunk)
 		publishCoverageIfDirty()
 		broadcastIce(index)
@@ -429,7 +427,7 @@ export function setupStationsServer(): void {
 			broadcastOne(index)
 			return
 		}
-		// Only the iced monument needs its ice melted; the others ignite at once.
+		// Only the iced obelisk needs its ice melted; the others ignite at once.
 		if (stationHasIce(activeTerrain(), index) && !iceFullyMelted(iceMask[index])) {
 			console.log(
 				`[Server] stations[${index}]: activate from ${from} rejected - ice not melted ` +
@@ -449,7 +447,7 @@ export function setupStationsServer(): void {
 		advanceThawStage(`station ${index} by ${from}`)
 	})
 
-	// TEMPORARY debug thaw: same path as the 3rd monument (fresh station
+	// TEMPORARY debug thaw: same path as the 3rd obelisk (fresh station
 	// broadcasts -> grow/spin/beam/SFX on clients, then advanceThawStage -> stage 3).
 	room.onMessage('debugThaw', ({ seed }, context) => {
 		const from = context?.from ?? 'unknown'
@@ -466,7 +464,7 @@ export function setupStationsServer(): void {
 			active[i] = true
 			releasePitSnow(i)
 			if (!iceFullyMelted(iceMask[i])) {
-				iceMask[i] = MONUMENT_ICE_FULL_MASK
+				iceMask[i] = OBELISK_ICE_FULL_MASK
 				broadcastIce(i)
 			}
 			if (isFloatingCrystals()) releaseCrystal(i, '', true)
@@ -476,8 +474,8 @@ export function setupStationsServer(): void {
 		advanceThawStage(`debug button by ${from}`)
 	})
 
-	// TEMPORARY debug (DEBUG_FINALE_BUTTON, optionally limited to DEBUG_FINALE_HOSTS): every unreleased monument is released
-	// SILENTLY (clients snap to the finished crystal, no per-monument cinematics), then the ending starts FINALE_DEBUG_DELAY_S later.
+	// TEMPORARY debug (DEBUG_FINALE_BUTTON, optionally limited to DEBUG_FINALE_HOSTS): every unreleased obelisk is released
+	// SILENTLY (clients snap to the finished crystal, no per-obelisk cinematics), then the ending starts FINALE_DEBUG_DELAY_S later.
 	// Taints the run (markRunTainted) so no leaderboard record is written.
 	room.onMessage('debugFinale', ({ seed }, context) => {
 		const from = context?.from ?? 'unknown'
@@ -493,7 +491,7 @@ export function setupStationsServer(): void {
 			if (active[i]) continue
 			releasePitSnow(i)
 			if (!iceFullyMelted(iceMask[i])) {
-				iceMask[i] = MONUMENT_ICE_FULL_MASK
+				iceMask[i] = OBELISK_ICE_FULL_MASK
 				broadcastIce(i)
 			}
 			releaseCrystal(i, '', true, true)
@@ -501,7 +499,7 @@ export function setupStationsServer(): void {
 		startFinale(lastReleased, FINALE_DEBUG_DELAY_S, `debug finale by ${from}`)
 	})
 
-	// TEMPORARY debug: light the next unlit monument through the same path
+	// TEMPORARY debug: light the next unlit obelisk through the same path
 	// (fresh broadcast -> rise/beam on clients, thaw stage +1). Same flag.
 	room.onMessage('debugVolcanoStage', ({ seed }, context) => {
 		const from = context?.from ?? 'unknown'
@@ -517,7 +515,7 @@ export function setupStationsServer(): void {
 		active[i] = true
 		releasePitSnow(i)
 		if (!iceFullyMelted(iceMask[i])) {
-			iceMask[i] = MONUMENT_ICE_FULL_MASK
+			iceMask[i] = OBELISK_ICE_FULL_MASK
 			broadcastIce(i)
 		}
 		if (isFloatingCrystals()) {
@@ -566,7 +564,7 @@ function sendCharge(i: number): void {
 }
 
 /**
- * Charging monument = a campfire of the tier its charge maps to
+ * Charging obelisk = a campfire of the tier its charge maps to
  * (chargeHeatFuel): melt + protect the tier ring around the base when it
  * steps up. Never shrinks while charging (charge never drops unless decay
  * is on; then the ring is pulled in like a campfire tier decay).
@@ -591,7 +589,7 @@ function recedeIce(i: number): void {
 		const at = ((n + 1) / chunks.length) * CHARGE_ICE_GONE_AT
 		const bit = 1 << chunks[n]
 		if (charge[i] >= at && (iceMask[i] & bit) === 0) {
-			iceMask[i] = (iceMask[i] | bit) & MONUMENT_ICE_FULL_MASK
+			iceMask[i] = (iceMask[i] | bit) & OBELISK_ICE_FULL_MASK
 			clearSnowOverChunk(i, chunks[n])
 			changed = true
 		}
@@ -610,7 +608,7 @@ function releaseCrystal(i: number, by: string, force = false, silent = false): v
 	charge[i] = 1
 	noteContributor(by) // releasing a crystal counts toward the leaderboard
 	sendCharge(i)
-	if (!iceFullyMelted(iceMask[i])) { iceMask[i] = MONUMENT_ICE_FULL_MASK; broadcastIce(i) }
+	if (!iceFullyMelted(iceMask[i])) { iceMask[i] = OBELISK_ICE_FULL_MASK; broadcastIce(i) }
 	const st = activeTerrain()?.stations[i]
 	if (st) {
 		const c = cellCenterWorld(st.cx, st.cz)
@@ -649,12 +647,12 @@ function chargeSystem(dt: number): void {
 		const dists: number[] = []
 		let best = -1
 		let bestD = Infinity
-		// Candidates: every lit fire within MONUMENT_LINK_RANGE_M (fireNetwork
+		// Candidates: every lit fire within OBELISK_LINK_RANGE_M (fireNetwork
 		// routes + prunes them). Only fires with a LIVE link charge.
-		const linked = monumentLinkedSlots(MONUMENT_NODE_ID_BASE + i)
+		const linked = obeliskLinkedSlots(OBELISK_NODE_ID_BASE + i)
 		for (const f of fires) {
 			const d = Math.hypot(f.x - c.x, f.z - c.z)
-			if (d > MONUMENT_LINK_RANGE_M) continue
+			if (d > OBELISK_LINK_RANGE_M) continue
 			// Link end right beside the obelisk socket, on the side facing the fire (CHARGE_LINK_END_HALF_M).
 			const ux = (f.x - c.x) / Math.max(0.01, d), uz = (f.z - c.z) / Math.max(0.01, d)
 			const toEdge = CHARGE_LINK_END_HALF_M / Math.max(0.01, Math.abs(ux), Math.abs(uz))
@@ -663,7 +661,7 @@ function chargeSystem(dt: number): void {
 			const mids = [[side, 0], [-side, 0], [0, side], [0, -side]]
 				.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))
 				.sort((p, q) => Math.hypot(p.x - f.x, p.z - f.z) - Math.hypot(q.x - f.x, q.z - f.z))
-			pairs.push({ slot: f.index, mon: MONUMENT_NODE_ID_BASE + i, fx: f.x, fz: f.z, ends: [{ x: c.x + ux * e, z: c.z + uz * e }, ...mids] })
+			pairs.push({ slot: f.index, mon: OBELISK_NODE_ID_BASE + i, fx: f.x, fz: f.z, ends: [{ x: c.x + ux * e, z: c.z + uz * e }, ...mids] })
 			if (!linked.has(f.index)) continue // in range but unrouted / pruned: no charge
 			dists.push(d)
 			chargingIds.add(f.index)
@@ -689,7 +687,6 @@ function chargeSystem(dt: number): void {
 		syncChargeHeat(i, c.x, c.z)
 		const prev = charge[i]
 		if (weight > 0) charge[i] = Math.min(1, charge[i] + chargeRateFromWeight(weight) * step)
-		else if (CHARGE_DECAY_ENABLED) charge[i] = Math.max(0, charge[i] - CHARGE_DECAY_PER_S * step)
 		if (charge[i] === prev) continue
 		syncChargeHeat(i, c.x, c.z)
 		if (charge[i] >= 1) {
@@ -705,7 +702,7 @@ function chargeSystem(dt: number): void {
 	setChargePairs(pairs)
 	setChainHops(chainBest)
 	if (released && getActiveStationCount() >= stationTotal()) {
-		// The last monument is up: the ending (beams link the tips, then the synchronized pulse melts a large area around every monument).
+		// The last obelisk is up: the ending (beams link the tips, then the synchronized pulse melts a large area around every obelisk).
 		startFinale(lastReleased, FINALE_START_DELAY_S, 'last crystal released')
 		advanceThawStage('all crystals released') // floating crystals: no-op (no volcano thaw / cycle roll)
 	}

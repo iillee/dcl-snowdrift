@@ -15,13 +15,13 @@ import { isMobile } from '@dcl/sdk/platform'
 import { Layer, ZoneType } from '@stom66/dcl-ui-component-kit'
 
 import { forceLocalCycleRoll } from 'src/client/cycle'
-import { SHOW_DEV_ADVANCE_PHASE, SHOW_DEV_ROLL_BUTTON, SHOW_DEV_SNUFF_BUTTON, SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
+import { SHOW_PRECIPITATION_BUTTON, SHOW_REROLL_BUTTON } from 'src/client/devFlags'
 import { CyclePanelPopover, PANEL_GAP_PX, PANEL_WIDTH, toggleCyclePanel } from 'src/client/ui/layers/layer.cyclePanel'
 import { toggleHelpPanel } from 'src/client/ui/layers/layer.helpPanel'
 import { toggleLeaderboardPanel } from 'src/client/ui/layers/layer.leaderboard'
 import { isMusicMuted, playUiClick, toggleMusic } from 'src/client/audio'
-import { getTorchFuelFraction, isTorchEquipped, isTorchLit, isTorchRaised } from 'src/client/torchEquip'
-import { feedFire, getCarriedKind, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
+import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
+import { feedFire, hasLogs, isCarriedFeedBlocked, isInFeedRange } from 'src/client/logsInventory'
 import { isChopPromptVisible }    from 'src/client/ui/layers/layer.chopPrompt'
 import { isFeedPromptVisible }    from 'src/client/ui/layers/layer.feedPrompt'
 import { isHiddenCampfirePromptVisible } from 'src/client/ui/layers/layer.hiddenCampfirePrompt'
@@ -37,7 +37,7 @@ import { room } from 'src/shared/messages'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 
 
-const { colors, fontSizes, borderRadius } = UI_THEME
+const { colors, borderRadius } = UI_THEME
 
 const WHITE     = Color4.White()
 const DIM       = Color4.create(1, 1, 1, 0.35)
@@ -264,7 +264,6 @@ class ActionBarLayer extends Layer {
 	}
 
 	body() {
-		const specActive = isTopDownActive()
 		// Mobile pulls the spectator + mute buttons OUT of the top-center
 		// bar entirely — the mobile-actions layer renders them as round
 		// white-bordered buttons anchored bottom-right, replacing the
@@ -297,7 +296,7 @@ class ActionBarLayer extends Layer {
 				   as one cluster (eye + mute + frost bar + torch). On mobile
 				   they live in the native gamepad slots (see touchControls.ts). */}
 				{/* TorchButton was moved out of the top-center action bar to
-				   ZoneType.TopLeft (layer.torchButton) so it doesn't collide
+				   ZoneType.TopLeft (the old torch button layer, since removed) so it doesn't collide
 				   with the frost bar which now anchors top-center. */}
 				{SHOW_PRECIPITATION_BUTTON && (
 					<UiEntity
@@ -618,7 +617,7 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 // MARK: RotateHudButton
 /**
  * Manual overview rotate (same as the 1 key): turns the iso view 90 deg
- * clockwise. Cliff auto-rotate (ISO_AUTO_ROTATE_ENABLED) stays on too.
+ * clockwise. Cliff auto-rotate stays on too.
  */
 function RotateHudButton(props: { dockRight: number }) {
 	return (
@@ -832,14 +831,12 @@ function KeyHintBadge(props: { label: string }) {
  * (torchInput.ts) and stays there so the input story is consistent
  * across mouse and touch.
  *
- * Exported so layer.torchButton can host it in its own top-left zone
+ * Exported so a torch-button layer can host it in its own top-left zone
  * (the torch was pulled out of the top-center action bar when the
  * frost bar was moved there).
  */
 export function TorchButton() {
 	const lit         = isTorchLit()
-	const raised      = isTorchRaised()
-	const highlight   = lit || raised
 	const size        = slotSize()
 	const iconPx      = slotIconSize()
 	// Both lit and unlit icons render at full white — the images
@@ -1012,13 +1009,9 @@ export function LogsButton() {
 	)
 }
 
-const LOGS_ICON_PX = 40
-
-
 // Torch-button visual constants — kept beside the component so the
 // action bar owns its own tuning without importing from the retired
 // hotbar layer.
-const TORCH_ICON_PX          = 40
 // Constant width to avoid the 2 px child-shift bug when toggling
 // borderWidth (see handoff #2). Border is transparent when the torch
 // is unlit; when lit it becomes TORCH_BORDER_ON at full 4 px thickness.
@@ -1127,41 +1120,3 @@ export function SnowflakeIcon(props: { color: Color4; size?: number }) {
 
 export const actionBarLayer = new ActionBarLayer()
 
-
-// MARK: PaintSwatchButton (unused)
-// Kept for reference — revive if Cryocene ever needs a visible "current
-// hand slot" indicator in the top bar.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function _PaintSwatchButton(props: {
-	keySuffix: string
-	color    : Color4 | null
-	onClick  : () => void
-}) {
-	const SWATCH_PX = 40
-	return (
-		<UiEntity
-			key         = {`ui_SwatchBtn_${props.keySuffix}`}
-			uiTransform = {{
-				...HUD_SQUARE,
-				margin       : { left: BTN_MARGIN_X, right: BTN_MARGIN_X },
-				justifyContent: 'center',
-				alignItems   : 'center',
-				borderRadius : borderRadius.md,
-			}}
-			uiBackground = {{ color: PANEL_BG }}
-			onMouseDown  = {props.onClick}
-		>
-			{props.color ? (
-				<UiEntity
-					key = {`ui_SwatchDot_${props.keySuffix}`}
-					uiTransform = {{
-						width : SWATCH_PX,
-						height: SWATCH_PX,
-						borderRadius: SWATCH_PX / 2,
-					}}
-					uiBackground = {{ color: props.color }}
-				/>
-			) : null}
-		</UiEntity>
-	)
-}

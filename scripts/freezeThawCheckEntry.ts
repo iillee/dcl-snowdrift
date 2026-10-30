@@ -6,7 +6,7 @@
  *  - client gate (rescue.ts tickThaw): only with a LIT torch, never while frozen yourself, only a frozen OTHER player inside the radius, the
  *    rescue ask is sent after ICE_THAW_S of held contact and the melt hold is released when the torch / target goes away;
  *  - server (frostLife.ts): a rescue / melt needs a non-frozen rescuer who is not the target, and a frozen target; thaw clears the cube;
- *  - wake: a frozen player wakes only at a lit hearth / hidden fire / volcano lava; a released monument's socket lava is a torch relight source
+ *  - wake: a frozen player wakes only at a lit hearth / hidden fire / volcano lava; a released obelisk's socket lava is a torch relight source
  *    only (never a wake point, never living flame), on the client (nearestLitFire) and on the server (anyLivingFire for the give-up).
  * Bundled by scripts/freezeThawCheck.mjs.
  */

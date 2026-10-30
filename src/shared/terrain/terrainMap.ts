@@ -35,13 +35,6 @@ export const TERRAIN_ORIGIN_M = MAZE_ORIGIN_OFFSET_METERS
 export const CLIFF_HALF_TAPER_M = 2
 
 /**
- * Thin ground cap on each greybox slab. Rock body ends here; snow sits
- * on top of groundY. Ladders stop at the rock lip so they don't poke
- * into the snow pack.
- */
-export const CLIFF_CAP_M = 0.15
-
-/**
  * How far the ladder foot sits out from the cliff face into the low
  * cell, and how far the landing sits in from the lip on the high cell.
  * Shared by the generator (world endpoints) and the renderer (rail pose).
@@ -94,22 +87,22 @@ export interface TerrainDestination {
 	route  : number
 }
 
-// MARK: Monument pit
+// MARK: Obelisk pit
 /**
- * Each monument sits in the centre of a shallow square recess cut into
- * its 16 m cell: ONE step down (MONUMENT_PIT_DEPTH_M, walkable), with a
+ * Each obelisk sits in the centre of a shallow square recess cut into
+ * its 16 m cell: ONE step down (OBELISK_PIT_DEPTH_M, walkable), with a
  * socket in the middle the obelisk is seated in. While frozen the recess
- * holds a mound of ice chunks rising MONUMENT_ICE_TOP_M above the ground
- * (src/shared/monumentIce.ts); snow falls on the ice top like anywhere
+ * holds a mound of ice chunks rising OBELISK_ICE_TOP_M above the ground
+ * (src/shared/obeliskIce.ts); snow falls on the ice top like anywhere
  * else, so it reads as a snowy mound with the black obelisk tip poking
  * out. Shared so the terrain renderer (recess), the server (snow over
- * melted chunks) and the monument visuals (ice chunks) all agree.
- * Keep the size an even multiple of MONUMENT_ICE_CHUNK_M so the recess
+ * melted chunks) and the obelisk visuals (ice chunks) all agree.
+ * Keep the size an even multiple of OBELISK_ICE_CHUNK_M so the recess
  * edges and ice chunks land on 1 m snow-cell boundaries. The server only
  * clears + protects the snow over an ice chunk once it melts.
  */
 /** Recess / ice footprint edge length (m), centred on the station cell centre. */
-export const MONUMENT_PIT_SIZE_M = 6
+export const OBELISK_PIT_SIZE_M = 6
 /**
  * Max height (m) a Decentraland avatar walks up without jumping
  * (docs.decentraland.org, 3D modeling > Colliders: "Players can walk up
@@ -122,73 +115,73 @@ export const DCL_MAX_AUTO_STEP_M = 0.3
  * the ground around the socket is flat at normal level and the ice
  * chunks sit directly on it. Only the centre socket is cut down.
  */
-export const MONUMENT_PIT_DEPTH_M = 0
+export const OBELISK_PIT_DEPTH_M = 0
 /** Obelisk square cross-section (m). The socket matches it. */
-export const MONUMENT_OBELISK_WIDTH_M = 3
+export const OBELISK_WIDTH_M = 3
 /**
  * Square socket in the centre of the pit floor the obelisk sits in and
  * rises out of: the obelisk width plus a hair of clearance per side so
  * its faces never z-fight the socket walls.
  */
-export const MONUMENT_SOCKET_SIZE_M = MONUMENT_OBELISK_WIDTH_M + 0.1
+export const OBELISK_SOCKET_SIZE_M = OBELISK_WIDTH_M + 0.1
 /**
  * Socket depth below the ground (m). Deeper than a default DCL jump
  * (~1 m); no stair any more: the client fills it with an invisible collider plug
  * at ground level so nobody can drop in. While frozen the obelisk shaft
  * runs on down through the socket floor.
  */
-export const MONUMENT_SOCKET_DEPTH_M = 1.5
+export const OBELISK_SOCKET_DEPTH_M = 1.5
 /**
  * Lowest Y a socket floor may reach. DCL draws its default ground plane at
  * y = 0 over anything below it, so a socket on the Low terrace (ground
  * 0.25 m) dug 1.5 m deep showed that pale plane as a flush 'hole' (the
  * spawn socket sits higher, so it looked fine). Clamp above it.
  */
-export const MONUMENT_SOCKET_MIN_FLOOR_Y = 0.03
-/** Socket depth (m) for a monument whose ground top is 	op (clamped above y = 0). */
-export function monumentSocketDepth(top: number): number {
-	return Math.max(0, Math.min(MONUMENT_SOCKET_DEPTH_M, top - MONUMENT_SOCKET_MIN_FLOOR_Y))
+export const OBELISK_SOCKET_MIN_FLOOR_Y = 0.03
+/** Socket depth (m) for an obelisk whose ground top is 	op (clamped above y = 0). */
+export function obeliskSocketDepth(top: number): number {
+	return Math.max(0, Math.min(OBELISK_SOCKET_DEPTH_M, top - OBELISK_SOCKET_MIN_FLOOR_Y))
 }
 /** Clutter margin (m) kept clear around the ice edge (room to walk round and melt it). */
-export const MONUMENT_PIT_RIM_CLEAR_M = 2
+export const OBELISK_PIT_RIM_CLEAR_M = 2
 /**
  * Minimum hovering bottom-tip height above the station's own ground (m).
- * The real hover height is target-relative (monumentHoverBottomY); this
+ * The real hover height is target-relative (obeliskHoverBottomY); this
  * only matters if a station's ground ever sat close to the volcano rim.
  */
-export const MONUMENT_HOVER_BOTTOM_H_M = 70
+export const OBELISK_HOVER_BOTTOM_H_M = 70
 /**
  * Hovering bottom tip sits this far ABOVE the beam's target height (the
- * crater rim aim point, ~81 m world) so every monument's volcano beam
+ * crater rim aim point, ~81 m world) so every obelisk's volcano beam
  * descends slightly toward the volcano, whatever the local ground (m).
- * Was 20 (floor ground + 50); raised so monuments hover higher.
+ * Was 20 (floor ground + 50); raised so obelisks hover higher.
  */
-export const MONUMENT_HOVER_ABOVE_TARGET_M = 35
+export const OBELISK_HOVER_ABOVE_TARGET_M = 35
 
-// MARK: monumentHoverBottomY
+// MARK: obeliskHoverBottomY
 /**
- * World Y of a hovering monument's bottom tip (the volcano beam origin),
- * before bob. max(target + MONUMENT_HOVER_ABOVE_TARGET_M, ground +
- * MONUMENT_HOVER_BOTTOM_H_M) + liftM (terrain-gen clearance step),
+ * World Y of a hovering obelisk's bottom tip (the volcano beam origin),
+ * before bob. max(target + OBELISK_HOVER_ABOVE_TARGET_M, ground +
+ * OBELISK_HOVER_BOTTOM_H_M) + liftM (terrain-gen clearance step),
  * clamped to `maxBottomY` (caller's scene-ceiling limit). Shared by
  * terrain gen's beam check and the client so they agree.
  */
-export function monumentHoverBottomY(
+export function obeliskHoverBottomY(
 	groundY   : number,
 	targetY   : number,
 	liftM     : number,
 	maxBottomY: number = Number.POSITIVE_INFINITY,
 ): number {
-	const want = Math.max(targetY + MONUMENT_HOVER_ABOVE_TARGET_M, groundY + MONUMENT_HOVER_BOTTOM_H_M) + liftM
+	const want = Math.max(targetY + OBELISK_HOVER_ABOVE_TARGET_M, groundY + OBELISK_HOVER_BOTTOM_H_M) + liftM
 	return Math.min(want, maxBottomY)
 }
 
-/** Clutter keep-out radius (m) around every monument cell centre (covers the pit + rim). */
+/** Clutter keep-out radius (m) around every obelisk cell centre (covers the pit + rim). */
 export const STATION_CLEAR_M = Math.ceil(
-	(MONUMENT_PIT_SIZE_M / 2 + MONUMENT_PIT_RIM_CLEAR_M) * Math.SQRT2,
+	(OBELISK_PIT_SIZE_M / 2 + OBELISK_PIT_RIM_CLEAR_M) * Math.SQRT2,
 )
 
-/** True when (x, z) is within STATION_CLEAR_M + extraM of any monument. */
+/** True when (x, z) is within STATION_CLEAR_M + extraM of any obelisk. */
 export function nearStation(
 	map   : TerrainMap,
 	x     : number,
@@ -220,8 +213,8 @@ export interface TerrainVolcano {
 }
 
 /**
- * Ignition station socket (monument). Frozen in an ice-filled pit, it
- * rises to hover (monumentHoverBottomY: rim aim + MONUMENT_HOVER_ABOVE_TARGET_M
+ * Ignition station socket (obelisk). Frozen in an ice-filled pit, it
+ * rises to hover (obeliskHoverBottomY: rim aim + OBELISK_HOVER_ABOVE_TARGET_M
  * + beamLiftM) and beams
  * from its bottom tip to the volcano, so the socket itself needs no
  * line of sight: low ground and canyons are valid. Not a grove.
@@ -233,9 +226,9 @@ export interface TerrainStation {
 	region : number
 	/** Route steps from the hearth (cells, ladders and drops included). */
 	route  : number
-	/** True for the guaranteed near-spawn monument (always index 0 when present). */
+	/** True for the guaranteed near-spawn obelisk (always index 0 when present). */
 	near?  : boolean
-	/** Extra hover height (m) on top of monumentHoverBottomY so the beam clears terrain. 0/undefined = none. */
+	/** Extra hover height (m) on top of obeliskHoverBottomY so the beam clears terrain. 0/undefined = none. */
 	beamLiftM?: number
 	/** World point the beam aims at (visible rim point). Undefined = lava centroid. */
 	aimX?  : number
@@ -267,7 +260,7 @@ export interface TerrainMap {
 	destinations  : TerrainDestination[]
 	/** High plateau volcano landmark, or null when placement failed. */
 	volcano       : TerrainVolcano | null
-	/** Ignition stations (3), monument pits. Empty when placement failed. */
+	/** Ignition stations (3), obelisk pits. Empty when placement failed. */
 	stations      : TerrainStation[]
 	/** Route steps from the hearth per cell, -1 when unreachable. */
 	routeDist     : Int32Array

@@ -38,7 +38,7 @@ export function getSnowStageAtWorld(
 	if (activeIsLavaAt(x, z)) return 0
 	const stage = getDisplayedStage(key)
 	if (stage === 0) return 0
-	// Snow lying on monument ice sits higher by the ice height.
+	// Snow lying on obelisk ice sits higher by the ice height.
 	const snowTopY = activeGroundYAt(x, z) + getSnowCellLiftM(key) + SNOW_STAGE_HEIGHT_M[stage]
 	if (y > snowTopY + FOOT_ABOVE_TOP_TOLERANCE_M) return 0
 	return stage

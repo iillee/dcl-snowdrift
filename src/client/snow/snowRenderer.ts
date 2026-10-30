@@ -36,23 +36,21 @@
  * appear at their final height.
  *
  * Cell offsets (setSnowCellOffsets): per-cell signed base offset (m)
- * from the monuments. Such cells always render as 1 m leaves whose
+ * from the obelisks. Such cells always render as 1 m leaves whose
  * underside sits at ground + offset:
- *   - offset > 0: snow lying on top of a frozen monument ice chunk
+ *   - offset > 0: snow lying on top of a frozen obelisk ice chunk
  *     (raised by the ice height), normal stage height on top.
- *   - offset < 0: an activated monument's empty recess, depth d = -offset
+ *   - offset < 0: an activated obelisk's empty recess, depth d = -offset
  *     below the ground. Any snow (stage > 0) fills the recess back to
  *     ground level plus the normal stage height on top.
  * Tiles holding offset cells never coalesce into coarse sheets.
  */
 
 import {
-	ColliderLayer,
 	engine,
 	Entity,
 	LightSource,
 	Material,
-	MeshCollider,
 	MeshRenderer,
 	Transform,
 } from '@dcl/sdk/ecs'
@@ -129,7 +127,6 @@ const COARSE_LEVELS: ReadonlyArray<{
 const MELT_LIP_MAX_CELLS = 4
 
 const SNOW_WHITE  = Color4.create(0.82, 0.86, 0.92, 1)
-const GROUND_BLUE = Color4.create(106 / 255, 153 / 255, 252 / 255, 1)
 
 type NodeRec   = { entity: Entity; stage: number; plane: boolean }
 type RootState = { nodes: Map<number, NodeRec>; snapshot: Uint8Array }
@@ -184,7 +181,7 @@ let liveNodeCount     = 0
 let tileLevel         = new Uint8Array(ROOT_COUNT).fill(TERRAIN_LEVEL_MID)
 let coarseCovered     = new Uint8Array(ROOT_COUNT)
 let coarseDirty       = true
-/** Signed base offset (m) per snow cell key at a monument (see header). */
+/** Signed base offset (m) per snow cell key at an obelisk (see header). */
 let cellOffset        = new Map<number, number>()
 /** Roots (tile keys) holding at least one offset cell. */
 let pitTiles          = new Set<number>()
@@ -269,11 +266,11 @@ export function applyTerrainLevels(mazeSeed: number): void {
 
 // MARK: setSnowCellOffsets
 /**
- * Replace the monument cell-offset layer (cell key -> signed offset in
+ * Replace the obelisk cell-offset layer (cell key -> signed offset in
  * m, see header). Only roots holding a cell whose offset changed are
  * rebuilt from scratch (heights are baked into node transforms), and
- * coarse sheets are repacked so none spans a monument. Empty map = no
- * offsets (cycle reset / no monument).
+ * coarse sheets are repacked so none spans an obelisk. Empty map = no
+ * offsets (cycle reset / no obelisk).
  */
 export function setSnowCellOffsets(next: Map<number, number>): void {
 	const nextTiles = new Set<number>()
@@ -295,7 +292,7 @@ export function setSnowCellOffsets(next: Map<number, number>): void {
 
 
 // MARK: getSnowCellLiftM
-/** How far (m, >= 0) the snow on cell `key` is raised (lying on monument ice). */
+/** How far (m, >= 0) the snow on cell `key` is raised (lying on obelisk ice). */
 export function getSnowCellLiftM(key: number): number {
 	const v = cellOffset.get(key)
 	return v !== undefined && v > 0 ? v : 0
@@ -317,7 +314,7 @@ function cellOffsetOf(tileKey: number, i: number): number {
  */
 function leafHeight(stage: number, off: number): number {
 	if (stage <= 0) return MELTED_LEAF_HEIGHT_M
-	// Snow on monument ice: one section max (the mound's snow cap).
+	// Snow on obelisk ice: one section max (the mound's snow cap).
 	if (off > 0) return SNOW_STAGE_HEIGHT_M[1]
 	return SNOW_STAGE_HEIGHT_M[stage] + (off < 0 ? -off : 0)
 }

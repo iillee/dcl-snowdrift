@@ -7,7 +7,7 @@
 // Both are flat-shaded (one normal per face, unshared vertices) and share
 // the same matte deep-black PBR material so the parts read as one stone
 // (metallic 0, roughness 1, KHR_materials_specular factor 0; the scene
-// also overrides it in code, see src/client/monumentMaterial.ts). Scale
+// also overrides it in code, see src/client/obeliskMaterial.ts). Scale
 // them in-scene (Transform.scale) to get the real dimensions, which keeps
 // every size tunable from stationMarkers.ts without regenerating.
 //

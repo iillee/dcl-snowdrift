@@ -1,7 +1,7 @@
 // MARK: make-star-icon
 // Generates assets/images/leaderboard_star.png (HUD leaderboard button) and
 // assets/images/leaderboard_star_padded.png (mobile native action slot, transparent
-// border like help-v3 / muted_padded): a white five-point star on a
+// border like help / muted_padded): a white five-point star on a
 // transparent background. Pure Node (zlib + fs). Run: node scripts/make-star-icon.js
 
 const fs   = require('fs')

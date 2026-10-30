@@ -9,7 +9,7 @@ import { WORLD_CROWD_BURN_COEF } from 'src/shared/settings'
  * lerps between broadcasts and reads it for visuals + gameplay
  * (frost accumulation).
  *
- * Design (see PLAN.md v2.14 / this session's design chat):
+ * Design (see design/gdd.md and docs/HANDOFF.md):
  *   - 1 log         = LOG_FUEL_SECONDS (+120 s; was 90, 2026-10-26)
  *   - Hard cap      = FUEL_MAX (600 s -> ~6.7 logs banked)
  *   - Main fire     = starts at MAIN_INITIAL (150 s -> tier 3 "Warm")
@@ -85,12 +85,6 @@ export const TIER_NAMES: readonly string[] = ['Out', 'Ember', 'Low', 'Warm', 'Br
  * so a weakening fire pulls the circle in.
  */
 export const TIER_RADIUS_M: readonly number[] = [4, 6, 8, 12, 17] as const
-
-/**
- * Flame GLB uniform scale for the whole tier. Warm stays 1. A smooth
- * grow reads as morphing; the step is the state change.
- */
-export const TIER_FLAME_SCALE: readonly number[] = [0.45, 0.70, 1.00, 1.50, 2.00] as const
 
 /**
  * Smoke column multiplier for the whole tier. Warm stays 1. Launch

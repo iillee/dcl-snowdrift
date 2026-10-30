@@ -1,5 +1,5 @@
 /**
- * oasisCheckEntry.ts - oasis (released monument) terrain + regrowth: circle, level, pit, hearth melts like any cell, timed melt
+ * oasisCheckEntry.ts - oasis (released obelisk) terrain + regrowth: circle, level, pit, hearth melts like any cell, timed melt
  * (instant middle, then outward rings with an irregular edge), late-join determinism, union, step height, re-seat
  * deltas, regrowth plan determinism / caps / keep-outs / timing order, entity estimates. Bundled by oasisCheck.mjs.
  */
@@ -19,7 +19,7 @@ import {
 } from 'src/shared/terrain/oasisVeg'
 import { generateTerrain, mergeLevelRects } from 'src/shared/terrain/terrainGen'
 import {
-	DCL_MAX_AUTO_STEP_M, MONUMENT_PIT_SIZE_M, TERRAIN_ORIGIN_M, TerrainMap, cellCenterWorld, groundYAtWorld, isLavaAtWorld, levelAtWorld,
+	DCL_MAX_AUTO_STEP_M, OBELISK_PIT_SIZE_M, TERRAIN_ORIGIN_M, TerrainMap, cellCenterWorld, groundYAtWorld, isLavaAtWorld, levelAtWorld,
 } from 'src/shared/terrain/terrainMap'
 
 const realLog = console.log
@@ -85,7 +85,7 @@ function pieceCount(map: TerrainMap, rects: ReturnType<typeof mergeLevelRects>, 
 function wantFinal(map: TerrainMap, c: { x: number; z: number }, level: number, px: number, pz: number, r: number = OASIS_RADIUS_M): boolean {
 	const d = Math.hypot(px - c.x, pz - c.z)
 	if (!(!oasisExcludedLevel(levelAtWorld(map, px, pz)) && !isLavaAtWorld(map, px, pz)
-		&& !(Math.abs(px - c.x) < MONUMENT_PIT_SIZE_M / 2 && Math.abs(pz - c.z) < MONUMENT_PIT_SIZE_M / 2))) return false // the 4 cells over the pit are sampled at their centre, which is inside it
+		&& !(Math.abs(px - c.x) < OBELISK_PIT_SIZE_M / 2 && Math.abs(pz - c.z) < OBELISK_PIT_SIZE_M / 2))) return false // the 4 cells over the pit are sampled at their centre, which is inside it
 	if (d <= OASIS_INNER_M) return d <= r
 	if (r <= OASIS_INNER_M) return false
 	const jit = (oasisHash01(oasisCellIndex(px), oasisCellIndex(pz), Math.round(c.x * 4), Math.round(c.z * 4)) - 0.5) * 2 * OASIS_JITTER_M
@@ -118,7 +118,7 @@ for (let s = 0; s < SEEDS; s++) {
 		}
 		oasisClear()
 	}
-	// The hearth is NOT special: the near-spawn monument (index 0, ~41 m away: normally outside the patch) melts its cell and the spawn point's cell like any
+	// The hearth is NOT special: the near-spawn obelisk (index 0, ~41 m away: normally outside the patch) melts its cell and the spawn point's cell like any
 	// other. Hearth objects follow activeGroundYAt (client/hearthSeat.ts), so the floor there must be exactly one drop lower once
 	// open, unchanged before, and one walkable step from the neighbouring cells; the spawn y=17 from scene.json stays above it.
 	{
@@ -133,7 +133,7 @@ for (let s = 0; s < SEEDS; s++) {
 		oasisRelease(map, near.x, near.z, Number.POSITIVE_INFINITY, T0)
 		for (const [px, pz] of spots) {
 			hearthMelts++
-			// Near monument is ~41 m away: the hearth is outside the 28..36 m patch (stays at base height), unless this seed's cell says otherwise.
+			// Near obelisk is ~41 m away: the hearth is outside the 28..36 m patch (stays at base height), unless this seed's cell says otherwise.
 			const wantLow = wantFinal(map, near, levelAtWorld(map, near.x, near.z), snap(px), snap(pz))
 			if (wantLow) hearthInside++; else hearthOutside++
 			if (oasisLoweredAt(map, px, pz) !== wantLow) { fail(`seed ${s}: hearth/spawn ${px},${pz} lowered=${oasisLoweredAt(map, px, pz)} want ${wantLow}`); continue }
@@ -152,7 +152,7 @@ for (let s = 0; s < SEEDS; s++) {
 		const hearthIn = wantFinal(map, near, levelAtWorld(map, near.x, near.z), snap(hx), snap(hz))
 		if (hearthIn !== (ex > -Infinity && ex < Infinity)) fail(`seed ${s}: hearth cell expose time ${ex} but inside=${hearthIn}`)
 		// Synthetic oasis centred 20 m from the hearth (same level): the hearth cell is surely inside (20 < 28), so the re-seat path
-		// (floor one drop lower, objects follow activeGroundYAt) is exercised on every seed whatever the real monument does.
+		// (floor one drop lower, objects follow activeGroundYAt) is exercised on every seed whatever the real obelisk does.
 		const sx = hx + 20, sz = hz
 		if (levelAtWorld(map, sx, sz) === levelAtWorld(map, hx, hz) && !isLavaAtWorld(map, sx, sz)) {
 			oasisClear()
@@ -309,7 +309,7 @@ for (let s = 0; s < SEEDS; s++) {
 				const half = OASIS_CELL_M / 2 + 1e-6
 				if (Math.abs(it.x - p.x) > half || Math.abs(it.z - p.z) > half) fail(`seed ${s} st ${i}: item outside its cell`)
 				if (!vegPosOk(map, entries[0], it.x, it.z)) fail(`seed ${s} st ${i}: item at ${it.x.toFixed(1)},${it.z.toFixed(1)} breaks a keep-out`)
-				if (Math.abs(it.x - c.x) < MONUMENT_PIT_SIZE_M / 2 + 3 && Math.abs(it.z - c.z) < MONUMENT_PIT_SIZE_M / 2 + 3) fail(`seed ${s} st ${i}: item on the monument plinth`)
+				if (Math.abs(it.x - c.x) < OBELISK_PIT_SIZE_M / 2 + 3 && Math.abs(it.z - c.z) < OBELISK_PIT_SIZE_M / 2 + 3) fail(`seed ${s} st ${i}: item on the obelisk plinth`)
 				if (Math.abs(it.x - CAMPFIRE_WORLD_X) < VEG_HEARTH_CLEAR_M && Math.abs(it.z - CAMPFIRE_WORLD_Z) < VEG_HEARTH_CLEAR_M) fail(`seed ${s} st ${i}: item on the hearth`)
 				if (it.startMs < p.exposeMs + 1000 * (it.kind === VEG_TREE ? VEG_TREE_START_S : 1) - 1e-6) fail(`seed ${s} st ${i}: item starts before its cell melted`)
 				if (it.kind === VEG_TREE) {
@@ -368,7 +368,7 @@ for (let s = 0; s < SEEDS; s++) {
 					if (isMountainLevel(levelAtWorld(map, cell.x, cell.z))) mergedMtnCells++
 				}
 			}
-			// Grass (and the earth it sits on) must exist on EVERY melted floor height, not just the monument's: per-level grass fraction.
+			// Grass (and the earth it sits on) must exist on EVERY melted floor height, not just the obelisk's: per-level grass fraction.
 			{
 				const lv = new Map<number, { n: number; g: number }>()
 				for (const p of plan) {
@@ -452,7 +452,7 @@ const pct = (n: number, d: number): string => (d > 0 ? (100 * n / d).toFixed(0) 
 console.log(`oasisCheck: grass per floor height: ${lvlGroups} (oasis, height) groups with >= 8 cells, lowest grass fraction ${(lvlFracMin * 100).toFixed(0)}%`)
 console.log(`oasisCheck: merged grass rects verified at their cells' exact floor Y (and every item at its floor): ${mergedMultiLevel} oases span several floor heights, ${mergedMtnCells} merged cells are mountain blocks`)
 console.log(`oasisCheck: mountain wall-block cells melted (now capped + earth like terraces; crown/lava/pit stay): ${mtnCells}`)
-console.log(`oasisCheck: ${oases} oases over ${SEEDS} seeds | cell ${OASIS_CELL_M} m, band ${OASIS_BAND_M} m, drop ${OASIS_DROP_M} m, radius ${OASIS_RADIUS_M.toFixed(1)} m, instant middle ${OASIS_INNER_M} m, melt ${OASIS_MELT_S} s | lowered cells avg ${(cellsSum / oases).toFixed(0)} max ${cellsMax} | est. terrain pieces per oasis (worst mid-melt, cap + earth boxes) avg ${(boxSum / oases).toFixed(0)} max ${boxMax} | in-radius cells skipped (mountain/lava/pit) ${otherLevelCells} | cells on other terraces melted ${crossCells} (${crossOases} of ${oases} oases) | max change events per oasis ${changeEventsMax} | oases with a ragged edge ahead of / behind the ring: ${pct(irregularAhead, oases)} / ${pct(irregularBehind, oases)} | hearth/spawn melts checked ${hearthMelts}, hearth floor steps ${hearthSteps} | near-monument hearth/spawn points inside / outside the patch ${hearthInside} / ${hearthOutside}, synthetic inside-hearth re-seat checks ${hearthSynth}`)
+console.log(`oasisCheck: ${oases} oases over ${SEEDS} seeds | cell ${OASIS_CELL_M} m, band ${OASIS_BAND_M} m, drop ${OASIS_DROP_M} m, radius ${OASIS_RADIUS_M.toFixed(1)} m, instant middle ${OASIS_INNER_M} m, melt ${OASIS_MELT_S} s | lowered cells avg ${(cellsSum / oases).toFixed(0)} max ${cellsMax} | est. terrain pieces per oasis (worst mid-melt, cap + earth boxes) avg ${(boxSum / oases).toFixed(0)} max ${boxMax} | in-radius cells skipped (mountain/lava/pit) ${otherLevelCells} | cells on other terraces melted ${crossCells} (${crossOases} of ${oases} oases) | max change events per oasis ${changeEventsMax} | oases with a ragged edge ahead of / behind the ring: ${pct(irregularAhead, oases)} / ${pct(irregularBehind, oases)} | hearth/spawn melts checked ${hearthMelts}, hearth floor steps ${hearthSteps} | near-obelisk hearth/spawn points inside / outside the patch ${hearthInside} / ${hearthOutside}, synthetic inside-hearth re-seat checks ${hearthSynth}`)
 console.log(`oasisCheck: regrowth per oasis avg: cells ${(vCells / oases).toFixed(0)} (max ${vCellsMax}), grass ${(vGrass / oases).toFixed(0)} (${pct(vGrass, vCells)}; shades ${shadeCount.slice(1).map((n) => pct(n, vCells)).join('/')}, bare ${pct(vBare, vCells)}), pines ${(vTrees / oases).toFixed(0)} (max ${vMaxTreesInOasis}), bushes ${(vBushes / oases).toFixed(0)} (max ${vMaxBushes}), rocks ${(vRocks / oases).toFixed(0)} (max ${vMaxRocks}) | entities: merged grass ${(vMergedRects / oases).toFixed(0)} + decorations ${((vTreeParts + vBushes + vRocks) / oases).toFixed(0)} = steady ${((vMergedRects + vTreeParts + vBushes + vRocks) / oases).toFixed(0)}, peak while growing avg ${(vPeakEntities / oases).toFixed(0)} max ${vMaxEntities} | after the burst: 90% of grass up by ${vCovered90Max.toFixed(0)} s worst case, last pine mature ${vLastTreeMax.toFixed(0)} s`)
 { const hs = treeHs.slice().sort((a, b) => a - b); const q = (p: number): string => hs.length ? hs[Math.min(hs.length - 1, Math.floor(p * hs.length))].toFixed(1) : '-'
 	console.log(`oasisCheck: pine heights (m) min ${q(0)} p25 ${q(0.25)} median ${q(0.5)} p75 ${q(0.75)} max ${q(0.999)} | ${pct(hs.filter((h) => h >= 19).length, hs.length)} at 19 m+ (choppable trees 19-38 m) | avatar 1.8 m | pines per radial quarter (centre->rim) ${radial.join('/')}`) }
