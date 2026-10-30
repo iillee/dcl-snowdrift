@@ -28,6 +28,8 @@ import {
 	AvatarAttach,
 	Entity,
 	GltfContainer,
+	GltfContainerLoadingState,
+	LoadingState,
 	PlayerIdentityData,
 	Transform,
 	engine,
@@ -40,6 +42,7 @@ import { room } from 'src/shared/messages'
 import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
 import { mountTorchFlame, TORCH_FLAME_LOCAL_POS, TorchFlame } from 'src/client/torchFlame'
+import { TorchGlbState, TorchLogGate, TorchProbe, decideTorchHeal } from 'src/client/torchHealth'
 
 
 // MARK: Tuning
@@ -65,6 +68,9 @@ interface RemoteTorch {
 	model : Entity
 	flame : TorchFlame
 	light : Entity
+	/** When the model load was (re)started, and the last watchdog retry (ms). */
+	glbMs     : number
+	glbRetryMs: number
 }
 
 const remoteTorches       = new Map<string, RemoteTorch>()
@@ -75,6 +81,7 @@ const remoteFuelFrac      = new Map<string, number>()
 let   installed           = false
 let   reconClock          = 0
 let   localUserIdLower    = ''
+const healGate            = new TorchLogGate()
 
 
 // MARK: isRemoteTorchLit
@@ -145,7 +152,8 @@ function createRemoteTorch(userIdLower: string): void {
 	})
 	syncPointLight(light, torchLightParams(false, 0, 1))
 
-	remoteTorches.set(userIdLower, { anchor, model, flame, light })
+	const now = Date.now()
+	remoteTorches.set(userIdLower, { anchor, model, flame, light, glbMs: now, glbRetryMs: now })
 	console.log(`remoteTorches: attached torch to ${userIdLower}`)
 }
 
@@ -203,6 +211,62 @@ function setRemoteLit(
 }
 
 
+// MARK: healRemoteTorch
+/**
+ * Same watchdog rules as the local torch (torchHealth.ts) for a peer's torch: a failed / stalled GLB, a dropped or mis-bound
+ * AvatarAttach, a lost parent. Runs from the 1 Hz reconcile, so a remote torch that never showed is repaired within a second or two.
+ */
+function healRemoteTorch(id: string, rt: RemoteTorch): void {
+	const nowMs = Date.now()
+	const a  = AvatarAttach.getOrNull(rt.anchor)
+	const g  = GltfContainer.getOrNull(rt.model)
+	const tt = Transform.getOrNull(rt.model)
+	const st = GltfContainerLoadingState.getOrNull(rt.model)
+	let glbState: TorchGlbState = 'loading'
+	if (st !== null) {
+		if (st.currentState === LoadingState.FINISHED) glbState = 'finished'
+		else if (st.currentState === LoadingState.FINISHED_WITH_ERROR || st.currentState === LoadingState.NOT_FOUND) glbState = 'failed'
+	}
+	if (g === null) glbState = 'none'
+	const s = tt?.scale
+	const probe: TorchProbe = {
+		expectAvatarId   : id,
+		anchorAlive      : Transform.getOrNull(rt.anchor) !== null,
+		tipAlive         : tt !== null,
+		attach           : a === null ? null : { anchorPoint: a.anchorPointId, avatarId: a.avatarId },
+		expectAnchor     : AvatarAnchorPointType.AAPT_RIGHT_HAND,
+		tipParentIsAnchor: tt?.parent === rt.anchor,
+		glbSrc           : g === null ? null : g.src,
+		expectGlbSrc     : TORCH_MODEL,
+		glbState,
+		glbAgeMs         : nowMs - rt.glbMs,
+		sinceGlbRetryMs  : nowMs - rt.glbRetryMs,
+		visible          : true,
+		scaleOk          : s !== undefined && Math.abs(s.x - TORCH_MODEL_SCALE.x) < 1e-6 && Math.abs(s.y - TORCH_MODEL_SCALE.y) < 1e-6 && Math.abs(s.z - TORCH_MODEL_SCALE.z) < 1e-6,
+	}
+	const v = decideTorchHeal(probe)
+	if (v.actions.length === 0) return
+	const n = healGate.note(nowMs)
+	if (n > 0) console.log(`torchWatchdog: HEALED remote torch of ${id}: ${v.reasons.join('; ')} -> ${v.actions.join('+')} | repairs so far ${healGate.total} (${n} since the last line)`)
+	if (v.actions.includes('rebuild')) {
+		// Remove what is left; the next reconcile pass creates a fresh one (the peer is still in the scene).
+		removeRemoteTorch(id)
+		createRemoteTorch(id)
+		return
+	}
+	if (v.actions.includes('reparent')) Transform.getMutable(rt.model).parent = rt.anchor
+	if (v.actions.includes('glb')) {
+		GltfContainer.createOrReplace(rt.model, { src: TORCH_MODEL, visibleMeshesCollisionMask: 0, invisibleMeshesCollisionMask: 0 })
+		rt.glbMs = nowMs
+		rt.glbRetryMs = nowMs
+	}
+	if (v.actions.includes('show')) Transform.getMutable(rt.model).scale = TORCH_MODEL_SCALE
+	if (v.actions.includes('attach')) {
+		AvatarAttach.createOrReplace(rt.anchor, { avatarId: id, anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND })
+	}
+}
+
+
 // MARK: reconcileRemoteTorches
 // Sweep every PlayerIdentityData entity in the scene, attaching torches
 // to newcomers and cleaning up ones whose owner left. Cheap enough to
@@ -216,7 +280,9 @@ function reconcileRemoteTorches(): void {
 		const addr = identity.address?.toLowerCase()
 		if (!addr || addr === localId) continue
 		seen.add(addr)
-		if (!remoteTorches.has(addr)) createRemoteTorch(addr)
+		const have = remoteTorches.get(addr)
+		if (!have) createRemoteTorch(addr)
+		else healRemoteTorch(addr, have)
 	}
 
 	// Anyone we're tracking who isn't in the scene anymore -> tear down.

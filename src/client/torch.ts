@@ -15,13 +15,17 @@
  * torch to CameraEntity: a Gltf + particle child on the camera kills
  * the React-ECS HUD.
  *
+ * Self-healing: the AvatarAttach is created only once the local avatar is known, and a watchdog (tickTorchWatchdog, rules in
+ * torchHealth.ts) re-creates the model / re-attaches / rebuilds the rig whenever it is missing, so a failed GLB load or a dropped attach
+ * never leaves an empty hand until a reload. Logs `torchWatchdog: ...` lines (see docs/HANDOFF.md).
+ *
  * Model: Log_Large_01 from the large_log asset pack, scaled way down
  * (~7 % of its authored size) so the log reads as a torch shaft in the
  * avatar's grip. Flame is a tip cube + rising spark cubes (torchFlame).
  */
 
 import {
-	AvatarAnchorPointType, AvatarAttach, Entity, GltfContainer,
+	AvatarAnchorPointType, AvatarAttach, AvatarBase, AvatarEquippedData, Entity, GltfContainer, GltfContainerLoadingState, LoadingState, PlayerIdentityData,
 	PBParticleSystem_BlendMode, PBParticleSystem_PlaybackState,
 	PBParticleSystem_SimulationSpace, ParticleSystem, Transform, VisibilityComponent, engine,
 } from '@dcl/sdk/ecs'
@@ -31,7 +35,10 @@ import { room } from 'src/shared/messages'
 
 import { syncPointLight, torchLightParams } from 'src/client/fireLight'
 import { getLivePhaseConfig } from 'src/client/phase'
-import { getTorchFuelFraction, isTorchLit } from 'src/client/torchEquip'
+import { getTorchFuelFraction, isTorchEquipped, isTorchLit } from 'src/client/torchEquip'
+import {
+	TORCH_CONFIRM_REBIND_S, TORCH_WATCHDOG_S, TorchLogGate, TorchProbe, TorchGlbState, decideTorchHeal, shouldAttachNow,
+} from 'src/client/torchHealth'
 import { mountTorchFlame, TORCH_FLAME_LOCAL_POS, TorchFlame } from 'src/client/torchFlame'
 
 
@@ -85,6 +92,20 @@ let torchFlame:  TorchFlame | null = null
 let smoke:       Entity = 0 as Entity
 let torchLight:  Entity = 0 as Entity
 
+// Watchdog state (see tickTorchWatchdog)
+let builtAtMs      = 0
+/** 0 = not attached yet. */
+let attachedAtMs   = 0
+let confirmDone    = false
+/** A re-bind removed the AvatarAttach; the next frame creates it again. */
+let attachPending  = false
+let avatarSig      = ''
+let glbCreatedMs   = 0
+let glbRetryMs     = -Infinity
+let watchdogClock  = 0
+let healthyLogged  = false
+const logGate      = new TorchLogGate()
+
 
 // MARK: isTorchProtecting
 /**
@@ -99,10 +120,12 @@ export function isTorchProtecting(): boolean {
 
 // MARK: setupTorch
 /**
- * Create the hand-attached torch on the local player. Idempotent —
- * safe to call once from client bootstrap after the player entity
- * exists. AvatarAttach on the local player automatically resolves to
- * the current avatar without needing an explicit avatarId.
+ * Build the hand-attached torch on the local player and start its systems. Idempotent - call once from client bootstrap.
+ *
+ * The AvatarAttach is NOT created here: it waits until the local avatar is known (attachTorch, from the watchdog tick) so it can
+ * never be created against an avatar that is not there yet. The model stays hidden until then. From then on the watchdog
+ * (tickTorchWatchdog) re-checks the rig every TORCH_WATCHDOG_S and repairs whatever is missing, so a failed GLB load or a dropped
+ * attach can no longer leave a player with an empty hand until they reload.
  */
 export function setupTorch(): void {
 	if (installed) {
@@ -111,15 +134,59 @@ export function setupTorch(): void {
 	}
 	installed = true
 
-	// Layer 1: Anchor — rides the right hand bone. Transform is a stub;
-	// AvatarAttach overrides it every frame. Never write to it again.
-	torchAnchor = engine.addEntity()
-	AvatarAttach.create(torchAnchor, {
-		anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND,
+	buildTorch()
+
+	// Per-frame updater: toggle flame + smoke on lit, shrink cards with
+	// fuel. Shaft stays constant. Also emits `torchLit` to the auth
+	// server whenever the local lit-state edge-changes, so other
+	// clients can mirror the flame on our avatar's held torch.
+	let lastBroadcastLit: boolean | null = null
+	let lastBroadcastFrac = -1
+	const FUEL_BROADCAST_STEP = 0.05
+	engine.addSystem(() => {
+		const lit  = isTorchLit()
+		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
+
+		if (
+			lastBroadcastLit !== lit ||
+			(lit && Math.abs(frac - lastBroadcastFrac) >= FUEL_BROADCAST_STEP)
+		) {
+			lastBroadcastLit  = lit
+			lastBroadcastFrac = lit ? frac : 0
+			room.send('torchLit', { lit: lit ? 1 : 0, fuelFrac: lastBroadcastFrac })
+		}
+
+		const ps = ParticleSystem.getMutableOrNull(smoke)
+		if (ps !== null) {
+			const desired = lit
+				? PBParticleSystem_PlaybackState.PS_PLAYING
+				: PBParticleSystem_PlaybackState.PS_STOPPED
+			if (ps.playbackState !== desired) ps.playbackState = desired
+		}
+
+		const flameMul = getLivePhaseConfig().torchFlameMul
+		if (torchFlame !== null) {
+			torchFlame.setFuel(lit, frac, flameMul)
+		}
+
+		syncPointLight(torchLight, torchLightParams(lit, frac, flameMul))
 	})
+
+	engine.addSystem(tickTorchWatchdog, 0, 'torchWatchdog')
+
+	console.log('torch: setupTorch: built, waiting for the local avatar to attach (watchdog every ' + TORCH_WATCHDOG_S + ' s)')
+}
+
+
+// MARK: buildTorch
+/** Create every torch entity (anchor, model, flame, light, smoke). The AvatarAttach comes later (attachTorch). */
+function buildTorch(): void {
+	// Layer 1: Anchor - rides the right hand bone once attached. Transform is a stub;
+	// AvatarAttach overrides it every frame. Never write to it again after attaching.
+	torchAnchor = engine.addEntity()
 	Transform.create(torchAnchor, { position: Vector3.Zero(), scale: Vector3.One() })
 
-	// Layer 2: Model — STATIC child that carries the visual offsets. Set
+	// Layer 2: Model - STATIC child that carries the visual offsets. Set
 	// once and never mutated so it never fights AvatarAttach propagation.
 	torchTip = engine.addEntity()
 	Transform.create(torchTip, {
@@ -128,15 +195,11 @@ export function setupTorch(): void {
 		rotation: TORCH_ROTATION,
 		scale   : TORCH_MODEL_SCALE,
 	})
-	GltfContainer.create(torchTip, {
-		src                         : TORCH_MODEL,
-		// Colliders off — a hand-held prop should not block anything.
-		visibleMeshesCollisionMask  : 0,
-		invisibleMeshesCollisionMask: 0,
-	})
-	VisibilityComponent.create(torchTip, { visible: true })
+	createTorchGlb()
+	// Hidden until attachTorch (an unattached anchor sits at the scene origin).
+	VisibilityComponent.create(torchTip, { visible: false })
 
-	// Layer 3: Flame — tip cube + world-up spark cubes (torchFlame).
+	// Layer 3: Flame - tip cube + world-up spark cubes (torchFlame).
 	const flame = mountTorchFlame(torchAnchor)
 	torchFlame = flame
 
@@ -149,7 +212,7 @@ export function setupTorch(): void {
 	})
 	syncPointLight(torchLight, torchLightParams(false, 0, 1))
 
-	// Layer 4: Smoke wisp — parented to the flame lift so the cone sits
+	// Layer 4: Smoke wisp - parented to the flame lift so the cone sits
 	// just above the tip in WORLD up (not hand-local Z, which was slamming
 	// the emitter into the floor). World-space particles still trail.
 	smoke = engine.addEntity()
@@ -191,49 +254,187 @@ export function setupTorch(): void {
 		// Start PLAYING; the per-frame system below will stop it on the
 		// first tick if the torch isn't lit. Some SDK builds ignore a
 		// PS_STOPPED initial state and never accept a later PS_PLAYING
-		// toggle — booting into PLAYING dodges that.
+		// toggle - booting into PLAYING dodges that.
 		playbackState        : PBParticleSystem_PlaybackState.PS_PLAYING,
 	})
 
-	// Per-frame updater: toggle flame + smoke on lit, shrink cards with
-	// fuel. Shaft stays constant. Also emits `torchLit` to the auth
-	// server whenever the local lit-state edge-changes, so other
-	// clients can mirror the flame on our avatar's held torch.
-	let lastBroadcastLit: boolean | null = null
-	let lastBroadcastFrac = -1
-	const FUEL_BROADCAST_STEP = 0.05
-	engine.addSystem(() => {
-		const lit  = isTorchLit()
-		const frac = Math.max(0, Math.min(1, getTorchFuelFraction()))
-
-		if (
-			lastBroadcastLit !== lit ||
-			(lit && Math.abs(frac - lastBroadcastFrac) >= FUEL_BROADCAST_STEP)
-		) {
-			lastBroadcastLit  = lit
-			lastBroadcastFrac = lit ? frac : 0
-			room.send('torchLit', { lit: lit ? 1 : 0, fuelFrac: lastBroadcastFrac })
-		}
-
-		const ps = ParticleSystem.getMutableOrNull(smoke)
-		if (ps !== null) {
-			const desired = lit
-				? PBParticleSystem_PlaybackState.PS_PLAYING
-				: PBParticleSystem_PlaybackState.PS_STOPPED
-			if (ps.playbackState !== desired) ps.playbackState = desired
-		}
-
-		const flameMul = getLivePhaseConfig().torchFlameMul
-		if (torchFlame !== null) {
-			torchFlame.setFuel(lit, frac, flameMul)
-		}
-
-		syncPointLight(torchLight, torchLightParams(lit, frac, flameMul))
-	})
-
-	console.log('torch: setupTorch: attached to right hand, tip cube + sparks mounted')
+	builtAtMs     = Date.now()
+	attachedAtMs  = 0
+	confirmDone   = false
+	attachPending = false
 }
 
+
+// MARK: teardownTorch
+/** Remove whatever is left of the rig before a rebuild (entities may already be gone). */
+function teardownTorch(): void {
+	if (torchFlame !== null) torchFlame.dispose()
+	torchFlame = null
+	for (const e of [smoke, torchLight, torchTip, torchAnchor]) if (e !== (0 as Entity)) engine.removeEntity(e)
+}
+
+
+// MARK: createTorchGlb
+/** (Re)start the model load. Remembers when, so the watchdog can tell a stalled load from a fresh one. */
+function createTorchGlb(): void {
+	GltfContainer.createOrReplace(torchTip, {
+		src                         : TORCH_MODEL,
+		// Colliders off - a hand-held prop should not block anything.
+		visibleMeshesCollisionMask  : 0,
+		invisibleMeshesCollisionMask: 0,
+	})
+	glbCreatedMs = Date.now()
+	glbRetryMs   = glbCreatedMs
+}
+
+
+// MARK: attachTorch
+/**
+ * Bind the anchor to the local avatar's right hand. The local avatar is addressed by OMITTING avatarId (an explicit or empty id
+ * silently fails to bind, see logsPickupFx.ts) and the model is shown only now.
+ */
+function attachTorch(): void {
+	AvatarAttach.createOrReplace(torchAnchor, { anchorPointId: AvatarAnchorPointType.AAPT_RIGHT_HAND })
+	VisibilityComponent.createOrReplace(torchTip, { visible: true })
+	attachedAtMs  = Date.now()
+	confirmDone   = false
+	attachPending = false
+}
+
+
+// MARK: isLocalAvatarReady
+/** The local avatar is known: the player entity has a position, a wallet and a loaded avatar profile. */
+function isLocalAvatarReady(): boolean {
+	const pe = engine.PlayerEntity
+	if (Transform.getOrNull(pe) === null) return false
+	if (!PlayerIdentityData.getOrNull(pe)?.address) return false
+	return AvatarBase.getOrNull(pe) !== null
+}
+
+
+// MARK: avatarSignature
+/** Changes when the local avatar is rebuilt (body shape, name or wearables arrive / change). */
+function avatarSignature(): string {
+	const pe = engine.PlayerEntity
+	const b  = AvatarBase.getOrNull(pe)
+	const w  = AvatarEquippedData.getOrNull(pe)
+	return `${b?.bodyShapeUrn ?? ''}|${b?.name ?? ''}|${(w?.wearableUrns ?? []).join(',')}`
+}
+
+
+// MARK: readLocalProbe
+function readLocalProbe(nowMs: number): TorchProbe {
+	const a  = AvatarAttach.getOrNull(torchAnchor)
+	const g  = GltfContainer.getOrNull(torchTip)
+	const tt = Transform.getOrNull(torchTip)
+	const st = GltfContainerLoadingState.getOrNull(torchTip)
+	let glbState: TorchGlbState = 'loading'
+	if (st !== null) {
+		if (st.currentState === LoadingState.FINISHED) glbState = 'finished'
+		else if (st.currentState === LoadingState.FINISHED_WITH_ERROR || st.currentState === LoadingState.NOT_FOUND) glbState = 'failed'
+	}
+	if (g === null) glbState = 'none'
+	const s = tt?.scale
+	return {
+		expectAvatarId   : '',
+		anchorAlive      : Transform.getOrNull(torchAnchor) !== null,
+		tipAlive         : tt !== null,
+		attach           : a === null ? null : { anchorPoint: a.anchorPointId, avatarId: a.avatarId },
+		expectAnchor     : AvatarAnchorPointType.AAPT_RIGHT_HAND,
+		tipParentIsAnchor: tt?.parent === torchAnchor,
+		glbSrc           : g === null ? null : g.src,
+		expectGlbSrc     : TORCH_MODEL,
+		glbState,
+		glbAgeMs         : nowMs - glbCreatedMs,
+		sinceGlbRetryMs  : nowMs - glbRetryMs,
+		visible          : VisibilityComponent.getOrNull(torchTip)?.visible !== false,
+		scaleOk          : s !== undefined && Math.abs(s.x - TORCH_MODEL_SCALE.x) < 1e-6 && Math.abs(s.y - TORCH_MODEL_SCALE.y) < 1e-6 && Math.abs(s.z - TORCH_MODEL_SCALE.z) < 1e-6,
+	}
+}
+
+
+// MARK: logHeal
+/** The one line the hosted logs show when the watchdog repaired something (rate-limited, repairs in between are counted). */
+function logHeal(what: string, nowMs: number): void {
+	const n = logGate.note(nowMs)
+	if (n === 0) return
+	console.log(
+		`torchWatchdog: HEALED local torch: ${what} | repairs so far ${logGate.total} (${n} since the last line) ` +
+		`avatarReady=${isLocalAvatarReady()} t=${nowMs - builtAtMs}ms since build`
+	)
+}
+
+
+// MARK: tickTorchWatchdog
+/**
+ * Self-healing: the torch is never removed in any game state (frozen players keep it, dark; a cinematic only pauses fuel), so as long
+ * as the torch is equipped the rig must be whole. Every TORCH_WATCHDOG_S the live entities are probed and what is missing is
+ * rebuilt (see torchHealth.ts). The first attach and the deferred second half of a re-bind run every frame.
+ */
+function tickTorchWatchdog(dt: number): void {
+	if (!isTorchEquipped()) return
+	const nowMs = Date.now()
+
+	// Re-bind, second half: the attach was removed last frame so the Explorer sees a fresh bind.
+	if (attachPending) { attachTorch(); return }
+
+	// First attach: as soon as the avatar is known (or the max wait is over).
+	if (attachedAtMs === 0) {
+		const ready = isLocalAvatarReady()
+		if (!shouldAttachNow(ready, (nowMs - builtAtMs) / 1000)) return
+		attachTorch()
+		avatarSig = avatarSignature()
+		console.log(`torchWatchdog: torch attached to the right hand ${nowMs - builtAtMs} ms after build (avatarReady=${ready})`)
+		return
+	}
+
+	watchdogClock += dt
+	if (watchdogClock < TORCH_WATCHDOG_S) return
+	watchdogClock = 0
+
+	// The avatar was rebuilt (profile / wearables landed late), or the one-time confirmation: re-bind so the attach follows the new bones.
+	if (isLocalAvatarReady()) {
+		const sig = avatarSignature()
+		if (sig !== avatarSig) {
+			avatarSig = sig
+			AvatarAttach.deleteFrom(torchAnchor)
+			attachPending = true
+			logHeal('avatar changed, re-binding', nowMs)
+			return
+		}
+		if (!confirmDone && nowMs - attachedAtMs >= TORCH_CONFIRM_REBIND_S * 1000) {
+			confirmDone = true
+			AvatarAttach.deleteFrom(torchAnchor)
+			attachPending = true
+			console.log('torchWatchdog: confirmation re-bind of the hand torch (one-time)')
+			return
+		}
+	}
+
+	const verdict = decideTorchHeal(readLocalProbe(nowMs))
+	if (verdict.actions.length === 0) {
+		if (!healthyLogged && GltfContainerLoadingState.getOrNull(torchTip)?.currentState === LoadingState.FINISHED) {
+			healthyLogged = true
+			console.log(`torchWatchdog: hand torch healthy (model loaded ${nowMs - glbCreatedMs} ms after it was requested)`)
+		}
+		return
+	}
+
+	logHeal(`${verdict.reasons.join('; ')} -> ${verdict.actions.join('+')}`, nowMs)
+	if (verdict.actions.includes('rebuild')) {
+		teardownTorch()
+		buildTorch()
+		return // the first-attach branch above re-attaches next frame (avatar already known)
+	}
+	if (verdict.actions.includes('reparent')) Transform.getMutable(torchTip).parent = torchAnchor
+	if (verdict.actions.includes('glb')) createTorchGlb()
+	if (verdict.actions.includes('show')) {
+		VisibilityComponent.createOrReplace(torchTip, { visible: true })
+		const t = Transform.getMutable(torchTip)
+		t.scale = TORCH_MODEL_SCALE
+	}
+	if (verdict.actions.includes('attach')) attachTorch()
+}
 
 // MARK: syncTorchFlameNow
 /**
