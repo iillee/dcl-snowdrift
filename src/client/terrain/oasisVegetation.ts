@@ -12,6 +12,9 @@
  *     step out), so nobody is trapped. Decorative otherwise: no resource logic is touched.
  * Items near fire-network path cubes and fires are skipped only when they are about to spawn; once drawn, an item (and the merged
  * grass, which ignores paths altogether) stays, so lighting a new fire later never makes grown vegetation vanish.
+ * First patch: the cells round each obelisk's pit start growing as the release burst passes (see shared/terrain/oasisVeg.ts, so the
+ * grass / bushes / 1-2 trees rise during the cinematic); spawnFirstTrees raises the first VEG_FIRST_TREES planned candidates that are
+ * clear of fire-link paths and fires, in rank order (the rest of the candidates never spawn).
  * All spawning is batched (VEG_BUDGET_PER_TICK entities per 0.2 s tick). Everything clears with the oases (cycle reset).
  */
 
@@ -22,7 +25,7 @@ import { activeTerrain } from 'src/shared/terrain/terrainCache'
 import { OASIS_CELL_M, oasisCapR, oasisEntries, oasisVersion } from 'src/shared/terrain/oasis'
 import {
 	VEG_BUSH, VEG_GRASS_TOP_M, VEG_TREE, VEG_TREE_TIER_H_M, VegCell, VegItem,
-	buildVegCells, mergeGrassRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
+	VEG_FIRST_TREES, buildVegCells, mergeGrassRects, vegGrowth, vegOwnerKey, vegTreeHeightM,
 } from 'src/shared/terrain/oasisVeg'
 import { getPlacedFirePositions } from 'src/client/hiddenCampfire'
 import { forEachGlowPoint } from 'src/client/fireNetworkGlow'
@@ -73,10 +76,13 @@ const ROCK_COLORS = [
 interface LiveCell { c: VegCell; e: Entity | null; shown: boolean }
 interface LiveItem { it: VegItem; parts: Entity[]; spawned: boolean; done: boolean; blocked: boolean; shownScale: number; coll: boolean }
 interface Group { key: string; cells: LiveCell[]; merged: Entity[] | null }
+/** First-patch tree candidates of one oasis; decided once, when the patch starts. */
+interface FirstGroup { items: LiveItem[]; decided: boolean }
 
 const cellsByKey = new Map<number, LiveCell>()
 const known = new Set<number>()
 const groups = new Map<string, Group>()
+const firstGroups = new Map<string, FirstGroup>()
 const items: LiveItem[] = []
 const retire: Array<{ e: Entity; frames: number }> = []
 let installed = false
@@ -108,6 +114,7 @@ export function clearOasisVegetation(): void {
 	cellsByKey.clear()
 	known.clear()
 	groups.clear()
+	firstGroups.clear()
 	items.length = 0
 	retire.length = 0
 	syncedKeys = new Set<string>()
@@ -177,7 +184,15 @@ function sync(): void {
 		let g = groups.get(c.ownerKey)
 		if (!g) { g = { key: c.ownerKey, cells: [], merged: null }; groups.set(c.ownerKey, g) }
 		g.cells.push(lc)
-		for (const it of c.items) items.push({ it, parts: [], spawned: false, done: false, blocked: false, shownScale: -1, coll: false })
+		for (const it of c.items) {
+			const li: LiveItem = { it, parts: [], spawned: false, done: false, blocked: false, shownScale: -1, coll: false }
+			items.push(li)
+			if (it.first !== undefined) {
+				let fg = firstGroups.get(c.ownerKey)
+				if (!fg) { fg = { items: [], decided: false }; firstGroups.set(c.ownerKey, fg) }
+				fg.items.push(li)
+			}
+		}
 	}
 }
 
@@ -330,11 +345,13 @@ function vegSystem(dt: number): void {
 
 	mergeDueGroups(now)
 	budget = growGrass(now, budget)
+	budget = spawnFirstTrees(now, budget)
 
 	let blockers: Blockers | null = null
 
 	for (const li of items) {
 		if (li.blocked) continue
+		if (li.it.first !== undefined && !li.spawned) continue // first-patch candidates are spawned by spawnFirstTrees
 		const g = vegGrowth(li.it, now)
 		if (!li.spawned) {
 			if (g <= 0 || budget <= 0) continue
@@ -352,6 +369,35 @@ function vegSystem(dt: number): void {
 		placeItem(li, eased)
 		if (g >= 1) li.done = true
 	}
+}
+
+
+// MARK: spawnFirstTrees
+
+/**
+ * When an oasis's first patch starts, raise its first VEG_FIRST_TREES planned candidates (rank order) that are not blocked by a
+ * fire-link path or a fire; the others are dropped for good. They then grow like any pine (vegSystem), only much faster.
+ */
+function spawnFirstTrees(now: number, budgetIn: number): number {
+	let budget = budgetIn
+	for (const g of firstGroups.values()) {
+		if (g.decided) continue
+		let start = Number.POSITIVE_INFINITY
+		for (const li of g.items) start = Math.min(start, li.it.startMs)
+		if (now < start) continue
+		if (budget < 3 * VEG_FIRST_TREES) return budget // wait for a tick with room (a pine is 2-3 entities)
+		const blockers = buildBlockers()
+		g.items.sort((a, b) => (a.it.first ?? 0) - (b.it.first ?? 0))
+		let n = 0
+		for (const li of g.items) {
+			if (n >= VEG_FIRST_TREES || blocked(blockers, li.it.x, li.it.z)) { li.blocked = true; continue }
+			spawnParts(li)
+			budget -= li.parts.length
+			n++
+		}
+		g.decided = true
+	}
+	return budget
 }
 
 

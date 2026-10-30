@@ -95,6 +95,18 @@ const EYE_ICON_W   = 48
 const STAR_ICON_SRC = 'assets/images/leaderboard_star.png'
 const STAR_ICON_PX  = 38
 const EYE_ICON_H   = 32
+const MUTE_ICON_PX  = 34
+/** Font size of the "+", "-" and "?" glyphs. */
+const GLYPH_FONT_PX = 48
+
+// MARK: hudIcon
+/**
+ * Desktop top-row icons (+, -, rotate, eye, mute, star, ?) are drawn at this fraction of their design size so the glyphs
+ * do not crowd the 72 px buttons. ONE factor for all seven; the buttons, borders, spacing and key badges are untouched.
+ * Mobile keeps the design size (it shares mute / star / ? with desktop).
+ */
+const DESKTOP_ICON_SCALE = 0.85
+function hudIcon(px: number): number { return isMobile() ? px : Math.round(px * DESKTOP_ICON_SCALE) }
 
 
 // MARK: hud look
@@ -345,7 +357,7 @@ export function HelpButton() {
 		>
 			<Label
 				value     = "?"
-				fontSize  = {48}
+				fontSize  = {hudIcon(GLYPH_FONT_PX)}
 				color     = {WHITE}
 				font      = "sans-serif"
 				textAlign = "middle-center"
@@ -364,8 +376,8 @@ export function HelpButton() {
 /**
  * Star button: opens the fastest-completion leaderboard. Sits between
  * the mute and help buttons (floating-crystals ruleset only; the caller
- * gates it). Same footprint + border as its neighbours. Hotkey: 3
- * (initLeaderboardHotkey in layer.leaderboard.tsx).
+ * gates it). Same footprint + border as its neighbours. Click only: it has
+ * no key (the number keys 1-4 drive the overhead-view buttons).
  */
 export function LeaderboardButton() {
 	return (
@@ -385,7 +397,7 @@ export function LeaderboardButton() {
 		>
 			<UiEntity
 				key = "ui_LeaderboardBtn_icon"
-				uiTransform = {{ width: STAR_ICON_PX, height: STAR_ICON_PX }}
+				uiTransform = {{ width: hudIcon(STAR_ICON_PX), height: hudIcon(STAR_ICON_PX) }}
 				uiBackground = {{ textureMode: 'stretch', texture: { src: STAR_ICON_SRC }, color: WHITE }}
 			/>
 		</UiEntity>
@@ -512,9 +524,9 @@ export function ClockButton() {
 
 // MARK: SpectatorButton
 /**
- * Top-down camera toggle. Same footprint as the torch button; border
- * turns warm gold while top-down is active. Exported so the frost-bar
- * layer can host it inline on desktop.
+ * Top-down camera toggle (key 4; the badge in its corner says so). Same
+ * footprint as the torch button; border turns warm gold while top-down is
+ * active. Exported so the frost-bar layer can host it inline on desktop.
  *
  * Zoom +/- dock to the left of the eye with absolute position so they
  * do not push mute / help / frost along the row when spectator opens.
@@ -547,15 +559,16 @@ export function SpectatorButton() {
 			>
 				<UiEntity
 					key = "ui_ViewToggle_icon_desktop"
-					uiTransform = {{ width: EYE_ICON_W, height: EYE_ICON_H }}
+					uiTransform = {{ width: hudIcon(EYE_ICON_W), height: hudIcon(EYE_ICON_H) }}
 					uiBackground = {{
 						textureMode: 'stretch',
 						texture    : { src: EYE_ICON_SRC },
 						color      : specActive ? GOLD : WHITE,
 					}}
 				/>
+				<KeyHintBadge label="4" bold />
 			</UiEntity>
-			{/* Order left -> right: + , - , rotate , eye (then mute, ?, hearts). */}
+			{/* Order left -> right: + , - , rotate , eye (then mute, ?, hearts). Keys 1 / 2 / 3 / 4. */}
 			{specActive && <ZoomHudButton kind="in"  dockRight={(BTN_SIZE + gap) * 3} />}
 			{specActive && <ZoomHudButton kind="out" dockRight={(BTN_SIZE + gap) * 2} />}
 			{specActive && <RotateHudButton dockRight={BTN_SIZE + gap} />}
@@ -570,6 +583,7 @@ export function SpectatorButton() {
  * Spectator zoom control. Docked left of the eye via `dockRight` so
  * the top HUD row keeps its resting layout. Grayed at the altitude
  * limit so + / - still sit in place but refuse a dead click.
+ * Keys: 1 = zoom in (+), 2 = zoom out (-), see the badge in the corner.
  */
 function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 	const enabled = props.kind === 'in' ? canZoomIn() : canZoomOut()
@@ -598,7 +612,7 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 		>
 			<Label
 				value    = {`<b>${glyph}</b>`}
-				fontSize = {48}
+				fontSize = {hudIcon(GLYPH_FONT_PX)}
 				color    = {tint}
 				font     = "sans-serif"
 				textAlign= "middle-center"
@@ -606,9 +620,10 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 					width : '100%',
 					height: '100%',
 					// Sans-serif + / – sit a few px low in the 72 square.
-					margin: { bottom: 8 },
+					margin: { bottom: hudIcon(8) },
 				}}
 			/>
+			<KeyHintBadge label={props.kind === 'in' ? '1' : '2'} bold />
 		</UiEntity>
 	)
 }
@@ -616,7 +631,7 @@ function ZoomHudButton(props: { kind: 'in' | 'out'; dockRight: number }) {
 
 // MARK: RotateHudButton
 /**
- * Manual overview rotate (same as the 1 key): turns the iso view 90 deg
+ * Manual overview rotate (key 3, badge in the corner): turns the iso view 90 deg
  * clockwise. Cliff auto-rotate stays on too.
  */
 function RotateHudButton(props: { dockRight: number }) {
@@ -638,9 +653,10 @@ function RotateHudButton(props: { dockRight: number }) {
 		>
 			{/* Rotate icon ported from dcl-pixelwars (assets/images/overview_rotate.png, white silhouette, tinted). */}
 			<UiEntity
-				uiTransform  = {{ width: ROTATE_ICON_M, height: ROTATE_ICON_M, pointerFilter: 'none' }}
+				uiTransform  = {{ width: hudIcon(ROTATE_ICON_M), height: hudIcon(ROTATE_ICON_M), pointerFilter: 'none' }}
 				uiBackground = {{ textureMode: 'stretch', texture: { src: ROTATE_ICON_SRC }, color: WHITE }}
 			/>
+			<KeyHintBadge label="3" bold />
 		</UiEntity>
 	)
 }
@@ -779,7 +795,7 @@ export function MuteButton() {
 			   key forces a fresh element so the new src is picked up. */}
 			<UiEntity
 				key = {isMusicMuted() ? 'ui_MuteBtn_icon_muted' : 'ui_MuteBtn_icon_unmuted'}
-				uiTransform = {{ width: 34, height: 34 }}
+				uiTransform = {{ width: hudIcon(MUTE_ICON_PX), height: hudIcon(MUTE_ICON_PX) }}
 				uiBackground = {{
 					textureMode: 'stretch',
 					texture    : { src: isMusicMuted() ? 'assets/images/muted.png' : 'assets/images/unmute.png' },
@@ -792,20 +808,22 @@ export function MuteButton() {
 
 // MARK: KeyHintBadge
 /**
- * Tiny "E" / "F" label pinned to the upper-left corner of an
- * inventory slot so desktop players can see the hotkey binding at a
- * glance. Hidden on mobile (no physical keyboard, and the touch
+ * Tiny "E" / "F" (or overhead-view "1" - "4") label pinned to the upper-left
+ * corner of a HUD button so desktop players can see the hotkey binding at a
+ * glance. Same geometry as dcl-pixelwars' KeyHint (14 px, top 6 / left 10,
+ * 16 x 16); `bold` matches its <b> number (the pixelwars tiles are light, so
+ * its number is black; our buttons are dark, so ours stays white). Hidden on mobile (no physical keyboard, and the touch
  * controls own their own labels via touchControls.ts).
  *
  * Renders as an absolutely-positioned overlay so the parent slot's
  * flex-centered icon + fuel fill are unaffected.
  */
-function KeyHintBadge(props: { label: string }) {
+function KeyHintBadge(props: { label: string; bold?: boolean }) {
 	if (isMobile()) return null
 	return (
 		<Label
 			key        = {`ui_KeyHint_${props.label}`}
-			value      = {props.label}
+			value      = {props.bold ? `<b>${props.label}</b>` : props.label}
 			fontSize   = {14}
 			color      = {Color4.create(1, 1, 1, 0.85)}
 			uiTransform = {{

@@ -17,7 +17,7 @@
  * play — unlockAudio() primes sources on the first real UI/SFX call.
  */
 
-import { AudioSource, Entity, InputAction, PointerEventType, Transform, engine, inputSystem } from '@dcl/sdk/ecs'
+import { AudioSource, Entity, Transform, engine } from '@dcl/sdk/ecs'
 import { Vector3 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
@@ -207,20 +207,6 @@ export function initAudio(): void {
 		global: true,
 	})
 	playStartMs = Date.now()
-
-	// Desktop hotkey: `2` (IA_ACTION_4) toggles mute/unmute so keyboard
-	// players get the same one-press affordance the mobile touch layout
-	// already gets via its ACTION_4 slot. Skip on mobile — the on-screen
-	// mute button in touchControls already dispatches toggleMusic() and
-	// the native gamepad triggers the same InputAction, which would
-	// cause a double-toggle here.
-	if (!isMobile()) {
-		engine.addSystem(() => {
-			if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) { // 2: mute
-				toggleMusic()
-			}
-		})
-	}
 }
 
 export function isMusicMuted(): boolean {

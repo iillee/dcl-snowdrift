@@ -208,15 +208,34 @@ export function setupTopDownCamera(): void {
 		defaultTransition: { transitionMode: VirtualCamera.Transition.Speed(TRANSITION_SPEED) },
 	})
 
-	// Hotkeys:
-	//   1 (IA_ACTION_3) = toggle spectator / isometric view (mobile: the round eye button in layer.topDownZoom)
-	//   (2 mute: audio.ts, 3 leaderboard: layer.leaderboard.tsx, 4 help: layer.helpPanel.tsx.
-	//   Rotate has no hotkey, button only.)
+	// Desktop number keys (same layout as dcl-pixelwars; the HUD buttons carry matching key badges):
+	//   4 (IA_ACTION_6) = eye: toggle the overhead view (always)
+	//   3 (IA_ACTION_5) = rotate the view 90 deg   } only while the overhead view is on (the +, -, rotate buttons
+	//   2 (IA_ACTION_4) = zoom out (minus)         }  exist only then; zoom also needs canZoomIn / canZoomOut)
+	//   1 (IA_ACTION_3) = zoom in (plus)           }
+	// Mute, star and ? have no key (click only). Mobile has no number keys (the native slots are hidden, see
+	// touchControls.ts); its round buttons live in layer.topDownZoom.
 	// E (IA_PRIMARY) is claimed by torchInput.ts and must NOT be consumed here.
 	engine.addSystem((dt: number) => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) { // 1: view
-			playUiClick()
-			toggleTopDownCamera()
+		if (!isMobile()) {
+			if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) { // 4: eye
+				playUiClick()
+				toggleTopDownCamera()
+			}
+			if (active) {
+				if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) { // 3: rotate
+					playUiClick()
+					rotateView(1)
+				}
+				if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN) && canZoomOut()) { // 2: minus
+					playUiClick()
+					zoomOut()
+				}
+				if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN) && canZoomIn()) { // 1: plus
+					playUiClick()
+					zoomIn()
+				}
+			}
 		}
 
 		if (active) updateCamera(dt)

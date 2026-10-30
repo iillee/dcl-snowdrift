@@ -7,13 +7,15 @@ import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Y, CAMPFIRE_WORLD_Z } from 'src/shared
 import { cycleMazeSeed } from 'src/shared/cycleMazeSeed'
 import { TERRAIN_LEVEL_LOW, groundYForLevel, isMountainLevel } from 'src/shared/settings'
 import { oasisExcludedLevel, oasisRectHasCap } from 'src/shared/terrain/oasis'
-import { CRYSTAL_HEAT_RADIUS_M } from 'src/shared/ruleset'
+import { CRYSTAL_BURST_S, CRYSTAL_HEAT_RADIUS_M, CRYSTAL_THAW_DELAY_S } from 'src/shared/ruleset'
 import {
 	OASIS_BAND_M, OASIS_CELL_M, OASIS_DROP_M, OASIS_INNER_M, OASIS_JITTER_M, OASIS_MELT_DELAY_MS, OASIS_MELT_S, OASIS_RADIUS_M, OASIS_REACH_M, oasisCellIndex, oasisHash01,
 	oasisCellExposeMs, oasisClear, oasisDeltaY, oasisEntries, oasisLoweredAt, oasisNoteRelease, oasisQuantReveal,
 	oasisRelease, oasisSetBurstReveal, oasisTick, onOasisChanged, walkableYAtWorld,
 } from 'src/shared/terrain/oasis'
 import {
+	VEG_FIRST_BUSH_SPREAD_S, VEG_FIRST_BUSH_START_S, VEG_FIRST_CANDIDATES, VEG_FIRST_GRASS_SPREAD_S, VEG_FIRST_LEAD_S, VEG_FIRST_OUT_MIN_M, VEG_FIRST_OUT_SPREAD_M, VEG_FIRST_R_M, VEG_FIRST_TREES,
+	VEG_FIRST_TREE_GROW_MIN_S, VEG_FIRST_TREE_GROW_SPREAD_S, VEG_FIRST_TREE_SPREAD_S, VEG_FIRST_TREE_START_S,
 	VEG_BUSH, VEG_GRASS_MIN_S, VEG_GRASS_SPREAD_S, VEG_MAX_BUSHES, VEG_MAX_ROCKS, VEG_MAX_TREES, VEG_ROCK, VEG_TREE, VEG_TREE_GROW_MIN_S,
 	VEG_TREE_GROW_SPREAD_S, VEG_TREE_SPREAD_S, VEG_TREE_START_S, VEG_HEARTH_CLEAR_M, VEG_TREE_MAX_H_M, VEG_TREE_MIN_H_M, VEG_TREE_SPACING_K, VEG_TREE_TALL_H_M, VEG_TREE_TALL_SPACING_M, VEG_TREE_TIER_H_M, vegTreeRadiusM, VegCell, VegItem, vegOwnerKey, buildVegCells, greedyRects, mergeGrassRects, vegPosOk, vegCanopyClear, vegTreeHeightM,
 } from 'src/shared/terrain/oasisVeg'
@@ -97,6 +99,7 @@ let mtnCells = 0, mtnOases = 0, mergedMtnCells = 0, mergedMultiLevel = 0, lvlFra
 let oases = 0, cellsSum = 0, cellsMax = 0, boxSum = 0, boxMax = 0, otherLevelCells = 0, crossCells = 0, crossOases = 0, hearthMelts = 0, hearthSteps = 0, hearthInside = 0, hearthOutside = 0, hearthSynth = 0, changeEventsMax = 0
 let irregularAhead = 0, irregularBehind = 0
 // regrowth stats
+let firstTreesTotal = 0, firstCellsTotal = 0, firstOases = 0
 let vCells = 0, vGrass = 0, vBare = 0, vTrees = 0, vBushes = 0, vRocks = 0, vTreeParts = 0, vMergedRects = 0, vPeakEntities = 0, vMaxEntities = 0
 let vCovered90Max = 0, vLastTreeMax = 0, vCellsMax = 0, vMaxTreesInOasis = 0, vMaxBushes = 0, vMaxRocks = 0
 const shadeCount = [0, 0, 0, 0]
@@ -293,7 +296,7 @@ for (let s = 0; s < SEEDS; s++) {
 		// the plan covers exactly the cells the oasis ends up lowering
 		const planKeys = new Set(plan.map((p) => p.x + ',' + p.z))
 		if (!sameSet(planKeys, fin)) fail(`seed ${s} st ${i}: plan cells (${planKeys.size}) != final lowered cells (${fin.size})`)
-		let nTree = 0, nBush = 0, nRock = 0, parts = 0, lastTree = 0, grassN = 0
+		let nTree = 0, nBush = 0, nRock = 0, parts = 0, lastTree = 0, grassN = 0, nFirstCells = 0, nFirstTrees = 0
 		const grassTimes: number[] = []
 		const shades = [0, 0, 0, 0]
 		for (const p of plan as VegCell[]) {
@@ -302,16 +305,38 @@ for (let s = 0; s < SEEDS; s++) {
 			if (p.shade > 0) {
 				grassN++
 				const lag = (p.grassMs - p.exposeMs) / 1000
-				if (lag < VEG_GRASS_MIN_S - 1e-6 || lag > VEG_GRASS_MIN_S + VEG_GRASS_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: grass lag ${lag}`)
+				if (p.first) { const fl = (p.grassMs - p.firstMs) / 1000; if (fl < -1e-6 || fl > VEG_FIRST_GRASS_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: first-patch grass lag ${fl}`) }
+				else if (lag < VEG_GRASS_MIN_S - 1e-6 || lag > VEG_GRASS_MIN_S + VEG_GRASS_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: grass lag ${lag}`)
 				grassTimes.push((p.grassMs - T0) / 1000)
 			} else if (p.grassMs !== Number.POSITIVE_INFINITY) fail(`seed ${s} st ${i}: bare cell has a grass time`)
+			// ---- first patch: only the 8 x 8 m block round the pit, starting VEG_FIRST_LEAD_S (half the burst) before the cell melts
+			if (p.first) {
+				nFirstCells++
+				if (Math.hypot(p.x - c.x, p.z - c.z) > VEG_FIRST_R_M + 1e-6) fail(`seed ${s} st ${i}: first-patch cell ${p.x},${p.z} too far from the obelisk`)
+				if (Math.abs((p.exposeMs - p.firstMs) / 1000 - VEG_FIRST_LEAD_S) > 1e-6) fail(`seed ${s} st ${i}: first patch lead ${(p.exposeMs - p.firstMs) / 1000} s`)
+				if (p.shade === 0) fail(`seed ${s} st ${i}: bare cell in the first patch`)
+				// the burst (CRYSTAL_THAW_DELAY_S after the release note) has started by then, and the cinematic (burst + 2 s) is still running
+				const rel = (p.firstMs - T0) / 1000
+				if (rel < CRYSTAL_THAW_DELAY_S || rel > CRYSTAL_THAW_DELAY_S + CRYSTAL_BURST_S + 2) fail(`seed ${s} st ${i}: first patch starts ${rel} s after the release, outside the burst`)
+			} else if (p.firstMs !== p.exposeMs) fail(`seed ${s} st ${i}: non-patch cell has a first time`)
 			for (const it of p.items) {
 				const half = OASIS_CELL_M / 2 + 1e-6
 				if (Math.abs(it.x - p.x) > half || Math.abs(it.z - p.z) > half) fail(`seed ${s} st ${i}: item outside its cell`)
 				if (!vegPosOk(map, entries[0], it.x, it.z)) fail(`seed ${s} st ${i}: item at ${it.x.toFixed(1)},${it.z.toFixed(1)} breaks a keep-out`)
 				if (Math.abs(it.x - c.x) < OBELISK_PIT_SIZE_M / 2 + 3 && Math.abs(it.z - c.z) < OBELISK_PIT_SIZE_M / 2 + 3) fail(`seed ${s} st ${i}: item on the obelisk plinth`)
 				if (Math.abs(it.x - CAMPFIRE_WORLD_X) < VEG_HEARTH_CLEAR_M && Math.abs(it.z - CAMPFIRE_WORLD_Z) < VEG_HEARTH_CLEAR_M) fail(`seed ${s} st ${i}: item on the hearth`)
-				if (it.startMs < p.exposeMs + 1000 * (it.kind === VEG_TREE ? VEG_TREE_START_S : 1) - 1e-6) fail(`seed ${s} st ${i}: item starts before its cell melted`)
+				if (it.first !== undefined) {
+					if (it.kind !== VEG_TREE || !p.first) fail(`seed ${s} st ${i}: first candidate is not a tree in a patch cell`)
+					const out = Math.max(Math.abs(it.x - c.x), Math.abs(it.z - c.z))
+					if (out < VEG_FIRST_OUT_MIN_M - 1e-6 || out > VEG_FIRST_OUT_MIN_M + VEG_FIRST_OUT_SPREAD_M + 1e-6) fail(`seed ${s} st ${i}: first tree ${out} m out of the obelisk`)
+					const fs = (it.startMs - p.firstMs) / 1000
+					if (fs < VEG_FIRST_TREE_START_S - 1e-6 || fs > VEG_FIRST_TREE_START_S + VEG_FIRST_TREE_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: first tree starts ${fs} s after the patch`)
+					const fm = (it.startMs + it.durMs - p.firstMs) / 1000
+					if (fm > VEG_FIRST_TREE_START_S + VEG_FIRST_TREE_SPREAD_S + VEG_FIRST_TREE_GROW_MIN_S + VEG_FIRST_TREE_GROW_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: first tree matures ${fm} s after the patch`)
+					nFirstTrees++
+				} else if (p.first && it.kind === VEG_TREE) fail(`seed ${s} st ${i}: regular pine in the first patch`)
+				else if (p.first && it.kind === VEG_BUSH && (it.startMs < p.firstMs - 1e-6 || it.startMs > p.firstMs + (VEG_FIRST_BUSH_START_S + VEG_FIRST_BUSH_SPREAD_S) * 1000 + 1e-6)) fail(`seed ${s} st ${i}: first-patch bush start`)
+				else if (!p.first && it.startMs < p.exposeMs + 1000 * (it.kind === VEG_TREE ? VEG_TREE_START_S : 1) - 1e-6) fail(`seed ${s} st ${i}: item starts before its cell melted`)
 				if (it.kind === VEG_TREE) {
 					nTree++
 					const th = vegTreeHeightM(it)
@@ -319,7 +344,7 @@ for (let s = 0; s < SEEDS; s++) {
 					treeHs.push(th)
 					parts += th >= VEG_TREE_TIER_H_M ? 3 : 2
 					const mature = (it.startMs + it.durMs - p.exposeMs) / 1000
-					if (mature > VEG_TREE_START_S + VEG_TREE_SPREAD_S + VEG_TREE_GROW_MIN_S + VEG_TREE_GROW_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: tree matures ${mature} s after melt`)
+					if (it.first === undefined && mature > VEG_TREE_START_S + VEG_TREE_SPREAD_S + VEG_TREE_GROW_MIN_S + VEG_TREE_GROW_SPREAD_S + 1e-6) fail(`seed ${s} st ${i}: tree matures ${mature} s after melt`)
 					lastTree = Math.max(lastTree, (it.startMs + it.durMs - T0) / 1000)
 				} else if (it.kind === VEG_BUSH) { nBush++; parts++ } else if (it.kind === VEG_ROCK) { nRock++; parts++ }
 			}
@@ -328,6 +353,11 @@ for (let s = 0; s < SEEDS; s++) {
 			for (const it of ts) if (!vegCanopyClear(map, it.x, it.z, vegTreeRadiusM(it))) fail(`seed ${s} st ${i}: pine canopy overhangs a cliff at ${it.x.toFixed(1)},${it.z.toFixed(1)}`)
 			for (let a = 0; a < ts.length; a++) for (let b = a + 1; b < ts.length; b++) { const d = Math.hypot(ts[a].x - ts[b].x, ts[a].z - ts[b].z); const need = VEG_TREE_SPACING_K * (vegTreeRadiusM(ts[a]) + vegTreeRadiusM(ts[b])); if (d < need - 1e-6) fail(`seed ${s} st ${i}: pines ${d.toFixed(1)} m apart, need ${need.toFixed(1)}`); if (d < VEG_TREE_TALL_SPACING_M - 1e-6 && vegTreeHeightM(ts[a]) >= VEG_TREE_TALL_H_M && vegTreeHeightM(ts[b]) >= VEG_TREE_TALL_H_M) fail(`seed ${s} st ${i}: two tall pines ${d.toFixed(1)} m apart`) }
 			const cx = entries[0].x, cz = entries[0].z; for (const it of ts) { const dd = Math.hypot(it.x - cx, it.z - cz); radial[Math.min(3, Math.floor(dd / (OASIS_RADIUS_M / 4)))]++ } }
+		// the first patch: <= 12 cells (the 8 x 8 m block minus the 6 m pit), and room for the 2 trees the client raises
+		if (nFirstCells < 1 || nFirstCells > 12) fail(`seed ${s} st ${i}: first patch has ${nFirstCells} cells`)
+		if (nFirstTrees < VEG_FIRST_TREES) fail(`seed ${s} st ${i}: only ${nFirstTrees} first-tree candidates survive the plan`)
+		if (nFirstTrees > VEG_FIRST_CANDIDATES) fail(`seed ${s} st ${i}: ${nFirstTrees} first-tree candidates`)
+		firstTreesTotal += nFirstTrees; firstCellsTotal += nFirstCells; firstOases++
 		if (nTree > VEG_MAX_TREES || nBush > VEG_MAX_BUSHES || nRock > VEG_MAX_ROCKS) fail(`seed ${s} st ${i}: caps exceeded ${nTree}/${nBush}/${nRock}`)
 		// union / incremental: planning oasis B after A (known = A's cells) adds only new cells; together = planning both at once
 		if (i + 1 < cs.length) {
@@ -449,6 +479,7 @@ for (let s = 0; s < SEEDS; s++) {
 oasisClear()
 console.log = realLog
 const pct = (n: number, d: number): string => (d > 0 ? (100 * n / d).toFixed(0) : '0') + '%'
+console.log(`oasisCheck: first patch (grows during the release burst, ${VEG_FIRST_LEAD_S} s before the cells melt): ${firstOases} oases, avg ${(firstCellsTotal / Math.max(1, firstOases)).toFixed(1)} cells, avg ${(firstTreesTotal / Math.max(1, firstOases)).toFixed(1)} tree candidates (the client raises ${VEG_FIRST_TREES})`)
 console.log(`oasisCheck: grass per floor height: ${lvlGroups} (oasis, height) groups with >= 8 cells, lowest grass fraction ${(lvlFracMin * 100).toFixed(0)}%`)
 console.log(`oasisCheck: merged grass rects verified at their cells' exact floor Y (and every item at its floor): ${mergedMultiLevel} oases span several floor heights, ${mergedMtnCells} merged cells are mountain blocks`)
 console.log(`oasisCheck: mountain wall-block cells melted (now capped + earth like terraces; crown/lava/pit stay): ${mtnCells}`)

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * oasisVeg.ts - deterministic regrowth plan for the oasis floors (floating-crystals ruleset). Pure: no
  * engine calls, so the client renderer (client/terrain/oasisVegetation.ts) and oasisCheck share it.
  *
@@ -10,9 +10,16 @@
  * Times are local epoch ms derived from the oasis entries' melt clock (shared/terrain/oasis.ts), which is
  * itself derived from the server release age, so every client (and a late joiner) agrees. -Infinity = grown.
  * Overlapping oases: cells are keyed globally, so a cell exists once (owner = the oasis that melts it first).
+ *
+ * FIRST PATCH (release cinematic): the cells within VEG_FIRST_R_M of the obelisk centre (the 8 x 8 m block round its pit) do not wait for
+ * the slow regrowth. Their grass pops in, their bushes scale in and 1-2 trees (chosen from VEG_FIRST_CANDIDATES planned spots) rise
+ * right behind the release burst front, i.e. while the cinematic camera is still on the obelisk: grass within ~1.5 s, bushes in a few s,
+ * trees in ~6-9 s. Times hang off the same melt clock (VegCell.firstMs = the cell's melt time minus VEG_FIRST_LEAD_S), so every client
+ * agrees and a late joiner lands mid-growth. The rest of the oasis keeps the timing above.
  */
 
 import { CAMPFIRE_WORLD_X, CAMPFIRE_WORLD_Z } from 'src/shared/campfire'
+import { CRYSTAL_BURST_S } from 'src/shared/ruleset'
 import {
 	OBELISK_PIT_SIZE_M,
 	TERRAIN_ORIGIN_M,
@@ -88,6 +95,32 @@ export const VEG_LADDER_CLEAR_M = 7
 /** Keep decorations this far (m) inside a cliff edge. */
 export const VEG_CLIFF_CLEAR_M = 1.5
 
+/** First patch radius (m, cell centre to obelisk centre): the 12 cells of the 8 x 8 m block round the 6 m pit (centres at 2 / 6 m). */
+export const VEG_FIRST_R_M = 9
+/** The patch starts this long before its cells' melt time: the burst front crosses it ~half way through the burst. */
+export const VEG_FIRST_LEAD_S = CRYSTAL_BURST_S * 0.5
+/** Grass pops in over this many seconds after the patch starts (not the 2..42 s of the rest). */
+export const VEG_FIRST_GRASS_SPREAD_S = 1.5
+/** Bushes scale in (start .. start + spread, then VEG_FIRST_BUSH_GROW_S) after the patch starts. */
+export const VEG_FIRST_BUSH_START_S = 0.5
+export const VEG_FIRST_BUSH_SPREAD_S = 3
+export const VEG_FIRST_BUSH_GROW_S = 4
+/** Candidate trees per oasis (planned, in priority order) and how many of them the client raises (the first unblocked ones). */
+export const VEG_FIRST_CANDIDATES = 12
+export const VEG_FIRST_TREES = 2
+/** Tree rise: starts 0.3..0.9 s after the patch, takes 6..9 s (the rest of the oasis: 45..80 s). */
+export const VEG_FIRST_TREE_START_S = 0.3
+export const VEG_FIRST_TREE_SPREAD_S = 0.6
+export const VEG_FIRST_TREE_GROW_MIN_S = 6
+export const VEG_FIRST_TREE_GROW_SPREAD_S = 3
+/** Candidate spots: 6.2..6.9 m out from the obelisk centre along one axis (clear of the 6 m pit + plinth; the 16 m station platform ends at 8 m, so further out hits the cliff clearance), +/- 5 m sideways. */
+export const VEG_FIRST_OUT_MIN_M = 6.2
+export const VEG_FIRST_OUT_SPREAD_M = 0.7
+export const VEG_FIRST_ALONG_M = 5
+/** Size roll of the first trees: 8.8 .. 12.6 m tall (a young pine, canopy ~1.6 .. 2.3 m, clear of the pit). */
+export const VEG_FIRST_TREE_S0_MIN = 0.30
+export const VEG_FIRST_TREE_S0_SPREAD = 0.16
+
 export const VEG_TREE = 0
 export const VEG_BUSH = 1
 export const VEG_ROCK = 2
@@ -109,6 +142,8 @@ export interface VegItem {
 	durMs   : number
 	/** Sort key: lower survives the per-oasis cap. */
 	pri     : number
+	/** Set on the first-patch tree candidates: their rank (0 = first choice). The client raises the first VEG_FIRST_TREES unblocked ones. */
+	first?  : number
 }
 
 export interface VegCell {
@@ -126,6 +161,10 @@ export interface VegCell {
 	grassMs : number
 	/** Earth floor top Y (m). */
 	y       : number
+	/** True for the first-patch cells (see the header): they start early. */
+	first   : boolean
+	/** Local epoch ms the first patch starts at (the cell's melt time minus VEG_FIRST_LEAD_S); equals exposeMs for other cells. */
+	firstMs : number
 	items   : VegItem[]
 }
 
@@ -254,13 +293,17 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 				if (info.entry === null || info.ms === Number.POSITIVE_INFINITY) continue
 				const f = Math.min(1, info.d / VEG_PROFILE_R_M)
 				const hBare = oasisHash01(salt, ix, iz, 2)
-				const bare = hBare < VEG_BARE_RIM + (VEG_BARE_CENTRE - VEG_BARE_RIM) * (1 - f)
+				const first = !info.fin && info.d <= VEG_FIRST_R_M
+				const firstMs = first ? info.ms - VEG_FIRST_LEAD_S * 1000 : info.ms
+				const bare = !first && hBare < VEG_BARE_RIM + (VEG_BARE_CENTRE - VEG_BARE_RIM) * (1 - f)
 				const n = valueNoise(salt, x, z, 14) + (oasisHash01(salt, ix, iz, 3) - 0.5) * 0.12
 				const shade = bare ? 0 : n < 0.36 ? 1 : n < 0.68 ? 2 : 3
-				const grassMs = bare ? Number.POSITIVE_INFINITY : info.ms + (VEG_GRASS_MIN_S + oasisHash01(salt, ix, iz, 4) * VEG_GRASS_SPREAD_S) * 1000
+				const grassMs = bare ? Number.POSITIVE_INFINITY
+					: first ? firstMs + oasisHash01(salt, ix, iz, 4) * VEG_FIRST_GRASS_SPREAD_S * 1000
+					: info.ms + (VEG_GRASS_MIN_S + oasisHash01(salt, ix, iz, 4) * VEG_GRASS_SPREAD_S) * 1000
 				cells.set(key, {
 					key, ix, iz, x, z, ownerKey: vegOwnerKey(info.entry) + (info.fin ? VEG_FIN_SUFFIX : ''), exposeMs: info.ms, shade, grassMs,
-					y: groundYAtWorld(map, x, z) - OASIS_DROP_M, items: [], owner: info.entry, d: info.d,
+					y: groundYAtWorld(map, x, z) - OASIS_DROP_M, first, firstMs, items: [], owner: info.entry, d: info.d,
 				})
 			}
 		}
@@ -272,14 +315,14 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 		const f = Math.min(1, c.d / VEG_PROFILE_R_M)
 		const interior = has(c.ix - 1, c.iz) && has(c.ix + 1, c.iz) && has(c.ix, c.iz - 1) && has(c.ix, c.iz + 1)
 		const t = (s: number): number => oasisHash01(salt, c.ix, c.iz, s)
-		const place = (kind: VegKind, slot: number, startS: number, spreadS: number, durMs: number): void => {
+		const place = (kind: VegKind, slot: number, startS: number, spreadS: number, durMs: number, baseMs: number = c.exposeMs): void => {
 			const salt0 = 20 + kind * 8 + slot * 4
 			const m = OASIS_CELL_M * 0.18
 			const x = c.x - OASIS_CELL_M / 2 + m + t(salt0) * (OASIS_CELL_M - 2 * m)
 			const z = c.z - OASIS_CELL_M / 2 + m + t(salt0 + 1) * (OASIS_CELL_M - 2 * m)
 			if (!vegPosOk(map, c.owner, x, z)) return
 			const h = t(salt0 + 2)
-			const startMs = c.exposeMs + (startS + t(salt0 + 3) * spreadS) * 1000
+			const startMs = baseMs + (startS + t(salt0 + 3) * spreadS) * 1000
 			c.items.push({
 				kind, x, z, y: c.y, yaw: t(salt0 + 1) * 360, s0: h, s1: t(salt0 + 3), s2: t(salt0 + 2) * 0.5 + t(salt0) * 0.5,
 				startMs, durMs, pri: t(90 + kind * 4 + slot) * (kind === VEG_TREE ? 0.9 + 0.3 * f : 0.5 + f),
@@ -287,12 +330,47 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 		}
 		// pines: at most one candidate per cell, nearly even across the oasis (thinned afterwards by canopy spacing)
 		const lamTree = 0.8 - 0.2 * f
-		if (interior && t(10) < lamTree) place(VEG_TREE, 0, VEG_TREE_START_S, VEG_TREE_SPREAD_S, (VEG_TREE_GROW_MIN_S + t(11) * VEG_TREE_GROW_SPREAD_S) * 1000)
+		if (!c.first && interior && t(10) < lamTree) place(VEG_TREE, 0, VEG_TREE_START_S, VEG_TREE_SPREAD_S, (VEG_TREE_GROW_MIN_S + t(11) * VEG_TREE_GROW_SPREAD_S) * 1000)
 		// bushes: up to two, ~1 per cell at the centre, ~0.25 at the rim
 		const lamBush = 1.0 + (0.25 - 1.0) * f
-		for (let s = 0; s < 2; s++) if (t(12 + s) < lamBush / 2) place(VEG_BUSH, s, VEG_BUSH_START_S, VEG_BUSH_SPREAD_S, VEG_BUSH_GROW_S * 1000)
+		for (let s = 0; s < 2; s++) if (t(12 + s) < lamBush / 2) {
+			if (c.first) place(VEG_BUSH, s, VEG_FIRST_BUSH_START_S, VEG_FIRST_BUSH_SPREAD_S, VEG_FIRST_BUSH_GROW_S * 1000, c.firstMs)
+			else place(VEG_BUSH, s, VEG_BUSH_START_S, VEG_BUSH_SPREAD_S, VEG_BUSH_GROW_S * 1000)
+		}
 		// rocks: sparse
 		if (t(14) < 0.1) place(VEG_ROCK, 0, VEG_ROCK_START_S, VEG_ROCK_SPREAD_S, 2000)
+	}
+
+	// First-patch tree candidates: VEG_FIRST_CANDIDATES spots per oasis on the four sides of the pit (sides in the order E, W, N, S so
+	// the first two ranks face each other); the client raises the first VEG_FIRST_TREES that are clear of fire-link paths and fires.
+	// They go through the greedy pine filter below with the best priority, so they respect canopy spacing, cliffs and the pit.
+	const firstOwners = new Map<string, { e: OasisEntry; ms: number }>()
+	for (const c of cells.values()) {
+		if (!c.first) continue
+		const cur = firstOwners.get(c.ownerKey)
+		if (!cur || c.firstMs < cur.ms) firstOwners.set(c.ownerKey, { e: c.owner, ms: c.firstMs })
+	}
+	const SIDE_ORDER = [0, 2, 1, 3]
+	for (const [ownerKey, { e, ms }] of firstOwners) {
+		const hx = Math.round(e.x * 4), hz = Math.round(e.z * 4)
+		const hh = (k: number, s: number): number => oasisHash01(salt, hx, hz, 100 + k * 8 + s)
+		for (let k = 0; k < VEG_FIRST_CANDIDATES; k++) {
+			const out   = VEG_FIRST_OUT_MIN_M + hh(k, 0) * VEG_FIRST_OUT_SPREAD_M
+			const along = (hh(k, 1) * 2 - 1) * VEG_FIRST_ALONG_M
+			const side  = SIDE_ORDER[k & 3]
+			const x = e.x + (side === 0 ? out : side === 2 ? -out : along)
+			const z = e.z + (side === 1 ? out : side === 3 ? -out : along)
+			const cell = cells.get(vegCellKey(oasisCellIndex(x), oasisCellIndex(z)))
+			if (!cell || !cell.first || cell.ownerKey !== ownerKey) continue
+			if (!vegPosOk(map, e, x, z)) continue
+			cell.items.push({
+				kind: VEG_TREE, x, z, y: cell.y, yaw: hh(k, 2) * 360,
+				s0: VEG_FIRST_TREE_S0_MIN + hh(k, 3) * VEG_FIRST_TREE_S0_SPREAD, s1: hh(k, 4), s2: hh(k, 5),
+				startMs: ms + (VEG_FIRST_TREE_START_S + hh(k, 6) * VEG_FIRST_TREE_SPREAD_S) * 1000,
+				durMs: (VEG_FIRST_TREE_GROW_MIN_S + hh(k, 7) * VEG_FIRST_TREE_GROW_SPREAD_S) * 1000,
+				pri: -1 + k * 0.01, first: k,
+			})
+		}
 	}
 
 	// Per-oasis caps: keep the lowest `pri` of each kind (centre first).
@@ -340,7 +418,7 @@ export function buildVegCells(map: TerrainMap, entries: readonly OasisEntry[], k
 	const out: VegCell[] = []
 	for (const c of cells.values()) {
 		if (drop.size > 0) c.items = c.items.filter((it) => !drop.has(it))
-		out.push({ key: c.key, ix: c.ix, iz: c.iz, x: c.x, z: c.z, ownerKey: c.ownerKey, exposeMs: c.exposeMs, shade: c.shade, grassMs: c.grassMs, y: c.y, items: c.items })
+		out.push({ key: c.key, ix: c.ix, iz: c.iz, x: c.x, z: c.z, ownerKey: c.ownerKey, exposeMs: c.exposeMs, shade: c.shade, grassMs: c.grassMs, y: c.y, first: c.first, firstMs: c.firstMs, items: c.items })
 	}
 	out.sort((a, b) => a.key - b.key)
 	return out

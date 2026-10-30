@@ -13,7 +13,7 @@
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
-import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
+import { engine } from '@dcl/sdk/ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
@@ -252,22 +252,4 @@ export function autoOpenHelpPanel(seconds: number): void {
 	closeLeaderboard()
 	helpPanelLayer.show()
 	autoCloseAtMs = Date.now() + seconds * 1000
-}
-
-
-// MARK: initHelpPanelHotkey
-/**
- * Desktop hotkey: `4` (IA_ACTION_6) toggles the help panel (1 view, 2 mute, 3 leaderboard,
- * 4 help), matching the top HUD row order (+, -, rotate, eye, mute, star, ?).
- * Skipped on mobile: the native help slot fires the same action, and
- * touchControls.ts handles it there (a second handler would double-toggle).
- */
-export function initHelpPanelHotkey(): void {
-	if (isMobile()) return
-	engine.addSystem(() => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) { // 4: help (1 view, 2 mute, 3 leaderboard)
-			playUiClick()
-			toggleHelpPanel()
-		}
-	})
 }

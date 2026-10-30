@@ -2,7 +2,7 @@
  * obeliskChargeHum.ts - looping hum while a buried obelisk charges.
  *
  * Positional audio is too steep and is heard from the avatar, so the
- * overview (key 1) and cinematic cameras lost it. Instead ONE shared
+ * overview (key 4) and cinematic cameras lost it. Instead ONE shared
  * camera-attached, non-positional (global) looping voice whose volume we
  * drive ourselves, so it works the same on desktop and mobile:
  *

@@ -31,8 +31,6 @@ import { offHearthCellsForMazeSeed, setActiveTerrain } from 'src/shared/terrain/
 import { SEED_NETWORK_ID } from 'src/shared/networkIds'
 
 import { initAudio } from 'src/client/audio'
-import { initHelpPanelHotkey } from 'src/client/ui/layers/layer.helpPanel'
-import { initLeaderboardHotkey } from 'src/client/ui/layers/layer.leaderboard'
 import { initClientHandler } from 'src/client/clientHandler'
 import { initFrostAccumulation } from 'src/client/frost/accumulation'
 import { beginCollapsedAtHome, setupFrostDeath } from 'src/client/frost/death'
@@ -162,8 +160,6 @@ export async function setupClient(): Promise<void> {
 	if (STRESS_COUNT > 0) { runStress(STRESS_COUNT); return }
 	setupLoadTimeline()
 	initAudio()
-	initHelpPanelHotkey()
-	initLeaderboardHotkey()
 
 	// Campfire + smoke FIRST so the fireplace GLB claims asset-load
 	// bandwidth before snow/terrain/prop floods. Late joiners were

@@ -1,6 +1,6 @@
 /**
  * mobileHudCheck - the mobile (touch) HUD layout, desktop untouched:
- *  - native slots: E / F, slots 1-4 (eye, mute, star, help) and the pointer hand (IA_POINTER) are hidden on touch; no mobile input dispatch is left;
+ *  - native slots: E / F, slots 1-4 (desktop keys: 4 eye, 3 rotate, 2 zoom out, 1 zoom in) and the pointer hand (IA_POINTER) are hidden on touch; no mobile input dispatch is left;
  *    the hand's two users keep a mobile path (cinematic SKIP label / jump, VIEW MAP button at the summit table);
  *  - top row: mute, star (floating crystals), ? are on-screen ROUND buttons on mobile, in that order, left of the frost bar, the row starts
  *    right of DCL's avatar + chat icons; desktop (square buttons, centred, 160 px nudge) is unchanged;
@@ -94,7 +94,28 @@ const code = (p: string): string => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*
 	const gaps = (z.match(/height: ZOOM_GAP/g) ?? []).length
 	if (gaps !== 3) fail(`${gaps} gaps in the column (want 3: equal spacing between 4 buttons)`)
 	const tdc = code('src/client/topDownCamera.ts')
-	if (!/IA_ACTION_3, PointerEventType\.PET_DOWN\)\) \{[\s\S]*?toggleTopDownCamera\(\)/.test(tdc)) fail('desktop key 1 no longer toggles the view')
+	// Desktop number keys (pixelwars layout): 4 = eye (always), 3 = rotate, 2 = zoom out, 1 = zoom in (only while the overview is on); desktop only.
+	const keyAt = tdc.indexOf('if (!isMobile()) {', tdc.indexOf('engine.addSystem((dt: number)'))
+	const keyBlock = keyAt < 0 ? '' : tdc.slice(keyAt, tdc.indexOf('if (active) updateCamera', keyAt))
+	if (!keyBlock) fail('the desktop number-key block (if (!isMobile())) is missing in topDownCamera.ts')
+	if (!/IA_ACTION_6, PointerEventType\.PET_DOWN\)\) \{[^}]*toggleTopDownCamera\(\)/.test(keyBlock)) fail('desktop key 4 no longer toggles the view')
+	const gated = keyBlock.slice(keyBlock.indexOf('if (active) {') + 1)
+	if (!keyBlock.includes('if (active) {')) fail('keys 1 / 2 / 3 are not limited to the overview')
+	if (!/IA_ACTION_5, PointerEventType\.PET_DOWN\)\) \{[^}]*rotateView\(1\)/.test(gated)) fail('desktop key 3 does not rotate the overview (only while it is on)')
+	if (!/IA_ACTION_4, PointerEventType\.PET_DOWN\) && canZoomOut\(\)\) \{[^}]*zoomOut\(\)/.test(gated)) fail('desktop key 2 does not zoom out (only while the overview is on)')
+	if (!/IA_ACTION_3, PointerEventType\.PET_DOWN\) && canZoomIn\(\)\) \{[^}]*zoomIn\(\)/.test(gated)) fail('desktop key 1 does not zoom in (only while the overview is on)')
+	// Mute, star and ? have no key; nothing else may listen to the number keys.
+	for (const f of ['src/client/audio.ts', 'src/client/ui/layers/layer.leaderboard.tsx', 'src/client/ui/layers/layer.helpPanel.tsx', 'src/client/index.ts'])
+		if (/IA_ACTION_|Hotkey/.test(code(f))) fail(`${f} still binds a number key (mute, star and ? are click only)`)
+	// Key badges: the four overview buttons, desktop only (KeyHintBadge returns null on mobile; the mobile column has none).
+	const bs = code('src/client/ui/layers/layer.brushSize.tsx')
+	if (!/function KeyHintBadge[\s\S]*?if \(isMobile\(\)\) return null/.test(bs)) fail('the key badge is not desktop only')
+	for (const k of ['4', '3']) if (!new RegExp(`<KeyHintBadge label="${k}" bold />`).test(bs)) fail(`no key badge "${k}" on the eye / rotate button`)
+	if (!/<KeyHintBadge label=\{props\.kind === 'in' \? '1' : '2'\} bold \/>/.test(bs)) fail('no key badges 1 / 2 on the zoom buttons')
+	if (/KeyHintBadge/.test(z)) fail('the mobile column must not show key badges')
+	// Desktop top-row icons: one shared scale (0.85), mobile keeps the design size.
+	if (!/DESKTOP_ICON_SCALE = 0\.85\b/.test(bs) || !/function hudIcon\(px: number\): number \{ return isMobile\(\) \? px : /.test(bs)) fail('desktop icon scale / mobile passthrough (hudIcon) is missing')
+	if ((bs.match(/hudIcon\(/g) ?? []).length < 10) fail('not all seven top-row icons go through hudIcon')
 }
 
 // ---------- geometry (1600 x 720 mobile canvas; layer box = 90 % wide at 5 %) ----------

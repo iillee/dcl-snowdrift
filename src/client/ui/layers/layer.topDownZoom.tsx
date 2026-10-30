@@ -1,7 +1,7 @@
 /**
  * layer.topDownZoom.tsx - mobile right-side column above the jump button (numbers: ui/mobileHud.ts).
  *
- * Bottom to top: the EYE (our own round UI button; the native view slot is hidden) which toggles the overhead view exactly like key 1 on desktop
+ * Bottom to top: the EYE (our own round UI button; the native view slot is hidden) which toggles the overhead view exactly like key 4 on desktop
  * and is YELLOW while the view is on; then, only while the view is on, rotate, zoom out (-), zoom in (+). All round, equally spaced, one column.
  * Also the small VIEW MAP button next to it while the player stands at the summit map table (mobile has no native pointer button any more).
  * The camera has no manual pan / drag. Desktop keeps its zoom / rotate beside the eye in the top HUD (layer.brushSize.tsx).
@@ -117,7 +117,7 @@ function ZoomGlyph(props: { kind: 'in' | 'out'; color: Color4 }) {
 
 
 // MARK: EyeButton
-/** View change: toggles the overhead view (same call as key 1); the icon is yellow while the view is on. */
+/** View change: toggles the overhead view (same call as key 4); the icon is yellow while the view is on. */
 function EyeButton(props: { active: boolean }) {
 	return (
 		<UiEntity

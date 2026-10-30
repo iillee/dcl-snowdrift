@@ -1,8 +1,8 @@
 /**
  * layer.leaderboard.tsx - per-player leaderboard panel.
  *
- * Opened by the star button in the top HUD row (and the star slot of the
- * native mobile button cluster). Same look as the help panel: dark
+ * Opened by the star button in the top HUD row (click only, no key; on mobile
+ * it is the round star button). Same look as the help panel: dark
  * rounded card with a white border, slid in just below the button row.
  *
  * Four small tabs, one table each (top LEADERBOARD_SHOW players, local
@@ -17,7 +17,6 @@
  */
 
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
-import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { isMobile } from '@dcl/sdk/platform'
 
@@ -36,7 +35,6 @@ import {
 import { helpPanelLayer, isHelpPanelVisible } from 'src/client/ui/layers/layer.helpPanel'
 import { UI_THEME } from 'src/client/ui/theme/settings'
 import { BoardKind, clipName, formatElapsed, LEADERBOARD_HEADING, LEADERBOARD_SHOW } from 'src/shared/leaderboard'
-import { isFloatingCrystals } from 'src/shared/ruleset'
 
 
 const { colors, borderRadius, spacing } = UI_THEME
@@ -100,24 +98,6 @@ function valueHeads(kind: BoardKind): string[] {
 export function toggleLeaderboardPanel(): void {
 	if (!isLeaderboardOpen() && isHelpPanelVisible()) helpPanelLayer.hide()
 	toggleLeaderboard()
-}
-
-
-// MARK: initLeaderboardHotkey
-/**
- * Desktop hotkey: `3` (IA_ACTION_5) toggles the leaderboard (1 view, 2 mute,
- * 3 leaderboard, 4 help). Floating-crystals ruleset only; a no-op otherwise.
- * Skipped on mobile: the native star slot fires the same action and
- * touchControls.ts handles it there (a second handler would double-toggle).
- */
-export function initLeaderboardHotkey(): void {
-	if (isMobile() || !isFloatingCrystals()) return
-	engine.addSystem(() => {
-		if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) { // 3: leaderboard
-			playUiClick()
-			toggleLeaderboardPanel()
-		}
-	})
 }
 
 

@@ -5,11 +5,11 @@
  *
  *   - IA_PRIMARY   (`E`) - hidden. The scene's own Torch hotbar button is the mobile surface for the desktop E-press.
  *   - IA_SECONDARY (`F`) - hidden. Reserved / unused in Cryocene.
- *   - IA_ACTION_3  (`1`) - hidden on touch: the eye (view change) is our own round UI button directly above jump (layer.topDownZoom), which
- *                          calls the same toggleTopDownCamera() as key 1 on desktop and turns yellow while the overview is on.
- *   - IA_ACTION_4 / 5 / 6 (`2` `3` `4`) - hidden on touch: mute, star (leaderboard) and ? (help) are on-screen round buttons at the top-left of
- *                          the HUD row instead (layer.brushSize MuteButton / LeaderboardButton / HelpButton, hosted by layer.frostBar).
- *                          Desktop keeps keys 1 / 2 / 3 / 4.
+ *   - IA_ACTION_3 / 4 / 5 / 6 (`1` `2` `3` `4`) - hidden on touch. Desktop uses them only for the overhead view (topDownCamera.ts): 4 = eye,
+ *                          3 = rotate, 2 = zoom out, 1 = zoom in (mute, star and ? have no key). On touch the eye, zoom and rotate are our own
+ *                          round UI buttons in the right-hand column above jump (layer.topDownZoom; the eye calls the same toggleTopDownCamera() and
+ *                          turns yellow while the overview is on), and mute, star (leaderboard) and ? (help) are on-screen round buttons at the
+ *                          top-left of the HUD row (layer.brushSize MuteButton / LeaderboardButton / HelpButton, hosted by layer.frostBar).
  *   - IA_POINTER   (the native hand) - hidden on touch. Its two users have on-screen paths: the obelisk cinematic ends on the SKIP label in the
  *                          bottom bar (layer.cinematic) or the jump button (obeliskCinematic), and the summit map table gets a VIEW MAP button
  *                          while the player stands within reach (layer.topDownZoom, summitMapTable.isNearSummitTable).
@@ -33,7 +33,7 @@ function applyLayout(): void {
 			// Hide the two default keyboard-affordance buttons - the scene has its own mobile UI for the underlying actions.
 			{ inputAction: InputAction.IA_PRIMARY,   hide: true },
 			{ inputAction: InputAction.IA_SECONDARY, hide: true },
-			// Slots 1 / 2 / 3 / 4 (eye, mute, star, help) and the pointer hand: on-screen UI buttons instead (see the header).
+			// Slots 1 / 2 / 3 / 4 (desktop: zoom in, zoom out, rotate, eye) and the pointer hand: on-screen UI buttons instead (see the header).
 			{ inputAction: InputAction.IA_ACTION_3, hide: true },
 			{ inputAction: InputAction.IA_ACTION_4, hide: true },
 			{ inputAction: InputAction.IA_ACTION_5, hide: true },

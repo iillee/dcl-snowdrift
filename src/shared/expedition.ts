@@ -2,7 +2,7 @@
  * expedition.ts - the NEW EXPEDITION reset (pure, shared by the server, the client and scripts/expeditionCheck).
  *
  * After the ending ("The world begins to thaw") the restored world stays playable for good: nothing brings winter back by itself.
- * Any connected player can then press BEGIN NEW EXPEDITION (Help panel, key 4). The SERVER validates, starts ONE shared countdown
+ * Any connected player can then press BEGIN NEW EXPEDITION (Help panel, opened with the ? button). The SERVER validates, starts ONE shared countdown
  * (NEW_EXPEDITION_COUNTDOWN_S) and rolls the world to a fresh seed, Day 1, when it ends. Only the player who started it can cancel it.
  *
  * Time: the server keeps one deadline in its own clock. A message carries `remainingMs` at send time (epoch milliseconds do not fit the
